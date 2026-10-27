@@ -1,5 +1,16 @@
 # arachnea-scrapyfy
 
+## Source organization and validation
+
+Production code lives under `src/`; existing tests mirror the exact source paths under crate-root `tests/`. Shared helpers and feature-gated test methods live under `tests/support/`. Their existing public paths, including `scrapyfy::scraper_manager::tests::test_query`, remain available with `test-support`. Unit suites use explicit conditional `#[path]` declarations; `autotests = false` prevents accidental integration targets.
+
+The unified executor in `scrapyfy/scraper/query_executor.rs` delegates fetching, extraction, entry sub-queries and merging to private modules. The aggregator separates source loading, manifest expansion, execution and feature-gated diagnostics. Query collections separate execution and parameter handling; HTML/JSON conversions and administration settings handlers have dedicated private modules. Public import paths remain available through reexports.
+
+`src/lib.rs` centralizes documented constants and relevant defaults for cache identities, administration, JavaScript, HTTP, concurrency and proxy providers. Values, feature gates, YAML contracts, cache-key encoding and retry policies are preserved. Mutable caches, routing hooks and registries remain with their owning implementations. Every Rust file stays within 1,000 lines.
+
+From `server/`, run `cargo test -p arachnea-scrapyfy` for the default configuration or `cargo test -p arachnea-scrapyfy --all-features` for all compiled features. Existing tests use temporary manifests, local persistence, checked-in service YAML and local proxy/HTTP fixtures. They do not validate live providers or native browser windows. The localized proxy command below also checks the SQLite-enabled configuration without requiring optional browser engines.
+
+
 With `arachnea-proxy`, the crate also enables the proxy crate's
 `controller-service` feature for the proxied-media URL helpers used by
 `resolve_url`. Standalone builds do not require feature unification from the

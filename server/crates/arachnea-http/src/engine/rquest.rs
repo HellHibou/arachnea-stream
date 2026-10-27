@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 
 #[cfg(all(test, feature = "arachnea-proxy"))]
-#[path = "rquest_proxy_tests.rs"]
+#[path = "../../tests/engine/rquest.rs"]
 mod proxy_tests;
 
 use crate::{
@@ -60,7 +60,8 @@ impl RquestEngine {
                 .as_ref()
                 .is_some_and(|token| token.reuses_destination())
         {
-            self.request_timeout.min(std::time::Duration::from_secs(60))
+            self.request_timeout
+                .min(crate::HTTP_RQUEST_PROXY_HEADER_TIMEOUT_MAX)
         } else {
             self.request_timeout
         };
@@ -369,11 +370,13 @@ impl RquestEngine {
         if proxy_url.is_some() && arachnea_proxy::core::ProxySearchContext::current().is_some() {
             let search = arachnea_proxy::core::ProxySearchContext::current().unwrap();
             let limit = search.connection_timeout();
-            builder = builder.connect_timeout(if limit == std::time::Duration::from_secs(60) {
-                limit
-            } else {
-                config.request_timeout.min(limit)
-            });
+            builder = builder.connect_timeout(
+                if limit == crate::HTTP_RQUEST_REUSED_ROUTE_CONNECT_ENVELOPE {
+                    limit
+                } else {
+                    config.request_timeout.min(limit)
+                },
+            );
         }
 
         if let Some(proxy_url) = proxy_url {

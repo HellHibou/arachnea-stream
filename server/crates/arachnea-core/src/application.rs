@@ -259,13 +259,17 @@ pub fn get_application_resource_path(path: &str) -> String {
 /// install is not packaged and the directory is writable, otherwise the
 /// platform directory.
 ///
+/// Call [`configure_application_data_dir_name`] before requesting the first
+/// data path, including in portable and debug layouts.
+///
 /// # Returns
 ///
 /// A cached, process-wide application data root path.
 ///
 /// # Panics
 ///
-/// Panics if the cached root cannot be represented as valid UTF-8.
+/// Panics if the application identifier was not configured, if the data root
+/// cannot be resolved, or if the cached root cannot be represented as valid UTF-8.
 pub fn get_application_data_root() -> &'static str {
     APP_DATA_ROOT
         .get_or_init(init_app_data_root)
@@ -284,9 +288,16 @@ pub fn get_application_data_root() -> &'static str {
 ///
 /// The joined path as an owned string, using lossy UTF-8 conversion if needed.
 ///
+/// # Panics
+///
+/// Panics if [`configure_application_data_dir_name`] was not called before the
+/// first data path request, or if the data root cannot be resolved.
+///
 /// # Examples
 ///
 /// ```
+/// arachnea_core::application::configure_application_data_dir_name("org.example.application")
+///     .expect("configure the application identifier before requesting data paths");
 /// let data_path = arachnea_core::application::get_application_data_path("data/cache");
 /// println!("Data path: {}", data_path);
 /// ```
@@ -344,7 +355,7 @@ fn is_packaged_install(exe_dir: &Path) -> bool {
     #[cfg(target_os = "linux")]
     if let Some(dir) = exe_dir.to_str() {
         // /usr/bin (deb/rpm), /opt & /snap installs, and AppImage mount points.
-        const PACKAGED_PREFIXES: [&str; 4] = ["/usr/", "/opt/", "/snap/", "/tmp/.mount_"];
+        use crate::LINUX_PACKAGED_PREFIXES as PACKAGED_PREFIXES;
         if PACKAGED_PREFIXES
             .iter()
             .any(|prefix| dir.starts_with(prefix))

@@ -12,10 +12,10 @@ use tauri::{
 };
 use tauri_plugin_opener::OpenerExt;
 
-/// Logical height reserved for the desktop tab strip.
-const STRIP_HEIGHT: f64 = 44.0;
 /// Event carrying the authoritative tab snapshot to the shell.
-const CHANGED_EVENT: &str = "desktop-tabs-changed";
+use crate::TAURI_TABS_CHANGED_EVENT as CHANGED_EVENT;
+/// Logical height reserved for the desktop tab strip.
+use crate::TAURI_TAB_STRIP_HEIGHT as STRIP_HEIGHT;
 
 type Job = Box<dyn FnOnce(&mut TabHost) + Send>;
 

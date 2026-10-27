@@ -1,4 +1,4 @@
-use super::tests::StaticEngine;
+use super::test_support::StaticEngine;
 use super::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
 

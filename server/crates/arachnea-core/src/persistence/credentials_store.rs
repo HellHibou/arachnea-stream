@@ -11,7 +11,7 @@ use std::path::Path;
 ///
 /// This constant is used to ensure compatibility when reading and writing
 /// credentials documents.
-const CURRENT_DOCUMENT_VERSION: u32 = 1;
+use crate::CREDENTIALS_DOCUMENT_VERSION as CURRENT_DOCUMENT_VERSION;
 
 /// Credentials persisted for one backend service.
 ///

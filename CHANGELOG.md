@@ -81,6 +81,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Moved the unchanged embedded log-window page to crate-root `resources/log_window.html` and updated its `include_str!` path and documentation. Shared server agent instructions now require crate-owned resource files under `resources/`, with test-only fixtures remaining under `tests/fixtures/`.
+- Moved the five existing unit-test suites into exact source-path mirrors under crate-root `tests/`, with shared temporary-directory helpers in `tests/support/`. Split REST snapshot/reply adaptation and Tauri configuration into private modules, preserving public reexports and runtime behavior. Centralized constants and relevant defaults in `src/lib.rs`, retaining feature/platform gates and distinct controller defaults, and extracted the unchanged log-window HTML as a compile-time asset. All Rust files now fit within 1,000 lines. Corrected the existing data-path doctest to configure its application identifier first and documented the prerequisite; 31 SQLite-enabled unit tests, 22 tests without SQLite, 11 doctests and 132 proxy consumer tests pass, with validation details in `docs/dev-tracking/harmonisation-crates-rust-lot1.md`.
 - Reduced grouped SQLite key reads from 128 to 32 keys per chunk after finite reader/writer comparisons on synthetic 0/69/1,024-entry eviction tables. Shared-connection write medians improve from about 1.6 ms to 0.3 ms in the focused comparison, with less than 1 ms median read overhead; commit serialization, expiration and cancellation semantics stay intact. All 31 core and 132 proxy tests pass; sustained fairness and API gains remain unqualified.
 
 - Added ordered typed `get_many` reads with scalar backend compatibility and bounded SQLite composite-key queries. SQLite releases its connection lock between chunks, checks expiration before entity decoding and documents partial cleanup/error/cancellation behavior; no cross-call caching or schema migration is introduced.
@@ -97,10 +99,17 @@ All notable changes to the server workspace are recorded here.
 
 - Linux resource probing now prefers the AppImage mount root (`$APPDIR/usr/lib/*/services`): the resolution previously derived `../lib` from the executable path alone, which resolved to `/tmp/.mount_.../usr/bin/services` (missing) instead of the Tauri bundler layout `$APPDIR/usr/lib/<product>/services`. deb/rpm probing via the executable path is unchanged.
 
+### <u>arachnea-dns</u>
+
+#### Changed
+
+- Moved the eleven existing DNS test scenarios out of `src/` into exact source-path mirrors for core configuration, cache, resolution and server configuration, preserving function names, assertions and feature gates while updating module-qualified test names. Centralized 46 internal defaults and operational limits in `src/lib.rs` without changing values, resolver decision order, per-core cache defaults, TLS policy, listener exposure or public configuration contracts. Updated the README and server CLI commands; all-feature/default/minimal-core/minimal-server suites pass (11/9/8/10 tests), four isolated transport configurations compile, all eight TOML samples validate, and three proxy DNS integration tests pass. Details are recorded in `docs/dev-tracking/harmonisation-crates-rust-lot2.md`.
+
 ### <u>arachnea-proxy</u>
 
 #### Added
 
+- Extended the crate harmonization tracking plan with a proxy follow-up analysis for extracting performance-only diagnostics and centralizing remaining constants and operational limits. Recorded module boundaries, lifecycle constraints, and validation criteria; implementation remains pending confirmation.
 - Add bounded DEBUG exploration-ranking diagnostics: unique ranking identities, up to eight ordered candidate snapshots, sampled pipeline lifecycle/completion order, and winner paths even outside the sample. Preserve the comparator, validation concurrency, eligibility and deadlines; distinguish cancellation from endpoint failures and stored probe latency from pipeline elapsed time.
 
 - Add bounded DEBUG media-client diagnostics with monotonic attempt IDs, origin-only phase timings, status/classification and an owned body observer for consumed bytes, EOF, errors and early drops. Preserve streaming, cancellation, HTTP/1.1, routing and timeout behavior; omit signed URLs, headers and payloads.
@@ -146,6 +155,7 @@ All notable changes to the server workspace are recorded here.
 #### Changed
 
 - Make performance-only observers, sampled ranking/search counters, provider progress mutexes and phase timers opt-in through the default-off `performance-diagnostics` feature. Default builds omit the media body wrapper and diagnostic allocations while preserving validation, refresh, timeouts, replay and cancellation. Remove duplicate lifecycle summaries; move routine selections, probes, successful tunnels and recoverable failures to DEBUG, preserving operational WARN/ERROR reports.
+- Group proxy diagnostic sources under `src/core/performance_diagnostics/{http,proxy_inventory,proxy_search}.rs` and mirror the existing observer test helper under `tests/core/performance_diagnostics/http.rs`. Explicit module paths preserve private access and feature gates; update crate instructions and documentation to match.
 
 - Recorded the first post-restart hierarchy/domain-group recipe with persistent cache retained: five successful alternating M6/FranceTV resolutions, including a real Hdfauth-to-K7 hierarchical candidate accepted in 1.002 s after an exact preference failed. One index snapshot loaded 18 histories in 2.488 ms. No explicit M6 domain-group event was observed; initial proxy/CDN delays and causal performance gains remain open. Added sanitized API/event/attempt evidence without production changes or cache reset.
 
@@ -167,6 +177,7 @@ All notable changes to the server workspace are recorded here.
 
 - Concurrent persistent country imports now share one cancellable read-and-merge operation per inventory/repository. Completed reads and errors are not memoized; cancelling one subscriber preserves the others. Internal loopback leases can be rebound exclusively for a newly selected request, and transport generations include core, TLS and DNS policy identity. Search deadlines, candidate ranking and direct-fallback policy are unchanged.
 
+- Extracted performance-only proxy diagnostics into private HTTP, inventory, and search modules while preserving observation ownership, lazy body polling, tracing targets/messages/fields, search synchronization, and existing test names. Centralized four remaining constants and 23 operational limits in `src/lib.rs` without changing values or feature gates; the media client and inventory selection now fit below 1,000 lines. Moved existing observer assertions to the matching test file without adding scenarios. Validated 132 tests with and without diagnostics, 90 minimal-core tests, 90 default-feature tests, and all-target/all-feature compilation; details are recorded in `docs/dev-tracking/harmonisation-crates-rust-lot-p.md`.
 - Moved all `arachnea-proxy` test implementations into crate-root `tests/`, mirroring source paths and filenames, with shared helpers in `tests/support/` and TLS fixtures in `tests/fixtures/`. Updated HTTP fixture references; post-action pipeline scenarios now run as library tests. `server/AGENTS.md` defines this layout for every server crate, with the remaining migrations tracked in `docs/TODO.md`.
 
 - Centralized all `InventoryConfig` and `ProxySearchLimits` numeric defaults as documented, core-gated constants in `arachnea-proxy/src/lib.rs`, reusing the existing destination-failure cooldown constant. Defaults and configurable overrides are unchanged; the 135-second business deadline remains the sum of the 120-second target and 15-second grace.
@@ -309,6 +320,10 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Keep single-service resolver constants at the beginning of their owning resolver files; retain only genuinely shared resolver constants in `lib.rs`, alongside application/facade defaults. Deduplicate the common browser user-agent (including inline occurrences) and diagnostic preview limit while preserving independent provider TTLs, timeout policies and protocol identifiers. Server and Stream agent instructions document this exception. All values remain unchanged.
+
+- Harmonized Stream with two exact source-mirrored unit suites and three test-support files, preserving all fifteen scenarios and Scrapyfy helper access. Split catalog/playback/store/registration operations, HTML fallback handling, TF1 authentication/media/license work and RTLplay authentication/media work into private modules. Centralized 116 documented constants and relevant defaults in `src/lib.rs`, preserving provider values, public paths, endpoint commands, encryption-key bytes, persistent formats, proxy policies and tracing targets. Tauri assets and configuration stay application-owned. Ten local tests pass with and without diagnostics; five provider-dependent scenarios remain available for manual execution. All six server crates now keep every Rust file within 1,000 lines. Completion and validation limits are recorded in `docs/dev-tracking/harmonisation-crates-rust-lot5.md`.
+
 - Wiflix series no longer resolve every episode player while loading the entry. `get_entry` now returns each episode with a deferred `players` link (`<page>#ep<N>`) and no inline players, and `get_players` scopes its rows to that episode's `ep<N>vs` / `ep<N>vf` blocks through `{url_fragment}`, so selecting an episode resolves its six players (three VOSTFR, three VF, each keeping its `lang`) instead of the 36 players of the page. The duplicated `get_season` and `get_episode` queries were removed; film entries keep their 16 entry-level players.
 - Expose the default-off `performance-diagnostics` application feature and forward it to proxy, HTTP and Scrapyfy. Document normal and diagnostic macOS launch commands and the revised proxy log levels.
 
@@ -413,6 +428,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Harmonized Scrapyfy with fifteen source-mirrored test files and ten support files, preserving `test-support` methods and public helper paths used by Stream. Split query execution, source loading, manifests, HTTP configuration/browser/cookie operations, raw/runtime conversions and administration settings into private modules; isolated provider diagnostics behind their existing feature gates and preserved tracing targets. Centralized 60 documented constants and defaults without changing YAML, cache identities or retry behavior. Every Rust file fits within 1,000 lines. Existing suites pass with all features (80), defaults (75), proxy/SQLite (80), and ten local Stream consumer scenarios; details and platform limits are recorded in `docs/dev-tracking/harmonisation-crates-rust-lot4.md`.
+
 - Forward optional performance diagnostics to HTTP/proxy and gate provider source-query observers. Default builds retain progressive publication and cancellation without profiling state; country-hint forwarding is DEBUG.
 
 - Add optional `http.proxy_domain_group` configuration and builder support, parent/child inheritance, transport reuse isolation and generic proxy-parameter forwarding. Preserve existing response policies and request budgets.
@@ -439,6 +456,9 @@ All notable changes to the server workspace are recorded here.
 
 #### Fixed
 
+- Removed the unused, empty JSON `response_parser.rs` file and corrected stale module documentation to point to the unified executor and existing JSON entry helpers. No compiled module or runtime behavior changes.
+
+
 - Standalone `arachnea-proxy` builds now enable the proxy controller helpers required by media URL resolution. Shared test-directory initialization prevents the full Scrapyfy suite from reconfiguring an already resolved application root and poisoning its `Once` guard.
 
 - Text and binary scraper requests now rotate a dynamically selected proxy once when `arachnea-http` reports a proxy transport failure before an HTTP response, including failures occurring after an HTTP CONNECT tunnel was accepted. If the replacement also fails, both error contexts are retained and no third request is sent.
@@ -460,6 +480,8 @@ All notable changes to the server workspace are recorded here.
 
 
 #### Changed
+
+- Harmonized the HTTP crate layout: existing tests now mirror sources under crate-root `tests/`, shared mocks live in `tests/support/`, and implicit integration discovery is disabled to prevent duplicate incompatible targets. Split the client facade, configuration builder and browser/native engine responsibilities into private modules while preserving public import paths and tracing targets. Centralized 65 documented constants and relevant defaults in `src/lib.rs`; moved eleven unchanged JavaScript scripts/templates to compile-time resources. All Rust files fit within 1,000 lines; 47 all-feature tests, 44 default tests and four doctests pass. Validation and platform limits are recorded in `docs/dev-tracking/harmonisation-crates-rust-lot3.md`.
 
 - Add default-off `performance-diagnostics` forwarding to an already enabled proxy dependency; compile out timing-only checkout/classification/body instrumentation. Move routine request sends and retryable per-attempt failures to DEBUG and report terminal localized failures once at WARN with origin/method/delivery context; keep real deadlines and response callbacks unchanged.
 
@@ -577,11 +599,15 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Archived the crate harmonization lot 0 baseline: initial Git state, Cargo targets and feature declarations, oversized-source inventory, 316 statically identified test functions, and preexisting validation findings. Preserved staged changes and left Rust sources and agent instructions unchanged.
+- Extended the harmonization plan to include updates to applicable `AGENTS.md` instructions for crate-root constants and exact test/source path mirroring, with explicit support/fixture exceptions and preserved test-support loading.
+- Added a staged tracking plan for applying the proxy crate's test separation, responsibility-based source splitting, and crate-root constant centralization to the other five server crates. Linked the existing TODO to crate-specific checklists, compatibility constraints, and validation criteria; implementation remains pending confirmation.
 - Added the October 21 detailed plan for remaining localized-proxy optimizations, covering baseline measurements, reserve qualification, provider refresh, persistent reads, local contention, connection reuse, candidate ranking, and production acceptance criteria. Linked the plan from the proxy TODO; runtime behavior is unchanged.
 - Documented the shared Scrapyfy loopback proxy server, configurable port, per-connection routing contexts, and browser profile negotiation. Recorded user approval of approach B and the `407` challenge; delivery and validation details are recorded in the development analysis.
 
 #### Changed
 
+- Updated shared server agent instructions for responsibility-based Rust file splitting, feature-gated performance diagnostics, crate-root constants and relevant defaults, and exact test/source path mirroring with Cargo discovery checks. Added Scrapyfy/Stream guidance preserving cross-crate `test-support` helpers; Rust migrations remain tracked separately.
 - Specified the requested generic sibling-host proxy priority: preserve exact-origin preferences, then consider eligible accepted endpoints from the same registrable domain with scheme/port isolation, public/private suffix boundaries and durable history restoration. Keep candidates unaccepted on the new origin, preserve content callbacks and avoid per-request history scans. This supersedes resolver-specific affinity as the proposed next implementation; selection and persistence changes await confirmation, with no runtime modifications.
 
 - Analyzed cross-origin proxy reuse from the TF1 token/mediainfo example: exact-origin acceptance histories share a country inventory and can reuse ready endpoints without provider discovery. Identified missing explicit TF1/M6 resolver affinity and the existing fresh-probe requirement that can reject affinity after a recent business success. Documented a scoped affinity/technical-evidence qualification path while preserving origin-specific acceptance, content callbacks and the deferred TF1 live recipe; no runtime changes or network calls.

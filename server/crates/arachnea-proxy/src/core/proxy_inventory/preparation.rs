@@ -12,6 +12,9 @@ use tokio::{sync::watch, task::JoinSet, time::Instant};
 #[cfg(feature = "persistence")]
 use futures::{stream, StreamExt};
 
+#[cfg(feature = "performance-diagnostics")]
+use super::performance_diagnostics::PreparationExecution;
+
 use super::{
     eligibility::{is_eligible, needs_capability_probe, probe_is_expired},
     ProxyInventory,
@@ -111,25 +114,6 @@ pub(super) struct PreparationRuntime {
 struct PreparationEntry {
     tasks: JoinSet<()>,
     retry_at: Instant,
-}
-
-/// Reports cancellation separately from a preparation that reaches its deadline.
-#[cfg(feature = "performance-diagnostics")]
-struct PreparationExecution {
-    source_search_id: Option<usize>,
-    operation_id: tokio::task::Id,
-    started: std::time::Instant,
-    outcome: &'static str,
-}
-
-#[cfg(feature = "performance-diagnostics")]
-impl Drop for PreparationExecution {
-    fn drop(&mut self) {
-        tracing::debug!(source_search_id = self.source_search_id,
-            preparation_id = %self.operation_id, outcome = self.outcome,
-            duration_us = self.started.elapsed().as_micros(),
-            "finished bounded proxy reserve lifecycle");
-    }
 }
 
 fn ready_reserve(

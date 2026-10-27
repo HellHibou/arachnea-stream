@@ -8,55 +8,19 @@ use futures::{stream, FutureExt, StreamExt};
 use tokio::sync::Mutex;
 
 #[cfg(feature = "performance-diagnostics")]
-use super::eligibility::selection_stats;
-#[cfg(feature = "performance-diagnostics")]
-use super::eligibility::SelectionStats;
+use super::performance_diagnostics::{self, CandidateDiagnostic, NEXT_RANKING_ID};
 use super::ProxyInventory;
 use crate::core::{
     Destination, ProbeMode, ProxyCapabilityStatus, ProxyError, ProxyRecord, ProxySearchContext,
     Result,
 };
+#[cfg(feature = "performance-diagnostics")]
+use crate::PROXY_RANKING_DIAGNOSTIC_LIMIT as RANKING_DIAGNOSTIC_LIMIT;
 
 use super::eligibility::{
     epoch_millis, is_eligible, is_selection_candidate, needs_capability_probe, probe_is_expired,
     recent_probe_attempt,
 };
-
-/// Maximum candidate details emitted for one ranking snapshot.
-#[cfg(feature = "performance-diagnostics")]
-const RANKING_DIAGNOSTIC_LIMIT: usize = 8;
-/// Process-local identity separating repeated rankings within one search.
-#[cfg(feature = "performance-diagnostics")]
-static NEXT_RANKING_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
-
-/// Reports sampled pipeline completion or cancellation without owning network work.
-#[cfg(feature = "performance-diagnostics")]
-struct CandidateDiagnostic {
-    ranking_id: u64,
-    search_id: Option<usize>,
-    position: usize,
-    endpoint: String,
-    started: std::time::Instant,
-    completion_order: Option<usize>,
-    outcome: &'static str,
-}
-
-#[cfg(feature = "performance-diagnostics")]
-impl Drop for CandidateDiagnostic {
-    fn drop(&mut self) {
-        #[cfg(feature = "performance-diagnostics")]
-        tracing::debug!(
-            ranking_id = self.ranking_id,
-            search_id = self.search_id,
-            position = self.position,
-            proxy = %self.endpoint,
-            completion_order = self.completion_order,
-            outcome = self.outcome,
-            duration_ms = self.started.elapsed().as_millis() as u64,
-            "finished sampled proxy candidate pipeline"
-        );
-    }
-}
 
 struct DiscoveryReservation {
     search: ProxySearchContext,
@@ -215,12 +179,11 @@ impl ProxyInventory {
             .and_then(|result| result);
         reservation.selected = result.is_ok();
         #[cfg(feature = "performance-diagnostics")]
-        tracing::debug!(
-            search_id = search.id(),
+        performance_diagnostics::finished_selection(
+            &search,
             require_https,
-            succeeded = result.is_ok(),
-            duration_us = selection_started.elapsed().as_micros(),
-            "finished localized proxy selection"
+            &result,
+            selection_started,
         );
         if let Err(error) = &result {
             let failure_kind = match error {
@@ -551,45 +514,7 @@ impl ProxyInventory {
         #[cfg(feature = "performance-diagnostics")]
         let record_count = records.len();
         #[cfg(feature = "performance-diagnostics")]
-        for country in countries {
-            let stats = selection_stats(
-                records
-                    .iter()
-                    .copied()
-                    .filter(|record| record.country.as_deref() == Some(country.as_str())),
-                country,
-                require_https,
-                destination,
-                now,
-                self.config.probe_ttl,
-                self.probe_mode(),
-            );
-            tracing::debug!(
-                country = %country,
-                require_https,
-                total = stats.total,
-                ok = stats.ok,
-                unknown = stats.unknown,
-                ko = stats.ko,
-                auth_required = stats.authentication_required,
-                auth_flag = stats.authentication_required_flag,
-                cooldown = stats.cooldown,
-                probe_expired = stats.probe_expired,
-                destination_cooldown = stats.destination_cooldown,
-                https_rejected = stats.https_rejected,
-                http_forward_available = stats.http_forward_available,
-                http_forward_unavailable = stats.http_forward_unavailable,
-                http_forward_unknown = stats.http_forward_unknown,
-                https_tunnel_available = stats.https_tunnel_available,
-                https_tunnel_unavailable = stats.https_tunnel_unavailable,
-                https_tunnel_unknown = stats.https_tunnel_unknown,
-                destination_tls_available = stats.destination_tls_available,
-                destination_tls_unavailable = stats.destination_tls_unavailable,
-                destination_tls_unknown = stats.destination_tls_unknown,
-                eligible = stats.eligible,
-                "proxy inventory selection candidates"
-            );
-        }
+        self.log_selection_candidates(&records, countries, require_https, destination, now);
 
         let search = ProxySearchContext::current();
         let mut candidates: Vec<&ProxyRecord> = records
@@ -652,36 +577,16 @@ impl ProxyInventory {
         });
 
         #[cfg(feature = "performance-diagnostics")]
-        if diagnostics_enabled {
-            for (position, candidate) in
-                candidates.iter().take(RANKING_DIAGNOSTIC_LIMIT).enumerate()
-            {
-                #[cfg(feature = "performance-diagnostics")]
-                tracing::debug!(
-                    ranking_id,
-                    search_id = search.as_ref().map(ProxySearchContext::id),
-                    destination = ?destination,
-                    require_https,
-                    probe_configuration = ?self.probe.as_ref().map(|probe| probe.configuration_id()),
-                    position = position + 1,
-                    proxy = %candidate.authority(),
-                    country = ?candidate.country,
-                    capability_rank = rank(candidate),
-                    needs_probe = needs_capability_probe(candidate, require_https),
-                    probe_expired = probe_is_expired(candidate, now, self.config.probe_ttl),
-                    latency_ms = candidate.latency_ms,
-                    failure_count = candidate.failure_count,
-                    protocol = ?candidate.protocol,
-                    tcp_reachable = candidate.tcp_reachable,
-                    probe_age_ms = candidate.last_checked.and_then(|checked| now.duration_since(checked).ok()).map(|age| age.as_millis() as u64),
-                    http_forwarding = ?candidate.http_forwarding,
-                    https_tunnel = ?candidate.https_tunnel,
-                    destination_tls = ?candidate.destination_tls,
-                    proxy_tls_certificate = ?candidate.proxy_tls_certificate,
-                    "ranked proxy candidate snapshot"
-                );
-            }
-        }
+        self.log_ranked_candidates(
+            diagnostics_enabled,
+            ranking_id,
+            search.as_ref(),
+            &candidates,
+            destination,
+            require_https,
+            now,
+            rank,
+        );
         let candidates: Vec<ProxyRecord> = candidates.into_iter().cloned().collect();
         drop(inner);
         #[cfg(feature = "performance-diagnostics")]
@@ -762,19 +667,8 @@ impl ProxyInventory {
             #[cfg(not(feature = "performance-diagnostics"))]
             let candidate = queued;
             #[cfg(feature = "performance-diagnostics")]
-            let mut diagnostic = (diagnostics_enabled && position <= RANKING_DIAGNOSTIC_LIMIT).then(|| {
-                #[cfg(feature = "performance-diagnostics")]
-                tracing::debug!(ranking_id, position, proxy = %candidate.authority(), "started sampled proxy candidate pipeline");
-                CandidateDiagnostic {
-                    ranking_id,
-                    search_id: ProxySearchContext::current().map(|search| search.id()),
-                    position,
-                    endpoint: candidate.authority(),
-                    started: std::time::Instant::now(),
-                    completion_order: None,
-                    outcome: "dropped_before_completion",
-                }
-            });
+            let mut diagnostic = (diagnostics_enabled && position <= RANKING_DIAGNOSTIC_LIMIT)
+                .then(|| CandidateDiagnostic::new(ranking_id, position, &candidate));
             let result = async {
             let candidate = self.current_selection_candidate(&candidate.authority(), countries, require_https, destination).await?;
             if !needs_capability_probe(&candidate, require_https)
@@ -899,8 +793,7 @@ impl ProxyInventory {
             let completion_order = completion_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
             #[cfg(feature = "performance-diagnostics")]
             if let Some(diagnostic) = &mut diagnostic {
-                diagnostic.completion_order = Some(completion_order);
-                diagnostic.outcome = if result.is_some() { "eligible" } else { "not_eligible" };
+                diagnostic.completed(completion_order, result.is_some());
             }
             #[cfg(feature = "performance-diagnostics")]
             { (position, result) }
@@ -992,26 +885,5 @@ impl ProxyInventory {
             return None;
         }
         Some(candidate)
-    }
-
-    #[cfg(feature = "performance-diagnostics")]
-    pub(super) async fn selection_stats_for_country(
-        &self,
-        country: &str,
-        require_https: bool,
-    ) -> Option<SelectionStats> {
-        let inner = self.inner.read().await;
-        let now = SystemTime::now();
-        let keys = inner.country_records.get(country)?;
-        let records = keys.iter().filter_map(|k| inner.records.get(k));
-        Some(selection_stats(
-            records,
-            country,
-            require_https,
-            None,
-            now,
-            self.config.probe_ttl,
-            self.probe_mode(),
-        ))
     }
 }

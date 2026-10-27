@@ -11,6 +11,15 @@ requires recompilation. Smart DNS header and context parameter names are also
 available at the crate root as `PROXY_HEADER_PARAMETER_SMART_DNS` and
 `PROXY_PARAMETER_SMART_DNS`.
 
+Private crate-root constants also collect localized-search and inventory
+concurrency limits, distinct budgets for new and reused media origins, media
+header/framing limits, the diagnostic ranking sample limit, controller-service
+header and method lists, and loopback listener limits. They retain the owning
+feature gates and their previous values. Equal-valued budgets remain separate
+when they govern different phases; media response header limits are independent
+of inbound proxy server limits. Diagnostic counters remain with their owning
+modules rather than in the constants section.
+
 ## Shared response classification (localized proxy lot 3)
 
 `core::http::response_classifier` exposes a client-independent response view,
@@ -602,10 +611,12 @@ configured, both use that core; otherwise both fall back to
 - `src/core/http/proxy_service/`: controller HTTP service facade and private modules for request handling, headers, options, URLs, and redirects, enabled by `controller-service`. The existing public service and URL-construction imports are preserved.
 - `src/core/proxy_inventory/`: inventory facade and private modules for configuration, records, discovery, eligibility, selection, preferences, probing, observations, persistence, and bounded fallback preparation. Public inventory imports remain available through `core::proxy_inventory` and the existing crate reexports.
 - `src/core/proxy_probe/`: `ProxyProbe` facade and private modules for configuration, protocol detection, capability attempts, destination validation, HTTP/SOCKS exchanges, TLS, and results. Existing public probe imports are preserved through reexports.
+- `src/core/performance_diagnostics/http.rs`, `src/core/performance_diagnostics/proxy_inventory.rs`, and `src/core/performance_diagnostics/proxy_search.rs`: grouped sources for private, `performance-diagnostics`-gated modules covering media body observation, inventory statistics and task lifecycles, and search progress. Explicit `#[path]` declarations in the owning modules preserve private access without exposing internals. Runtime instrumentation keeps its existing phases and ownership; moved events retain their original tracing targets, fields, and messages. `ProxySearchContext::log_progress` remains available with the same feature gate.
 - `src/connectors/`: adapters for Rust HTTP client ecosystems.
 - `src/server/`: CLI, file configuration, listeners, handlers, ACLs, authentication, and safety checks.
 - `tests/`: all test implementations mirror the exact relative source path and filename (`src/core/http/client.rs` → `tests/core/http/client.rs`, including `mod.rs`). Unit tests are loaded with `#[cfg(test)]` and explicit paths to preserve private access and feature gates. Composed-module scenarios live in the corresponding mirrored module file. Qualified test module names may change; function-name filters still work.
 - `tests/support/`: shared test-only helpers; `tests/fixtures/`: test data, including TLS fixtures also used by `arachnea-http`. These support files do not mirror production sources.
+- `tests/core/performance_diagnostics/http.rs`: the existing client's media-observer assertions, loaded through the matching diagnostic module and invoked by the original client test. This preserves private access and the existing qualified test name without adding a test scenario.
 - The existing post-action pipeline scenarios are loaded from `tests/core/http/actions/mod.rs` as library tests. Run them with `cargo test -p arachnea-proxy --lib core::http::actions::tests`; they also run with the default feature set.
 - `config-sample/`: TOML examples for direct, upstream, routing, and listener configurations.
 - `examples/`: library and connector usage examples.

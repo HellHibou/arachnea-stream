@@ -802,3 +802,7 @@ fn block_answer(
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/core/resolver.rs"]
+mod tests;

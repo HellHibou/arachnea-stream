@@ -13,10 +13,10 @@ use super::credentials_store::{
 use super::{set_owner_only_permissions, JsonPersistenceFileCodec, PersistenceFileCodec};
 
 /// The current version of the encrypted credentials document format.
-const CURRENT_ENCRYPTED_DOCUMENT_VERSION: u32 = 1;
+use crate::ENCRYPTED_CREDENTIALS_DOCUMENT_VERSION as CURRENT_ENCRYPTED_DOCUMENT_VERSION;
 
 /// The size of the AES-GCM nonce in bytes.
-const AES_GCM_NONCE_SIZE: usize = 12;
+use crate::AES_GCM_NONCE_SIZE;
 
 /// Internal representation of an encrypted credentials document.
 #[derive(Serialize, Deserialize)]

@@ -5,7 +5,7 @@ use rand::{distr::Alphanumeric, Rng};
 use serde_json::{Map, Value};
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use url::Url;
 use xxhash_rust::xxh3::xxh3_64;
 
@@ -16,15 +16,28 @@ use crate::services::player_resolver::{
     PlayerResolverEndpoints, PlayerStreamResolver, ProxiedStreamResponse, ResolvedPlayerStream,
 };
 
+use crate::PLAYER_DEFAULT_USER_AGENT as USER_AGENT;
+
+/// Stable source identifier for Antenne Réunion routing and credentials.
 const SERVICE_ID: &str = "antennereunion-fr";
+
+/// Base URL of the Antenne Réunion API.
 const API_BASE_URL: &str = "https://api.antennereunion-production.eu-west-3.alphanetworks.tv";
+
+/// Base URL of the Antenne Réunion media proxy.
 const PROXY_BASE_URL: &str = "https://proxies.antennereunion-production.eu-west-3.alphanetworks.tv";
+
+/// Public client identity expected by the Antenne Réunion API.
 const IDENTITY_KEY: &str = "HadCogoctandsxEDEsdufOcagidOad";
+
+/// Language identifier sent to the Antenne Réunion API.
 const LANGUAGE_ID: &str = "fra";
-const SESSION_TTL: Duration = Duration::from_secs(55 * 60);
-const LICENSE_TTL: Duration = Duration::from_secs(15 * 60);
-const USER_AGENT: &str =
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:148.0) Gecko/20100101 Firefox/148.0";
+
+/// Lifetime of cached Antenne Réunion login sessions.
+const SESSION_TTL: std::time::Duration = std::time::Duration::from_secs(55 * 60);
+
+/// Lifetime of cached Antenne Réunion license proxy tokens.
+const LICENSE_TTL: std::time::Duration = std::time::Duration::from_secs(15 * 60);
 
 static SESSION_CACHE: OnceLock<Mutex<HashMap<String, CachedSession>>> = OnceLock::new();
 static LICENSE_CACHE: OnceLock<Mutex<HashMap<String, CachedLicense>>> = OnceLock::new();
@@ -538,7 +551,7 @@ fn object_string(object: &Map<String, Value>, key: &str) -> String {
 fn save_license(endpoints: &PlayerResolverEndpoints, license: &LicenseParameter) -> String {
     let token: String = rand::rng()
         .sample_iter(&Alphanumeric)
-        .take(32)
+        .take(crate::PLAYER_PROXY_TOKEN_LENGTH)
         .map(char::from)
         .collect();
     let cache = LICENSE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));

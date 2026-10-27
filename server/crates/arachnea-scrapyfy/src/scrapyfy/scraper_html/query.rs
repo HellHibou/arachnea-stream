@@ -5,8 +5,8 @@
 //! ([`ScraperQuery`](crate::scrapyfy::scraper::query_trait::ScraperQuery)).
 //!
 //! Raw YAML deserialization and bidirectional conversion live in [`config`].
-//! HTML response parsing lives in [`response_parser`].
-//! Row-level post-processing lives in [`row_extractor`].
+//! Response parsing and row-level post-processing are handled by the unified
+//! executor in [`crate::scrapyfy::scraper::query_executor`].
 
 use std::any::Any;
 
@@ -352,24 +352,6 @@ impl HtmlScraperQuery {
     /// Returns the URL template used to build the request.
     pub fn query_url(&self) -> &str {
         &self.query_url
-    }
-
-    /// Returns the flattened list of leaf field names produced by this query.
-    ///
-    /// Recursively collects all leaf field names from all configured entries,
-    /// including nested group entries. This is useful for understanding the
-    /// output structure of the query.
-    ///
-    /// # Returns
-    ///
-    /// A vector of strings representing all leaf field paths in the output,
-    /// with group hierarchies separated by ` > `.
-    #[cfg(any(test, feature = "test-support"))]
-    pub fn get_field_names(&self) -> Vec<String> {
-        self.scraper_entries()
-            .iter()
-            .flat_map(HtmlScraperEntry::field_names)
-            .collect()
     }
 }
 
@@ -956,3 +938,7 @@ impl ScraperQuery for HtmlScraperSubQuery {
         self
     }
 }
+
+#[cfg(any(test, feature = "test-support"))]
+#[path = "../../../tests/support/scrapyfy/scraper_html/query.rs"]
+mod test_support;

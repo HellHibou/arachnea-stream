@@ -1123,8 +1123,14 @@ Les résultats sont retournés sous forme d'arbres `ScraperDataNode` et
 sérialisés en JSON. Les conventions de nommage YAML sont conservées telles
 quelles (kebab-case, chemins hiérarchiques avec `>`).
 
-Le point d'entrée côté backend est `StreamScraper` dans
-`server/crates/arachnea-stream/src/stream_scraper.rs`. Chaque méthode :
+Le point d’entrée côté backend reste `StreamScraper` dans
+`server/crates/arachnea-stream/src/stream_scraper.rs`. Les méthodes de catalogue
+sont implémentées dans le module privé `stream_scraper/catalog.rs` ; la lecture,
+la construction des stores et l’enregistrement possèdent leurs modules privés.
+Les constantes propres à un résolveur de service sont en tête de son fichier ;
+les constantes partagées entre résolveurs et les valeurs par défaut de l’application restent dans `src/lib.rs` ;
+ces frontières conservent les imports publics, commandes et contrats de résultat YAML.
+Chaque méthode de catalogue :
 
 1. Construit une `HashMap<String, String>` de paramètres
 2. Appelle `agregator.execute_query_async("arachnea-stream", "<nom_requete>", …)`

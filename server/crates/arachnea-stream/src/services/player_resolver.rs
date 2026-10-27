@@ -7,14 +7,22 @@ use serde::Serialize;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use arachnea_core::persistence::CredentialsStore;
 use arachnea_scrapyfy::{ScraperAgregator, ScraperQueryCollectionParameter};
 
+/// Fallback public path of the generic DRM license proxy command.
 const DEFAULT_DRM_LICENSE_PUBLIC_PATH: &str = "/api/get_drm_license";
+
+/// Default stream-kind identifier for the generic player resolver.
 const DEFAULT_STREAM_KIND: &str = "widevine-license-proxy";
-const DRM_TODAY_TOKEN_TTL: Duration = Duration::from_secs(15 * 60);
+
+/// Lifetime of generic DRM Today license proxy tokens.
+const DRM_TODAY_TOKEN_TTL: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+
+/// Timeout for generic forwarded DRM license requests.
+const PLAYER_LICENSE_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(25);
 
 static DRM_TODAY_TOKEN_CACHE: OnceLock<Mutex<HashMap<String, CachedDrmTodayLicenseToken>>> =
     OnceLock::new();
@@ -255,7 +263,7 @@ fn save_drm_today_license_token(
     let cache = DRM_TODAY_TOKEN_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     let token_id: String = rand::rng()
         .sample_iter(&Alphanumeric)
-        .take(32)
+        .take(crate::PLAYER_PROXY_TOKEN_LENGTH)
         .map(char::from)
         .collect();
 
@@ -307,10 +315,8 @@ async fn proxy_license_request(
     }
 
     let mut request = rquest::Client::builder()
-        .user_agent(
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:148.0) Gecko/20100101 Firefox/148.0",
-        )
-        .timeout(Duration::from_secs(25))
+        .user_agent(crate::PLAYER_DEFAULT_USER_AGENT)
+        .timeout(PLAYER_LICENSE_REQUEST_TIMEOUT)
         .build()
         .context("Failed to build the DRM Today license proxy client.")?
         .post(normalized_license_url)

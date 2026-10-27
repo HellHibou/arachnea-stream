@@ -140,30 +140,6 @@ fn preferred_declared_protocol(declarations: &[ProxyDeclaration]) -> Option<Prox
     })
 }
 
-#[cfg(feature = "performance-diagnostics")]
-pub(super) fn declared_protocol_count(record: &ProxyRecord) -> usize {
-    let mut protocols = record
-        .declarations
-        .iter()
-        .filter_map(|declaration| declaration.protocol.as_ref())
-        .collect::<Vec<_>>();
-    protocols.sort_by_key(|protocol| protocol.to_string());
-    protocols.dedup();
-    protocols.len()
-}
-
-#[cfg(feature = "performance-diagnostics")]
-pub(super) fn runtime_protocol_is_undeclared(record: &ProxyRecord) -> bool {
-    let Some(protocol) = &record.protocol else {
-        return false;
-    };
-    !record.declarations.is_empty()
-        && !record
-            .declarations
-            .iter()
-            .any(|declaration| declaration.protocol.as_ref() == Some(protocol))
-}
-
 fn merge_https_hint(left: Option<bool>, right: Option<bool>) -> Option<bool> {
     match (left, right) {
         (Some(true), _) | (_, Some(true)) => Some(true),

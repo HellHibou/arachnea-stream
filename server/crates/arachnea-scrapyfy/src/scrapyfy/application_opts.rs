@@ -79,13 +79,13 @@ impl SrcapyfyApplicationOptions {
 
         let mut config = ScraperCacheConfig::default();
         if let Some(kib) = self.cache_max_disk_bytes {
-            config.max_disk_bytes = kib * 1024;
+            config.max_disk_bytes = kib * crate::SCRAPER_KIB;
         }
         if let Some(kib) = self.cache_max_memory_bytes {
-            config.max_memory_bytes = kib * 1024;
+            config.max_memory_bytes = kib * crate::SCRAPER_KIB;
         }
         if let Some(kib) = self.cache_block_size_bytes {
-            config.block_size_bytes = kib * 1024;
+            config.block_size_bytes = kib * crate::SCRAPER_KIB;
         }
         if config.block_size_bytes == 0 {
             anyhow::bail!("`--cache-block-size` must be greater than zero.");

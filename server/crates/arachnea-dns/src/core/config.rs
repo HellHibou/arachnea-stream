@@ -7,7 +7,7 @@ use std::{net::SocketAddr, path::PathBuf};
 /// This constant contains the default list of root DNS server IP addresses
 /// that are used for recursive DNS resolution when no custom root hints
 /// are provided. The data is embedded in the binary at compile time.
-const EMBEDDED_ROOT_HINTS: &str = include_str!("../../resources/root_hints.txt");
+use crate::DNS_EMBEDDED_ROOT_HINTS as EMBEDDED_ROOT_HINTS;
 
 /// Root configuration object for the reusable DNS core.
 ///
@@ -259,16 +259,16 @@ pub struct ResolverConfig {
 }
 
 impl Default for ResolverConfig {
-    /// Returns resolver defaults using UDP and standard timeouts.
+    /// Returns system-resolver defaults with the standard retry and timeout budgets.
     fn default() -> Self {
         Self {
-            mode: ResolutionMode::Stub,
-            timeout_ms: 2_000,
-            retries: 2,
-            parallel_upstreams: false,
-            allow_insecure_fallback: false,
-            upstream_strategy: UpstreamStrategy::FixedOrder,
-            nxdomain_strategy: crate::core::NxdomainStrategy::TrustFirst,
+            mode: crate::DNS_RESOLVER_DEFAULT_MODE,
+            timeout_ms: crate::DNS_RESOLVER_DEFAULT_TIMEOUT_MS,
+            retries: crate::DNS_RESOLVER_DEFAULT_RETRIES,
+            parallel_upstreams: crate::DNS_RESOLVER_DEFAULT_PARALLEL_UPSTREAMS,
+            allow_insecure_fallback: crate::DNS_RESOLVER_DEFAULT_ALLOW_INSECURE_FALLBACK,
+            upstream_strategy: crate::DNS_RESOLVER_DEFAULT_UPSTREAM_STRATEGY,
+            nxdomain_strategy: crate::DNS_RESOLVER_DEFAULT_NXDOMAIN_STRATEGY,
             root_hints: Vec::new(),
             root_hints_file: None,
         }
@@ -365,11 +365,11 @@ impl Upstream {
     /// System relay upstream declaration.
     pub fn system(timeout_ms: Option<u64>) -> Self {
         Self {
-            name: "system".to_owned(),
+            name: crate::DNS_SYSTEM_UPSTREAM_NAME.to_owned(),
             transport: Transport::System,
             endpoint: UpstreamEndpoint::System,
             timeout_ms,
-            verify_tls: true,
+            verify_tls: crate::DNS_UPSTREAM_DEFAULT_VERIFY_TLS,
         }
     }
 
@@ -389,7 +389,7 @@ impl Upstream {
             transport: Transport::Udp,
             endpoint: UpstreamEndpoint::Socket(socket_addr),
             timeout_ms: None,
-            verify_tls: true,
+            verify_tls: crate::DNS_UPSTREAM_DEFAULT_VERIFY_TLS,
         }
     }
 
@@ -410,7 +410,7 @@ impl Upstream {
             transport: Transport::Doh,
             endpoint: UpstreamEndpoint::Url(url.into()),
             timeout_ms,
-            verify_tls: true,
+            verify_tls: crate::DNS_UPSTREAM_DEFAULT_VERIFY_TLS,
         }
     }
 
@@ -440,7 +440,7 @@ impl Upstream {
                 port,
             },
             timeout_ms,
-            verify_tls: true,
+            verify_tls: crate::DNS_UPSTREAM_DEFAULT_VERIFY_TLS,
         }
     }
 }
@@ -541,15 +541,15 @@ impl Default for CacheConfig {
     /// Returns cache defaults suitable for normal resolver use.
     fn default() -> Self {
         Self {
-            enabled: false,
-            max_entries: 100_000,
-            min_ttl_seconds: 0,
-            max_ttl_seconds: 86_400,
-            negative_cache: true,
-            aggressive_dnssec_negative_cache: false,
-            serve_stale: false,
-            max_stale_seconds: 86_400,
-            stale_response_ttl_seconds: 30,
+            enabled: crate::DNS_CACHE_DEFAULT_ENABLED,
+            max_entries: crate::DNS_CACHE_DEFAULT_MAX_ENTRIES,
+            min_ttl_seconds: crate::DNS_CACHE_DEFAULT_MIN_TTL_SECONDS,
+            max_ttl_seconds: crate::DNS_CACHE_DEFAULT_MAX_TTL_SECONDS,
+            negative_cache: crate::DNS_CACHE_DEFAULT_NEGATIVE_CACHE,
+            aggressive_dnssec_negative_cache: crate::DNS_CACHE_DEFAULT_AGGRESSIVE_NEGATIVE_CACHE,
+            serve_stale: crate::DNS_CACHE_DEFAULT_SERVE_STALE,
+            max_stale_seconds: crate::DNS_CACHE_DEFAULT_MAX_STALE_SECONDS,
+            stale_response_ttl_seconds: crate::DNS_CACHE_DEFAULT_STALE_RESPONSE_TTL_SECONDS,
         }
     }
 }
@@ -573,11 +573,11 @@ impl Default for PrivacyConfig {
     /// Returns privacy defaults without ECS forwarding.
     fn default() -> Self {
         Self {
-            qname_minimisation: false,
-            ecs: EcsPolicy::Disabled,
-            odoh: false,
-            query_padding: false,
-            log_qnames: false,
+            qname_minimisation: crate::DNS_PRIVACY_DEFAULT_QNAME_MINIMISATION,
+            ecs: crate::DNS_PRIVACY_DEFAULT_ECS,
+            odoh: crate::DNS_PRIVACY_DEFAULT_ODOH,
+            query_padding: crate::DNS_PRIVACY_DEFAULT_QUERY_PADDING,
+            log_qnames: crate::DNS_PRIVACY_DEFAULT_LOG_QNAMES,
         }
     }
 }
@@ -611,9 +611,9 @@ impl Default for SecurityConfig {
     /// Returns security defaults with DNSSEC disabled.
     fn default() -> Self {
         Self {
-            dnssec: DnssecState::Off,
-            dns_cookies: false,
-            rate_limit_per_client_per_second: Some(50),
+            dnssec: crate::DNS_SECURITY_DEFAULT_DNSSEC,
+            dns_cookies: crate::DNS_SECURITY_DEFAULT_COOKIES,
+            rate_limit_per_client_per_second: crate::DNS_SECURITY_DEFAULT_RATE_LIMIT,
         }
     }
 }
@@ -848,3 +848,7 @@ fn parse_root_hints(raw: &str) -> Result<Vec<String>> {
         })
         .collect()
 }
+
+#[cfg(test)]
+#[path = "../../tests/core/config.rs"]
+mod tests;

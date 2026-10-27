@@ -515,7 +515,7 @@ pub(crate) fn etag_not_modified(if_none_match: Option<&str>, bare_etag: &str) ->
 ///
 /// Controller backends that know the runtime mount point replace this marker
 /// with the actual base path before serving the document.
-pub(crate) const HTML_BASE_PLACEHOLDER: &str = "{base}";
+pub(crate) use crate::HTML_BASE_PLACEHOLDER;
 
 /// Replaces the `<base href="{base}">` marker with the supplied runtime base.
 ///

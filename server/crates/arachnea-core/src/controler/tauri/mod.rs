@@ -10,6 +10,7 @@ use ::tauri::{
 };
 use anyhow::anyhow;
 use serde_json::Value;
+mod configuration;
 mod tabs;
 mod windows;
 
@@ -27,106 +28,32 @@ use super::{
 };
 
 /// The default custom URI scheme used for Tauri web assets.
-const DEFAULT_TAURI_WEB_SCHEME: &str = "arachnea";
+use crate::TAURI_CONTROLLER_DEFAULT_WEB_SCHEME as DEFAULT_TAURI_WEB_SCHEME;
 
 /// The default API path prefix used by Tauri binary stream routes.
-const DEFAULT_TAURI_API_PREFIX: &str = "/api/";
+use crate::TAURI_CONTROLLER_DEFAULT_API_PREFIX as DEFAULT_TAURI_API_PREFIX;
 
 /// Absolute `<base>` keeping deep desktop routes rooted at the frontend mount.
-const TAURI_WEB_BASE: &str = "/";
+use crate::TAURI_WEB_BASE;
 
 /// Label of the dedicated administration window, created on demand.
-const ADMIN_WINDOW_LABEL: &str = "admin";
+use crate::TAURI_ADMIN_WINDOW_LABEL as ADMIN_WINDOW_LABEL;
 
 /// Invoke command opening (or refocusing) the dedicated administration window.
-const ADMIN_WINDOW_OPEN_COMMAND: &str = "open_admin_window";
+use crate::TAURI_ADMIN_WINDOW_OPEN_COMMAND as ADMIN_WINDOW_OPEN_COMMAND;
 
 /// Default in-bundle route opened by the dedicated administration window.
 ///
 /// Points at the administration bundle root, which the admin router resolves to
 /// the first configured service group (mirroring `GET /admin` in server mode).
-const ADMIN_WINDOW_DEFAULT_ROUTE: &str = "";
+use crate::TAURI_ADMIN_WINDOW_DEFAULT_ROUTE as ADMIN_WINDOW_DEFAULT_ROUTE;
 
 /// Mount path (inside the scheme root) serving the administration bundle.
-const ADMIN_WEB_MOUNT: &str = "admin";
+use crate::TAURI_ADMIN_WEB_MOUNT as ADMIN_WEB_MOUNT;
 
-/// Presentation used for public frontend links opened in a new browsing context.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum TauriBrowsingMode {
-    /// Independent webview tabs within the configured native window.
-    Tabs,
-    /// Independent native windows inheriting the requesting window title.
-    Windows,
-}
-
-/// Default presentation for new public frontend browsing contexts.
-pub const DEFAULT_TAURI_BROWSING_MODE: TauriBrowsingMode = TauriBrowsingMode::Tabs;
-
-/// Configuration required to build a Tauri controller service.
-///
-/// This struct holds all the configuration needed to create a Tauri controller,
-/// including the Tauri context and customization options.
-pub struct TauriControlerConfiguration {
-    /// The Tauri context owned by the application crate.
-    context: ::tauri::Context<::tauri::Wry>,
-    /// The custom URI scheme used to serve the frontend.
-    web_scheme: String,
-    /// The API path prefix used by binary stream routes.
-    api_prefix: String,
-    /// Presentation used for public frontend browsing contexts.
-    browsing_mode: TauriBrowsingMode,
-}
-
-impl TauriControlerConfiguration {
-    /// Creates a Tauri controller configuration from an application-owned Tauri context.
-    ///
-    /// # Arguments
-    /// * `context` - Generated Tauri context owned by the application crate.
-    ///
-    /// # Returns
-    /// A new TauriControlerConfiguration with default settings.
-    pub fn new(context: ::tauri::Context<::tauri::Wry>) -> Self {
-        Self {
-            context,
-            web_scheme: DEFAULT_TAURI_WEB_SCHEME.to_string(),
-            api_prefix: DEFAULT_TAURI_API_PREFIX.to_string(),
-            browsing_mode: DEFAULT_TAURI_BROWSING_MODE,
-        }
-    }
-
-    /// Selects tabs or independent native windows for public navigation.
-    ///
-    /// # Arguments
-    /// * `mode` - Browsing presentation; defaults to [`DEFAULT_TAURI_BROWSING_MODE`].
-    pub fn browsing_mode(mut self, mode: TauriBrowsingMode) -> Self {
-        self.browsing_mode = mode;
-        self
-    }
-
-    /// Sets the custom URI scheme used to serve the frontend.
-    ///
-    /// # Arguments
-    /// * `web_scheme` - Custom protocol scheme registered with Tauri.
-    ///
-    /// # Returns
-    /// The modified configuration for method chaining.
-    pub fn web_scheme(mut self, web_scheme: impl Into<String>) -> Self {
-        self.web_scheme = normalize_web_scheme(&web_scheme.into());
-        self
-    }
-
-    /// Sets the API path prefix used by binary stream routes.
-    ///
-    /// # Arguments
-    /// * `api_prefix` - Path prefix used before registered binary stream commands.
-    ///
-    /// # Returns
-    /// The modified configuration for method chaining.
-    pub fn api_prefix(mut self, api_prefix: impl Into<String>) -> Self {
-        self.api_prefix = normalize_api_prefix(&api_prefix.into());
-        self
-    }
-}
+pub use configuration::{
+    TauriBrowsingMode, TauriControlerConfiguration, DEFAULT_TAURI_BROWSING_MODE,
+};
 
 /// Embedded web assets backed by a Tauri asset bundle.
 ///
@@ -930,7 +857,10 @@ fn open_admin_window(app: AppHandle<Wry>, admin_url: String, title: String) {
     let window =
         WebviewWindowBuilder::new(&app, ADMIN_WINDOW_LABEL, WebviewUrl::CustomProtocol(url))
             .title(title)
-            .inner_size(980.0, 680.0)
+            .inner_size(
+                crate::TAURI_ADMIN_WINDOW_WIDTH,
+                crate::TAURI_ADMIN_WINDOW_HEIGHT,
+            )
             .build();
 
     if let Err(error) = window {

@@ -8,7 +8,6 @@ use std::{
         atomic::{AtomicU64, Ordering},
         mpsc, Arc, Mutex, OnceLock,
     },
-    time::Duration,
 };
 
 /// Identifier returned for a registered main-thread event handler.
@@ -469,7 +468,7 @@ impl MainThreadDispatchLoop {
     /// # Arguments
     /// * `should_stop` - Predicate returning `true` once the loop must exit.
     pub fn run_until(mut self, mut should_stop: impl FnMut() -> bool) {
-        const POLL_INTERVAL: Duration = Duration::from_millis(100);
+        use crate::MAIN_THREAD_POLL_INTERVAL as POLL_INTERVAL;
         loop {
             if should_stop() {
                 return;

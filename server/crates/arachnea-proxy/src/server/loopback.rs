@@ -112,7 +112,7 @@ impl LoopbackProxyRuntime {
                 ..ServerConfig::default()
             });
             let task = tokio::spawn(async move {
-                let slots = Arc::new(Semaphore::new(1024));
+                let slots = Arc::new(Semaphore::new(crate::PROXY_LOOPBACK_MAX_CONNECTIONS));
                 let mut connections = tokio::task::JoinSet::new();
                 loop {
                     let accepted = tokio::select! {
@@ -137,7 +137,7 @@ impl LoopbackProxyRuntime {
                         let _permit = permit;
                         let result = async {
                             let mut first = [0];
-                            let count = tokio::time::timeout(std::time::Duration::from_secs(30), stream.peek(&mut first))
+                            let count = tokio::time::timeout(crate::PROXY_LOOPBACK_INSPECTION_TIMEOUT, stream.peek(&mut first))
                                 .await.map_err(|_| ProxyError::Timeout("loopback protocol detection"))??;
                             if count == 0 { return Ok(()); }
                             if first[0] == 5 {
@@ -198,7 +198,7 @@ impl LoopbackProxyRuntime {
             .write()
             .map_err(|_| ProxyError::Config("loopback registry lock poisoned".into()))?;
         routes.retain(|_, route| route.strong_count() > 0);
-        if routes.len() >= 8192 {
+        if routes.len() >= crate::PROXY_LOOPBACK_MAX_ROUTES {
             return Err(ProxyError::Config(
                 "loopback routing context limit reached".into(),
             ));

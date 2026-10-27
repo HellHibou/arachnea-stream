@@ -28,15 +28,15 @@ use crate::controler::ServerNetworkMode;
 /// `warp::service` drops the transport-level remote address, so the accept
 /// loop forwards it through this header. Incoming values are stripped before
 /// the header is (re)injected, which makes spoofing impossible from clients.
-pub(crate) const PEER_ADDR_HEADER: &str = "x-arachnea-peer-addr";
+pub(crate) use crate::REST_PEER_ADDR_HEADER as PEER_ADDR_HEADER;
 
 /// Maximum time the supervisor waits for in-flight connections to complete
 /// when stopping the current accept loop.
-const ACCEPT_DRAIN: Duration = Duration::from_secs(2);
+use crate::REST_ACCEPT_DRAIN_TIMEOUT as ACCEPT_DRAIN;
 
 /// Maximum time the supervisor waits for the accept-loop thread to finish
 /// after shutdown has been requested.
-const STOP_GRACE: Duration = Duration::from_secs(3);
+use crate::REST_STOP_GRACE_TIMEOUT as STOP_GRACE;
 
 /// Target dynamic settings of the REST server, resolved by the application
 /// crate (command-line overrides combined with the persisted configuration).
@@ -533,7 +533,7 @@ fn wait_for_thread(thread: std::thread::JoinHandle<()>, timeout: Duration) {
         if Instant::now() >= deadline {
             return;
         }
-        std::thread::sleep(Duration::from_millis(20));
+        std::thread::sleep(crate::REST_SUPERVISOR_POLL_INTERVAL);
     }
 }
 
@@ -579,7 +579,7 @@ fn spawn_accept_thread(
                             }
                             Err(error) => {
                                 tracing::warn!(error = %error, "REST accept failed");
-                                tokio::time::sleep(Duration::from_millis(50)).await;
+                                tokio::time::sleep(crate::REST_ACCEPT_RETRY_DELAY).await;
                             }
                         }
                     }
@@ -590,7 +590,7 @@ fn spawn_accept_thread(
             let _ =
                 tokio::time::timeout(ACCEPT_DRAIN, futures::future::join_all(connections)).await;
         });
-        runtime.shutdown_timeout(Duration::from_millis(500));
+        runtime.shutdown_timeout(crate::REST_RUNTIME_SHUTDOWN_TIMEOUT);
     })
 }
 

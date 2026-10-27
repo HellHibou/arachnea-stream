@@ -28,7 +28,9 @@ use arachnea_core::controler::{
 use arachnea_core::crypt::generate_random_password;
 use arachnea_core::persistence::TypedEntityStore;
 
-use crate::scrapyfy::{PersistenceSourceEnabled, ScraperAdminSettings, SourceServiceKey, SourceServiceRecord};
+use crate::scrapyfy::{
+    PersistenceSourceEnabled, ScraperAdminSettings, SourceServiceKey, SourceServiceRecord,
+};
 
 use auth::{LoginRateLimiter, SessionStore};
 use ops::AdminError;
@@ -40,9 +42,7 @@ pub use reload::{
     TrayReloadSummary, ValidatedReloadGroup,
 };
 
-/// Length of the temporary administrator password generated when no permanent
-/// hash is configured.
-const TEMPORARY_PASSWORD_LENGTH: usize = 24;
+use crate::ADMIN_TEMPORARY_PASSWORD_LENGTH as TEMPORARY_PASSWORD_LENGTH;
 
 /// Report of a hot application attempt of the server settings.
 #[derive(Clone, Debug)]
@@ -165,10 +165,7 @@ pub trait AdminRuntimeAdapter: Send + Sync {
     ///
     /// # Errors
     /// Returns an error for unexpected internal failures only.
-    async fn apply_scraper_settings(
-        &self,
-        settings: &ScraperAdminSettings,
-    ) -> anyhow::Result<()>;
+    async fn apply_scraper_settings(&self, settings: &ScraperAdminSettings) -> anyhow::Result<()>;
 }
 
 /// Shared administration state bound to the registered routes.

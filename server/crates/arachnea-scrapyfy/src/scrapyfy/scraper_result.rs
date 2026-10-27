@@ -172,3 +172,7 @@ impl<T> ScraperAggregationResult<T> {
         self.errors.is_empty()
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/scrapyfy/scraper_result.rs"]
+mod tests;

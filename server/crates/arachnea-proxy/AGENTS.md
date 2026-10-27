@@ -3,6 +3,7 @@
 - Follow the repository-level rules in `../../AGENTS.md`.
 - Treat this crate's `README.md` and the root `docs/TODO.md` as the migrated source of truth from the retired proxy specification.
 - Keep routing, chain selection, privacy policy, and outbound transport decisions in `src/core/`.
+- Group performance-only diagnostic sources under `src/core/performance_diagnostics/`, with one file per owning subsystem. Use explicit `#[path]` declarations in the owning modules to preserve private access and feature gates; mirror their physical paths under `tests/core/performance_diagnostics/` when moving associated tests.
 - Keep server code in `src/server/` focused on protocol parsing, listener setup, ACLs, authentication checks, and adaptation to core calls.
 - Keep connector code in `src/connectors/` free of independent routing logic.
 - Preserve hostnames when the incoming and upstream protocols can carry them; resolve locally only when required.

@@ -78,7 +78,7 @@ fn recursive_lookup<'a>(
     depth: u8,
 ) -> Pin<Box<dyn Future<Output = Result<RecursiveResult>> + Send + 'a>> {
     Box::pin(async move {
-        if depth > 32 {
+        if depth > crate::DNS_RECURSIVE_MAX_DEPTH {
             return Err(DnsError::UpstreamUnavailable(
                 "recursive resolution exceeded referral depth".to_owned(),
             ));
@@ -210,7 +210,7 @@ fn parse_root_hints(root_hints: &[String]) -> Result<Vec<IpAddr>> {
 /// Returns an error when UDP communication fails, TCP fallback fails,
 /// the query times out, or the response cannot be parsed.
 async fn query_server(query: &QueryRequest, server: IpAddr, timeout_ms: u64) -> Result<Message> {
-    let socket_addr = SocketAddr::new(server, 53);
+    let socket_addr = SocketAddr::new(server, crate::DNS_RECURSIVE_UPSTREAM_PORT);
     let bind_addr = if server.is_ipv4() {
         "0.0.0.0:0"
     } else {
@@ -220,7 +220,7 @@ async fn query_server(query: &QueryRequest, server: IpAddr, timeout_ms: u64) -> 
     let bytes = encode_iterative_query(query)?;
     socket.send_to(&bytes, socket_addr).await?;
 
-    let mut buf = vec![0_u8; 4096];
+    let mut buf = vec![0_u8; crate::DNS_RECURSIVE_UDP_BUFFER_BYTES];
     let (len, _) = timeout(
         Duration::from_millis(timeout_ms),
         socket.recv_from(&mut buf),

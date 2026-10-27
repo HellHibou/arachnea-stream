@@ -16,6 +16,9 @@ mod config;
 mod discovery;
 mod eligibility;
 mod observations;
+#[cfg(feature = "performance-diagnostics")]
+#[path = "../performance_diagnostics/proxy_inventory.rs"]
+mod performance_diagnostics;
 #[cfg(feature = "persistence")]
 mod persistence;
 mod preferences;
@@ -133,9 +136,11 @@ impl ProxyInventory {
             selection_probe_locks: Arc::new(Mutex::new(HashMap::new())),
             shared_work: Arc::new(Mutex::new(HashMap::new())),
             preparations: Arc::new(preparation::PreparationRuntime::default()),
-            tcp_slots: Arc::new(Semaphore::new(16)),
-            validation_slots: Arc::new(Semaphore::new(4)),
-            provider_slots: Arc::new(Semaphore::new(2)),
+            tcp_slots: Arc::new(Semaphore::new(crate::PROXY_INVENTORY_TCP_CONCURRENCY)),
+            validation_slots: Arc::new(Semaphore::new(
+                crate::PROXY_INVENTORY_VALIDATION_CONCURRENCY,
+            )),
+            provider_slots: Arc::new(Semaphore::new(crate::PROXY_INVENTORY_PROVIDER_CONCURRENCY)),
             discovery_revision: watch::channel(0).0,
             destination_searches: Arc::new(Mutex::new(HashMap::new())),
             #[cfg(feature = "persistence")]

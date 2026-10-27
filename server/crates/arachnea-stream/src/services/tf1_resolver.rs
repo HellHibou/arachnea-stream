@@ -11,7 +11,7 @@ use rand::{distr::Alphanumeric, Rng};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use arachnea_core::persistence::CredentialsStore;
 use arachnea_scrapyfy::{
@@ -24,19 +24,44 @@ use crate::services::player_resolver::{
     ProxiedStreamResponse, ResolvedPlayerImageTitle, ResolvedPlayerStream,
 };
 
+use crate::PLAYER_ERROR_BODY_PREVIEW_LENGTH;
+
+/// Stable source identifier for TF1 routing and credentials.
 const TF1_SERVICE_ID: &str = "tf1-fr";
+
+/// Website origin used by the TF1 resolver.
 const TF1_BASE_URL: &str = "https://www.tf1.fr";
+
+/// Public Gigya application identifier used by TF1.
 const TF1_GIGYA_API_KEY: &str =
     "3_hWgJdARhz_7l1oOp3a8BDLoR9cuWZpUaKG4aqF7gum9_iK3uTZ2VlDBl8ANf8FVk";
+
+/// TF1 Gigya bootstrap endpoint.
 const TF1_BOOTSTRAP_URL: &str = "https://compte.tf1.fr/accounts.webSdkBootstrap";
+
+/// TF1 login endpoint.
 const TF1_LOGIN_URL: &str = "https://compte.tf1.fr/accounts.login";
+
+/// TF1 Gigya token exchange endpoint.
 const TF1_TOKEN_URL: &str = "https://www.tf1.fr/token/gigya/web";
+
+/// TF1 media information URL template.
 const TF1_MEDIA_INFO_URL_TEMPLATE: &str = "https://mediainfo.tf1.fr/mediainfocombo/{}";
+
+/// TF1 fallback Widevine license URL template.
 const TF1_FALLBACK_LICENSE_URL_TEMPLATE: &str = "https://drm-wide.tf1.fr/proxy?id={}";
+
+/// Stream-kind identifier selecting the TF1 license proxy.
 const TF1_PROXY_STREAM_KIND: &str = "widevine-license-proxy";
+
+/// HTTP status classified as a destination rejection for TF1.
 const TF1_PROXY_REJECTION_STATUS: u16 = 403;
-const TF1_SESSION_TTL: Duration = Duration::from_secs(15 * 60);
-const TF1_LICENSE_TTL: Duration = Duration::from_secs(15 * 60);
+
+/// Lifetime of cached TF1 login sessions.
+const TF1_SESSION_TTL: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+
+/// Lifetime of cached TF1 license proxy tokens.
+const TF1_LICENSE_TTL: std::time::Duration = std::time::Duration::from_secs(15 * 60);
 
 static TF1_SESSION_CACHE: OnceLock<Mutex<HashMap<String, CachedTf1Session>>> = OnceLock::new();
 static TF1_LICENSE_CACHE: OnceLock<Mutex<HashMap<String, CachedTf1License>>> = OnceLock::new();
@@ -318,139 +343,6 @@ fn tf1_http_client(
         )))
 }
 
-/// Rejects a localized proxy when TF1 reports the geo restriction inside the
-/// mediainfo JSON body. TF1 answers with HTTP 200 and a `delivery.code >= 400`
-/// for geo-blocked requests, so status-only policies accept the proxy.
-struct Tf1MediainfoResponseClassifier;
-
-impl ProxyResponseClassifier for Tf1MediainfoResponseClassifier {
-    fn body_requirement(&self) -> ProxyBodyRequirement {
-        ProxyBodyRequirement::Prefix(MAX_PROXY_RESPONSE_PREFIX)
-    }
-
-    fn body_requirement_for_response(
-        &self,
-        response: &ProxyResponseView<'_>,
-    ) -> ProxyBodyRequirement {
-        if is_tf1_mediainfo_url(response.requested_url)
-            || is_tf1_mediainfo_url(response.effective_url)
-        {
-            self.body_requirement()
-        } else {
-            ProxyBodyRequirement::None
-        }
-    }
-
-    fn classify(
-        &self,
-        response: &ProxyResponseView<'_>,
-    ) -> arachnea_proxy::core::Result<ProxyResponseDecision> {
-        let is_mediainfo = is_tf1_mediainfo_url(response.requested_url)
-            || is_tf1_mediainfo_url(response.effective_url);
-
-        if !is_mediainfo {
-            return Ok(classify_tf1_status(response.status));
-        }
-
-        if response.status == TF1_PROXY_REJECTION_STATUS {
-            return Ok(rejected_for_destination(format!(
-                "TF1 mediainfo HTTP {}",
-                response.status
-            )));
-        }
-
-        if !(200..300).contains(&response.status) {
-            return Ok(ProxyResponseDecision::Inconclusive);
-        }
-
-        let Some(delivery_code) = extract_delivery_code(response.body, response.body_state) else {
-            return Ok(ProxyResponseDecision::Inconclusive);
-        };
-
-        if delivery_code >= 400 {
-            return Ok(rejected_for_destination(format!(
-                "TF1 mediainfo delivery code {}",
-                delivery_code
-            )));
-        }
-
-        Ok(ProxyResponseDecision::Accepted)
-    }
-}
-
-fn classify_tf1_status(status: u16) -> ProxyResponseDecision {
-    if status == TF1_PROXY_REJECTION_STATUS {
-        rejected_for_destination(format!("TF1 HTTP {}", status))
-    } else if (200..300).contains(&status) {
-        ProxyResponseDecision::Accepted
-    } else {
-        ProxyResponseDecision::Inconclusive
-    }
-}
-
-fn rejected_for_destination(reason: String) -> ProxyResponseDecision {
-    ProxyResponseDecision::RejectedForDestination {
-        cooldown: None,
-        reason,
-    }
-}
-
-fn is_tf1_mediainfo_url(url: &str) -> bool {
-    url.parse::<http::Uri>()
-        .ok()
-        .and_then(|uri| uri.host().map(str::to_owned))
-        .is_some_and(|host| host.eq_ignore_ascii_case("mediainfo.tf1.fr"))
-}
-
-fn extract_delivery_code(body: &[u8], state: ProxyBodyState) -> Option<i64> {
-    if state == ProxyBodyState::Unavailable || body.is_empty() {
-        return None;
-    }
-
-    let value: Value = serde_json::from_slice(body).ok()?;
-    value.pointer("/delivery/code").and_then(Value::as_i64)
-}
-
-fn extract_media_proxy_countries(media_info: &Value) -> Vec<String> {
-    let Some(countries) = media_info
-        .pointer("/media/geoList")
-        .and_then(Value::as_array)
-    else {
-        return Vec::new();
-    };
-
-    countries
-        .iter()
-        .filter_map(Value::as_str)
-        .map(str::trim)
-        .map(str::to_ascii_uppercase)
-        .filter(|country| {
-            country.len() == 2 && country.bytes().all(|byte| byte.is_ascii_alphabetic())
-        })
-        .fold(Vec::new(), |mut result, country| {
-            if !result.contains(&country) {
-                result.push(country);
-            }
-            result
-        })
-}
-
-fn delivery_rejected(media_info: &Value) -> bool {
-    media_info
-        .pointer("/delivery/code")
-        .and_then(Value::as_i64)
-        .is_some_and(|code| code >= 400)
-}
-
-fn is_proxy_error(error: &anyhow::Error) -> bool {
-    error.chain().any(|cause| {
-        matches!(
-            cause.downcast_ref::<ArachneaHttpError>(),
-            Some(ArachneaHttpError::Proxy(_))
-        )
-    })
-}
-
 async fn build_resolved_player_stream(
     http_client: &HttpClient,
     video_id: &str,
@@ -626,290 +518,6 @@ fn proxied_tf1_storyboard_vtt_url(
     )
 }
 
-async fn get_or_login_session(
-    http_client: &HttpClient,
-    credentials_store: &dyn CredentialsStore,
-) -> Result<Tf1Session> {
-    let (login, password) = load_credentials(credentials_store)?;
-
-    if let Some(session) = load_cached_session(&login) {
-        return Ok(session);
-    }
-
-    let _login_guard = TF1_LOGIN_LOCK
-        .get_or_init(|| tokio::sync::Mutex::new(()))
-        .lock()
-        .await;
-    if let Some(session) = load_cached_session(&login) {
-        return Ok(session);
-    }
-
-    bootstrap_gigya_session(http_client).await?;
-
-    let login_body = serde_urlencoded::to_string([
-        ("loginID", login.as_str()),
-        ("password", password.as_str()),
-        ("sessionExpiration", "31536000"),
-        ("targetEnv", "jssdk"),
-        ("include", "identities-all,data,profile,preferences,"),
-        ("includeUserInfo", "true"),
-        ("loginMode", "standard"),
-        ("lang", "fr"),
-        ("APIKey", TF1_GIGYA_API_KEY),
-        ("sdk", "js_latest"),
-        ("authMode", "cookie"),
-        ("pageURL", TF1_BASE_URL),
-        ("sdkBuild", "13987"),
-        ("format", "json"),
-    ])
-    .context("Failed to serialize the TF1 login payload.")?;
-
-    let login_headers = HashMap::from([
-        (
-            "content-type".to_string(),
-            "application/x-www-form-urlencoded".to_string(),
-        ),
-        ("referer".to_string(), TF1_BASE_URL.to_string()),
-        (
-            "user-agent".to_string(),
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:148.0) Gecko/20100101 Firefox/148.0"
-                .to_string(),
-        ),
-    ]);
-
-    let login_payload = http_client
-        .get_json_for_request(
-            http::Method::POST,
-            TF1_LOGIN_URL,
-            &login_headers,
-            Some(&login_body),
-        )
-        .await
-        .context("Failed to submit TF1 credentials to Gigya.")?;
-    bail_on_gigya_error(&login_payload, "TF1 rejected the configured credentials.")?;
-
-    let uid = read_json_string(
-        &login_payload,
-        &["userInfo", "UID"],
-        "Missing TF1 UID in Gigya login response.",
-    )?;
-    let signature = read_json_string(
-        &login_payload,
-        &["userInfo", "UIDSignature"],
-        "Missing TF1 UID signature in Gigya login response.",
-    )?;
-    let timestamp = read_json_string(
-        &login_payload,
-        &["userInfo", "signatureTimestamp"],
-        "Missing TF1 signature timestamp in Gigya login response.",
-    )?;
-
-    let token_body = json!({
-        "uid": uid,
-        "signature": signature,
-        "timestamp": timestamp.parse::<u64>().unwrap_or_default(),
-        "consent_ids": [
-            "1", "2", "3", "4", "10001", "10003", "10005", "10007", "10013",
-            "10015", "10017", "10019", "10009", "10011", "13002", "13001",
-            "10004", "10014", "10016", "10018", "10020", "10010", "10012",
-            "10006", "10008"
-        ]
-    })
-    .to_string();
-
-    let token_headers = HashMap::from([
-        ("content-type".to_string(), "application/json".to_string()),
-        (
-            "user-agent".to_string(),
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:148.0) Gecko/20100101 Firefox/148.0"
-                .to_string(),
-        ),
-    ]);
-
-    let token_payload = http_client
-        .get_json_for_request(
-            http::Method::POST,
-            TF1_TOKEN_URL,
-            &token_headers,
-            Some(&token_body),
-        )
-        .await
-        .context("Failed to exchange TF1 Gigya identifiers for a TF1 web token.")?;
-    let token = read_json_string(
-        &token_payload,
-        &["token"],
-        "Missing TF1 bearer token in TF1 token response.",
-    )?;
-
-    let session = Tf1Session { token };
-    save_cached_session(&login, &session);
-    Ok(session)
-}
-
-async fn bootstrap_gigya_session(http_client: &HttpClient) -> Result<()> {
-    let query = serde_urlencoded::to_string([
-        ("apiKey", TF1_GIGYA_API_KEY),
-        ("pageURL", "https://www.tf1.fr/"),
-        ("sd", "js_latest"),
-        ("sdkBuild", "13987"),
-        ("format", "json"),
-    ])
-    .context("Failed to serialize the TF1 Gigya bootstrap query string.")?;
-    let bootstrap_url = format!("{}?{}", TF1_BOOTSTRAP_URL, query);
-
-    let bootstrap_headers = HashMap::from([
-        ("referer".to_string(), TF1_BASE_URL.to_string()),
-        (
-            "user-agent".to_string(),
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:148.0) Gecko/20100101 Firefox/148.0"
-                .to_string(),
-        ),
-    ]);
-
-    let started = Instant::now();
-    http_client
-        .query_http_for_request(http::Method::GET, &bootstrap_url, &bootstrap_headers, None)
-        .await
-        .map_err(|error| {
-            tracing::warn!(
-                endpoint = TF1_BOOTSTRAP_URL,
-                elapsed_ms = started.elapsed().as_millis(),
-                error = %format!("{error:#}"),
-                "TF1 Gigya bootstrap request failed"
-            );
-            error
-        })
-        .context("Failed to bootstrap the TF1 Gigya web session.")?;
-
-    Ok(())
-}
-
-async fn fetch_media_info(
-    http_client: &HttpClient,
-    session: &Tf1Session,
-    video_id: &str,
-    is_live: bool,
-) -> Result<Value> {
-    let video_url = TF1_MEDIA_INFO_URL_TEMPLATE.replace("{}", video_id.trim());
-    let query = if is_live {
-        serde_urlencoded::to_string([
-            ("context", "MYTF1"),
-            ("pver", "5029000"),
-            ("platform", "web"),
-            ("device", "desktop"),
-            ("os", "windows"),
-            ("osVersion", "10.0"),
-            ("topDomain", "unknown"),
-            ("playerVersion", "5.29.0"),
-            ("productName", "mytf1"),
-            ("productVersion", "3.37.0"),
-        ])
-    } else {
-        serde_urlencoded::to_string([
-            ("context", "MYTF1"),
-            ("pver", "5010000"),
-            ("platform", "web"),
-            ("device", "desktop"),
-            ("os", "linux"),
-            ("osVersion", "unknown"),
-            ("topDomain", TF1_BASE_URL),
-            ("playerVersion", "5.19.0"),
-            ("productName", "mytf1"),
-            ("productVersion", "3.22.0"),
-        ])
-    }
-    .context("Failed to serialize the TF1 mediainfo query string.")?;
-    let url = format!("{}?{}", video_url, query);
-
-    let headers = HashMap::from([
-        (
-            "accept".to_string(),
-            "application/json, text/plain, */*".to_string(),
-        ),
-        (
-            "authorization".to_string(),
-            format!("Bearer {}", session.token),
-        ),
-        ("origin".to_string(), TF1_BASE_URL.to_string()),
-        ("referer".to_string(), format!("{}/", TF1_BASE_URL)),
-        (
-            "user-agent".to_string(),
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:148.0) Gecko/20100101 Firefox/148.0"
-                .to_string(),
-        ),
-    ]);
-
-    let response = http_client
-        .send_for_request(http::Method::GET, &url, &headers, None)
-        .await
-        .with_context(|| format!("Failed to fetch TF1 mediainfo for `{}`.", video_id))?;
-    let status = response.status();
-    tracing::info!(
-        video_id,
-        is_live,
-        http_status = status.as_u16(),
-        "received TF1 mediainfo HTTP response"
-    );
-    let body = response
-        .text()
-        .await
-        .with_context(|| format!("Failed to read TF1 mediainfo response for `{}`.", video_id))?;
-
-    if !status.is_success() {
-        bail!(
-            "TF1 mediainfo request for `{}` failed with HTTP {}: {}",
-            video_id,
-            status,
-            preview_error_body(&body)
-        );
-    }
-
-    let media_info: Value = serde_json::from_str(&body).with_context(|| {
-        format!(
-            "Invalid TF1 mediainfo JSON for `{}` (HTTP {}): {}",
-            video_id,
-            status,
-            preview_error_body(&body)
-        )
-    })?;
-    tracing::info!(
-        video_id,
-        is_live,
-        http_status = status.as_u16(),
-        delivery_code = ?media_info.pointer("/delivery/code").and_then(|value| value.as_i64()),
-        delivery_country = ?media_info.pointer("/delivery/country").and_then(|value| value.as_str()),
-        media_proxy_countries = ?extract_media_proxy_countries(&media_info),
-        "parsed TF1 mediainfo geo-routing metadata"
-    );
-    Ok(media_info)
-}
-
-fn bail_on_gigya_error(payload: &Value, default_message: &str) -> Result<()> {
-    let error_code = payload
-        .get("errorCode")
-        .and_then(Value::as_i64)
-        .unwrap_or_default();
-    if error_code == 0 {
-        return Ok(());
-    }
-
-    let message = payload
-        .get("errorMessage")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .or_else(|| {
-            payload
-                .get("errorDetails")
-                .and_then(Value::as_str)
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-        })
-        .unwrap_or(default_message);
-
-    bail!(message.to_string())
-}
-
 fn extract_license_headers(delivery: &Value) -> HashMap<String, String> {
     let Some(headers) = delivery.pointer("/drms/0/h").and_then(Value::as_array) else {
         return HashMap::new();
@@ -981,198 +589,19 @@ fn preview_error_body(body: &str) -> String {
         return "<empty body>".to_string();
     }
 
-    let mut preview: String = value.chars().take(300).collect();
+    let mut preview: String = value
+        .chars()
+        .take(PLAYER_ERROR_BODY_PREVIEW_LENGTH)
+        .collect();
     if value.chars().count() > 300 {
         preview.push_str("...");
     }
     preview
 }
 
-fn load_credentials(credentials_store: &dyn CredentialsStore) -> Result<(String, String)> {
-    let credentials = credentials_store
-        .get_credentials(TF1_SERVICE_ID)
-        .with_context(|| {
-            format!(
-                "Failed to load credentials for service `{}` from the configured store.",
-                TF1_SERVICE_ID
-            )
-        })?
-        .with_context(|| {
-            format!(
-                "Missing credentials for service `{}` in the configured store.",
-                TF1_SERVICE_ID
-            )
-        })?;
-
-    Ok((credentials.login, credentials.password))
-}
-
-fn load_cached_session(login: &str) -> Option<Tf1Session> {
-    let cache = TF1_SESSION_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    let Ok(mut cache_guard) = cache.lock() else {
-        return None;
-    };
-
-    let now = Instant::now();
-    cache_guard.retain(|_, entry| entry.expires_at > now);
-    cache_guard.get(login).map(|entry| entry.session.clone())
-}
-
-fn save_cached_session(login: &str, session: &Tf1Session) {
-    let cache = TF1_SESSION_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    let Ok(mut cache_guard) = cache.lock() else {
-        return;
-    };
-
-    cache_guard.insert(
-        login.to_string(),
-        CachedTf1Session {
-            session: session.clone(),
-            expires_at: Instant::now() + TF1_SESSION_TTL,
-        },
-    );
-}
-
-fn save_tf1_license_proxy_url(
-    endpoints: &PlayerResolverEndpoints,
-    license_url: &str,
-    headers: &HashMap<String, String>,
-    stream_kind: &str,
-    proxy_countries: &[String],
-) -> String {
-    let token = save_cached_license(license_url, headers, stream_kind, proxy_countries);
-    endpoints.drm_license_url(TF1_SERVICE_ID, &token)
-}
-
-fn save_cached_license(
-    license_url: &str,
-    headers: &HashMap<String, String>,
-    stream_kind: &str,
-    proxy_countries: &[String],
-) -> String {
-    let cache = TF1_LICENSE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    let token: String = rand::rng()
-        .sample_iter(&Alphanumeric)
-        .take(32)
-        .map(char::from)
-        .collect();
-
-    let Ok(mut cache_guard) = cache.lock() else {
-        return token;
-    };
-
-    let now = Instant::now();
-    cache_guard.retain(|_, entry| entry.expires_at > now);
-    cache_guard.insert(
-        token.clone(),
-        CachedTf1License {
-            license_url: license_url.to_string(),
-            headers: headers.clone(),
-            stream_kind: stream_kind.to_string(),
-            proxy_countries: proxy_countries.to_vec(),
-            expires_at: now + TF1_LICENSE_TTL,
-        },
-    );
-
-    token
-}
-
-fn load_cached_license(token: &str) -> Option<CachedTf1License> {
-    let cache = TF1_LICENSE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    let Ok(mut cache_guard) = cache.lock() else {
-        return None;
-    };
-
-    let now = Instant::now();
-    cache_guard.retain(|_, entry| entry.expires_at > now);
-    cache_guard.get(token).cloned()
-}
-
-async fn proxy_tf1_license_request(
-    scraper_agregator: &ScraperAgregator,
-    token: &str,
-    challenge_body: &[u8],
-) -> Result<ProxiedStreamResponse> {
-    let proxy_countries = load_cached_license(token)
-        .map(|cached| cached.proxy_countries)
-        .context("Expired or missing TF1 stream token.")?;
-    proxy_tf1_license_request_with_config(
-        scraper_agregator,
-        token,
-        challenge_body,
-        tf1_http_config(&proxy_countries),
-    )
-    .await
-}
-
-async fn proxy_tf1_license_request_with_config(
-    scraper_agregator: &ScraperAgregator,
-    token: &str,
-    challenge_body: &[u8],
-    http_config: ScraperHttpConfig,
-) -> Result<ProxiedStreamResponse> {
-    let normalized_token = token.trim();
-    if normalized_token.is_empty() {
-        bail!("Missing TF1 stream token identifier.");
-    }
-
-    let cached =
-        load_cached_license(normalized_token).context("Expired or missing TF1 stream token.")?;
-    if cached.stream_kind != TF1_PROXY_STREAM_KIND {
-        bail!("Unsupported TF1 stream kind `{}`.", cached.stream_kind);
-    }
-
-    let mut request_headers = HashMap::from([(
-        "content-type".to_string(),
-        "application/octet-stream".to_string(),
-    )]);
-
-    for (name, value) in &cached.headers {
-        let trimmed_name = name.trim();
-        let trimmed_value = value.trim();
-        if trimmed_name.is_empty() || trimmed_value.is_empty() {
-            continue;
-        }
-
-        request_headers.insert(trimmed_name.to_string(), trimmed_value.to_string());
-    }
-
-    let http_client = scraper_agregator.create_http_client(http_config);
-    let response = http_client
-        .send_bytes_for_request(
-            http::Method::POST,
-            cached.license_url.trim(),
-            &request_headers,
-            Some(challenge_body.to_vec()),
-        )
-        .await
-        .context("Failed to call the TF1 Widevine license server.")?;
-
-    let status = response.status();
-    let content_type = response
-        .headers()
-        .get(http::header::CONTENT_TYPE)
-        .and_then(|value| value.to_str().ok())
-        .map(|value| value.to_string())
-        .unwrap_or_else(|| "application/octet-stream".to_string());
-    let body = response
-        .bytes()
-        .await
-        .context("Failed to read the TF1 license response.")?
-        .to_vec();
-
-    if !status.is_success() {
-        let details = String::from_utf8(body)
-            .ok()
-            .map(|value| value.trim().to_string())
-            .filter(|value| !value.is_empty())
-            .unwrap_or_else(|| format!("HTTP {}", status));
-        bail!("TF1 license request failed: {}", details);
-    }
-
-    Ok(ProxiedStreamResponse {
-        body,
-        content_type,
-        headers: HashMap::from([("cache-control".to_string(), "no-store".to_string())]),
-    })
-}
+mod authentication;
+use authentication::*;
+mod media_info;
+use media_info::*;
+mod license;
+use license::*;

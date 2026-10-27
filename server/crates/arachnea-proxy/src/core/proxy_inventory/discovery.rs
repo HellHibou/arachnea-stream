@@ -12,10 +12,8 @@ use crate::core::{Destination, ProxyRecord, ProxySearchContext, Result};
 
 use super::eligibility::is_selection_candidate;
 #[cfg(feature = "performance-diagnostics")]
-use super::eligibility::selection_stats;
+use super::performance_diagnostics::{ProviderLoadObservation, ProviderLoadProgress};
 use super::records::prepare_provider_records;
-#[cfg(feature = "performance-diagnostics")]
-use super::records::{declared_protocol_count, runtime_protocol_is_undeclared};
 
 struct InventoryBatchSink {
     inventory: ProxyInventory,
@@ -23,45 +21,6 @@ struct InventoryBatchSink {
     country: String,
     #[cfg(feature = "performance-diagnostics")]
     progress: Arc<std::sync::Mutex<ProviderLoadProgress>>,
-}
-
-#[cfg(feature = "performance-diagnostics")]
-#[derive(Clone, Default)]
-struct ProviderLoadProgress {
-    received_batches: usize,
-    received_records: usize,
-    merged_batches: usize,
-    merged_records: usize,
-    first_merge: Option<Instant>,
-}
-
-/// Reports termination even when the last subscriber aborts a partial load.
-#[cfg(feature = "performance-diagnostics")]
-struct ProviderLoadObservation {
-    country: String,
-    started: Instant,
-    outcome: &'static str,
-    progress: Arc<std::sync::Mutex<ProviderLoadProgress>>,
-}
-
-#[cfg(feature = "performance-diagnostics")]
-impl Drop for ProviderLoadObservation {
-    fn drop(&mut self) {
-        let progress = self
-            .progress
-            .lock()
-            .map(|progress| progress.clone())
-            .unwrap_or_default();
-        #[cfg(feature = "performance-diagnostics")]
-        tracing::debug!(country = %self.country, outcome = self.outcome,
-            duration_ms = self.started.elapsed().as_millis(),
-            received_batches = progress.received_batches, received_records = progress.received_records,
-            merged_batches = progress.merged_batches, merged_records = progress.merged_records,
-            first_merge_ms = progress.first_merge.map(|at| at.duration_since(self.started).as_millis()),
-            partial = self.outcome != "completed" && progress.merged_batches > 0,
-            empty = self.outcome == "completed" && progress.received_records == 0,
-            "finished dynamic proxy provider refresh");
-    }
 }
 
 #[async_trait::async_trait]
@@ -324,71 +283,15 @@ impl ProxyInventory {
         let (records, _probe_indices, _duplicate_count, _cached_count) =
             prepare_provider_records(records, &existing, SystemTime::now(), self.config.probe_ttl);
         #[cfg(feature = "performance-diagnostics")]
-        {
-            let pending_probe_count = _probe_indices.len();
-            let new_endpoint_count = records
-                .iter()
-                .filter(|record| !existing.contains_key(&record.authority()))
-                .count();
-            let changed_declarations_count = records
-                .iter()
-                .filter(|record| {
-                    existing.get(&record.authority()).is_some_and(|cached| {
-                        record
-                            .declarations
-                            .iter()
-                            .any(|declaration| !cached.declarations.contains(declaration))
-                    })
-                })
-                .count();
-            let probe_stats = selection_stats(
-                records.iter(),
-                country,
-                false,
-                None,
-                SystemTime::now(),
-                self.config.probe_ttl,
-                self.probe_mode(),
-            );
-            let protocol_conflict_count = records
-                .iter()
-                .filter(|record| declared_protocol_count(record) > 1)
-                .count();
-            let undeclared_protocol_count = records
-                .iter()
-                .filter(|record| runtime_protocol_is_undeclared(record))
-                .count();
-            tracing::debug!(
-                country = %country,
-                loaded_count,
-                deduplicated_count = records.len(),
-                duplicate_count = _duplicate_count,
-                protocol_conflict_count,
-                undeclared_protocol_count,
-                cached_count = _cached_count,
-                new_endpoint_count,
-                changed_declarations_count,
-                pending_probe_count,
-                ok = probe_stats.ok,
-                unknown = probe_stats.unknown,
-                ko = probe_stats.ko,
-                auth_required = probe_stats.authentication_required,
-                auth_flag = probe_stats.authentication_required_flag,
-                http_forward_available = probe_stats.http_forward_available,
-                http_forward_unavailable = probe_stats.http_forward_unavailable,
-                http_forward_unknown = probe_stats.http_forward_unknown,
-                https_tunnel_available = probe_stats.https_tunnel_available,
-                https_tunnel_unavailable = probe_stats.https_tunnel_unavailable,
-                https_tunnel_unknown = probe_stats.https_tunnel_unknown,
-                destination_tls_available = probe_stats.destination_tls_available,
-                destination_tls_unavailable = probe_stats.destination_tls_unavailable,
-                destination_tls_unknown = probe_stats.destination_tls_unknown,
-                proxy_tls_valid = probe_stats.proxy_tls_valid,
-                proxy_tls_invalid = probe_stats.proxy_tls_invalid,
-                proxy_tls_unknown = probe_stats.proxy_tls_unknown,
-                "loaded dynamic proxies prepared for on-demand probing"
-            );
-        }
+        self.log_prepared_provider_batch(
+            country,
+            &records,
+            &existing,
+            loaded_count,
+            _probe_indices.len(),
+            _duplicate_count,
+            _cached_count,
+        );
         let records_to_persist = self.add_or_update(records).await;
         #[cfg(feature = "performance-diagnostics")]
         if let Ok(mut progress) = progress.lock() {
@@ -398,37 +301,7 @@ impl ProxyInventory {
         }
 
         #[cfg(feature = "performance-diagnostics")]
-        {
-            let http_stats = self
-                .selection_stats_for_country(country, false)
-                .await
-                .unwrap_or_default();
-            let https_stats = self
-                .selection_stats_for_country(country, true)
-                .await
-                .unwrap_or_default();
-            tracing::debug!(
-                country = %country,
-                total = http_stats.total,
-                ok = http_stats.ok,
-                eligible_http = http_stats.eligible,
-                eligible_https = https_stats.eligible,
-                http_forward_available = http_stats.http_forward_available,
-                http_forward_unavailable = http_stats.http_forward_unavailable,
-                http_forward_unknown = http_stats.http_forward_unknown,
-                https_tunnel_available = https_stats.https_tunnel_available,
-                https_tunnel_unavailable = https_stats.https_tunnel_unavailable,
-                https_tunnel_unknown = https_stats.https_tunnel_unknown,
-                destination_tls_available = https_stats.destination_tls_available,
-                destination_tls_unavailable = https_stats.destination_tls_unavailable,
-                destination_tls_unknown = https_stats.destination_tls_unknown,
-                https_rejected = https_stats.https_rejected,
-                ko = http_stats.ko,
-                auth_required = http_stats.authentication_required,
-                cooldown = http_stats.cooldown,
-                "dynamic proxy inventory updated"
-            );
-        }
+        self.log_updated_inventory(country).await;
         #[cfg(feature = "persistence")]
         self.persist_records(&records_to_persist).await;
         #[cfg(not(feature = "persistence"))]

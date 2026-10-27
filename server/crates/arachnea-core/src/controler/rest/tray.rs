@@ -176,22 +176,22 @@ pub fn gui_available() -> bool {
 }
 
 /// Custom URI scheme serving the dedicated log window page.
-const LOG_SCHEME: &str = "arachnea-log";
+use crate::REST_LOG_WINDOW_SCHEME as LOG_SCHEME;
 
 /// Identifier of the tray icon.
-const TRAY_ID: &str = "server-tray";
+use crate::REST_TRAY_ID as TRAY_ID;
 
+use crate::REST_MENU_NETWORK_INFO as MENU_NETWORK_INFO;
+use crate::REST_MENU_OPEN_ADMIN as MENU_OPEN_ADMIN;
+use crate::REST_MENU_OPEN_BROWSER as MENU_OPEN_BROWSER;
+use crate::REST_MENU_RELOAD as MENU_RELOAD;
+use crate::REST_MENU_SERVER_INFO as MENU_SERVER_INFO;
+use crate::REST_MENU_SHOW_LOGS as MENU_SHOW_LOGS;
 /// Menu item ids.
-const MENU_SHUTDOWN: &str = "shutdown";
-const MENU_SHOW_LOGS: &str = "show-logs";
-const MENU_OPEN_BROWSER: &str = "open-browser";
-const MENU_OPEN_ADMIN: &str = "open-admin";
-const MENU_RELOAD: &str = "reload-configuration";
-const MENU_SERVER_INFO: &str = "server-info";
-const MENU_NETWORK_INFO: &str = "network-info";
+use crate::REST_MENU_SHUTDOWN as MENU_SHUTDOWN;
 
 /// Log window label.
-const LOG_WINDOW_LABEL: &str = "logs";
+use crate::REST_LOG_WINDOW_LABEL as LOG_WINDOW_LABEL;
 
 /// Reads the buffered log records for the dedicated log window.
 ///
@@ -228,163 +228,7 @@ fn subscribe_logs(channel: tauri::ipc::Channel<crate::logger::LogRecord>) -> Res
 /// keep a fixed width, Chemin and Message are resizable, and a message keeps
 /// its line breaks (`\n`) without automatic wrapping. Multi-line messages show
 /// only their first line until expanded via the inline toggle icon.
-const LOG_HTML: &str = r#"<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <title>Logs</title>
-  <style>
-    :root { color-scheme: dark; }
-    * { box-sizing: border-box; }
-    body { margin: 0; background: #1e1e1e; color: #d4d4d4; font-family: "Segoe UI", sans-serif; overflow: hidden; height: 100vh; display: flex; flex-direction: column; }
-    header { flex: 0 0 auto; background: #252526; padding: 6px 10px; font-size: 13px; color: #9cdcfe; }
-    .table-wrap { flex: 1 1 auto; overflow: auto; }
-    table { border-collapse: collapse; width: 100%; table-layout: auto; font-family: Consolas, "Courier New", monospace; font-size: 12px; }
-    th, td { text-align: left; padding: 3px 8px; border-bottom: 1px solid #333; vertical-align: top; }
-    thead th { position: sticky; top: 0; background: #333; color: #ccc; z-index: 1; }
-    td.time { color: #9cdcfe; white-space: nowrap; text-align: center; }
-    td.type { text-align: center; white-space: nowrap; }
-    th:first-child, th:nth-child(2) { text-align: center; }
-    td.target { color: #569cd6; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; max-width: 280px; }
-    td.msg { white-space: pre; color: #d4d4d4; }
-    .msg-text { display: inline-block; vertical-align: top; white-space: pre; }
-    .msg-toggle { background: none; border: none; color: #888; cursor: pointer; font-size: 20px; padding: 0 5px 0 0; vertical-align: top; line-height: 14px; outline: none; }
-    td.msg.expanded .msg-toggle { transform: rotate(90deg); }
-    .lvl-error { color: #f14c4c; font-weight: bold; }
-    .lvl-warn { color: #d7a700; }
-    .lvl-info { color: #3fb950; }
-    .lvl-debug { color: #6a9955; }
-    .lvl-trace { color: #808080; }
-    .resize-handle { position: absolute; top: 0; right: -1px; width: 6px; height: 100%; cursor: col-resize; z-index: 3; }
-    body.resizing, body.resizing * { cursor: col-resize !important; user-select: none; }
-  </style>
-</head>
-<body>
-  <div class="table-wrap">
-    <table>
-      <colgroup>
-        <col id="col-date" style="width: 150px;" />
-        <col id="col-level" style="width: 74px;" />
-        <col id="col-target" style="width: 280px;" />
-        <col id="col-msg" />
-      </colgroup>
-      <thead>
-        <tr>
-          <th>Timestamp</th>
-          <th>Level</th>
-          <th id="head-target">Path</th>
-          <th id="head-msg">Message</th>
-        </tr>
-      </thead>
-      <tbody id="rows"></tbody>
-    </table>
-  </div>
-  <script>
-    const { invoke, Channel } = window.__TAURI__.core;
-    const rows = document.getElementById('rows');
-    const wrap = document.querySelector('.table-wrap');
-    const LEVEL_CLASS = { ERROR: 'lvl-error', WARN: 'lvl-warn', INFO: 'lvl-info', DEBUG: 'lvl-debug', TRACE: 'lvl-trace' };
-
-    function escapeHtml(value) {
-      return String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-    }
-
-    function makeToggle(fullMessage) {
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = 'msg-toggle';
-      button.innerHTML = '&#9656;';
-      button.title = 'Expand';
-      button.addEventListener('click', () => {
-        const cell = button.parentElement;
-        const text = cell.querySelector('.msg-text');
-        const expanded = cell.classList.toggle('expanded');
-        button.title = expanded ? 'Collapse' : 'Expand';
-        text.textContent = expanded ? fullMessage : fullMessage.split('\n')[0];
-      });
-      return button;
-    }
-
-    function cell(className, content) {
-      const el = document.createElement('td');
-      el.className = className;
-      el.innerHTML = content;
-      return el;
-    }
-
-    function appendRow(record) {
-      const level = (record.level || 'INFO').toUpperCase();
-      const cls = LEVEL_CLASS[level] || 'lvl-info';
-      const tr = document.createElement('tr');
-
-      const message = record.message || '';
-      const msgText = document.createElement('span');
-      msgText.className = 'msg-text';
-      msgText.textContent = message;
-      msgText.title = message;
-      const msgCell = document.createElement('td');
-      msgCell.className = 'msg';
-      if (message.includes('\n')) {
-        msgText.textContent = message.split('\n')[0];
-        msgCell.appendChild(makeToggle(message));
-      }
-      msgCell.appendChild(msgText);
-
-      const targetCell = cell('target', escapeHtml(record.target || ''));
-      targetCell.title = record.target || '';
-
-      tr.appendChild(cell('time', escapeHtml(record.timestamp || '')));
-      tr.appendChild(cell('type', '<span class="' + cls + '">' + escapeHtml(level) + '</span>'));
-      tr.appendChild(targetCell);
-      tr.appendChild(msgCell);
-      rows.appendChild(tr);
-      wrap.scrollTop = wrap.scrollHeight;
-    }
-
-    function attachResize(header, colId) {
-      const col = document.getElementById(colId);
-      const handle = document.createElement('div');
-      handle.className = 'resize-handle';
-      header.appendChild(handle);
-      handle.addEventListener('mousedown', (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        const startX = event.clientX;
-        const startWidth = col.getBoundingClientRect().width;
-        const move = (ev) => {
-          const next = Math.max(60, startWidth + (ev.clientX - startX));
-          col.style.width = next + 'px';
-        };
-        const up = () => {
-          window.removeEventListener('mousemove', move);
-          window.removeEventListener('mouseup', up);
-          document.body.classList.remove('resizing');
-        };
-        document.body.classList.add('resizing');
-        window.addEventListener('mousemove', move);
-        window.addEventListener('mouseup', up);
-      });
-    }
-    attachResize(document.getElementById('head-target'), 'col-target');
-    attachResize(document.getElementById('head-msg'), 'col-msg');
-
-    async function init() {
-      try {
-        const records = await invoke('get_logs');
-        records.forEach(appendRow);
-        try {
-          const channel = new Channel();
-          channel.onmessage = (record) => appendRow(record);
-          await invoke('subscribe_logs', { channel });
-        } catch (e) { /* subscription unavailable; keep the snapshot only */ }
-      } catch (e) { /* ignore transient IPC errors */ }
-    }
-
-    init();
-  </script>
-</body>
-</html>
-"#;
+use crate::REST_LOG_WINDOW_HTML as LOG_HTML;
 
 /// Shared handle used to drive the live tray from the REST controller.
 struct ServerTrayHandleImpl {
@@ -514,7 +358,7 @@ impl ServerTrayHandle for ServerTrayHandleImpl {
         let window =
             WebviewWindowBuilder::new(&app, LOG_WINDOW_LABEL, WebviewUrl::CustomProtocol(url))
                 .title(format!("{} - Logs", self.app_title))
-                .inner_size(720.0, 480.0)
+                .inner_size(crate::REST_LOG_WINDOW_WIDTH, crate::REST_LOG_WINDOW_HEIGHT)
                 .build();
         match window {
             Ok(window) => {

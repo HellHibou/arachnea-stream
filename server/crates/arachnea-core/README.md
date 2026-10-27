@@ -9,6 +9,23 @@
 - Define credentials persistence and runtime resource helpers under `src/persistence/`. `TypedEntityStore<E>` provides typed `get`/`get_many`/`put`/`put_all`/`delete`/`find` operations over declared entity schemas. File stores persist snapshots through the configured codec.
 - Provide small shared utilities that are useful across backend crates and do not belong to the scraper engine or stream service.
 
+## Source organization and defaults
+
+- `src/controler/rest/service.rs` retains REST route registration and lifecycle orchestration. Its private `service/snapshot.rs` module holds supervisor configuration snapshots; `service/responses.rs` adapts JSON, streamed responses, headers and peer addresses.
+- `src/controler/tauri/configuration.rs` holds the browsing mode and application-owned Tauri configuration. Their existing imports through `controler::tauri` remain available.
+- `src/lib.rs` centralizes constants and relevant defaults for controllers, logging, persistence and encoding. Public constants retain their historical module import paths through reexports. Runtime configuration overrides and all default values are preserved.
+- Application-option defaults (`arachnea-core`, `api`) remain distinct from the Tauri controller fallbacks (`arachnea`, `/api/`). Likewise, different window roles and shutdown phases have independent constants even when their current numeric values match.
+- Format versions, the Base62 alphabet, and AES-GCM nonce size are compatibility invariants, not ordinary tuning settings. SQLite constants remain gated by `sqlite-persistence`, and platform-specific constants retain their platform gates. Mutable counters and registries stay with their owners.
+- `resources/log_window.html` contains the unchanged embedded log-window page, included by its crate-root constant at compile time.
+- `tests/` mirrors exact source paths and filenames, including `tests/controler/mod.rs`, `tests/crypt/mod.rs`, and `tests/persistence/typed_store.rs`. Conditional module declarations load unit tests with private access; shared temporary-directory helpers live in `tests/support/`. Existing test names and scenarios are preserved.
+
+From the server workspace, run `cargo test -p arachnea-core --no-default-features`
+for the memory/file backends and doctests, or
+`cargo test -p arachnea-core --features sqlite-persistence` to include SQLite.
+Application data path callers must first call
+`application::configure_application_data_dir_name` with an application-owned
+identifier; the resource path helpers do not require this data-directory setup.
+
 ## Notes
 
 SQLite persistence has two levels: `SqliteStoreConfig` identifies a physical

@@ -1,4 +1,5 @@
 use super::StreamScraper;
+
 use crate::stream_scraper::DEFAULT_SERVICES_CONFIG_PATH;
 use crate::stream_scraper::STREAM_SERVICE_GROUP_NAME;
 use anyhow::Result;
@@ -10,15 +11,12 @@ use arachnea_scrapyfy::scrapyfy::scraper_manager::tests::test_query;
 use arachnea_scrapyfy::scrapyfy::scraper_manager::tests::TestParams;
 use std::path::Path;
 
+use crate::test_support::configure_test_application_data_dir;
+
 static DEFAULT_SEARCH_TERM: &str = "inf";
 static DEFAULT_QUERY_SOURCE: &str = "arachnea-stream/dark-stream/anime-sama.yaml";
 
-fn configure_test_application_data_dir() {
-    let _ =
-        arachnea_core::application::configure_application_data_dir_name("arachnea-stream-tests");
-}
-
-fn test_params() -> TestParams {
+pub(super) fn test_params() -> TestParams {
     TestParams {
         use_mock_file: false,
         ignore_entry_not_mapped: true,
@@ -26,31 +24,19 @@ fn test_params() -> TestParams {
     }
 }
 
-fn query_source() -> String {
+pub(super) fn query_source() -> String {
     std::env::var("ARACHNEA_TEST_QUERY_SOURCE").unwrap_or_else(|_| DEFAULT_QUERY_SOURCE.to_string())
 }
 
-fn search_term() -> String {
+pub(super) fn search_term() -> String {
     std::env::var("ARACHNEA_TEST_SEARCH_TERM").unwrap_or_else(|_| DEFAULT_SEARCH_TERM.to_string())
 }
 
-fn get_entry_url() -> Option<String> {
+pub(super) fn get_entry_url() -> Option<String> {
     std::env::var("ARACHNEA_TEST_ENTRY_URL").ok()
 }
 
-#[test]
-#[ignore = "requires live third-party providers; run manually with --ignored"]
-fn test_all_services() {
-    let enabled_services = load_enabled_services();
-    let enabled_services_refs: Vec<&str> = enabled_services.iter().map(|s| s.as_str()).collect();
-    test_all(enabled_services_refs);
-}
-
-#[test]
-fn test_service() {
-    test_all(Vec::from([query_source().as_str()]));
-}
-fn test_all(tests: Vec<&str>) {
+pub(super) fn test_all(tests: Vec<&str>) {
     let mut failures = Vec::new();
 
     for yaml_file in tests {
@@ -102,11 +88,7 @@ fn test_all(tests: Vec<&str>) {
     );
 }
 
-#[test]
-pub fn test_query_service_stream_metadata() -> Result<()> {
-    service_stream_metadata(query_source().as_str())
-}
-fn service_stream_metadata(yaml_file: &str) -> Result<()> {
+pub(super) fn service_stream_metadata(yaml_file: &str) -> Result<()> {
     configure_test_application_data_dir();
     test_query(
         &mut StreamScraper::default(),
@@ -170,11 +152,7 @@ fn service_stream_metadata(yaml_file: &str) -> Result<()> {
     )
 }
 
-#[test]
-pub fn test_query_load_home() -> Result<()> {
-    load_home(query_source().as_str())
-}
-fn load_home(yaml_file: &str) -> Result<()> {
+pub(super) fn load_home(yaml_file: &str) -> Result<()> {
     configure_test_application_data_dir();
     test_query(
         &mut StreamScraper::default(),
@@ -198,11 +176,7 @@ fn load_home(yaml_file: &str) -> Result<()> {
     )
 }
 
-#[test]
-pub fn test_query_search() -> Result<()> {
-    search(search_term(), query_source().as_str())
-}
-fn search(search_term: String, yaml_file: &str) -> Result<()> {
+pub(super) fn search(search_term: String, yaml_file: &str) -> Result<()> {
     configure_test_application_data_dir();
     test_query(
         &mut StreamScraper::default(),
@@ -259,11 +233,7 @@ fn search(search_term: String, yaml_file: &str) -> Result<()> {
     )
 }
 
-#[test]
-pub fn test_query_get_entry() -> Result<()> {
-    get_entry(get_entry_url(), query_source().as_str())
-}
-fn get_entry(get_entry_url: Option<String>, yaml_file: &str) -> Result<()> {
+pub(super) fn get_entry(get_entry_url: Option<String>, yaml_file: &str) -> Result<()> {
     configure_test_application_data_dir();
     let yaml_file_owned = yaml_file.to_string();
     let yaml_file_for_test = yaml_file_owned.clone();
@@ -317,7 +287,7 @@ fn get_entry(get_entry_url: Option<String>, yaml_file: &str) -> Result<()> {
     )
 }
 
-fn load_enabled_services() -> Vec<String> {
+pub(super) fn load_enabled_services() -> Vec<String> {
     let config_file = format!(
         "{}/{}",
         arachnea_core::application::get_application_root(),
@@ -334,7 +304,7 @@ fn load_enabled_services() -> Vec<String> {
         .collect()
 }
 
-async fn load_entry_url_from_home(
+pub(super) async fn load_entry_url_from_home(
     scraper: &mut StreamScraper,
     query_source: &str,
 ) -> Result<String> {

@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
-/// The default directory for scraper service configuration files.
-pub const DEFAULT_SERVICES_DIRECTORY: &str = "services";
+pub use crate::DEFAULT_SERVICES_DIRECTORY;
 
 /// Conditional request validation primitives (ETag fragments).
 pub mod conditional;
@@ -111,8 +110,8 @@ pub use ip_country_provider::{
 /// Scrapyfy administrator overrides owned by this crate.
 pub mod admin_settings;
 pub use admin_settings::{
-    validate_current_country, ScraperAdminSettings, CACHE_BLOCK_SIZE_KEY,
-    CACHE_MAX_DISK_BYTES_KEY, CACHE_MAX_MEMORY_BYTES_KEY, CURRENT_COUNTRY_KEY,
+    validate_current_country, ScraperAdminSettings, CACHE_BLOCK_SIZE_KEY, CACHE_MAX_DISK_BYTES_KEY,
+    CACHE_MAX_MEMORY_BYTES_KEY, CURRENT_COUNTRY_KEY,
 };
 
 /// Multi-source query aggregator.

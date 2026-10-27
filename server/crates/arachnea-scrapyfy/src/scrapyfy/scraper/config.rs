@@ -17,12 +17,12 @@ use crate::scrapyfy::{PreProcessAction, ScraperAction, ScraperHttpConfig, Scrape
 
 /// Defaults to [`HtmlScraperSelectMode::All`].
 pub fn default_select_mode() -> HtmlScraperSelectMode {
-    HtmlScraperSelectMode::All
+    crate::SCRAPER_DEFAULT_SELECT_MODE
 }
 
 /// Defaults to [`ScraperRequestMethod::Get`].
 pub fn default_request_method() -> ScraperRequestMethod {
-    ScraperRequestMethod::Get
+    crate::SCRAPER_DEFAULT_REQUEST_METHOD
 }
 
 // ---------------------------------------------------------------------------
@@ -47,7 +47,7 @@ pub enum ScraperRequestMethod {
 
 impl Default for ScraperRequestMethod {
     fn default() -> Self {
-        Self::Get
+        crate::SCRAPER_DEFAULT_REQUEST_METHOD
     }
 }
 

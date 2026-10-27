@@ -65,7 +65,10 @@ fn with_requests<'a>(
                 let builder =
                     WebviewWindowBuilder::new(&app, &label, WebviewUrl::CustomProtocol(url))
                         .title(title)
-                        .inner_size(980.0, 680.0);
+                        .inner_size(
+                            crate::TAURI_FRONTEND_WINDOW_WIDTH,
+                            crate::TAURI_FRONTEND_WINDOW_HEIGHT,
+                        );
                 with_requests(builder, app.clone(), label, scheme).build()?;
                 Ok(())
             })();

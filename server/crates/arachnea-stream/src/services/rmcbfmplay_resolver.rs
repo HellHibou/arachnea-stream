@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use arachnea_core::persistence::CredentialsStore;
 use arachnea_proxy::http::proxy_service::proxied_url_with_countries;
@@ -14,19 +14,26 @@ use crate::services::player_resolver::{
     PlayerResolverEndpoints, PlayerStreamResolver, ProxiedStreamResponse, ResolvedPlayerStream,
 };
 
+use crate::PLAYER_DEFAULT_USER_AGENT as USER_AGENT;
+use crate::PLAYER_ERROR_BODY_PREVIEW_LENGTH;
+
+/// Stable source identifier for RMC/BFM Play routing and credentials.
 const SERVICE_ID: &str = "rmcbfmplay-fr";
-const USER_AGENT: &str =
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:148.0) Gecko/20100101 Firefox/148.0";
-/// Authentication gateway of `connect.rmcbfm.com` (AWS Cognito, observed in
-/// the RMC BFM Connect Next.js login page).
+
+/// RMC/BFM Play authentication gateway endpoint.
 const GATEWAY_URL: &str = "https://connect.rmcbfm.com/api/gateway";
-/// Default Cognito app client used by the Connect login page.
+
+/// Public client identifier used by the RMC/BFM Play authentication gateway.
 const CONNECT_CLIENT_ID: &str = "1lof3c1vu7mscui8sfaal9qq2j";
-/// Anonymous catalogue BFF. Playback (`video`/`drm`) is only returned to
-/// authenticated callers.
+
+/// RMC/BFM Play backend-for-frontend endpoint.
 const BFF_BASE_URL: &str = "https://bff.rmcplus.fr/v1";
+
+/// Client model identifier sent to the RMC/BFM Play backend-for-frontend API.
 const BFF_MODEL: &str = "web";
-const SESSION_TTL: Duration = Duration::from_secs(45 * 60);
+
+/// Lifetime of cached RMC/BFM Play login sessions.
+const SESSION_TTL: std::time::Duration = std::time::Duration::from_secs(45 * 60);
 
 static SESSION_CACHE: OnceLock<Mutex<HashMap<String, CachedSession>>> = OnceLock::new();
 static LOGIN_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
@@ -152,8 +159,7 @@ async fn resolve_live(
     }
     let mut failures = Vec::new();
     for url in &candidates {
-        match resolve_composant_video(http_client, session, url, proxy_countries, endpoints).await
-        {
+        match resolve_composant_video(http_client, session, url, proxy_countries, endpoints).await {
             Ok(stream) => return Ok(stream),
             Err(error) => failures.push(format!("{url}: {error:#}")),
         }
@@ -272,11 +278,7 @@ async fn get_or_login_session(
 
 /// Signs in through the Connect gateway, mirroring the Connect login page
 /// (`sign_in` endpoint, email lowercased/trimmed, password trimmed).
-async fn sign_in(
-    http_client: &HttpClient,
-    login: &str,
-    password: &str,
-) -> Result<CognitoSession> {
+async fn sign_in(http_client: &HttpClient, login: &str, password: &str) -> Result<CognitoSession> {
     let body = json!({
         "endpoint": "sign_in",
         "payload": {
@@ -319,11 +321,7 @@ async fn sign_in(
     })?;
     Ok(CognitoSession {
         id_token: read_string(result, "/IdToken", "Missing RMC BFM Play ID token.")?,
-        access_token: read_string(
-            result,
-            "/AccessToken",
-            "Missing RMC BFM Play access token.",
-        )?,
+        access_token: read_string(result, "/AccessToken", "Missing RMC BFM Play access token.")?,
         refresh_token: read_string(
             result,
             "/RefreshToken",
@@ -404,7 +402,10 @@ async fn fetch_bff_json(
         );
         return Ok(payload);
     }
-    bail!("RMC BFM Play BFF request failed for `{url}`: {}", attempts.join("; "))
+    bail!(
+        "RMC BFM Play BFF request failed for `{url}`: {}",
+        attempts.join("; ")
+    )
 }
 
 /// Extracts playback from an authenticated `video` payload.
@@ -424,10 +425,7 @@ async fn extract_playback(http_client: &HttpClient, video: &Value) -> Result<Pla
         })
 }
 
-async fn extract_playback_parts(
-    http_client: &HttpClient,
-    video: &Value,
-) -> Result<PlaybackParts> {
+async fn extract_playback_parts(http_client: &HttpClient, video: &Value) -> Result<PlaybackParts> {
     // Collect every manifest candidate: explicit pointers first, then content
     // scans. DASH is preferred over HLS whenever both exist: the shared DRM
     // Today Widevine license path is validated for DASH, while Video.js/VHS
@@ -540,14 +538,9 @@ async fn extract_playback_parts(
             describe_value(video)
         )
     };
-    let play_token = [
-        "/drm/play_token",
-        "/play_token",
-        "/drm/token",
-        "/token",
-    ]
-    .iter()
-    .find_map(|pointer| read_opt_string(video, pointer));
+    let play_token = ["/drm/play_token", "/play_token", "/drm/token", "/token"]
+        .iter()
+        .find_map(|pointer| read_opt_string(video, pointer));
     let Some(play_token) = play_token else {
         bail!(
             "RMC BFM Play video has no play token ({})",
@@ -589,11 +582,7 @@ fn extract_storyboard_vtt(video: &Value) -> Option<String> {
         .iter()
         .find_map(|pointer| read_opt_string(sprites, pointer))
         .filter(|url| url.to_ascii_lowercase().contains(".vtt"))
-        .or_else(|| {
-            find_all_urls_containing(sprites, ".vtt")
-                .into_iter()
-                .next()
-        })
+        .or_else(|| find_all_urls_containing(sprites, ".vtt").into_iter().next())
 }
 
 /// Probes a manifest for encryption markers (`EXT-X-KEY` for HLS,
@@ -605,12 +594,7 @@ async fn manifest_requires_drm(
     manifest_type: &str,
 ) -> bool {
     let text = match http_client
-        .query_http_for_request(
-            http::Method::GET,
-            manifest_url,
-            &playback_headers(),
-            None,
-        )
+        .query_http_for_request(http::Method::GET, manifest_url, &playback_headers(), None)
         .await
     {
         Ok(text) => text,
@@ -912,7 +896,10 @@ fn preview_error_body(body: &str) -> String {
         return "<empty body>".to_string();
     }
 
-    let mut preview: String = value.chars().take(300).collect();
+    let mut preview: String = value
+        .chars()
+        .take(PLAYER_ERROR_BODY_PREVIEW_LENGTH)
+        .collect();
     if value.chars().count() > 300 {
         preview.push_str("...");
     }

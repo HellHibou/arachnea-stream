@@ -6,33 +6,18 @@ use crate::core::{normalize_parameter_value, ClientContext, ClientParameter, Par
 
 /// Filters out non-transferable headers.
 pub(super) fn filter_non_transferable(headers: &mut HashMap<String, String>) {
-    const NON_TRANSFERABLE: &[&str] = &[
-        "connection",
-        "content-length",
-        "transfer-encoding",
-        "host",
-        "proxy-authorization",
-        "proxy-connection",
-    ];
     headers.retain(|key, _| {
         let lower = key.to_ascii_lowercase();
-        !NON_TRANSFERABLE.contains(&lower.as_str())
+        !crate::PROXY_HTTP_REQUEST_NON_TRANSFERABLE_HEADERS.contains(&lower.as_str())
     });
 }
 
 /// Filters hop-by-hop headers from an upstream response while preserving its
 /// valid content length for streamed responses.
 pub(super) fn filter_response_non_transferable(headers: &mut HashMap<String, String>) {
-    const HOP_BY_HOP: &[&str] = &[
-        "connection",
-        "transfer-encoding",
-        "host",
-        "proxy-authorization",
-        "proxy-connection",
-    ];
     headers.retain(|key, _| {
         let lower = key.to_ascii_lowercase();
-        !HOP_BY_HOP.contains(&lower.as_str())
+        !crate::PROXY_HTTP_RESPONSE_NON_TRANSFERABLE_HEADERS.contains(&lower.as_str())
     });
 }
 

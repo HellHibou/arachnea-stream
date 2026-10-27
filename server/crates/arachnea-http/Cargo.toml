@@ -4,6 +4,8 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 autoexamples = false
+# Mirrored suites are loaded as unit tests with private implementation access.
+autotests = false
 
 [features]
 performance-diagnostics = ["arachnea-proxy?/performance-diagnostics"]

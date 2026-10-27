@@ -438,3 +438,138 @@ pub const PROXY_NETWORK_DEFAULT_MAX_CONNECTIONS: u32 = 1024;
 /// Default port for [`LoopbackProxyRuntime`] (0 means OS-allocated).
 #[cfg(feature = "server")]
 pub const PROXY_LOOPBACK_DEFAULT_PORT: u16 = 0;
+
+// --- Localized search concurrency and connection budgets ---
+
+/// Maximum concurrent TCP operations per search.
+#[cfg(feature = "core")]
+pub(crate) const PROXY_SEARCH_TCP_CONCURRENCY: usize = 8;
+
+/// Maximum concurrent validation operations per search.
+#[cfg(feature = "core")]
+pub(crate) const PROXY_SEARCH_VALIDATION_CONCURRENCY: usize = 3;
+
+/// Maximum concurrent provider operations per search.
+#[cfg(feature = "core")]
+pub(crate) const PROXY_SEARCH_PROVIDER_CONCURRENCY: usize = 2;
+
+/// Connection envelope for an origin without reusable acceptance evidence.
+#[cfg(feature = "core")]
+pub(crate) const PROXY_SEARCH_NEW_ORIGIN_CONNECTION_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// Connection envelope when the localized search reuses accepted origin evidence.
+#[cfg(feature = "core")]
+pub(crate) const PROXY_SEARCH_REUSED_ORIGIN_CONNECTION_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// TCP connection cap in milliseconds for a new localized origin.
+#[cfg(feature = "core")]
+pub(crate) const PROXY_SEARCH_NEW_ORIGIN_CONNECT_TIMEOUT_MS: u64 = 3_000;
+
+/// TCP connection cap in milliseconds for a reused localized origin.
+#[cfg(feature = "core")]
+pub(crate) const PROXY_SEARCH_REUSED_ORIGIN_CONNECT_TIMEOUT_MS: u64 = 30_000;
+
+/// Proxy handshake cap in milliseconds for a new localized origin.
+#[cfg(feature = "core")]
+pub(crate) const PROXY_SEARCH_NEW_ORIGIN_HANDSHAKE_TIMEOUT_MS: u64 = 5_000;
+
+/// Proxy handshake cap in milliseconds for a reused localized origin.
+#[cfg(feature = "core")]
+pub(crate) const PROXY_SEARCH_REUSED_ORIGIN_HANDSHAKE_TIMEOUT_MS: u64 = 30_000;
+
+// --- Shared inventory concurrency ---
+
+/// Maximum concurrent TCP operations per inventory.
+#[cfg(feature = "core")]
+pub(crate) const PROXY_INVENTORY_TCP_CONCURRENCY: usize = 16;
+
+/// Maximum concurrent validation operations per inventory.
+#[cfg(feature = "core")]
+pub(crate) const PROXY_INVENTORY_VALIDATION_CONCURRENCY: usize = 4;
+
+/// Maximum concurrent provider operations per inventory.
+#[cfg(feature = "core")]
+pub(crate) const PROXY_INVENTORY_PROVIDER_CONCURRENCY: usize = 2;
+
+// --- Media request budgets and framing limits ---
+
+/// Combined connection and destination-TLS envelope for a reused media route.
+#[cfg(feature = "core")]
+pub(crate) const PROXY_MEDIA_REUSED_CONNECTION_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// Destination TLS handshake budget for a new media origin.
+#[cfg(feature = "core")]
+pub(crate) const PROXY_MEDIA_NEW_ORIGIN_TLS_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Destination TLS handshake budget for a reused media origin.
+#[cfg(feature = "core")]
+pub(crate) const PROXY_MEDIA_REUSED_ORIGIN_TLS_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Send-and-response-header budget for a new media origin in a localized search.
+#[cfg(feature = "core")]
+pub(crate) const PROXY_MEDIA_NEW_ORIGIN_HEADER_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Send-and-response-header budget for a reused media origin in a localized search.
+#[cfg(feature = "core")]
+pub(crate) const PROXY_MEDIA_REUSED_ORIGIN_HEADER_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// Buffered media body collection budget within a localized search.
+#[cfg(feature = "core")]
+pub(crate) const PROXY_MEDIA_BUFFERED_BODY_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Maximum bytes inspected for the first chunk framing line in compatibility mode.
+#[cfg(feature = "core")]
+pub(crate) const PROXY_MEDIA_CHUNK_PREFIX_LIMIT: usize = 8_192;
+
+/// Upstream media response header threshold; independent of inbound server limits.
+#[cfg(feature = "core")]
+pub(crate) const PROXY_MEDIA_MAX_RESPONSE_HEADER_BYTES: usize = 65_536;
+
+// --- Performance diagnostic sampling ---
+
+/// Maximum candidate details emitted for one diagnostic ranking snapshot.
+#[cfg(all(feature = "core", feature = "performance-diagnostics"))]
+pub(crate) const PROXY_RANKING_DIAGNOSTIC_LIMIT: usize = 8;
+
+// --- Controller HTTP filtering contract ---
+
+/// Headers excluded from forwarded controller-service requests.
+#[cfg(feature = "controller-service")]
+pub(crate) const PROXY_HTTP_REQUEST_NON_TRANSFERABLE_HEADERS: &[&str] = &[
+    "connection",
+    "content-length",
+    "transfer-encoding",
+    "host",
+    "proxy-authorization",
+    "proxy-connection",
+];
+
+/// Headers excluded from relayed responses while preserving valid content length.
+#[cfg(feature = "controller-service")]
+pub(crate) const PROXY_HTTP_RESPONSE_NON_TRANSFERABLE_HEADERS: &[&str] = &[
+    "connection",
+    "transfer-encoding",
+    "host",
+    "proxy-authorization",
+    "proxy-connection",
+];
+
+/// HTTP methods accepted by the controller proxy service.
+#[cfg(feature = "controller-service")]
+pub(crate) const PROXY_HTTP_SUPPORTED_METHODS: &[&str] =
+    &["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
+
+// --- Loopback listener limits ---
+
+/// Maximum wait to identify the protocol on a loopback connection.
+#[cfg(feature = "server")]
+pub(crate) const PROXY_LOOPBACK_INSPECTION_TIMEOUT: std::time::Duration =
+    std::time::Duration::from_secs(30);
+
+/// Maximum live routing profiles retained by one loopback listener.
+#[cfg(feature = "server")]
+pub(crate) const PROXY_LOOPBACK_MAX_ROUTES: usize = 8192;
+
+/// Maximum concurrent connections accepted by one loopback listener.
+#[cfg(feature = "server")]
+pub(crate) const PROXY_LOOPBACK_MAX_CONNECTIONS: usize = 1024;

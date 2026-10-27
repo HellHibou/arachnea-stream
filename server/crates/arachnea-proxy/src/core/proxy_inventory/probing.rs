@@ -7,6 +7,8 @@ use futures::future::{BoxFuture, WeakShared};
 use futures::FutureExt;
 use tokio::sync::Mutex;
 
+#[cfg(feature = "performance-diagnostics")]
+use super::performance_diagnostics::SharedExecution;
 use super::ProxyInventory;
 use crate::core::{Destination, ProxyRecord, ProxyRuntimeStatus, ProxySearchContext};
 
@@ -16,25 +18,6 @@ use super::eligibility::{
 };
 
 pub(super) type SharedProbe = WeakShared<BoxFuture<'static, Option<ProxyRecord>>>;
-
-#[cfg(feature = "performance-diagnostics")]
-struct SharedExecution {
-    key: String,
-    operation_id: tokio::task::Id,
-    completed: bool,
-    started: std::time::Instant,
-}
-
-#[cfg(feature = "performance-diagnostics")]
-impl Drop for SharedExecution {
-    fn drop(&mut self) {
-        tracing::debug!(work = %self.key, completed = self.completed,
-            operation_id = %self.operation_id,
-            elapsed_ms = self.started.elapsed().as_millis(),
-            elapsed_us = self.started.elapsed().as_micros(),
-            "finished shared proxy operation");
-    }
-}
 
 /// Releases unfinished request-local work when a candidate pipeline is cancelled.
 struct SearchReservation {

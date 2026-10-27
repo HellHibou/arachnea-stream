@@ -1,5 +1,9 @@
 //! Request-owned deadlines, work tracking and replay policy for localized proxies.
 
+#[cfg(feature = "performance-diagnostics")]
+#[path = "performance_diagnostics/proxy_search.rs"]
+mod performance_diagnostics;
+
 use crate::{PROXY_SEARCH_DEFAULT_EXTENSION, PROXY_SEARCH_DEFAULT_TARGET};
 
 use super::{Destination, ProxyError, ProxyRequestDelivery, ProxySelectionProvenance, Result};
@@ -75,7 +79,7 @@ pub struct ProxySearchContext {
     validation_failures: watch::Sender<usize>,
     /// Per-search TCP concurrency; waiting consumes the target deadline.
     pub(crate) tcp_slots: Arc<Semaphore>,
-    /// Three full validations per search, within the shared inventory limit of four.
+    /// Per-search full-validation concurrency, within the shared inventory limit.
     pub(crate) validation_slots: Arc<Semaphore>,
     /// Per-search provider concurrency.
     pub(crate) provider_slots: Arc<Semaphore>,
@@ -111,9 +115,9 @@ impl ProxySearchContext {
             work: Arc::new(Mutex::new(Work::default())),
             accepted: watch::channel(false).0,
             validation_failures: watch::channel(0).0,
-            tcp_slots: Arc::new(Semaphore::new(8)),
-            validation_slots: Arc::new(Semaphore::new(3)),
-            provider_slots: Arc::new(Semaphore::new(2)),
+            tcp_slots: Arc::new(Semaphore::new(crate::PROXY_SEARCH_TCP_CONCURRENCY)),
+            validation_slots: Arc::new(Semaphore::new(crate::PROXY_SEARCH_VALIDATION_CONCURRENCY)),
+            provider_slots: Arc::new(Semaphore::new(crate::PROXY_SEARCH_PROVIDER_CONCURRENCY)),
         }
     }
     /// Keeps worker ownership outside the context captured by retained probes.
@@ -199,11 +203,11 @@ impl ProxySearchContext {
 
     /// Connection envelope for the exact origin attempt, including destination TLS.
     pub fn connection_timeout(&self) -> Duration {
-        Duration::from_secs(if self.work.lock().unwrap().reused_origin {
-            60
+        if self.work.lock().unwrap().reused_origin {
+            crate::PROXY_SEARCH_REUSED_ORIGIN_CONNECTION_TIMEOUT
         } else {
-            15
-        })
+            crate::PROXY_SEARCH_NEW_ORIGIN_CONNECTION_TIMEOUT
+        }
     }
     /// Remaining hard-deadline time for a business attempt already engaged.
     pub fn origin_remaining(&self) -> Duration {
@@ -324,64 +328,18 @@ impl ProxySearchContext {
         let mut timeouts = configured.clone();
         let work = self.work.lock().unwrap();
         if work.endpoints.contains(endpoint) {
-            timeouts.connect_ms =
-                timeouts
-                    .connect_ms
-                    .min(if work.reused_origin { 30_000 } else { 3_000 });
-            timeouts.handshake_ms =
-                timeouts
-                    .handshake_ms
-                    .min(if work.reused_origin { 30_000 } else { 5_000 });
+            timeouts.connect_ms = timeouts.connect_ms.min(if work.reused_origin {
+                crate::PROXY_SEARCH_REUSED_ORIGIN_CONNECT_TIMEOUT_MS
+            } else {
+                crate::PROXY_SEARCH_NEW_ORIGIN_CONNECT_TIMEOUT_MS
+            });
+            timeouts.handshake_ms = timeouts.handshake_ms.min(if work.reused_origin {
+                crate::PROXY_SEARCH_REUSED_ORIGIN_HANDSHAKE_TIMEOUT_MS
+            } else {
+                crate::PROXY_SEARCH_NEW_ORIGIN_HANDSHAKE_TIMEOUT_MS
+            });
         }
         timeouts
-    }
-    #[cfg(feature = "performance-diagnostics")]
-    pub(crate) fn completed_work(&self, validation: bool, usable: bool) {
-        let mut work = self.work.lock().unwrap();
-        if validation {
-            work.validations_completed += 1;
-            work.validations_eligible += usize::from(usable);
-        } else {
-            work.prechecks_completed += 1;
-            work.prechecks_reachable += usize::from(usable);
-        }
-    }
-    /// Logs optional bounded DEBUG counters without URLs, cookies or bodies.
-    /// Available only with `performance-diagnostics`; a disabled DEBUG filter
-    /// avoids locking and counting reserved work.
-    /// Reservations include queued and completed work; cancelled reservations are released.
-    ///
-    /// # Arguments
-    /// - `stage`: Static lifecycle description supplied by the orchestration layer.
-    #[cfg(feature = "performance-diagnostics")]
-    pub fn log_progress(&self, stage: &'static str) {
-        if !tracing::enabled!(tracing::Level::DEBUG) {
-            return;
-        }
-        let work = self.work.lock().unwrap();
-        let prechecks_reserved = work
-            .technical
-            .iter()
-            .filter(|(validation, _)| !validation)
-            .count();
-        let validations_reserved = work.technical.len() - prechecks_reserved;
-        tracing::debug!(
-            search_id = self.id(),
-            stage,
-            elapsed_ms = self.started.elapsed().as_millis(),
-            remaining_ms = self.remaining().as_millis(),
-            prechecks_reserved,
-            prechecks_completed = work.prechecks_completed,
-            prechecks_reachable = work.prechecks_reachable,
-            validations_reserved,
-            validations_completed = work.validations_completed,
-            validations_eligible = work.validations_eligible,
-            business_endpoints = work.endpoints.len(),
-            origin_active = work.active,
-            reused_origin = work.reused_origin,
-            accepted = work.accepted,
-            "localized proxy search progress"
-        );
     }
     pub(crate) fn failed_validation(&self) {
         if let Some(progress) = self

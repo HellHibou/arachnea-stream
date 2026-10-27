@@ -8,7 +8,7 @@ use std::sync::Arc;
 ///
 /// This constant defines the default location where credentials are stored
 /// in clear-text JSON format.
-pub const DEFAULT_FILE_CREDENTIALS_STORE_PATH: &str = "data/credentials.json";
+pub use crate::DEFAULT_FILE_CREDENTIALS_STORE_PATH;
 
 use crate::application;
 

@@ -120,16 +120,6 @@ pub enum JsonScraperEntry {
 }
 
 impl JsonScraperEntry {
-    /// Returns the flattened list of leaf field names produced by this entry.
-    ///
-    /// Collects all field names from this entry and its nested sub-entries.
-    #[cfg(any(test, feature = "test-support"))]
-    pub fn field_names(&self) -> Vec<String> {
-        let mut names = Vec::new();
-        self.collect_field_names(None, &mut names);
-        names
-    }
-
     /// Applies this entry to the provided JSON row.
     ///
     /// Group entries append explicit array items, while field entries append values.
@@ -221,39 +211,6 @@ impl JsonScraperEntry {
     /// Returns `true` when this entry is a grouped/nested JSON entry.
     pub fn is_group(&self) -> bool {
         matches!(self, JsonScraperEntry::Group { .. })
-    }
-
-    /// Recursively collects leaf field names into `names`, prefixing each with the
-    /// group hierarchy separated by ` > `.
-    ///
-    /// # Arguments
-    ///
-    /// * `prefix` - Optional group path prefix prepended to each collected name.
-    /// * `names` - Accumulator receiving the collected field names.
-    #[cfg(any(test, feature = "test-support"))]
-    fn collect_field_names(&self, prefix: Option<&str>, names: &mut Vec<String>) {
-        let full_name = match prefix {
-            Some(prefix) => format!("{} > {}", prefix, self.name()),
-            None => self.name().to_string(),
-        };
-
-        match self {
-            JsonScraperEntry::Field { .. } => names.push(full_name),
-            JsonScraperEntry::Group { entries, .. } => {
-                for entry in entries {
-                    entry.collect_field_names(Some(&full_name), names);
-                }
-            }
-        }
-    }
-
-    /// Returns the name of this entry.
-    #[cfg(any(test, feature = "test-support"))]
-    fn name(&self) -> &str {
-        match self {
-            JsonScraperEntry::Field { name, .. } => name,
-            JsonScraperEntry::Group { name, .. } => name,
-        }
     }
 
     /// Validates every action in the entry against the entry-level contract.
@@ -791,97 +748,9 @@ impl ScraperEntrySpec for JsonScraperEntry {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
+#[path = "../../../tests/scrapyfy/scraper_json/entry.rs"]
+mod tests;
 
-    #[test]
-    fn test_select_json_values_with_filter() {
-        let data = json!({
-            "images": [
-                {"role": "banner", "external_key": "key1"},
-                {"role": "mea", "external_key": "key2"},
-                {"role": "thumbnail", "external_key": "key3"},
-                {"role": "mea", "external_key": "key4"}
-            ]
-        });
-
-        // Test filtering by role=mea
-        let results = select_json_values(
-            &data,
-            Some("/images/*[role=mea]/external_key"),
-            HtmlScraperSelectMode::All,
-        );
-        let strings: Vec<String> = results
-            .into_iter()
-            .flat_map(json_value_to_strings)
-            .collect();
-
-        assert_eq!(strings, vec!["key2", "key4"]);
-    }
-
-    #[test]
-    fn test_select_json_values_without_filter() {
-        let data = json!({
-            "images": [
-                {"external_key": "key1"},
-                {"external_key": "key2"}
-            ]
-        });
-
-        // Test without filter (should get all)
-        let results = select_json_values(
-            &data,
-            Some("/images/*/external_key"),
-            HtmlScraperSelectMode::All,
-        );
-        let strings: Vec<String> = results
-            .into_iter()
-            .flat_map(json_value_to_strings)
-            .collect();
-
-        assert_eq!(strings, vec!["key1", "key2"]);
-    }
-
-    #[test]
-    fn test_select_json_values_with_nested_filter() {
-        let data = json!([
-            {"content": [{"idType": 7, "content": {"name": "Cat A"}}]},
-            {"content": [{"idType": 8, "content": {"name": "Film B"}}]},
-            {"content": [{"idType": 8, "content": {"name": "Film C"}}]}
-        ]);
-
-        let results = select_json_values(
-            &data,
-            Some("/*[content/0/idType=8]/content/0/content/name"),
-            HtmlScraperSelectMode::All,
-        );
-        let strings: Vec<String> = results
-            .into_iter()
-            .flat_map(json_value_to_strings)
-            .collect();
-
-        assert_eq!(strings, vec!["Film B", "Film C"]);
-    }
-
-    #[test]
-    fn test_select_json_values_with_nested_filter_preserves_brackets() {
-        let data = json!({
-            "result": {
-                "homecontent": [
-                    {"content": [{"idType": 7}]},
-                    {"content": [{"idType": 8}]},
-                    {"content": [{"idType": 8}]}
-                ]
-            }
-        });
-
-        let results = select_json_values(
-            &data,
-            Some("/result/homecontent/*[content/0/idType=8]"),
-            HtmlScraperSelectMode::All,
-        );
-
-        assert_eq!(results.len(), 2);
-    }
-}
+#[cfg(any(test, feature = "test-support"))]
+#[path = "../../../tests/support/scrapyfy/scraper_json/entry.rs"]
+mod test_support;

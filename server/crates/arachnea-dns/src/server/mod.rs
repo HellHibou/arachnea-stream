@@ -14,7 +14,3 @@ pub use config::{
 };
 pub use dns::handle_packet;
 pub use server::{run_tcp, run_udp, Server};
-
-#[cfg(test)]
-#[path = "tests/config_tests.rs"]
-mod config_tests;

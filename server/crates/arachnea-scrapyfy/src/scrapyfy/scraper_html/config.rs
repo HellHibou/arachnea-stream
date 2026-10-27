@@ -26,7 +26,7 @@ use crate::scrapyfy::{HttpClient, ScraperHttpConfig};
 ///
 /// The default concurrency limit of 4.
 fn default_html_row_concurrency() -> usize {
-    4
+    crate::HTML_DEFAULT_ROW_CONCURRENCY
 }
 
 /// Raw configuration definition of one HTML query endpoint.

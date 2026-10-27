@@ -9,7 +9,7 @@ use regex::Regex;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use tokio::sync::Mutex as AsyncMutex;
 
 use arachnea_core::persistence::CredentialsStore;
@@ -23,32 +23,82 @@ use crate::services::player_resolver::{
     ResolvedPlayerStream, SpriteThumbnail,
 };
 
+use crate::PLAYER_ERROR_BODY_PREVIEW_LENGTH;
+
+/// M6/6play login endpoint.
 const SIXPLAY_LOGIN_URL: &str = "https://login-gigya.m6.fr/accounts.login";
+
+/// M6/6play browser login page endpoint.
 const SIXPLAY_LOGIN_PAGE_URL: &str = "https://www.6play.fr/connexion";
+
+/// M6/6play JavaScript bundle used for API-key discovery URL template.
 const SIXPLAY_BUNDLE_URL_TEMPLATE: &str = "https://www.6play.fr/main-{}.bundle.js";
+
+/// Fallback public API identifier when the M6/6play bundle lookup fails.
 const SIXPLAY_API_KEY_FALLBACK: &str =
     "3_hH5KBv25qZTd_sURpixbQW6a4OsiIzIEF2Ei_2H7TXTGLJb_1Hr4THKZianCQhWK";
+
+/// M6/6play JWT token endpoint.
 const SIXPLAY_TOKEN_UUID_URL: &str = "https://front-auth.6cloud.fr/v2/platforms/m6group_web/getJwt";
+
+/// M6/6play replay DRM token URL template.
 const SIXPLAY_TOKEN_REPLAY_URL_TEMPLATE: &str = "https://drm.6cloud.fr/v1/customers/m6web/platforms/m6group_web/services/m6replay/users/{}/videos/{}/upfront-token";
+
+/// M6/6play live DRM token URL template.
 const SIXPLAY_TOKEN_LIVE_URL_TEMPLATE: &str = "https://drm.6cloud.fr/v1/customers/m6web/platforms/m6group_web/services/6play/users/{}/live/{}/upfront-token";
+
+/// M6/6play video metadata URL template.
 const SIXPLAY_VIDEO_JSON_URL_TEMPLATE: &str = "https://android.middleware.6play.fr/6play/v2/platforms/m6group_androidmob/services/6play/videos/{}?csa=6&with=clips,freemiumpacks";
+
+/// M6/6play live metadata endpoint.
 const SIXPLAY_LIVE_JSON_URL: &str =
     "https://android.middleware.6play.fr/6play/v2/platforms/m6group_androidmob/services/6play/live";
+
+/// M6/6play DRM license endpoint.
 const SIXPLAY_LICENSE_URL: &str =
     "https://lic.drmtoday.com/license-proxy-widevine/cenc/?specConform=true";
+
+/// Client release identifier sent to the M6/6play API.
 const SIXPLAY_CLIENT_RELEASE: &str = "5.103.3";
+
+/// Customer identifier sent to the M6/6play DRM service.
 const SIXPLAY_CUSTOMER_NAME: &str = "m6web";
+
+/// JSONP callback name expected by the M6/6play login flow.
 const SIXPLAY_CALLBACK_NAME: &str = "jsonp_arachnea";
+
+/// Client device identifier sent to the M6/6play API.
 const SIXPLAY_DEVICE_ID: &str = "_luid_arachnea";
-const SIXPLAY_SESSION_TTL: Duration = Duration::from_secs(15 * 60);
+
+/// Lifetime of cached M6/6play login sessions.
+const SIXPLAY_SESSION_TTL: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+
 /// Total optional API-key lookup budget, shared by the page and bundle requests.
-const SIXPLAY_API_KEY_LOOKUP_TIMEOUT: Duration = Duration::from_secs(5);
+const SIXPLAY_API_KEY_LOOKUP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
 /// Lifetime of a key extracted from the public web bundle.
-const SIXPLAY_API_KEY_TTL: Duration = Duration::from_secs(15 * 60);
+const SIXPLAY_API_KEY_TTL: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+
 /// Delay before retrying web discovery after falling back to the bundled key.
-const SIXPLAY_API_KEY_FALLBACK_TTL: Duration = Duration::from_secs(60);
+const SIXPLAY_API_KEY_FALLBACK_TTL: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Stable source identifier for M6/6play routing and credentials.
 const M6PLAY_SERVICE_ID: &str = "m6play-fr";
+
+/// HTTP status classified as a destination rejection for M6/6play.
 const M6PLAY_PROXY_REJECTION_STATUS: u16 = 403;
+
+/// M6/6play storyboard tile width in pixels.
+const SIXPLAY_STORYBOARD_WIDTH: u32 = 200;
+
+/// M6/6play storyboard tile height in pixels.
+const SIXPLAY_STORYBOARD_HEIGHT: u32 = 112;
+
+/// Number of columns in the M6/6play storyboard sprite layout.
+const SIXPLAY_STORYBOARD_COLUMNS: u32 = 300;
+
+/// Number of rows in the M6/6play storyboard sprite layout.
+const SIXPLAY_STORYBOARD_ROWS: u32 = 1;
 
 static SIXPLAY_JS_ID_REGEX: OnceLock<Regex> = OnceLock::new();
 static SIXPLAY_API_KEY_REGEX: OnceLock<Regex> = OnceLock::new();
@@ -260,8 +310,7 @@ async fn resolve_live_stream(
     let mut generic_headers = HashMap::new();
     generic_headers.insert(
         "user-agent".to_string(),
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:148.0) Gecko/20100101 Firefox/148.0"
-            .to_string(),
+        crate::PLAYER_DEFAULT_USER_AGENT.to_string(),
     );
 
     let live_json = http_client
@@ -680,10 +729,13 @@ fn extract_storyboard_from_video_payload(video_payload: &Value) -> Option<Sprite
         .and_then(Value::as_f64)
         .unwrap_or(0.0);
 
-    const STORYBOARD_WIDTH: u32 = 200;
-    const STORYBOARD_HEIGHT: u32 = 112;
-    const STORYBOARD_COLUMNS: u32 = 300;
-    const STORYBOARD_ROWS: u32 = 1;
+    use SIXPLAY_STORYBOARD_WIDTH as STORYBOARD_WIDTH;
+
+    use SIXPLAY_STORYBOARD_HEIGHT as STORYBOARD_HEIGHT;
+
+    use SIXPLAY_STORYBOARD_COLUMNS as STORYBOARD_COLUMNS;
+
+    use SIXPLAY_STORYBOARD_ROWS as STORYBOARD_ROWS;
 
     let interval = if duration_seconds > 0.0 && STORYBOARD_COLUMNS > 0 {
         duration_seconds / STORYBOARD_COLUMNS as f64
@@ -816,7 +868,10 @@ fn preview_error_body(body: &str) -> String {
         return "<empty body>".to_string();
     }
 
-    let mut preview: String = value.chars().take(300).collect();
+    let mut preview: String = value
+        .chars()
+        .take(PLAYER_ERROR_BODY_PREVIEW_LENGTH)
+        .collect();
     if value.chars().count() > 300 {
         preview.push_str("...");
     }

@@ -1,5 +1,26 @@
 # Arachnea Stream
 
+## Source organization and validation
+
+`src/stream_scraper.rs` remains the public facade. Private modules under `src/stream_scraper/` implement catalog operations, playback, persistence setup and controller registration. `src/stream_resolver/` separates HTML fallback fetching, literal redirect recognition and conversion of extracted metadata. TF1 and RTLplay authentication/media/license helpers stay in private modules under their provider directories. Existing public import paths and controller commands remain available.
+
+Constants used by only one service resolver are documented at the beginning of its `src/services/*_resolver.rs` file; private child modules reuse those definitions. Constants genuinely shared by several service resolvers stay in `src/lib.rs`, alongside application and generic facade constants. The common user-agent, diagnostic preview limit and license-token length are defined once there. Defaults, endpoint identifiers, timeouts, token lifetimes, persisted store names and encryption-key bytes retain their values. The executable imports its configuration path and credentials key from the library; those constants are public because the binary is a separate Rust crate. Mutable session/license caches stay with their owners.
+
+Existing unit suites mirror `src/stream_resolver.rs` and `src/stream_scraper.rs` under crate-root `tests/`. Shared test-only helpers live under `tests/support/`, with conditional `#[path]` loading. `autotests = false` prevents Cargo from also treating the mirrored files as integration targets requiring public-only access. The Scrapyfy development dependency still enables `test-support`.
+
+From `server/`, list all scenarios with `cargo test -p arachnea-stream --all-features -- --list`. Run the local resolver and static metadata scenarios without contacting providers:
+
+```sh
+cargo test -p arachnea-stream --all-features -- \
+  --skip stream_scraper::tests::test_service \
+  --skip stream_scraper::tests::test_query_load_home \
+  --skip stream_scraper::tests::test_query_search \
+  --skip stream_scraper::tests::test_query_get_entry
+```
+
+This runs ten local tests and retains the existing ignored `test_all_services` scenario. The four filtered scenarios and `test_all_services` require live providers and, where applicable, credentials. They remain available for targeted manual execution. Omitting `--all-features` verifies the same local scenarios without optional performance diagnostics. Native GUI behavior and live provider compatibility require separate validation.
+
+
 ## Direct fallback when a country proxy is unavailable
 
 Stream scraper and resolver requests enable `fallback_direct` on their proxy core.

@@ -1,0 +1,1 @@
+(() => {{ const element = document.querySelector({selector}); if (!element) throw new Error('click target was not found'); element.click(); return true; }})()

@@ -1,4 +1,4 @@
-//! Eligibility checks, probe freshness and selection diagnostics.
+//! Eligibility checks and probe freshness.
 
 use std::time::{Duration, SystemTime};
 
@@ -6,106 +6,6 @@ use super::PROXY_TRANSIENT_FAILURE_COOLDOWN;
 use crate::core::{
     Destination, ProbeMode, ProxyCapabilityStatus, ProxyProtocol, ProxyRecord, ProxyRuntimeStatus,
 };
-
-#[cfg(feature = "performance-diagnostics")]
-#[derive(Clone, Copy, Debug, Default)]
-pub(super) struct SelectionStats {
-    pub(super) total: usize,
-    pub(super) ok: usize,
-    pub(super) unknown: usize,
-    pub(super) ko: usize,
-    pub(super) authentication_required: usize,
-    pub(super) authentication_required_flag: usize,
-    pub(super) cooldown: usize,
-    pub(super) probe_expired: usize,
-    pub(super) destination_cooldown: usize,
-    pub(super) https_rejected: usize,
-    pub(super) http_forward_available: usize,
-    pub(super) http_forward_unavailable: usize,
-    pub(super) http_forward_unknown: usize,
-    pub(super) https_tunnel_available: usize,
-    pub(super) https_tunnel_unavailable: usize,
-    pub(super) https_tunnel_unknown: usize,
-    pub(super) destination_tls_available: usize,
-    pub(super) destination_tls_unavailable: usize,
-    pub(super) destination_tls_unknown: usize,
-    pub(super) proxy_tls_valid: usize,
-    pub(super) proxy_tls_invalid: usize,
-    pub(super) proxy_tls_unknown: usize,
-    pub(super) eligible: usize,
-}
-
-#[cfg(feature = "performance-diagnostics")]
-pub(super) fn selection_stats<'a>(
-    records: impl IntoIterator<Item = &'a ProxyRecord>,
-    country: &str,
-    require_https: bool,
-    destination: Option<&Destination>,
-    now: SystemTime,
-    probe_ttl: Duration,
-    probe_mode: ProbeMode,
-) -> SelectionStats {
-    let mut stats = SelectionStats::default();
-
-    for record in records {
-        stats.total += 1;
-        match record.status {
-            ProxyRuntimeStatus::Ok => stats.ok += 1,
-            ProxyRuntimeStatus::Unknown => stats.unknown += 1,
-            ProxyRuntimeStatus::Ko => stats.ko += 1,
-            ProxyRuntimeStatus::AuthenticationRequired => stats.authentication_required += 1,
-        }
-
-        if record.authentication_required == Some(true) {
-            stats.authentication_required_flag += 1;
-        }
-
-        match record.http_forwarding {
-            ProxyCapabilityStatus::Available => stats.http_forward_available += 1,
-            ProxyCapabilityStatus::Unavailable => stats.http_forward_unavailable += 1,
-            ProxyCapabilityStatus::Unknown => stats.http_forward_unknown += 1,
-        }
-        match record.https_tunnel {
-            ProxyCapabilityStatus::Available => stats.https_tunnel_available += 1,
-            ProxyCapabilityStatus::Unavailable => stats.https_tunnel_unavailable += 1,
-            ProxyCapabilityStatus::Unknown => stats.https_tunnel_unknown += 1,
-        }
-        match record.destination_tls {
-            ProxyCapabilityStatus::Available => stats.destination_tls_available += 1,
-            ProxyCapabilityStatus::Unavailable => stats.destination_tls_unavailable += 1,
-            ProxyCapabilityStatus::Unknown => stats.destination_tls_unknown += 1,
-        }
-        match record.proxy_tls_certificate {
-            ProxyCapabilityStatus::Available => stats.proxy_tls_valid += 1,
-            ProxyCapabilityStatus::Unavailable => stats.proxy_tls_invalid += 1,
-            ProxyCapabilityStatus::Unknown => stats.proxy_tls_unknown += 1,
-        }
-
-        if record.cooldown_until.is_some_and(|cooldown| cooldown > now) {
-            stats.cooldown += 1;
-        }
-
-        if probe_is_expired(record, now, probe_ttl) {
-            stats.probe_expired += 1;
-        }
-
-        if destination
-            .is_some_and(|destination| has_active_destination_cooldown(record, destination, now))
-        {
-            stats.destination_cooldown += 1;
-        }
-
-        if require_https && !can_reach_https_destination(record, probe_mode) {
-            stats.https_rejected += 1;
-        }
-
-        if is_eligible(record, country, require_https, destination, now, probe_mode) {
-            stats.eligible += 1;
-        }
-    }
-
-    stats
-}
 
 pub(super) fn epoch_millis() -> u64 {
     SystemTime::now()
@@ -272,7 +172,12 @@ pub(super) fn has_active_destination_cooldown(
     })
 }
 
-fn can_reach_https_destination(record: &ProxyRecord, probe_mode: ProbeMode) -> bool {
+/// Applies the existing capability policy to an HTTPS destination.
+///
+/// # Arguments
+/// - `record`: Cached endpoint evidence.
+/// - `probe_mode`: Strict or relaxed interpretation of source declarations.
+pub(super) fn can_reach_https_destination(record: &ProxyRecord, probe_mode: ProbeMode) -> bool {
     if matches!(record.destination_tls, ProxyCapabilityStatus::Unavailable) {
         return false;
     }

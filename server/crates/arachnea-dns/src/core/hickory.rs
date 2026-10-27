@@ -45,13 +45,13 @@ pub(crate) async fn resolve_with_hickory(
         TokioResolver::builder_with_config(resolver_config, TokioConnectionProvider::default());
     let opts = builder.options_mut();
     opts.timeout = Duration::from_millis(upstream.timeout_ms.unwrap_or(default_timeout_ms));
-    opts.attempts = 1;
+    opts.attempts = crate::DNS_HICKORY_ATTEMPTS;
     opts.validate = validate_dnssec;
     opts.preserve_intermediates = true;
     opts.use_hosts_file = ResolveHosts::Never;
     opts.try_tcp_on_error = true;
-    opts.negative_min_ttl = Some(Duration::from_secs(1));
-    opts.negative_max_ttl = Some(Duration::from_secs(300));
+    opts.negative_min_ttl = Some(crate::DNS_HICKORY_NEGATIVE_MIN_TTL);
+    opts.negative_max_ttl = Some(crate::DNS_HICKORY_NEGATIVE_MAX_TTL);
 
     let resolver = builder.build();
     let name = Name::from_ascii(format!("{}.", query.name))

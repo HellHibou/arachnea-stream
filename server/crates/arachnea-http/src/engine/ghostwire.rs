@@ -12,7 +12,7 @@ use crate::{
 };
 
 /// Registry name for the Ghostwire engine.
-pub const ENGINE_NAME: &str = "ghostwire";
+pub use crate::HTTP_GHOSTWIRE_ENGINE_NAME as ENGINE_NAME;
 
 /// Ghostwire engine adapter for Cloudflare challenge handling.
 #[derive(Clone)]

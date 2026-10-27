@@ -247,7 +247,11 @@ impl Cache {
             return;
         }
 
-        let ttl = self.config.max_ttl_seconds.min(300).max(1);
+        let ttl = self
+            .config
+            .max_ttl_seconds
+            .min(crate::DNS_AGGRESSIVE_NEGATIVE_MAX_TTL_SECONDS)
+            .max(crate::DNS_AGGRESSIVE_NEGATIVE_MIN_TTL_SECONDS);
         let Some(error) = NegativeCachedError::from_error(error) else {
             return;
         };
@@ -282,7 +286,11 @@ impl Cache {
             return;
         }
 
-        let ttl = self.config.max_ttl_seconds.min(300).max(1);
+        let ttl = self
+            .config
+            .max_ttl_seconds
+            .min(crate::DNS_AGGRESSIVE_NEGATIVE_MAX_TTL_SECONDS)
+            .max(crate::DNS_AGGRESSIVE_NEGATIVE_MIN_TTL_SECONDS);
         let expires_at = Instant::now() + Duration::from_secs(ttl as u64);
         let mut cached = self.dnssec_negative_proofs.write().await;
         cached.retain(|proof| Instant::now() <= proof.expires_at);
@@ -489,3 +497,7 @@ impl CacheKey {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/core/cache.rs"]
+mod tests;

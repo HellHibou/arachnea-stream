@@ -141,9 +141,7 @@ async fn handle_proxy_http_inner(
         ));
     }
     let method = input.method.to_ascii_uppercase();
-    const SUPPORTED_METHODS: &[&str] =
-        &["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
-    if !SUPPORTED_METHODS.contains(&method.as_str()) {
+    if !crate::PROXY_HTTP_SUPPORTED_METHODS.contains(&method.as_str()) {
         return Ok(stream_error(
             400,
             format!("unsupported HTTP method '{}'", input.method),

@@ -9,19 +9,15 @@ use rand::Rng;
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
-/// Name of the session cookie sent to authenticated administrators.
-pub const ADMIN_SESSION_COOKIE: &str = "arachnea_admin_session";
+pub use crate::ADMIN_SESSION_COOKIE;
 
-/// Lifetime of one administrator session.
-const SESSION_TTL: Duration = Duration::from_secs(2 * 60 * 60);
+use crate::ADMIN_SESSION_TTL as SESSION_TTL;
 
-/// Number of failed logins accepted per peer inside the rate-limit window.
-const MAX_FAILED_LOGINS: usize = 10;
+use crate::ADMIN_MAX_FAILED_LOGINS as MAX_FAILED_LOGINS;
 
-/// Window during which failed logins are counted per peer.
-const RATE_LIMIT_WINDOW: Duration = Duration::from_secs(10 * 60);
+use crate::ADMIN_RATE_LIMIT_WINDOW as RATE_LIMIT_WINDOW;
 
 /// Hashes a password with Argon2id and a random salt.
 ///

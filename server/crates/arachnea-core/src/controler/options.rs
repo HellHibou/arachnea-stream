@@ -10,13 +10,13 @@ use crate::{
 };
 
 /// Default port used by the REST controller when no CLI override is provided.
-pub const DEFAULT_SERVER_PORT: u16 = 8080;
+pub use crate::DEFAULT_SERVER_PORT;
 
 /// Custom URI scheme used by the desktop frontend.
-pub const DEFAULT_TAURI_WEB_SCHEME: &str = "arachnea-core";
+pub use crate::DEFAULT_TAURI_WEB_SCHEME;
 
 /// API prefix used by the desktop binary stream routes.
-pub const DEFAULT_TAURI_API_PREFIX: &str = "api";
+pub use crate::DEFAULT_TAURI_API_PREFIX;
 
 /// Runtime mode the application controller runs under.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -231,7 +231,7 @@ impl CoreApplicationOptions {
             web_scheme,
             api_prefix,
             server_tray_factory: None,
-            tray_enabled: true,
+            tray_enabled: crate::APPLICATION_DEFAULT_TRAY_ENABLED,
             reload_configuration: None,
             web_mount_paths: Vec::new(),
             additional_options: BTreeMap::new(),
@@ -381,7 +381,7 @@ impl Default for CoreApplicationOptions {
             web_scheme: Some(DEFAULT_TAURI_WEB_SCHEME.to_string()),
             api_prefix: None,
             server_tray_factory: None,
-            tray_enabled: true,
+            tray_enabled: crate::APPLICATION_DEFAULT_TRAY_ENABLED,
             reload_configuration: None,
             web_mount_paths: Vec::new(),
             additional_options: BTreeMap::new(),

@@ -261,60 +261,6 @@ impl HtmlScraperEntry {
         )
     }
 
-    /// Returns the output field name used in the final metadata map.
-    ///
-    /// For both field and group variants, this returns the `name` field.
-    #[cfg(any(test, feature = "test-support"))]
-    pub fn name(&self) -> &str {
-        match self {
-            HtmlScraperEntry::Field { name, .. } => name,
-            HtmlScraperEntry::Group { name, .. } => name,
-        }
-    }
-
-    /// Returns the flattened list of leaf field names produced by this entry.
-    ///
-    /// Recursively collects all leaf field names from this entry and its children,
-    /// including the full hierarchical path for nested group entries.
-    ///
-    /// # Returns
-    ///
-    /// A vector of strings representing the full paths to all leaf fields,
-    /// with group hierarchies separated by ` > `.
-    #[cfg(any(test, feature = "test-support"))]
-    pub fn field_names(&self) -> Vec<String> {
-        let mut names = Vec::new();
-        self.collect_field_names(None, &mut names);
-        names
-    }
-
-    /// Recursively collects leaf field names into `names`, prefixing each with the
-    /// group hierarchy separated by ` > `.
-    ///
-    /// This is a helper method for [`field_names`] that builds the hierarchical paths.
-    ///
-    /// # Arguments
-    ///
-    /// * `prefix` - Optional group path prefix prepended to each collected name.
-    ///   If `None`, the entry's own name is used as the base.
-    /// * `names` - Accumulator receiving the collected field names.
-    #[cfg(any(test, feature = "test-support"))]
-    fn collect_field_names(&self, prefix: Option<&str>, names: &mut Vec<String>) {
-        let full_name = match prefix {
-            Some(prefix) => format!("{} > {}", prefix, self.name()),
-            None => self.name().to_string(),
-        };
-
-        match self {
-            HtmlScraperEntry::Field { .. } => names.push(full_name),
-            HtmlScraperEntry::Group { entries, .. } => {
-                for entry in entries {
-                    entry.collect_field_names(Some(&full_name), names);
-                }
-            }
-        }
-    }
-
     /// Applies this entry to the provided result root.
     ///
     /// Executes the entry's extraction logic on the given HTML element and appends
@@ -828,27 +774,6 @@ impl HtmlScraperEntry {
     }
 }
 
-impl TryFrom<HtmlScraperEntryRaw> for HtmlScraperEntry {
-    type Error = anyhow::Error;
-
-    /// Converts a raw YAML entry definition into a validated runtime entry.
-    ///
-    /// Delegates to [`from_raw_with_base_url`] with an empty string as the base URL.
-    ///
-    /// # Arguments
-    ///
-    /// * `config` - Raw YAML entry definition to convert.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the entry defines both `actions` and `entries`
-    /// (mutually exclusive), or when it defines neither (at least one required).
-    /// Also returns errors for invalid CSS selectors or sub-query conversion failures.
-    fn try_from(config: HtmlScraperEntryRaw) -> Result<Self> {
-        Self::from_raw_with_base_url(config, "")
-    }
-}
-
 impl ScraperEntrySpec for HtmlScraperEntry {
     /// Returns a reference to this entry as a trait object.
     ///
@@ -979,82 +904,8 @@ impl ScraperEntrySpec for HtmlScraperEntry {
     }
 }
 
-impl From<&HtmlScraperEntry> for HtmlScraperEntryRaw {
-    /// Converts a runtime entry back into its raw YAML-compatible representation.
-    ///
-    /// Serializes the validated runtime entry back to a form that can be
-    /// serialized to YAML. This preserves the original structure but loses
-    /// runtime-only information like compiled selectors.
-    ///
-    /// # Arguments
-    ///
-    /// * `entry` - Runtime entry to convert.
-    ///
-    /// # Returns
-    ///
-    /// A raw entry struct suitable for YAML serialization.
-    fn from(entry: &HtmlScraperEntry) -> Self {
-        match entry {
-            HtmlScraperEntry::Field {
-                name,
-                selector_template,
-                output_type,
-                selector,
-                select,
-                actions,
-                ..
-            } => Self {
-                name: name.clone(),
-                output_type: Some(*output_type),
-                selector: HtmlScraperEntry::serialize_selector(selector_template, selector),
-                resolved_selector: None,
-                select: *select,
-                actions: actions.clone(),
-                entries: Vec::new(),
-                post_build: Vec::new(),
-                sub_queries: Vec::new(),
-            },
-            HtmlScraperEntry::Group {
-                name,
-                selector_template,
-                output_type,
-                selector,
-                select,
-                entries,
-                post_build,
-                ..
-            } => Self {
-                name: name.clone(),
-                output_type: Some(*output_type),
-                selector: HtmlScraperEntry::serialize_selector(selector_template, selector),
-                resolved_selector: None,
-                select: *select,
-                actions: Vec::new(),
-                entries: entries.iter().map(HtmlScraperEntryRaw::from).collect(),
-                post_build: post_build.clone(),
-                sub_queries: Vec::new(),
-            },
-        }
-    }
-}
+#[cfg(any(test, feature = "test-support"))]
+#[path = "../../../tests/support/scrapyfy/scraper_html/entry.rs"]
+mod test_support;
 
-impl Serialize for HtmlScraperEntry {
-    /// Serializes the entry through its raw YAML representation.
-    ///
-    /// Converts the runtime entry to its raw form and then serializes it,
-    /// ensuring the output matches the expected YAML configuration format.
-    ///
-    /// # Arguments
-    ///
-    /// * `serializer` - The serde serializer to use.
-    ///
-    /// # Returns
-    ///
-    /// The serialized representation of the entry as YAML-compatible data.
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        HtmlScraperEntryRaw::from(self).serialize(serializer)
-    }
-}
+mod conversion;

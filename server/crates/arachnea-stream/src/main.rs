@@ -18,12 +18,9 @@ use arachnea_stream::{
     StreamScraperBuildOptions, TypedServiceCredentialsStore,
 };
 
-/// Static AES-256-GCM key used to encrypt service credentials stored in the
-/// `arachnea-services` persistence store.
-const DEFAULT_SERVER_CREDENTIALS_KEY: [u8; 32] = *b"hell_hibou-arachnea-key-20260422";
+use arachnea_stream::DEFAULT_SERVER_CREDENTIALS_KEY;
 
-/// Relative configuration path in the writable application data directory.
-const CONFIGURATION_PATH: &str = "data/config.json";
+use arachnea_stream::CONFIGURATION_PATH;
 
 /// Returns the absolute persisted application configuration path.
 fn configuration_path() -> std::path::PathBuf {
@@ -204,7 +201,9 @@ async fn main() -> Result<()> {
 
     let mut build_options = StreamScraperBuildOptions::new(credentials_store, stores.clone());
     build_options.proxy_runtime = Arc::new(arachnea_proxy::server::LoopbackProxyRuntime::new(
-        options.proxy_server_port.unwrap_or(0),
+        options
+            .proxy_server_port
+            .unwrap_or(arachnea_stream::DEFAULT_LOOPBACK_PROXY_PORT),
     ));
     let runtime_options = ScraperRuntimeOptions {
         cache_config: options

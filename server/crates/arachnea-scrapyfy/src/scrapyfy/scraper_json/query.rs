@@ -234,34 +234,6 @@ pub struct JsonScraperSubQuery {
 }
 
 impl JsonScraperSubQuery {
-    /// Returns the flattened list of leaf field names produced by this sub-query tree.
-    ///
-    /// Only the [`JsonScraperSubQuery`] children contribute to the list; nested
-    /// sub-queries of other concrete types (e.g. HTML) are silently skipped
-    /// because they are not part of the JSON sub-query field-name contract.
-    #[cfg(any(test, feature = "test-support"))]
-    pub fn field_names(&self) -> Vec<String> {
-        let mut names = self
-            .entries
-            .iter()
-            .flat_map(JsonScraperEntry::field_names)
-            .collect::<Vec<_>>();
-
-        names.extend(
-            self.context_entries
-                .iter()
-                .flat_map(JsonScraperEntry::field_names),
-        );
-
-        for sub_query in &self.sub_queries {
-            if let Some(json_sub) = sub_query.as_any().downcast_ref::<JsonScraperSubQuery>() {
-                names.extend(json_sub.field_names());
-            }
-        }
-
-        names
-    }
-
     /// Validates every action against the sub-query-level contract.
     ///
     /// # Arguments
@@ -482,27 +454,6 @@ impl JsonScraperQuery {
     pub fn add_entry(&mut self, scraper_entry: JsonScraperEntry) -> &mut Self {
         self.scraper_entries.push(scraper_entry);
         self
-    }
-
-    /// Returns the flattened list of leaf field names produced by this query.
-    ///
-    /// Only the [`JsonScraperSubQuery`] children contribute to the list; nested
-    /// sub-queries of other concrete types (e.g. HTML) are silently skipped.
-    #[cfg(any(test, feature = "test-support"))]
-    pub fn get_field_names(&self) -> Vec<String> {
-        let mut names = self
-            .scraper_entries()
-            .iter()
-            .flat_map(JsonScraperEntry::field_names)
-            .collect::<Vec<_>>();
-
-        for sub_query in self.sub_queries() {
-            if let Some(json_sub) = sub_query.as_any().downcast_ref::<JsonScraperSubQuery>() {
-                names.extend(json_sub.field_names());
-            }
-        }
-
-        names
     }
 }
 
@@ -801,3 +752,7 @@ impl ScraperQuery for JsonScraperSubQuery {
         self
     }
 }
+
+#[cfg(any(test, feature = "test-support"))]
+#[path = "../../../tests/support/scrapyfy/scraper_json/query.rs"]
+mod test_support;

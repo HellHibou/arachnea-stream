@@ -1115,8 +1115,13 @@ Results are returned as `ScraperDataNode` trees and serialised to JSON. YAML
 naming conventions are preserved as-is (kebab-case, hierarchical paths with
 `>`).
 
-The backend entry point is `StreamScraper` in
-`server/crates/arachnea-stream/src/stream_scraper.rs`. Each method:
+The backend entry point remains `StreamScraper` in
+`server/crates/arachnea-stream/src/stream_scraper.rs`. Catalog methods are
+implemented in the private `stream_scraper/catalog.rs` module; playback,
+persistence construction and registration have separate private modules.
+Constants specific to one service resolver live at the beginning of its source file;
+shared resolver constants and application defaults remain in `src/lib.rs`. These boundaries
+preserve public imports, controller commands and YAML result contracts. Each catalog method:
 
 1. Builds a `HashMap<String, String>` of parameters
 2. Calls `agregator.execute_query_async("arachnea-stream", "<query_name>", …)`

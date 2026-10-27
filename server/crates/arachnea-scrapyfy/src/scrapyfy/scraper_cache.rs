@@ -10,7 +10,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
 use arachnea_core::application::get_application_data_path;
@@ -21,26 +21,17 @@ use tokio::sync::OnceCell;
 
 use super::{ScraperDataNode, ScraperOutputType};
 
-/// Safety bound on the age of a server-cache entry. Freshness is normally
-/// driven by ETag revalidation; entries older than this are dropped.
-pub const SERVER_CACHE_ENTRY_TTL: Duration = Duration::from_secs(365 * 24 * 60 * 60);
+pub use crate::SERVER_CACHE_ENTRY_TTL;
 
-/// Default maximum on-disk size of the server cache, in K (kilobytes): 100 MiB.
-pub const DEFAULT_CACHE_MAX_DISK_KIB: u64 = 100 * 1024;
+pub use crate::DEFAULT_CACHE_MAX_DISK_KIB;
 
-/// Default maximum in-memory size of the server cache, in K (kilobytes): 32 MiB.
-pub const DEFAULT_CACHE_MAX_MEMORY_KIB: u64 = 32 * 1024;
+pub use crate::DEFAULT_CACHE_MAX_MEMORY_KIB;
 
-/// Default cache block size, in K (kilobytes): 16 MiB (foyer 0.22 default).
-pub const DEFAULT_CACHE_BLOCK_SIZE_KIB: u64 = 16 * 1024;
+pub use crate::DEFAULT_CACHE_BLOCK_SIZE_KIB;
 
-/// Default maximum on-disk size of the server cache, derived from
-/// [`DEFAULT_CACHE_MAX_DISK_KIB`].
-pub const DEFAULT_CACHE_MAX_DISK_BYTES: u64 = DEFAULT_CACHE_MAX_DISK_KIB * 1024;
+pub use crate::DEFAULT_CACHE_MAX_DISK_BYTES;
 
-/// Default maximum in-memory size of the server cache, derived from
-/// [`DEFAULT_CACHE_MAX_MEMORY_KIB`].
-pub const DEFAULT_CACHE_MAX_MEMORY_BYTES: u64 = DEFAULT_CACHE_MAX_MEMORY_KIB * 1024;
+pub use crate::DEFAULT_CACHE_MAX_MEMORY_BYTES;
 
 /// Cache behavior of one query execution.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -58,7 +49,7 @@ pub enum CacheType {
 impl Default for CacheType {
     /// Returns the historical behavior — client ETag flow, no server cache.
     fn default() -> Self {
-        Self::ClientCache
+        crate::SCRAPER_DEFAULT_CACHE_TYPE
     }
 }
 
@@ -234,8 +225,9 @@ pub fn server_cache_key(
     fields_filters: Option<&HashMap<String, Vec<String>>>,
     yaml_hash: &str,
 ) -> String {
-    const SEPARATOR: &str = "\u{1}";
-    const PAIR_SEPARATOR: &str = "\u{2}";
+    use crate::SERVER_CACHE_KEY_SEPARATOR as SEPARATOR;
+
+    use crate::SERVER_CACHE_KEY_PAIR_SEPARATOR as PAIR_SEPARATOR;
 
     let mut param_pairs: Vec<String> = params
         .iter()

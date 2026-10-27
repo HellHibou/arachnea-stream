@@ -6,7 +6,7 @@ use std::{
     collections::HashMap,
     net::{IpAddr, SocketAddr},
     sync::Arc,
-    time::{Duration, Instant},
+    time::Instant,
 };
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -133,7 +133,7 @@ async fn run_udp_with_policy(
     );
     info!("DNS UDP listener ready on {}", socket.local_addr()?);
 
-    let mut buf = vec![0_u8; 4096];
+    let mut buf = vec![0_u8; crate::DNS_SERVER_UDP_BUFFER_BYTES];
     loop {
         let (len, peer) = socket.recv_from(&mut buf).await?;
         let packet = buf[..len].to_vec();
@@ -370,7 +370,7 @@ impl RuntimePolicy {
             count: 0,
         });
 
-        if now.duration_since(bucket.window_started) >= Duration::from_secs(1) {
+        if now.duration_since(bucket.window_started) >= crate::DNS_SERVER_RATE_LIMIT_WINDOW {
             bucket.window_started = now;
             bucket.count = 0;
         }

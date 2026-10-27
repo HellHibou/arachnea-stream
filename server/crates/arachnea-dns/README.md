@@ -16,6 +16,30 @@ This README is the design and usage home for the DNS crate. Remaining work is tr
 - Do not expose an administration endpoint in v1.
 - Default server exposure must be conservative: loopback by default, explicit ACLs for network listeners, and no public recursion unless configured.
 
+## Centralized defaults
+
+`src/lib.rs` groups the crate's internal defaults and operational limits by
+responsibility, with their owning feature gates. This includes resolver mode,
+timeouts and retries, cache capacity and TTLs, privacy/security defaults, TLS
+verification, file/listener defaults, recursive lookup bounds, receive buffers
+and negative-evidence retention. Runtime configuration overrides and all existing
+values are preserved; editing a constant requires recompilation.
+
+The default resolver timeout is 2,000 milliseconds with two retries. The per-core
+memory cache remains disabled; its default capacity is 100,000 entries and its
+fresh TTL cap is 86,400 seconds. Stale retention has a separate 86,400-second
+budget, and stale answers use a 30-second TTL when enabled. The server's default
+listeners remain `127.0.0.1:5353` and its default per-client rate limit is 50
+requests per second.
+
+Core DNSSEC defaults remain `off`, while secure file profiles without an
+explicit security override retain their `report_only` preset. A compact file
+forwarder without a port retains the existing fallback of 853 for DoT and 443
+for DoQ/ODoH; specify `port` explicitly for another endpoint, as the DoQ sample
+does. These are preserved configuration defaults, not changes to transport
+support or DNSSEC behavior. Equal-valued limits serving different roles remain
+separate constants. Root hints still embed `resources/root_hints.txt` unchanged.
+
 ## Main Capabilities
 
 - Asynchronous resolver API through `ArachneaDnsCore`.
@@ -79,34 +103,43 @@ cargo run -p arachnea-dns --example system_relay -- www.google.lu
 Validate a configuration:
 
 ```powershell
-cargo run -p arachnea-dns -- validate-config crates/arachnea-dns/config-sample/system_relay.toml
+cargo run -p arachnea-dns --features server --bin arachnea-dns-server -- validate-config crates/arachnea-dns/config-sample/system_relay.toml
 ```
 
 Show the effective configuration:
 
 ```powershell
-cargo run -p arachnea-dns -- show-effective-config --config crates/arachnea-dns/config-sample/system_relay.toml
+cargo run -p arachnea-dns --features server --bin arachnea-dns-server -- show-effective-config --config crates/arachnea-dns/config-sample/system_relay.toml
 ```
 
 Run the DNS server:
 
 ```powershell
-cargo run -p arachnea-dns -- serve --config crates/arachnea-dns/config-sample/system_relay.toml
+cargo run -p arachnea-dns --features server --bin arachnea-dns-server -- serve --config crates/arachnea-dns/config-sample/system_relay.toml
 ```
 
 Resolve a record through a configuration:
 
 ```powershell
-cargo run -p arachnea-dns -- resolve example.com --record-type A --config crates/arachnea-dns/config-sample/system_relay.toml
+cargo run -p arachnea-dns --features server --bin arachnea-dns-server -- resolve example.com --record-type A --config crates/arachnea-dns/config-sample/system_relay.toml
 ```
 
 ## Useful Paths
 
-- `src/core/`: reusable resolver core, policies, configuration, cache, transports, recursive resolver, errors, and tests.
+- `src/lib.rs`: feature-gated internal constants and existing public module reexports.
+- `src/core/`: reusable resolver core, policies, configuration, cache, transports, recursive resolver, and errors.
 - `src/server/`: server configuration, UDP/TCP listeners, packet handling, and CLI support.
+- `tests/core/config.rs`, `tests/core/cache.rs`, `tests/core/resolver.rs`, and `tests/server/config.rs`: existing tests grouped by the exact source file they cover. Conditional path declarations preserve private access and feature gates; function-name filters still work, while qualified test names now follow the owning source module. No tests remain under `src/`.
 - `resources/root_hints.txt`: embedded default root hints.
 - `config-sample/`: TOML examples for supported profiles and transports.
 - `examples/`: Rust API usage examples.
+
+Run the existing tests with `cargo test -p arachnea-dns` for the default
+features, `cargo test -p arachnea-dns --no-default-features --features core --lib`
+for the minimal core, or `cargo test -p arachnea-dns --all-features` to include
+server configuration tests. The current suites use local configuration and
+cached/static evidence; they do not establish live interoperability with every
+encrypted DNS endpoint.
 
 ## References
 

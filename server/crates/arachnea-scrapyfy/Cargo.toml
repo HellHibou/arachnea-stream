@@ -1,4 +1,6 @@
 [package]
+# Mirrored private-access suites are loaded as unit tests.
+autotests = false
 name = "arachnea-scrapyfy"
 version = "0.1.1"
 edition = "2021"

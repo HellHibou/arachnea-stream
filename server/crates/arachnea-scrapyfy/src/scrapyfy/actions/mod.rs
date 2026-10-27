@@ -39,8 +39,7 @@ mod split;
 mod suffix;
 mod unpack_packer;
 
-/// Runtime parameter containing the public path of the generic HTTP proxy.
-pub const HTTP_PROXY_PUBLIC_PATH_PARAM: &str = "__arachnea_http_proxy_public_path";
+pub use crate::HTTP_PROXY_PUBLIC_PATH_PARAM;
 
 // `GetDateSource` and `GetDateSources` are owned by the `get_date` module
 // because every consumer of these types belongs to the `get_date` action.
@@ -700,5 +699,5 @@ impl ScraperAction {
 }
 
 fn default_exec_js_timeout() -> u64 {
-    500
+    crate::JS_DEFAULT_TIMEOUT_MS
 }

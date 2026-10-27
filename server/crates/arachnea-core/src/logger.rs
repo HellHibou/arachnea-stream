@@ -8,7 +8,6 @@ use std::collections::VecDeque;
 use std::env;
 use std::io;
 use std::sync::{Arc, LazyLock, Mutex};
-use time::macros::format_description;
 use time::OffsetDateTime;
 use tracing::field::{Field, Visit};
 use tracing::{Event, Level, Subscriber};
@@ -186,7 +185,7 @@ pub use set_default_log_level_release;
 /// The log cache is a bounded ring buffer: when its length reaches this value,
 /// the oldest record is dropped so that the most recent [`LOG_CACHE_CAPACITY`]
 /// records are always kept.
-pub const LOG_CACHE_CAPACITY: usize = 5_000;
+pub use crate::LOG_CACHE_CAPACITY;
 
 /// A structured log record captured from a `tracing` event.
 ///
@@ -335,8 +334,7 @@ pub fn global_log_cache() -> Arc<LogCache> {
 }
 
 /// UTC timestamp format shared by the console output and structured log records.
-const TIMESTAMP_FORMAT: &[time::format_description::BorrowedFormatItem<'static>] =
-    format_description!("[year]-[month]-[day] [hour]:[minute]:[second]");
+use crate::LOG_TIMESTAMP_FORMAT as TIMESTAMP_FORMAT;
 
 /// Builds the UTC timestamp provider used by log formatting.
 ///

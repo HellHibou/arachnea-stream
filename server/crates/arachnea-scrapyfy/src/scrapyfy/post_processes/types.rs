@@ -56,31 +56,31 @@ pub struct ScraperGeneratedField {
 /// Returns the default field name used by `derive_pagination` to expose the
 /// resolved entries group.
 pub(crate) fn default_entries_field() -> String {
-    "entries".to_string()
+    crate::PAGINATION_DEFAULT_ENTRIES_FIELD.to_string()
 }
 
 /// Returns the default field name used by `derive_pagination` to expose the
 /// current page number.
 pub(crate) fn default_current_page_field() -> String {
-    "current_page".to_string()
+    crate::PAGINATION_DEFAULT_CURRENT_PAGE_FIELD.to_string()
 }
 
 /// Returns the default field name used by `derive_pagination` to expose the
 /// "have more" boolean.
 pub(crate) fn default_have_more_field() -> String {
-    "have_more".to_string()
+    crate::PAGINATION_DEFAULT_HAVE_MORE_FIELD.to_string()
 }
 
 /// Returns the default parameter name used by `derive_pagination` to expose
 /// the next page value inside `source_params`.
 pub(crate) fn default_next_param() -> String {
-    "page".to_string()
+    crate::PAGINATION_DEFAULT_NEXT_PARAM.to_string()
 }
 
 /// Returns the default target field name used by `derive_pagination` for the
 /// `source_params` payload.
 pub(crate) fn default_source_params_target() -> String {
-    "source_params".to_string()
+    crate::PAGINATION_DEFAULT_SOURCE_PARAMS_TARGET.to_string()
 }
 
 /// One field definition for `set_nested_fields`, with one of:

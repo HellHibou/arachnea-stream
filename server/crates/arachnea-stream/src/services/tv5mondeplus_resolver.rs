@@ -4,7 +4,7 @@ use rand::{distr::Alphanumeric, Rng};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use url::Url;
 
 use arachnea_core::persistence::CredentialsStore;
@@ -16,13 +16,20 @@ use crate::services::player_resolver::{
     PlayerResolverEndpoints, PlayerStreamResolver, ProxiedStreamResponse, ResolvedPlayerStream,
 };
 
+use crate::PLAYER_DEFAULT_USER_AGENT as TV5MONDEPLUS_USER_AGENT;
+
+/// Stable source identifier for TV5MONDEplus routing and credentials.
 const TV5MONDEPLUS_SERVICE_ID: &str = "tv5mondeplus-fr";
+
+/// TV5MONDEplus authentication endpoint.
 const TV5MONDEPLUS_AUTH_URL: &str =
     "https://api.tv5mondeplus.com/v1/customer/TV5MONDE/businessunit/TV5MONDEplus/auth/anonymous";
+
+/// TV5MONDEplus playback entitlement URL template.
 const TV5MONDEPLUS_ENTITLEMENT_URL_TEMPLATE: &str = "https://api.tv5mondeplus.com/v2/customer/TV5MONDE/businessunit/TV5MONDEplus/entitlement/{}/play";
-const TV5MONDEPLUS_LICENSE_TTL: Duration = Duration::from_secs(15 * 60);
-const TV5MONDEPLUS_USER_AGENT: &str =
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:148.0) Gecko/20100101 Firefox/148.0";
+
+/// Lifetime of cached TV5MONDEplus license proxy tokens.
+const TV5MONDEPLUS_LICENSE_TTL: std::time::Duration = std::time::Duration::from_secs(15 * 60);
 
 static TV5MONDEPLUS_LICENSE_CACHE: OnceLock<Mutex<HashMap<String, CachedTv5mondeplusLicense>>> =
     OnceLock::new();
@@ -398,7 +405,7 @@ fn json_headers() -> HashMap<String, String> {
 fn random_device_id() -> String {
     rand::rng()
         .sample_iter(&Alphanumeric)
-        .take(32)
+        .take(crate::PLAYER_PROXY_TOKEN_LENGTH)
         .map(char::from)
         .collect()
 }

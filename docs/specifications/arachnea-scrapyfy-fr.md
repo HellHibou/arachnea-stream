@@ -1,5 +1,7 @@
 # Spécification du format YAML arachnea-scrapyfy
 
+Les valeurs par défaut et les constantes de contrat sont centralisées dans `server/crates/arachnea-scrapyfy/src/lib.rs`. Des modules privés séparent l’exécution des requêtes, la configuration HTTP et les conversions entre représentations YAML et runtime ; cette organisation conserve les champs YAML, valeurs sérialisées et ordre d’exécution décrits ici. Les tests existants reproduisent les chemins des sources sous `tests/`, à la racine du crate ; les helpers partagés restent disponibles avec la fonctionnalité `test-support`.
+
 ## 1. Structure générale du fichier
 
 Un fichier YAML décrit une **collection de requêtes** pour une source de données. La structure racine est :
@@ -1287,6 +1289,8 @@ Trois sources de JS peuvent être injectées, dans cet ordre :
    `response_body` HTML de la page et les exécute
 2. **Scripts en dur** (`scripts`) — liste de chaînes JS injectées avant le code principal
 3. **Texte pipeline** (`text`) — JS principal provenant de l'action précédente
+
+Les scripts injectés depuis le HTML et la configuration sont limités aux 50 premières sources combinées ; le texte du pipeline est évalué ensuite. `timeout_ms` correspond à un budget de boucles de `max(timeout_ms × 20 000, 10 000 000)` ; ce n’est pas une échéance de temps réel.
 
 | Champ | Type | Défaut | Description |
 |---|---|---|---|

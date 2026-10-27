@@ -5,7 +5,7 @@ use rquest::header::{HeaderValue, CONTENT_TYPE};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use arachnea_core::persistence::CredentialsStore;
 use arachnea_scrapyfy::{HttpClient, ScraperAgregator, ScraperQueryCollectionParameter};
@@ -14,14 +14,30 @@ use crate::services::player_resolver::{
     PlayerResolverEndpoints, PlayerStreamResolver, ProxiedStreamResponse, ResolvedPlayerStream,
 };
 
+/// Stable source identifier for RTBF Auvio routing and credentials.
 const RTBF_AUVIO_SERVICE_ID: &str = "rtbf-auvio-be";
+
+/// Public Gigya application identifier used by RTBF Auvio.
 const RTBF_GIGYA_API_KEY: &str = "4_Ml_fJ47GnBAW6FrPzMxh0w";
+
+/// RTBF Auvio Gigya login endpoint.
 const RTBF_GIGYA_LOGIN_URL: &str = "https://login.auvio.rtbf.be/accounts.login";
+
+/// RTBF Auvio Gigya JWT endpoint.
 const RTBF_GIGYA_JWT_URL: &str = "https://login.auvio.rtbf.be/accounts.getJWT";
+
+/// RTBF Auvio Red Bee entitlement API endpoint.
 const REDBEE_API_ROOT: &str =
     "https://exposure.api.redbee.live:443/v2/customer/RTBF/businessunit/Auvio";
+
+/// Default stream-kind identifier for the RTBF Auvio resolver.
 const DEFAULT_STREAM_KIND: &str = "redbee-license-proxy";
-const REDBEE_TOKEN_TTL: Duration = Duration::from_secs(55 * 60);
+
+/// Lifetime of cached RTBF Red Bee entitlement tokens.
+const REDBEE_TOKEN_TTL: std::time::Duration = std::time::Duration::from_secs(55 * 60);
+
+/// Timeout for RTBF provider-specific license forwarding.
+const RTBF_LICENSE_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(25);
 
 static REDBEE_LICENSE_CACHE: OnceLock<Mutex<HashMap<String, CachedRedbeeLicense>>> =
     OnceLock::new();
@@ -482,7 +498,7 @@ fn save_redbee_license_proxy_url(
 fn save_redbee_license_token(license_url: &str, stream_kind: &str) -> String {
     let token_id: String = rand::rng()
         .sample_iter(&Alphanumeric)
-        .take(32)
+        .take(crate::PLAYER_PROXY_TOKEN_LENGTH)
         .map(char::from)
         .collect();
 
@@ -536,10 +552,8 @@ async fn proxy_redbee_license_request(
     }
 
     let response = rquest::Client::builder()
-        .user_agent(
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:148.0) Gecko/20100101 Firefox/148.0",
-        )
-        .timeout(Duration::from_secs(25))
+        .user_agent(crate::PLAYER_DEFAULT_USER_AGENT)
+        .timeout(RTBF_LICENSE_REQUEST_TIMEOUT)
         .build()
         .context("Failed to build the RTBF Auvio license proxy client.")?
         .post(cached_license.license_url.trim())

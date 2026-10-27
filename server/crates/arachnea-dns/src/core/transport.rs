@@ -53,7 +53,7 @@ pub(crate) async fn resolve_udp(
     let socket = UdpSocket::bind(bind_addr).await?;
     socket.send_to(&bytes, addr).await?;
 
-    let mut buf = vec![0_u8; 4096];
+    let mut buf = vec![0_u8; crate::DNS_FORWARDER_UDP_BUFFER_BYTES];
     let timeout_ms = upstream.timeout_ms.unwrap_or(default_timeout_ms);
     let (len, _) = timeout(
         Duration::from_millis(timeout_ms),

@@ -5,7 +5,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 
 /// The size of the AES-GCM nonce in bytes.
-const AES_GCM_NONCE_SIZE: usize = 12;
+use crate::AES_GCM_NONCE_SIZE;
 
 /// Encrypts one field value with AES-256-GCM.
 ///

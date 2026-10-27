@@ -3,7 +3,6 @@ use futures::{FutureExt, StreamExt};
 use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 use std::sync::Arc;
-use std::time::Duration;
 use tokio::sync::{Mutex, Semaphore};
 
 use async_trait::async_trait;
@@ -24,11 +23,9 @@ use crate::scrapyfy::ScraperDataNode;
 use crate::ScraperAgregator;
 use crate::DEFAULT_SERVICES_DIRECTORY;
 
-/// The group name used for the scrapyfy proxy query collection.
-const PROXIES_GROUP_NAME: &str = "arachnea-proxies";
+use crate::SCRAPER_PROXIES_GROUP_NAME as PROXIES_GROUP_NAME;
 
-/// The group name used for the IP-country query collection.
-const IP_COUNTRY_GROUP_NAME: &str = "arachnea-ip-countries";
+use crate::SCRAPER_IP_COUNTRY_GROUP_NAME as IP_COUNTRY_GROUP_NAME;
 
 /// Dynamic proxy provider with an owned snapshot of the configured sources.
 ///
@@ -93,7 +90,7 @@ impl ScrapyfyProxyDataProvider {
             scraper_agregator: scraper_agregator
                 .provider_snapshot(&[PROXIES_GROUP_NAME, IP_COUNTRY_GROUP_NAME]),
             geo_jobs: Arc::new(Mutex::new(HashMap::new())),
-            geo_slots: Arc::new(Semaphore::new(4)),
+            geo_slots: Arc::new(Semaphore::new(crate::PROXY_GEO_QUERY_CONCURRENCY)),
             geo_cache: Arc::new(Mutex::new(HashMap::new())),
         }
     }
@@ -119,7 +116,7 @@ impl ProxyDataProvider for ScrapyfyProxyDataProvider {
             let sink = sink.clone();
             async move { self.publish_country(country, sink).await }
         }))
-        .buffer_unordered(2);
+        .buffer_unordered(crate::PROXY_COUNTRY_LOAD_CONCURRENCY);
         futures::pin_mut!(loads);
         while let Some(result) = loads.next().await {
             result?;
@@ -199,9 +196,9 @@ impl ScrapyfyProxyDataProvider {
             cache.retain(|_, (at, country)| {
                 at.elapsed()
                     < if country.is_some() {
-                        Duration::from_secs(900)
+                        crate::PROXY_GEO_SUCCESS_TTL
                     } else {
-                        Duration::from_secs(60)
+                        crate::PROXY_GEO_FAILURE_TTL
                     }
             });
             if let Some((_, country)) = cache.get(&ip) {
@@ -248,10 +245,11 @@ impl ScrapyfyProxyDataProvider {
                         }
                         None
                     };
-                    let country = tokio::time::timeout(Duration::from_secs(5), Box::pin(query))
-                        .await
-                        .ok()
-                        .flatten();
+                    let country =
+                        tokio::time::timeout(crate::PROXY_GEO_QUERY_TIMEOUT, Box::pin(query))
+                            .await
+                            .ok()
+                            .flatten();
                     let mut cache = cache.lock().await;
                     if cache.len() >= 1024 {
                         if let Some(oldest) = cache
@@ -497,85 +495,5 @@ pub fn default_scrapyfy_proxy_core(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_yaml::Value;
-
-    const PROXYCOMPASS_YAML: &str =
-        include_str!("../../../../services/arachnea-proxies/proxycompass.yaml");
-
-    fn proxy_entry(protocol: Option<&str>, protocols: &[&str]) -> HashMap<String, ScraperDataNode> {
-        let mut entry = HashMap::from([
-            (
-                "host".to_string(),
-                ScraperDataNode::from_values(vec!["192.0.2.10".to_string()]),
-            ),
-            (
-                "port".to_string(),
-                ScraperDataNode::from_values(vec!["8080".to_string()]),
-            ),
-        ]);
-
-        if let Some(protocol) = protocol {
-            entry.insert(
-                "protocol".to_string(),
-                ScraperDataNode::from_values(vec![protocol.to_string()]),
-            );
-        }
-        if !protocols.is_empty() {
-            entry.insert(
-                "protocols".to_string(),
-                ScraperDataNode::from_values(
-                    protocols.iter().map(|value| (*value).to_string()).collect(),
-                ),
-            );
-        }
-
-        entry
-    }
-
-    #[test]
-    fn entry_to_proxy_record_keeps_valid_singular_protocol() {
-        let entry = proxy_entry(Some("SOCKS5"), &["HTTP", "SOCKS4"]);
-
-        let record = entry_to_proxy_record(&entry).expect("proxy record");
-
-        assert_eq!(record.protocol, Some(ProxyProtocol::Socks5));
-    }
-
-    #[test]
-    fn entry_to_proxy_record_selects_plural_protocol_by_priority() {
-        let entry = proxy_entry(None, &["SOCKS4", "SOCKS5", "HTTP"]);
-
-        let record = entry_to_proxy_record(&entry).expect("proxy record");
-
-        assert_eq!(record.protocol, Some(ProxyProtocol::Socks5));
-    }
-
-    #[test]
-    fn entry_to_proxy_record_falls_back_to_plural_protocol() {
-        let entry = proxy_entry(Some("UNKNOWN"), &["SOCKS4", "SOCKS5"]);
-
-        let record = entry_to_proxy_record(&entry).expect("proxy record");
-
-        assert_eq!(record.protocol, Some(ProxyProtocol::Socks5));
-    }
-
-    #[test]
-    fn proxycompass_maps_countries_and_limits_the_first_page() {
-        let _: crate::scrapyfy::ScraperQueryCollection =
-            serde_yaml::from_str(PROXYCOMPASS_YAML).expect("ProxyCompass runtime collection");
-        let config: Value = serde_yaml::from_str(PROXYCOMPASS_YAML).expect("ProxyCompass YAML");
-        let query = &config["queries"][0];
-        let values = &query["query_param_mappings"][0]["values"];
-
-        assert_eq!(values["FR"].as_str(), Some("France"));
-        assert_eq!(values["US"].as_str(), Some("United%20States"));
-        assert_eq!(values["TR"].as_str(), Some("T%C3%BCrkiye"));
-        assert_eq!(
-            query["query_url"].as_str(),
-            Some("{base_url}/live?country={country_name}&page=1&page_size=1000")
-        );
-        assert!(query.get("pagination").is_none());
-    }
-}
+#[path = "../../tests/scrapyfy/proxy_provider.rs"]
+mod tests;

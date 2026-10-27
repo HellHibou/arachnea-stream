@@ -5,6 +5,9 @@ pub mod actions;
 pub mod body_readers;
 /// Simple HTTP client for proxied requests.
 pub mod client;
+#[cfg(feature = "performance-diagnostics")]
+#[path = "../performance_diagnostics/http.rs"]
+mod performance_diagnostics;
 #[cfg(feature = "controller-service")]
 pub mod proxy_service;
 /// Shared HTTP response classification and non-destructive prefix inspection.

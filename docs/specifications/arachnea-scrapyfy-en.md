@@ -1,5 +1,7 @@
 # arachnea-scrapyfy YAML format specification
 
+Implementation defaults and stable contract constants are centralized in `server/crates/arachnea-scrapyfy/src/lib.rs`. Private modules separate query execution, request configuration and raw/runtime conversions; this organization preserves the YAML fields, serialized values and execution order described here. Existing tests mirror source paths under the crate-root `tests/` directory; shared helpers remain available through the `test-support` feature.
+
 ## 1. General file structure
 
 A YAML file describes a **query collection** for a data source. The root structure is:
@@ -1287,6 +1289,8 @@ Three JS sources can be injected, in this order:
    the HTML `response_body` and executes them
 2. **Hardcoded scripts** (`scripts`) — list of JS strings injected before the main code
 3. **Pipeline text** (`text`) — main JS code from the previous action
+
+The injected HTML/configured scripts are limited to the first 50 combined sources; pipeline text is evaluated afterward. `timeout_ms` maps to a loop iteration budget of `max(timeout_ms × 20,000, 10,000,000)`; it is not a wall-clock deadline.
 
 | Field | Type | Default | Description |
 |---|---|---|---|

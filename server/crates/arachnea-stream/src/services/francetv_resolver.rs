@@ -9,7 +9,7 @@ use rquest::Url;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use arachnea_core::persistence::CredentialsStore;
 use arachnea_scrapyfy::{
@@ -21,18 +21,38 @@ use crate::services::player_resolver::{
     ResolvedPlayerStream,
 };
 
+use crate::PLAYER_DEFAULT_USER_AGENT as USER_AGENT;
+
+/// Stable source identifier for FranceTV routing and credentials.
 const FRANCETV_SERVICE_ID: &str = "francetv";
+
+/// Website origin used by the FranceTV resolver.
 const FRANCETV_BASE_URL: &str = "https://www.france.tv";
+
+/// FranceTV video metadata URL template.
 const FRANCETV_VIDEO_INFO_URL_TEMPLATE: &str = "https://k7.ftven.fr/videos/{}";
+
+/// FranceTV default authorization token endpoint.
 const FRANCETV_DEFAULT_TOKEN_URL: &str = "https://hdfauth.ftven.fr/esi/TA";
+
+/// FranceTV Widevine license endpoint.
 const FRANCETV_WIDEVINE_LICENSE_URL: &str =
     "https://api-drm.ftven.fr/v1/wvls/contentlicenseservice/v1/licenses/";
+
+/// Stream-kind identifier selecting the FranceTV license proxy.
 const FRANCETV_PROXY_STREAM_KIND: &str = "francetv-license-proxy";
+
+/// Default country used by FranceTV when no proxy country override is supplied.
 const FRANCETV_PROXY_COUNTRY: &str = "FR";
+
+/// HTTP status classified as a destination rejection for FranceTV.
 const FRANCETV_PROXY_REJECTION_STATUS: u16 = 403;
-const FRANCETV_LICENSE_TTL: Duration = Duration::from_secs(15 * 60);
-const USER_AGENT: &str =
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:148.0) Gecko/20100101 Firefox/148.0";
+
+/// Lifetime of cached FranceTV license proxy tokens.
+const FRANCETV_LICENSE_TTL: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+
+/// Alphanumeric character count of FranceTV proxy affinity identifiers, independent of license tokens.
+const FRANCETV_PROXY_AFFINITY_LENGTH: usize = 32;
 
 static FRANCETV_LICENSE_CACHE: OnceLock<Mutex<HashMap<String, CachedFrancetvLicense>>> =
     OnceLock::new();
@@ -429,7 +449,7 @@ fn francetv_proxy_countries(proxy_countries: &[String]) -> Vec<String> {
 fn random_proxy_affinity() -> String {
     rand::rng()
         .sample_iter(&Alphanumeric)
-        .take(32)
+        .take(FRANCETV_PROXY_AFFINITY_LENGTH)
         .map(char::from)
         .collect()
 }
@@ -510,7 +530,7 @@ fn save_cached_license(
     let cache = FRANCETV_LICENSE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     let token: String = rand::rng()
         .sample_iter(&Alphanumeric)
-        .take(32)
+        .take(crate::PLAYER_PROXY_TOKEN_LENGTH)
         .map(char::from)
         .collect();
 

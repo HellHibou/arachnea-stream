@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::pin::Pin;
-use std::time::Duration;
 
 use crate::core::http::body_readers::{
     ChunkedBodyReader, ContentLengthBodyReader, UntilEofBodyReader,
@@ -15,127 +14,8 @@ use futures::StreamExt;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio_util::io::ReaderStream;
 
-/// Monotonic diagnostic identity independent of reusable search-context addresses.
 #[cfg(feature = "performance-diagnostics")]
-static NEXT_MEDIA_REQUEST_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
-
-/// Owns bounded diagnostics through response-body consumption or early drop.
-#[cfg(feature = "performance-diagnostics")]
-struct MediaRequestDiagnostics {
-    id: u64,
-    search_id: Option<usize>,
-    origin: String,
-    started: std::time::Instant,
-    phase_started: std::time::Instant,
-    phase: &'static str,
-    finished: Option<std::time::Instant>,
-    bytes: u64,
-    outcome: &'static str,
-}
-
-#[cfg(feature = "performance-diagnostics")]
-impl MediaRequestDiagnostics {
-    fn new(origin: String, method: &str, range_requested: bool, buffered: bool) -> Box<Self> {
-        let started = std::time::Instant::now();
-        let diagnostics = Box::new(Self {
-            id: NEXT_MEDIA_REQUEST_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
-            search_id: crate::core::ProxySearchContext::current().map(|search| search.id()),
-            origin,
-            started,
-            phase_started: started,
-            phase: "selection",
-            finished: None,
-            bytes: 0,
-            outcome: "interrupted",
-        });
-        tracing::debug!(
-            media_request_id = diagnostics.id,
-            search_id = diagnostics.search_id,
-            origin = %diagnostics.origin,
-            method,
-            range_requested,
-            buffered,
-            "started media upstream request"
-        );
-        diagnostics
-    }
-
-    fn next_phase(&mut self, phase: &'static str) {
-        tracing::debug!(
-            media_request_id = self.id,
-            search_id = self.search_id,
-            origin = %self.origin,
-            phase = self.phase,
-            duration_ms = self.phase_started.elapsed().as_millis() as u64,
-            "completed media upstream phase"
-        );
-        self.phase = phase;
-        self.phase_started = std::time::Instant::now();
-    }
-}
-
-#[cfg(feature = "performance-diagnostics")]
-impl Drop for MediaRequestDiagnostics {
-    fn drop(&mut self) {
-        let finished = self.finished.unwrap_or_else(std::time::Instant::now);
-        tracing::debug!(
-            media_request_id = self.id,
-            search_id = self.search_id,
-            origin = %self.origin,
-            phase = self.phase,
-            outcome = self.outcome,
-            body_bytes = self.bytes,
-            phase_ms = finished.duration_since(self.phase_started).as_millis() as u64,
-            total_ms = finished.duration_since(self.started).as_millis() as u64,
-            "finished media upstream observation"
-        );
-    }
-}
-
-/// Counts decoded upstream bytes without prefetching or changing stream ownership.
-#[cfg(feature = "performance-diagnostics")]
-struct ObservedMediaBody {
-    inner: super::response_classifier::ProxyResponseStream,
-    diagnostics: Box<MediaRequestDiagnostics>,
-}
-
-#[cfg(feature = "performance-diagnostics")]
-impl futures::Stream for ObservedMediaBody {
-    type Item = std::io::Result<Bytes>;
-
-    fn poll_next(
-        mut self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Option<Self::Item>> {
-        let result = self.inner.as_mut().poll_next(cx);
-        match &result {
-            std::task::Poll::Ready(Some(Ok(bytes))) => {
-                if self.diagnostics.bytes == 0 && !bytes.is_empty() {
-                    tracing::debug!(
-                        media_request_id = self.diagnostics.id,
-                        body_wait_ms = self.diagnostics.phase_started.elapsed().as_millis() as u64,
-                        "received first media upstream body bytes"
-                    );
-                }
-                self.diagnostics.bytes = self.diagnostics.bytes.saturating_add(bytes.len() as u64);
-            }
-            std::task::Poll::Ready(Some(Err(_))) => {
-                self.diagnostics.outcome = "body_error";
-                self.diagnostics
-                    .finished
-                    .get_or_insert_with(std::time::Instant::now);
-            }
-            std::task::Poll::Ready(None) if self.diagnostics.outcome != "body_error" => {
-                self.diagnostics.outcome = "eof";
-                self.diagnostics
-                    .finished
-                    .get_or_insert_with(std::time::Instant::now);
-            }
-            _ => {}
-        }
-        result
-    }
-}
+use super::performance_diagnostics::{classified_response, MediaRequestDiagnostics};
 
 /// Minimal HTTP response returned by the core convenience client.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -444,7 +324,8 @@ impl SimpleHttpClient {
             .is_some_and(|token| token.reuses_destination());
         #[cfg(feature = "performance-diagnostics")]
         diagnostics.next_phase("connection");
-        let connection_deadline = tokio::time::Instant::now() + Duration::from_secs(60);
+        let connection_deadline =
+            tokio::time::Instant::now() + crate::PROXY_MEDIA_REUSED_CONNECTION_TIMEOUT;
         let connect = selected.core.connect_http_request(
             ConnectRequest::new(destination).with_client_context(request.client_context.clone()),
         );
@@ -549,7 +430,11 @@ impl SimpleHttpClient {
                 let handshake = crate::core::transport::tls::client_tls(
                     stream.stream,
                     host,
-                    Duration::from_secs(if reuses_destination { 30 } else { 10 }),
+                    if reuses_destination {
+                        crate::PROXY_MEDIA_REUSED_ORIGIN_TLS_TIMEOUT
+                    } else {
+                        crate::PROXY_MEDIA_NEW_ORIGIN_TLS_TIMEOUT
+                    },
                     request.verify_tls,
                 );
                 let tls_stream = if reuses_destination {
@@ -594,7 +479,11 @@ impl SimpleHttpClient {
         );
         let (status_code, mut headers) = if crate::core::ProxySearchContext::current().is_some() {
             tokio::time::timeout(
-                Duration::from_secs(if reuses_destination { 60 } else { 30 }),
+                if reuses_destination {
+                    crate::PROXY_MEDIA_REUSED_ORIGIN_HEADER_TIMEOUT
+                } else {
+                    crate::PROXY_MEDIA_NEW_ORIGIN_HEADER_TIMEOUT
+                },
                 head,
             )
             .await
@@ -611,13 +500,7 @@ impl SimpleHttpClient {
         #[cfg(feature = "performance-diagnostics")]
         diagnostics.next_phase("response_setup");
         #[cfg(feature = "performance-diagnostics")]
-        tracing::debug!(
-            media_request_id = diagnostics.id,
-            search_id = diagnostics.search_id,
-            origin = %diagnostics.origin,
-            status = status_code,
-            "received media upstream headers"
-        );
+        diagnostics.received_headers(status_code);
         if let Some(token) = &selected.selection_token {
             token.record_http_response(status_code).await;
         }
@@ -667,12 +550,9 @@ impl SimpleHttpClient {
         #[cfg(feature = "performance-diagnostics")]
         diagnostics.next_phase("body");
         #[cfg(feature = "performance-diagnostics")]
-        let media_request_id = diagnostics.id;
+        let media_request_id = diagnostics.id();
         #[cfg(feature = "performance-diagnostics")]
-        let stream: ProxyResponseStream = Box::pin(ObservedMediaBody {
-            inner: stream,
-            diagnostics,
-        });
+        let stream: ProxyResponseStream = diagnostics.observe(stream);
         #[cfg(feature = "performance-diagnostics")]
         let classification_started = std::time::Instant::now();
         let (response_decision, mut inspected_stream) = inspect_proxy_response(
@@ -699,16 +579,7 @@ impl SimpleHttpClient {
         )
         .await;
         #[cfg(feature = "performance-diagnostics")]
-        tracing::debug!(
-            media_request_id,
-            decision = match &response_decision {
-                ProxyResponseDecision::Accepted => "accepted",
-                ProxyResponseDecision::RejectedForDestination { .. } => "rejected",
-                ProxyResponseDecision::Inconclusive => "inconclusive",
-            },
-            duration_ms = classification_started.elapsed().as_millis() as u64,
-            "classified media upstream response"
-        );
+        classified_response(media_request_id, &response_decision, classification_started);
         if matches!(response_decision, ProxyResponseDecision::Accepted)
             && !(300..400).contains(&status_code)
             && (!request.buffer_response_body || request.headers_only)
@@ -746,7 +617,7 @@ impl SimpleHttpClient {
                     Ok::<_, std::io::Error>(())
                 };
                 let collected = if crate::core::ProxySearchContext::current().is_some() {
-                    tokio::time::timeout(Duration::from_secs(30), collect)
+                    tokio::time::timeout(crate::PROXY_MEDIA_BUFFERED_BODY_TIMEOUT, collect)
                         .await
                         .map_err(|_| ProxyError::Timeout("media response body transfer"))
                         .and_then(|result| result.map_err(ProxyError::from))
@@ -810,7 +681,7 @@ where
         // Inspect only the first line before choosing strict framing or compatibility mode.
         let mut reader = BufReader::new(stream);
         let mut prefix = Vec::new();
-        while prefix.len() < 8192 {
+        while prefix.len() < crate::PROXY_MEDIA_CHUNK_PREFIX_LIMIT {
             let mut byte = [0];
             if reader.read(&mut byte).await? == 0 {
                 break;
@@ -1041,7 +912,7 @@ where
         if headers.ends_with(b"\r\n\r\n") {
             return Ok(headers);
         }
-        if headers.len() > 65_536 {
+        if headers.len() > crate::PROXY_MEDIA_MAX_RESPONSE_HEADER_BYTES {
             return Err(ProxyError::Protocol(
                 "response headers exceed 64KB limit".to_string(),
             ));

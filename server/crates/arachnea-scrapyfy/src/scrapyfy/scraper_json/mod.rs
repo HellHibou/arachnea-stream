@@ -11,10 +11,10 @@
 //!
 //! * [`config`] — raw YAML deserialization targets and bidirectional conversions.
 //! * [`entry`] — field and group extractors applied to JSON rows.
-//! * [`pointer`] — JSON pointer utilities (placeholder, core functions live in [`entry`]).
 //! * [`query`] — runtime query and sub-query types with their execution logic.
-//! * [`response_parser`] — helpers for collecting and filtering JSON rows.
-//! * [`row_extractor`] — entry application and row extraction (placeholder).
+//! JSON pointer selection is implemented in [`entry`]. Response row collection,
+//! filtering and post-processing are handled by the unified executor in
+//! [`crate::scrapyfy::scraper::query_executor`].
 
 pub mod config;
 /// JSON scraper entry configuration and runtime types.

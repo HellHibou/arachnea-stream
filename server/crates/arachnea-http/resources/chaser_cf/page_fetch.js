@@ -1,0 +1,1 @@
+async function() {{ const input = {}; const response = await fetch(input.url, {{ method: input.method, headers: input.headers, body: input.body, credentials: 'same-origin' }}); const headers = {{}}; response.headers.forEach((value, name) => {{ headers[name] = value; }}); return {{ url: response.url, status: response.status, headers, body: await response.text() }}; }}

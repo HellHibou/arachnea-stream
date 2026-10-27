@@ -33,7 +33,3 @@ pub use protocol::{
     QueryRequest, Record, RecordData, RecordType,
 };
 pub use resolver::ArachneaDnsCore;
-
-#[cfg(test)]
-#[path = "tests/core_tests.rs"]
-mod core_tests;

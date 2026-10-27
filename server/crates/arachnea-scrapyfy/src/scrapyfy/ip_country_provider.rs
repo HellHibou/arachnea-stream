@@ -13,7 +13,7 @@ use tracing::{info, warn};
 use crate::scrapyfy::{CacheType, QueryParameters, ScraperAgregator};
 use arachnea_core::controler::RequestControlerContext;
 
-const IP_COUNTRY_GROUP_NAME: &str = "arachnea-ip-countries";
+use crate::SCRAPER_IP_COUNTRY_GROUP_NAME as IP_COUNTRY_GROUP_NAME;
 
 /// IP geolocation provider backed by the scrapyfy scraper infrastructure.
 ///
@@ -226,7 +226,7 @@ pub struct IpCountryRefreshConfig {
 impl Default for IpCountryRefreshConfig {
     fn default() -> Self {
         Self {
-            store_path: "data/ip-countries.json".to_string(),
+            store_path: crate::IP_COUNTRY_DEFAULT_STORE_PATH.to_string(),
         }
     }
 }

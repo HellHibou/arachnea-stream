@@ -4,6 +4,17 @@
 
 This README is the design and usage home for the HTTP crate. Remaining work is tracked in the root `docs/TODO.md`.
 
+## Source organization
+
+- `src/client.rs` owns the public client facade. Private modules under `src/client/` handle request/response types, execution, proxy runtime ownership, URLs, Cloudflare refresh and reusable browser sessions. Existing public paths under `arachnea_http::client` remain available through reexports.
+- `src/config.rs` owns configuration types; `src/config/builder.rs` owns construction and validation.
+- `src/engine/chaser_cf/` separates challenge observation from page sessions. `src/engine/tauri_cloudflare/` separates application-owned windows from the standalone event loop. Engine and platform feature gates remain in effect.
+- `src/lib.rs` centralizes documented constants and relevant defaults, preserving their values and existing public constant paths. Mutable caches and registries stay with their owners.
+- Crate-owned JavaScript assets and Rust format templates live under `resources/chaser_cf/` and `resources/tauri_cloudflare/`. They are included at compile time; deployment does not require copying these directories. Format templates retain Rust placeholder and brace escaping.
+- Existing tests mirror source paths under crate-root `tests/`; shared mocks live under `tests/support/`. Private-access suites are loaded using conditional `#[path]` declarations. `autotests = false` prevents Cargo from also discovering these files as incompatible integration targets.
+
+From `server/`, run `cargo test -p arachnea-http` for the default configuration or `cargo test -p arachnea-http --all-features` for all compiled engines and proxy coverage. The existing suites use mocks, persistence fixtures and local transport fixtures; they do not qualify live Cloudflare solving or native GUI behavior across platforms.
+
 ## Design Contract
 
 ### Correlated proxy response policies

@@ -30,7 +30,7 @@ pub mod tauri_cloudflare;
 pub type DynHttpEngine = Arc<dyn HttpEngine>;
 
 /// Internal header used to return a solver-observed browser user-agent.
-pub(crate) const SOLVER_USER_AGENT_HEADER: &str = "x-arachnea-solver-user-agent";
+pub(crate) use crate::SOLVER_USER_AGENT_HEADER;
 
 /// Engine-normalized HTTP request.
 #[derive(Debug, Clone)]
@@ -249,7 +249,9 @@ pub(crate) async fn get_default_cloudflare_solver(
     #[cfg(feature = "tauri-cloudflare-solver")]
     {
         let _ = session_store;
-        return build_tauri_cloudflare_engine(config, proxy_url).await.map(Some);
+        return build_tauri_cloudflare_engine(config, proxy_url)
+            .await
+            .map(Some);
     }
 
     #[cfg(all(not(feature = "tauri-cloudflare-solver"), feature = "chaser-cf"))]
@@ -323,7 +325,9 @@ async fn build_explicit_tauri_cloudflare_engine(
 ) -> Result<Option<DynHttpEngine>, ArachneaHttpError> {
     #[cfg(feature = "tauri-cloudflare-solver")]
     {
-        return build_tauri_cloudflare_engine(config, proxy_url).await.map(Some);
+        return build_tauri_cloudflare_engine(config, proxy_url)
+            .await
+            .map(Some);
     }
 
     #[cfg(not(feature = "tauri-cloudflare-solver"))]
@@ -378,7 +382,9 @@ pub(crate) async fn build_chaser_cf_engine(
     session_store: Arc<dyn TypedEntityStore<CachedChaserSession>>,
 ) -> Result<DynHttpEngine, ArachneaHttpError> {
     Ok(Arc::new(chaser_cf::ChaserCfEngine::new_with_proxy_url(
-        config, proxy_url, session_store,
+        config,
+        proxy_url,
+        session_store,
     )?))
 }
 

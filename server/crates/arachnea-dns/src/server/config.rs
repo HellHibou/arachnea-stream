@@ -44,7 +44,7 @@ impl Default for ServerConfig {
     /// Returns loopback DNS server defaults.
     fn default() -> Self {
         Self {
-            enabled: true,
+            enabled: crate::DNS_FILE_DEFAULT_ENABLED,
             listen_udp: default_listen(),
             listen_tcp: default_listen(),
             network: NetworkConfig::default(),
@@ -154,7 +154,7 @@ impl FileConfig {
             .security
             .as_ref()
             .map(|security| security.dnssec)
-            .unwrap_or(DnssecState::ReportOnly);
+            .unwrap_or(crate::DNS_FILE_DEFAULT_DNSSEC);
         let mut config = profile
             .clone()
             .into_usage_profile(profile_upstreams, profile_dnssec)?
@@ -254,8 +254,8 @@ impl FileForwarder {
                 crate::core::UpstreamEndpoint::HostPort {
                     host,
                     port: self.port.unwrap_or(match self.transport {
-                        crate::core::Transport::Dot => 853,
-                        _ => 443,
+                        crate::core::Transport::Dot => crate::DNS_FILE_DOT_DEFAULT_PORT,
+                        _ => crate::DNS_FILE_OTHER_ENCRYPTED_DEFAULT_PORT,
                     }),
                 }
             }
@@ -266,11 +266,15 @@ impl FileForwarder {
         };
 
         Ok(crate::core::Upstream {
-            name: self.name.unwrap_or_else(|| "single-forwarder".to_owned()),
+            name: self
+                .name
+                .unwrap_or_else(|| crate::DNS_FILE_FORWARDER_DEFAULT_NAME.to_owned()),
             transport: self.transport,
             endpoint,
             timeout_ms: self.timeout_ms,
-            verify_tls: self.verify_tls.unwrap_or(true),
+            verify_tls: self
+                .verify_tls
+                .unwrap_or(crate::DNS_UPSTREAM_DEFAULT_VERIFY_TLS),
         })
     }
 }
@@ -323,7 +327,7 @@ pub enum FileProfile {
 impl Default for FileProfile {
     /// Returns the system relay file profile.
     fn default() -> Self {
-        Self::SystemRelay
+        crate::DNS_FILE_DEFAULT_PROFILE
     }
 }
 
@@ -435,7 +439,7 @@ impl FileBlocklist {
             name: self.name,
             pattern: DomainPattern::new(&self.source),
             action: self.action,
-            enabled: true,
+            enabled: crate::DNS_FILE_DEFAULT_ENABLED,
         }
     }
 }
@@ -532,9 +536,9 @@ fn parse_record(default_name: &str, raw: &str) -> Result<Record> {
 ///
 /// # Returns
 ///
-/// Always returns `true`.
+/// Enabled flag shared by the server and file-entry defaults.
 fn default_enabled() -> bool {
-    true
+    crate::DNS_FILE_DEFAULT_ENABLED
 }
 
 /// Returns the default DNS listen address.
@@ -543,9 +547,7 @@ fn default_enabled() -> bool {
 ///
 /// Loopback UDP/TCP DNS listen address.
 fn default_listen() -> SocketAddr {
-    "127.0.0.1:5353"
-        .parse()
-        .expect("valid default listen address")
+    crate::DNS_SERVER_DEFAULT_LISTEN_ADDR
 }
 
 /// Returns the default block action for blocklist entries.
@@ -555,5 +557,9 @@ fn default_listen() -> SocketAddr {
 /// NXDOMAIN block action, which responds to blocked domains with
 /// a "domain does not exist" error.
 fn default_block_action() -> BlockAction {
-    BlockAction::Nxdomain
+    crate::DNS_FILE_DEFAULT_BLOCK_ACTION
 }
+
+#[cfg(test)]
+#[path = "../../tests/server/config.rs"]
+mod tests;

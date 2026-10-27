@@ -16,7 +16,7 @@ Ce fichier suit les tâches DNS, HTTP et proxy prévues qui restent pertinentes 
 
 ## Server/Test layout
 
-- [ ] Apply the same test layout to the remaining server crates: `arachnea-core`, `arachnea-dns`, `arachnea-http`, `arachnea-scrapyfy`, and `arachnea-stream`.
+- [x] Apply the proxy crate’s source-mirrored test layout, responsibility-based file splitting and crate-root constant centralization to Core, DNS, HTTP, Scrapyfy and Stream. All lots are complete; see [the harmonization plan](dev-tracking/plan-harmonisation-crates-rust.md), [the Stream completion report](dev-tracking/harmonisation-crates-rust-lot5.md) and [the final six-crate inventory](dev-tracking/harmonisation-crates-rust-final-inventory.json). Existing live-provider scenarios and GUI/platform limits are documented in the per-lot reports.
 
 ## Server/DNS
 

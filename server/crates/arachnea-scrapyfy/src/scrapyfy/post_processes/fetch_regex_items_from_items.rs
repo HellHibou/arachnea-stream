@@ -14,9 +14,7 @@ use crate::scrapyfy::scraper::config::{
 use crate::scrapyfy::scraper_html::entry::HtmlScraperSelectMode;
 use crate::scrapyfy::scraper_json::entry::{json_value_to_strings, select_json_values};
 
-/// Maximum number of in-flight HTTP requests issued by a single
-/// `fetch_regex_items_from_items` post-process step.
-const POST_PROCESS_FETCH_CONCURRENCY: usize = 8;
+use crate::POST_PROCESS_FETCH_CONCURRENCY;
 
 /// Validates one `fetch_regex_items_from_items` post-process definition.
 ///
