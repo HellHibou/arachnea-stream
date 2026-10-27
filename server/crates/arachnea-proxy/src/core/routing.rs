@@ -22,8 +22,8 @@ impl Default for RoutePolicy {
     /// Returns direct routing with direct fallback allowed.
     fn default() -> Self {
         Self {
-            default_chain: Some("direct".to_string()),
-            allow_direct_fallback: true,
+            default_chain: Some(crate::PROXY_ROUTE_DEFAULT_CHAIN.to_string()),
+            allow_direct_fallback: crate::PROXY_ROUTE_DEFAULT_ALLOW_DIRECT_FALLBACK,
             rules: Vec::new(),
         }
     }

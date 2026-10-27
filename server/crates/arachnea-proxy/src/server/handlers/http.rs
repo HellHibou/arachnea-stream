@@ -59,6 +59,187 @@ where
     }
 }
 
+/// Resolves a connection-owned context on the shared embedded listener.
+///
+/// Internal credentials select a weakly registered lease. External credentials
+/// carry routing parameters and are challenged before any destination is opened.
+pub(crate) async fn handle_loopback<S>(
+    mut client: S,
+    config: Arc<ServerConfig>,
+    routes: Arc<
+        std::sync::RwLock<
+            std::collections::HashMap<String, std::sync::Weak<crate::server::LoopbackRoute>>,
+        >,
+    >,
+    default_route: Arc<std::sync::RwLock<std::sync::Weak<crate::server::LoopbackRoute>>>,
+) -> Result<()>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    let mut request = tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        read_http_request(&mut client, config.max_http_header_bytes),
+    )
+    .await
+    .map_err(|_| ProxyError::Timeout("loopback proxy request headers"))??;
+    let auth: Vec<_> = request
+        .headers
+        .iter()
+        .filter(|header| header.name.eq_ignore_ascii_case("Proxy-Authorization"))
+        .collect();
+    if auth.len() > 1 {
+        write_error(&mut client, 400, "Bad Request").await?;
+        return Err(ProxyError::Protocol("duplicate proxy credentials".into()));
+    }
+    let credentials = auth
+        .first()
+        .map(|header| crate::server::auth::decode_http_basic_credentials(&header.value));
+    let internal = credentials
+        .as_ref()
+        .and_then(|pair| pair.as_ref())
+        .is_some_and(|(name, _)| name == "arachnea-context");
+    let public_route = if internal {
+        None
+    } else {
+        default_route
+            .read()
+            .map_err(|_| ProxyError::Config("loopback default route lock poisoned".into()))?
+            .upgrade()
+    };
+    if !internal && public_route.is_none() && credentials.is_none() {
+        write_proxy_auth_required(&mut client, "Arachnea local routing profile").await?;
+        return Ok(());
+    }
+    let route = if internal {
+        let id = &credentials.as_ref().unwrap().as_ref().unwrap().1;
+        let route = routes
+            .read()
+            .map_err(|_| ProxyError::Config("loopback registry lock poisoned".into()))?
+            .get(id)
+            .and_then(std::sync::Weak::upgrade);
+        let Some(route) = route else {
+            write_error(&mut client, 403, "Forbidden").await?;
+            return Err(ProxyError::AccessDenied(
+                "unknown or expired loopback context".into(),
+            ));
+        };
+        route
+    } else {
+        let Some(route) = public_route else {
+            write_error(&mut client, 503, "Service Unavailable").await?;
+            return Err(ProxyError::Config(
+                "loopback default route is unavailable".into(),
+            ));
+        };
+        route
+    };
+    let definitions = route.core.parameter_definitions();
+    let has_parameters = request.headers.iter().any(|header| {
+        definitions
+            .iter()
+            .any(|definition| header.name.eq_ignore_ascii_case(&definition.http_header))
+    });
+    if !internal && credentials.is_none() && !has_parameters {
+        write_proxy_auth_required(&mut client, "Arachnea local routing profile").await?;
+        return Ok(());
+    }
+    let resolved = (|| -> Result<ClientContext> {
+        let mut context = route.context.clone();
+        if !internal {
+            if let Some(credentials) = credentials {
+                let (username, password) = credentials
+                    .ok_or_else(|| ProxyError::Protocol("invalid proxy credentials".into()))?;
+                if password != "local" {
+                    return Err(ProxyError::AccessDenied(
+                        "invalid local routing profile password".into(),
+                    ));
+                }
+                if username != "default" {
+                    if username.is_empty() || !username.contains('=') {
+                        return Err(ProxyError::Protocol("invalid local routing profile".into()));
+                    }
+                    for (name, value) in url::form_urlencoded::parse(username.as_bytes()) {
+                        if !definitions.iter().any(|definition| definition.name == name) {
+                            return Err(ProxyError::Protocol(
+                                "unknown local routing parameter".into(),
+                            ));
+                        }
+                        let value = if name == crate::PROXY_PARAMETER_COUNTRIES {
+                            serde_json::to_string(
+                                &value.split(',').map(str::trim).collect::<Vec<_>>(),
+                            )
+                            .map_err(|_| ProxyError::Protocol("invalid countries profile".into()))?
+                        } else {
+                            value.into_owned()
+                        };
+                        insert_loopback_parameter(&mut context, &name, &value)?;
+                    }
+                }
+            }
+        }
+        for header in &request.headers {
+            if let Some(definition) = definitions
+                .iter()
+                .find(|definition| header.name.eq_ignore_ascii_case(&definition.http_header))
+            {
+                if internal && !route.allow_parameter_headers {
+                    return Err(ProxyError::AccessDenied(
+                        "pinned loopback context cannot accept routing overrides".into(),
+                    ));
+                }
+                insert_loopback_parameter(&mut context, &definition.name, &header.value)?;
+            }
+        }
+        Ok(context)
+    })();
+    let context = match resolved {
+        Ok(context) => context,
+        Err(error) => {
+            write_error(&mut client, 400, "Bad Request").await?;
+            return Err(error);
+        }
+    };
+    // Parameters have already been validated and merged without ambiguous overrides.
+    request.headers.retain(|header| {
+        !definitions.iter().any(|definition| {
+            !definition.forward_header && header.name.eq_ignore_ascii_case(&definition.http_header)
+        })
+    });
+    if request.method.eq_ignore_ascii_case("CONNECT") {
+        handle_connect(client, request, route.core.clone(), context).await
+    } else {
+        handle_absolute_request(client, request, route.core.clone(), context).await
+    }
+}
+
+fn insert_loopback_parameter(context: &mut ClientContext, name: &str, value: &str) -> Result<()> {
+    if name == crate::PROXY_PARAMETER_COUNTRIES {
+        let countries = serde_json::from_str::<Vec<String>>(value)
+            .map_err(|_| ProxyError::Protocol("countries must be a JSON array".into()))?;
+        if countries.iter().any(|country| {
+            let country = country.trim();
+            country.len() != 2 || !country.bytes().all(|byte| byte.is_ascii_alphabetic())
+        }) {
+            return Err(ProxyError::Protocol(
+                "countries must contain ISO alpha-2 codes".into(),
+            ));
+        }
+    }
+    if name == crate::PROXY_PARAMETER_FALLBACK_DIRECT && !matches!(value.trim(), "true" | "false") {
+        return Err(ProxyError::Protocol(
+            "fallback_direct must be true or false".into(),
+        ));
+    }
+    let value = crate::core::ClientParameter::String(normalize_parameter_value(name, value));
+    if context.get(name).is_some_and(|existing| existing != &value) {
+        return Err(ProxyError::Protocol(
+            "conflicting loopback routing parameters".into(),
+        ));
+    }
+    context.insert(name, value);
+    Ok(())
+}
+
 /// Returns whether a request contains valid proxy credentials.
 ///
 /// # Parameters
@@ -112,11 +293,13 @@ where
         context_parameter_names = ?context_parameter_names,
         "http proxy CONNECT route context resolved"
     );
+    #[cfg(feature = "performance-diagnostics")]
     let connect_started = std::time::Instant::now();
     let mut pending_client_bytes = Vec::new();
     let connect_result = {
         let connect = tokio::time::timeout(
-            crate::core::PROXY_CONNECT_ESTABLISHMENT_TIMEOUT,
+            core.proxy_search_remaining()
+                .unwrap_or(crate::core::PROXY_CONNECT_ESTABLISHMENT_TIMEOUT),
             core.connect_request(ConnectRequest::new(destination).with_client_context(context)),
         );
         tokio::pin!(connect);
@@ -129,7 +312,8 @@ where
                 read = client.read(&mut buffer) => {
                     match read {
                         Ok(0) => {
-                            tracing::info!(
+                            #[cfg(feature = "performance-diagnostics")]
+                            tracing::debug!(
                                 target = %request.target,
                                 elapsed_ms = connect_started.elapsed().as_millis(),
                                 "cancelled HTTP CONNECT establishment because client disconnected"
@@ -143,7 +327,7 @@ where
                             pending_client_bytes.extend_from_slice(&buffer[..count]);
                         }
                         Err(error) => {
-                            tracing::warn!(target = %request.target, %error, "cancelled HTTP CONNECT establishment after client read failure");
+                            tracing::debug!(target = %request.target, %error, "cancelled HTTP CONNECT establishment after client read failure");
                             return Err(error.into());
                         }
                     }
@@ -154,7 +338,7 @@ where
     let mut upstream = match connect_result {
         Ok(stream) => stream,
         Err(error) => {
-            tracing::warn!(
+            tracing::debug!(
                 method = "CONNECT",
                 target = %request.target,
                 %error,
@@ -164,7 +348,7 @@ where
             return Err(error);
         }
     };
-    tracing::info!(
+    tracing::debug!(
         target = %request.target,
         "HTTP CONNECT upstream tunnel established"
     );
@@ -172,33 +356,45 @@ where
         .write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n")
         .await
         .map_err(|error| {
-            tracing::warn!(
+            tracing::debug!(
                 target = %request.target,
                 %error,
                 "failed to acknowledge HTTP CONNECT tunnel to client"
             );
             error
         })?;
+    #[cfg(feature = "performance-diagnostics")]
     let relay_started = std::time::Instant::now();
     upstream.write_all(&pending_client_bytes).await?;
-    let (client_to_upstream_bytes, upstream_to_client_bytes) =
+    let (_client_to_upstream_bytes, _upstream_to_client_bytes) =
         io::copy_bidirectional(&mut client, &mut upstream)
             .await
             .map_err(|error| {
-                tracing::warn!(
-                    target = %request.target,
-                    elapsed_ms = relay_started.elapsed().as_millis(),
-                    error_kind = ?error.kind(),
-                    %error,
-                    "HTTP CONNECT tunnel relay failed after establishment"
-                );
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::ConnectionReset
+                        | std::io::ErrorKind::ConnectionAborted
+                        | std::io::ErrorKind::BrokenPipe
+                        | std::io::ErrorKind::UnexpectedEof
+                ) {
+                    tracing::debug!(target = %request.target, error_kind = ?error.kind(),
+                        "HTTP CONNECT tunnel relay interrupted");
+                } else {
+                    tracing::warn!(
+                        target = %request.target,
+                        error_kind = ?error.kind(),
+                        %error,
+                        "HTTP CONNECT tunnel relay failed after establishment"
+                    );
+                }
                 error
             })?;
-    tracing::info!(
+    #[cfg(feature = "performance-diagnostics")]
+    tracing::debug!(
         target = %request.target,
         elapsed_ms = relay_started.elapsed().as_millis(),
-        client_to_upstream_bytes,
-        upstream_to_client_bytes,
+        client_to_upstream_bytes = _client_to_upstream_bytes,
+        upstream_to_client_bytes = _upstream_to_client_bytes,
         "HTTP CONNECT tunnel relay completed"
     );
     Ok(())
@@ -515,55 +711,5 @@ struct Header {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::core::{PROXY_HEADER_PARAMETER_COUNTRIES, PROXY_PARAMETER_COUNTRIES};
-
-    /// Verifies that registered headers are extracted into generic parameters.
-    #[test]
-    fn extracts_registered_parameter_headers() {
-        let headers = vec![Header {
-            name: PROXY_HEADER_PARAMETER_COUNTRIES.to_string(),
-            value: r#"["be", "BE"]"#.to_string(),
-        }];
-        let definitions = vec![ParameterDefinition::new(
-            PROXY_HEADER_PARAMETER_COUNTRIES,
-            PROXY_PARAMETER_COUNTRIES,
-            false,
-        )];
-
-        let context = context_from_headers(&headers, &definitions, ClientContext::new());
-
-        assert_eq!(
-            context.get_string(PROXY_PARAMETER_COUNTRIES),
-            Some(r#"["BE"]"#)
-        );
-    }
-
-    /// Verifies that non-forwarded parameter headers are stripped from HTTP relay requests.
-    #[test]
-    fn strips_non_forwarded_parameter_headers() {
-        let definitions = vec![ParameterDefinition::new(
-            PROXY_HEADER_PARAMETER_COUNTRIES,
-            PROXY_PARAMETER_COUNTRIES,
-            false,
-        )];
-
-        assert!(should_strip_header(
-            "arachnea-proxy-countries",
-            &definitions
-        ));
-    }
-
-    /// Verifies that forwarded parameter headers can be preserved.
-    #[test]
-    fn preserves_forwarded_parameter_headers() {
-        let definitions = vec![ParameterDefinition::new(
-            "Arachnea-Proxy-Trace",
-            "trace",
-            true,
-        )];
-
-        assert!(!should_strip_header("arachnea-proxy-trace", &definitions));
-    }
-}
+#[path = "../../../tests/server/handlers/http.rs"]
+mod tests;

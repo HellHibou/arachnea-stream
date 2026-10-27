@@ -33,8 +33,10 @@ use crate::controler::ServerNetworkMode;
 pub struct RestControlerService {
     /// Socket address the HTTP server is bound to.
     socket_addr: std::net::SocketAddr,
-    /// Warp router containing all registered routes.
+    /// Warp router containing all registered routes in a balanced tree.
     router: Option<RestRouter>,
+    /// Registration order retained when rebuilding the balanced router.
+    routes: Vec<RestRouter>,
     /// Networks whose clients are allowed to connect to the server.
     ///
     /// When non-empty, the server rejects requests from addresses outside these
@@ -198,6 +200,7 @@ impl RestControlerService {
         RestControlerService {
             socket_addr,
             router: None,
+            routes: Vec::new(),
             allowed_networks: configuration.allowed_networks,
             entrypoint_root,
             entrypoint_api: Some(entrypoint_api),
@@ -224,6 +227,7 @@ impl RestControlerService {
         RestControlerService {
             socket_addr: snapshot.socket_addr(),
             router: None,
+            routes: Vec::new(),
             allowed_networks: snapshot.allowed_networks.clone(),
             entrypoint_root,
             entrypoint_api: snapshot.entrypoint_api.clone(),
@@ -439,13 +443,27 @@ impl RestControlerService {
         }
     }
 
+    /// Adds an ACL-protected route without linear polling-stack growth.
+    ///
+    /// # Arguments
+    /// - `route`: Next alternative, after every previously registered route.
     fn add_route(&mut self, route: RestRouter) {
         let route = self.make_client_acl_filter().and(route).boxed();
-        if self.router.is_none() {
-            self.router = Some(route);
-        } else {
-            self.router = Some(self.router.clone().unwrap().or(route).unify().boxed());
+        self.routes.push(route);
+        let mut level = self.routes.clone();
+        // Boxing erases types, but polling a linear chain still grows the stack.
+        while level.len() > 1 {
+            let mut next = Vec::with_capacity((level.len() + 1) / 2);
+            let mut routes = level.into_iter();
+            while let Some(left) = routes.next() {
+                next.push(match routes.next() {
+                    Some(right) => left.or(right).unify().boxed(),
+                    None => left,
+                });
+            }
+            level = next;
         }
+        self.router = level.pop();
     }
 
     /// Registers a `302 Found` redirect from the server root `/` to the

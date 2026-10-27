@@ -1,5 +1,42 @@
 # Arachnea Stream
 
+## Direct fallback when a country proxy is unavailable
+
+Stream scraper and resolver requests enable `fallback_direct` on their proxy core.
+The `/proxy` web handler is also instantiated with `fallback_direct: true`.
+If no usable proxy exists in the requested countries, routing falls back to a
+connection without any remote proxy. Other transport and origin failures retain
+their existing error behavior. A geo-restricted origin may still deny direct access.
+
+The web proxy's `opts` JSON can override the default with `{"fallback_direct": false}`
+or `true`. Alternatively, use `Arachnea-Proxy-Fallback-Direct: false` or `true`;
+the URL option takes precedence over that header. Proxy privacy restrictions remain
+applicable. An unavailable country proxy is returned as a source-attributed error
+alongside successfully extracted data in `get_entry` and other scraper aggregation
+responses. The existing frontend error adapter receives both through the usual
+`data` / `errors` envelope. Responses containing errors are not converted to HTTP 304.
+
+## Localized proxy persistence
+
+The physical `proxy-inventory` store owns the `proxy-inventory`,
+`proxy-preferences` and `proxy-failures` tables in the application data
+directory's `data/proxy-inventory.sqlite3`, sharing one SQLite connection.
+Each table has its own typed view and schema. Preferences retain up to three
+accepted endpoints per exact destination without age expiration. Failure records
+retain bounded rediscovery protection (1,024 endpoints, 48 hours from eviction,
+cleaned on demand). These stores are shared across aggregator rebuilds; no worker
+is started. Compatibility application constructors use memory-only stores.
+The other physical stores use `data/cloudflare-session.sqlite3` and
+`data/arachnea-services.sqlite3`. WAL/SHM files, when present, are adjacent
+`<STORENAME>.sqlite3-wal` / `<STORENAME>.sqlite3-shm` files. Old
+`<STORENAME>/records.sqlite3*` databases are ignored, not imported or deleted.
+The first run with this layout starts with empty proxy records, accepted
+histories, eviction protection and Cloudflare sessions. Existing service
+activation overrides and stored credentials in the old services database must
+be configured again. New-format data survives subsequent restarts; no legacy
+reset directory or schema marker is created. Sharing one database does not
+make endpoint eviction and preference cleanup a single transaction.
+
 `arachnea-stream` is the executable Rust backend crate. It wires the stream service facade, player resolvers, configured scraper sources, credentials storage, and the selected controller backend.
 
 ## Responsibilities
@@ -45,6 +82,26 @@ not stable identities. See the Section contract in the stream specifications.
 - `cd server && cargo test -p arachnea-stream` - Run this crate's tests.
 - `cd server/crates/arachnea-stream && cargo tauri build` - Build the Tauri desktop application and release bundles.
 - `cd server/crates/arachnea-stream && cargo tauri build --target <target-triple>` - Build a platform-specific Tauri bundle once the target and native platform toolchain are installed. See the root and server README files for cross-platform setup notes.
+
+## M6 Play API Key Preparation
+
+Replay and live session setup share a five-second total budget for the optional
+login-page and JavaScript-bundle lookup of the public Gigya API key. If lookup
+fails or exceeds that budget, setup uses the existing bundled fallback key.
+This deadline ends the awaited lookup; it does not add a detached refresh task.
+
+The process keeps one API-key cache entry, shared across logins under the existing
+login lock: discovered keys live for 15 minutes, and fallback keys for one minute
+before another web lookup is allowed. Cache locks are never held during network
+requests. A parsed Gigya JSONP response with a nonzero numeric `errorCode`
+invalidates the submitted key's cache entry for the next login attempt, without
+replaying the POST. Front-auth or transport failures do not invalidate this key.
+The cache is memory-only and is separate from credentials and the session cache.
+Diagnostics report lookup/cache use, duration and fallback without key values.
+
+This bounds API-key preparation, not the complete `get_stream` operation. The
+existing proxy routing, per-request search budgets, session handling and safe
+replay rules continue to govern subsequent authentication and video requests.
 
 ## M6 Play Premium Metadata
 
@@ -106,12 +163,26 @@ ordered list is exposed as `resolver.proxy.countries` and forwarded through the
 existing frontend geo-routing contract. This adds one metadata request per
 extracted video player; no local territory list is substituted.
 
+TF1 replay and live negotiation install a mediainfo response classifier that
+inspects the JSON body before accepting a localized proxy. TF1 reports a
+geo-restriction with HTTP `200` and `delivery.code >= 400`, so the classifier
+rejects that proxy for the destination and the localized search retries another
+eligible candidate. HTTP `403` remains a rejection as well. The same classifier
+keeps the previous status behavior for non-mediainfo requests. Body inspection
+is requested only when the original or effective URL identifies mediainfo,
+preserving protection across redirects. CDN responses are classified from their
+status without waiting for a prefix; the Rquest collector preserves the skipped
+inspection's bounded reception window before its ordinary body timeout. This
+advances classification without shortening the time allowed for reception;
+the full manifest must still be downloaded before the resolver returns. The
+callback remains opted out of additional redirect-transport retention.
+
 TF1 replay and live negotiation emit INFO diagnostics with the requested and
-configured proxy countries, mediainfo HTTP status, delivery code, remote territory
-list, and the existing country-change retry decision. Scrapyfy also logs whether
-a proxy transport is configured when it forwards non-empty country hints. These
-diagnostics do not include credentials, bearer tokens, headers, or response bodies
-and do not change routing or retry behavior.
+configured proxy countries, mediainfo HTTP status, delivery code, delivery
+country, remote territory list, and the existing country-change retry decision.
+Scrapyfy logs at DEBUG whether a proxy transport is configured when it forwards
+non-empty country hints. These diagnostics do not include credentials, bearer
+tokens, headers, or response bodies.
 
 Gigya bootstrap transport failures produce a warning with the fixed endpoint,
 elapsed milliseconds, and the underlying error chain. The public error remains
@@ -217,3 +288,42 @@ the bounded outro end, the empty outro chapter is discarded. For example, a
   }
 ]
 ```
+
+
+## M6 default proxy domain group
+
+M6 resolver HTTP clients supply the optional generic `proxy_domain_group`
+containing `m6.fr`, `6play.fr`, `6cloud.fr` and `bedrock.tech`. Their subdomains may
+try a proxy accepted by another member before ordinary hierarchical discovery,
+when no exact eligible preference exists. This is a default candidate, subject to
+country/capability checks, target exclusions and response classification. It does
+not force a common IP or change the routing of the final returned stream URL.
+The domain configuration belongs to the M6 resolver; the shared proxy crate has
+no built-in source domains.
+
+
+## Performance diagnostics build
+
+The `performance-diagnostics` feature is disabled by default and forwards to
+`arachnea-proxy`, `arachnea-http` and `arachnea-scrapyfy`. Normal builds retain
+operational errors and all proxy validation, refresh, timeout and cancellation
+behavior, without performance-only observers/counters or media body wrapping.
+
+From the repository root on macOS, start normally with:
+
+```sh
+cd /Users/jdecker/Downloads/arachnea/server
+RUST_LOG=info cargo run -p arachnea-stream --bin arachnea
+```
+
+To compile and enable detailed performance traces:
+
+```sh
+cd /Users/jdecker/Downloads/arachnea/server
+RUST_LOG='info,arachnea_proxy=debug,arachnea_http=debug,arachnea_scrapyfy::scrapyfy::scraper_agregator=debug' cargo run -p arachnea-stream --bin arachnea --features performance-diagnostics
+```
+
+Routine proxy selections, probes, successful tunnels and recoverable attempts are
+DEBUG. Terminal localized HTTP failures and degraded direct fallbacks remain WARN;
+critical persistence/runtime failures remain visible. Cargo `--all-features`
+includes the optional diagnostics, independently of the logging filter.

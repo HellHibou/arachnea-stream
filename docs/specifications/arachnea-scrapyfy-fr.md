@@ -124,6 +124,7 @@ http:
   user_agent_profile: chrome    # chrome | chrome_stable | firefox | firefox_stable
   user_agent: "Custom UA"       # optionnel : surcharge complète du User-Agent
   proxy_countries: ["US", "CA"] # optionnel : pays proxy ordonnés
+  proxy_domain_group: ["m6.fr", "6play.fr", "6cloud.fr", "bedrock.tech"] # groupe optionnel de domaines
   proxy_affinity: "opaque-session-id" # optionnel : conserve le même proxy admissible
   proxy_rejection_statuses: [403] # optionnel : change de proxy et réessaie une fois
   max_redirects: 16             # optionnel : nombre max de redirections (défaut global: 16)
@@ -136,6 +137,17 @@ statiques. Un pays unique doit aussi employer une liste à un élément, par exe
 `http.proxy_countries: ["US"]`. Le champ singulier `proxy_country` n'est pas
 accepté.
 
+`proxy_domain_group` est une liste statique optionnelle de noms de domaines.
+Le proxy normalise la casse, IDNA et le point final, ignore les entrées invalides
+et déduplique les noms. Le groupe ne s’applique qu’à ses domaines et sous-domaines :
+un proxy accepté par un autre membre admissible fournit un candidat par défaut
+avant la recherche hiérarchique et l’exploration générale. Préférences exactes et
+affinité explicite admissible restent prioritaires. Pays, capacités, exclusions de
+cible, callbacks et budgets restent applicables. Une liste enfant vide hérite du
+parent ; une liste non vide le remplace. Ce paramètre n’impose ni une IP commune ni
+un changement du routage des URL média retournées ; il est sans effet sans routage
+proxy dynamique.
+
 `proxy_affinity` est un identifiant opaque limité au processus. Les requêtes qui
 partagent cet identifiant réutilisent le même proxy dynamique tant qu'il reste
 admissible pour le pays, le protocole et la destination. L'identifiant n'expose
@@ -147,9 +159,53 @@ La requête correspondante est réessayée une fois avec un autre candidat élig
 déjà en cache. La liste est vide par défaut et reste sans effet sans route proxy
 dynamique intégrée au processus. Le rejet est persisté dans l'inventaire des
 proxys pendant 24 heures et reste limité au triplet exact protocole, hôte et
-port. Après une réponse non rejetée, le proxy sélectionné devient le candidat
+port. Après une réponse acceptée (2xx par défaut), le proxy sélectionné devient le candidat
 prioritaire pour cette destination exacte tout en restant soumis à tous les
 contrôles d'éligibilité ; chaque destination conserve une préférence distincte.
+
+Avec la feature `arachnea-proxy`, `http.proxy_response_classifier` sélectionne
+une politique connue et remplace la liste de rejet, sans composition implicite :
+
+```yaml
+http:
+  proxy_response_classifier:
+    type: statuses
+    rejected_statuses: [403]
+    accepted_statuses: [200, 206]
+    cooldown_seconds: 86400
+```
+
+Les types sont `default` (2xx acceptés), `http403` (403 rejeté, autres réponses
+selon la politique prudente) et `statuses`. Les statuts doivent appartenir à
+100..599, les listes acceptées/rejetées être disjointes et le cooldown explicite
+être strictement positif et représentable. Sans `accepted_statuses`, tous les
+2xx sont acceptés ; une liste vide n’accepte rien. Sans cooldown, la valeur de
+l’inventaire s’applique. Une exclusion active n’est jamais raccourcie.
+La configuration enfant remplace celle du parent ; `type: default` permet une
+réinitialisation explicite. La priorité est handler injecté par code, politique
+connue, liste historique, puis politique prudente. Les 4xx/5xx non classifiés et
+les redirections restent inconclusifs : ni exclusion ni nouveau succès.
+
+La classification utilise les en-têtes originaux avant transformation et le jeton
+de la destination réellement observée, sans valider les origines précédentes
+d’une redirection. Les handlers de statuts ne lisent aucun corps. Un handler
+injecté peut demander au maximum 64 Kio, avec une lecture limitée à trois
+secondes et au timeout restant ; les octets sont restitués. Un extrait limité,
+indisponible ou insuffisant ne démontre pas l’absence d’un marqueur. Les erreurs
+du handler sont journalisées et inconclusives. Les moteurs sans observation
+précoce corrélée ne produisent pas de préférence ou d’exclusion par déduction.
+La réponse publique HTTP reste matérialisée ; les budgets communs et règles
+de rejeu du lot 5 ne sont pas introduits par cette option.
+
+Les appels Rquest géolocalisés peuvent réutiliser un transport inactif compatible
+entre clients dérivés. Chaque appel sélectionne à nouveau sa route et réassocie
+exclusivement le transport au jeton et à l'échéance de la requête courante. Le pool
+conserve au plus 32 transports inactifs et écarte à l'accès ceux qui sont inactifs
+depuis 60 secondes. Seules les tentatives complètes et acceptées y retournent.
+Cookies et configurations de routage mutables restent indépendants. La connexion
+est réutilisée si le serveur la conserve ; sinon elle est rétablie sous le contexte
+courant. Les budgets de recherche et règles de rejeu restent inchangés ; aucune
+nouvelle option YAML n'est introduite.
 
 ### Modes HTTP (`mode`)
 
@@ -1863,3 +1919,19 @@ queries:
           - type: ratio
             argument: 60
 ```
+
+## Option applicative du proxy local
+
+Le listener partagé se configure hors du schéma YAML des requêtes via
+`--proxy-server-port` (clé persistée `proxy-server-port`). Absent ou nul, le port
+est choisi automatiquement et journalisé après le bind sur `127.0.0.1` ; un port
+non nul est imposé. Le rechargement des sources conserve le listener ; changer le
+port nécessite un redémarrage. Les contextes partagent le port d’écoute et gardent
+leurs paramètres indépendants. Les champs YAML `http.proxy_countries` et
+`http.proxy_affinity` sont inchangés. Un navigateur local utilise l’utilisateur
+proxy `countries=BE,FR` et le mot de passe `local`, avec un challenge `407` avant
+routage ; `default` / `local` sélectionne la route par défaut de l’application.
+Le README du crate précise le cycle de vie, l’encodage des paramètres et les
+limites des clients externes.
+
+Les fallbacks Tauri/Wry partagent également ce port et leur contexte de routage ; sur macOS 14+, ils utilisent SOCKS5 authentifié sur le même socket, sans listener supplémentaire.

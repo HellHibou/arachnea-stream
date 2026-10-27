@@ -12,6 +12,81 @@ use tokio::net::{lookup_host, TcpStream, UdpSocket};
 
 use crate::server::ServerConfig;
 
+/// Handles an internal SOCKS5 CONNECT using a lease on the shared loopback port.
+///
+/// Unlike the standalone SOCKS server, this adapter requires opaque internal
+/// credentials and does not accept unauthenticated, public-profile or UDP requests.
+///
+/// # Arguments
+/// - `client`: Accepted loopback stream positioned before the SOCKS version byte.
+/// - `routes`: Weak registry shared with the HTTP loopback adapter.
+///
+/// # Errors
+/// Returns an error for invalid negotiation, expired contexts or outbound failures.
+pub(crate) async fn handle_loopback(
+    mut client: TcpStream,
+    routes: Arc<std::sync::RwLock<HashMap<String, std::sync::Weak<crate::server::LoopbackRoute>>>>,
+) -> Result<()> {
+    let (request, route) = tokio::time::timeout(std::time::Duration::from_secs(30), async {
+        if client.read_u8().await? != 5 {
+            return Err(ProxyError::Protocol(
+                "invalid loopback SOCKS version".into(),
+            ));
+        }
+        let count = client.read_u8().await?;
+        let mut methods = vec![0; usize::from(count)];
+        client.read_exact(&mut methods).await?;
+        if !methods.contains(&2) {
+            client.write_all(&[5, 255]).await?;
+            return Err(ProxyError::AccessDenied(
+                "loopback SOCKS requires routing credentials".into(),
+            ));
+        }
+        client.write_all(&[5, 2]).await?;
+        if client.read_u8().await? != 1 {
+            client.write_all(&[1, 1]).await?;
+            return Err(ProxyError::Protocol(
+                "invalid loopback SOCKS authentication version".into(),
+            ));
+        }
+        let username = read_socks_auth_string(&mut client).await?;
+        let password = read_socks_auth_string(&mut client).await?;
+        let route = if username == "arachnea-context" {
+            routes
+                .read()
+                .map_err(|_| ProxyError::Config("loopback registry lock poisoned".into()))?
+                .get(&password)
+                .and_then(std::sync::Weak::upgrade)
+        } else {
+            None
+        };
+        let Some(route) = route else {
+            client.write_all(&[1, 1]).await?;
+            return Err(ProxyError::AccessDenied(
+                "unknown or expired loopback SOCKS context".into(),
+            ));
+        };
+        client.write_all(&[1, 0]).await?;
+        let request = read_request(&mut client).await?;
+        if request.command != 1 {
+            write_reply(&mut client, 7).await?;
+            return Err(ProxyError::Unsupported(
+                "loopback SOCKS command other than CONNECT",
+            ));
+        }
+        Ok((request, route))
+    })
+    .await
+    .map_err(|_| ProxyError::Timeout("loopback SOCKS negotiation"))??;
+    handle_connect(
+        client,
+        request.destination,
+        route.context.clone(),
+        route.core.clone(),
+    )
+    .await
+}
+
 /// Handles one SOCKS TCP connection.
 pub async fn handle(
     mut client: TcpStream,
@@ -172,7 +247,8 @@ async fn read_parameter_username_password(
 /// Builds a client context from a SOCKS5 username parameter string.
 ///
 /// The accepted format is `name=value;name2=value2`. Commas are also accepted
-/// as separators for clients that make semicolons awkward to configure.
+/// as separators outside JSON arrays/quoted strings, for clients that make
+/// semicolons awkward to configure.
 ///
 /// # Parameters
 ///
@@ -186,8 +262,39 @@ fn context_from_socks_username(
     username: &str,
     definitions: &[ParameterDefinition],
 ) -> ClientContext {
+    let mut depth = 0usize;
+    let mut quoted = false;
+    let mut escaped = false;
     let pairs = username
-        .split([';', ','])
+        .split(|character| {
+            if escaped {
+                escaped = false;
+                return false;
+            }
+            if quoted && character == '\\' {
+                escaped = true;
+                return false;
+            }
+            if character == '"' {
+                quoted = !quoted;
+                return false;
+            }
+            if quoted {
+                return false;
+            }
+            match character {
+                '[' | '{' => {
+                    depth += 1;
+                    false
+                }
+                ']' | '}' => {
+                    depth = depth.saturating_sub(1);
+                    false
+                }
+                ';' | ',' => depth == 0,
+                _ => false,
+            }
+        })
         .filter_map(|part| part.split_once('='))
         .map(|(name, value)| (name.trim(), value.trim()));
     context_from_parameter_pairs(pairs, definitions)
@@ -850,47 +957,5 @@ struct UdpDatagram<'a> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::core::{PROXY_HEADER_PARAMETER_COUNTRIES, PROXY_PARAMETER_COUNTRIES};
-
-    /// Verifies parsing of a SOCKS5 UDP datagram with an IPv4 destination.
-    #[test]
-    fn parses_socks5_udp_ipv4_datagram() {
-        let packet = [
-            0x00, 0x00, 0x00, 0x01, 127, 0, 0, 1, 0x1f, 0x90, b'p', b'i', b'n', b'g',
-        ];
-        let datagram = parse_udp_request(&packet).unwrap();
-        assert_eq!(datagram.frag, 0);
-        assert_eq!(datagram.destination.port, 8080);
-        assert_eq!(datagram.payload, b"ping");
-    }
-
-    /// Verifies encoding of a SOCKS5 UDP response with an IPv4 source.
-    #[test]
-    fn encodes_socks5_udp_ipv4_response() {
-        let source = SocketAddr::from((Ipv4Addr::new(8, 8, 8, 8), 53));
-        let packet = encode_udp_response(source, b"pong");
-        assert_eq!(
-            packet,
-            vec![0x00, 0x00, 0x00, 0x01, 8, 8, 8, 8, 0x00, 0x35, b'p', b'o', b'n', b'g',]
-        );
-    }
-
-    /// Verifies that SOCKS5 username strings can carry generic parameters.
-    #[test]
-    fn extracts_parameters_from_socks_username() {
-        let definitions = vec![ParameterDefinition::new(
-            PROXY_HEADER_PARAMETER_COUNTRIES,
-            PROXY_PARAMETER_COUNTRIES,
-            false,
-        )];
-
-        let context = context_from_socks_username(r#"countries=["be","BE"]"#, &definitions);
-
-        assert_eq!(
-            context.get_string(PROXY_PARAMETER_COUNTRIES),
-            Some(r#"["BE"]"#)
-        );
-    }
-}
+#[path = "../../../tests/server/handlers/socks.rs"]
+mod tests;

@@ -142,8 +142,6 @@ fn validate_connect_response(response: &[u8]) -> Result<()> {
     if (200..300).contains(&status) {
         Ok(())
     } else {
-        Err(ProxyError::UpstreamRejected(format!(
-            "http connect returned status {status}"
-        )))
+        Err(ProxyError::HttpConnectRejected { status })
     }
 }

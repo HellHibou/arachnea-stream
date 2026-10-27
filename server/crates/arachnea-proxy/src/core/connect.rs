@@ -14,6 +14,9 @@ impl<T> AsyncReadWrite for T where T: AsyncRead + AsyncWrite + Unpin {}
 /// Metadata describing an established proxy connection.
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ConnectMetadata {
+    /// Request-owned dynamic selection; never serialized on protocol boundaries.
+    #[serde(skip)]
+    pub selection_token: Option<super::ProxySelectionToken>,
     /// Selected route or chain name.
     pub route_name: Option<String>,
     /// Transport kind used for the final hop.

@@ -201,26 +201,36 @@ impl Default for EntitySchema {
     }
 }
 
-/// Explicit identity and schema used to construct one typed persistence store.
+/// Explicit table identity and entity schema, independent of a physical database.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PersistenceStoreConfig {
-    /// Stable name used for diagnostics and file placement.
+pub struct PersistenceTableConfig {
+    /// Stable table name (also used for standalone memory/file stores).
     pub name: String,
-    /// The one entity schema accepted by this store.
+    /// The one entity schema accepted by this table.
     pub schema: EntitySchema,
 }
 
-impl PersistenceStoreConfig {
-    /// Creates validated configuration for one named store.
+impl PersistenceTableConfig {
+    /// Creates validated configuration for one named entity table.
+    ///
+    /// # Arguments
+    /// * `name` - Non-empty table name, independent of the physical SQLite store name.
+    /// * `schema` - Complete schema for the entity persisted in this table.
+    ///
+    /// # Errors
+    /// Returns an error when the name is empty or the entity schema is invalid.
     pub fn new(name: impl Into<String>, schema: EntitySchema) -> anyhow::Result<Self> {
         let name = name.into();
         if name.is_empty() {
-            anyhow::bail!("persistence store name must not be empty");
+            anyhow::bail!("persistence table name must not be empty");
         }
         schema.validate()?;
         Ok(Self { name, schema })
     }
 }
+
+/// Compatibility name for an entity table configuration, not a physical SQLite store.
+pub type PersistenceStoreConfig = PersistenceTableConfig;
 
 /// Stable typed identity used by an entity store.
 pub trait EntityKey: Clone + Eq + Hash + Debug + Send + Sync + 'static {
@@ -503,6 +513,25 @@ where
 {
     /// Reads one non-expired entity by its primary key.
     async fn get(&self, key: &E::Key) -> anyhow::Result<Option<E>>;
+    /// Reads non-expired entities in input order, preserving duplicates and absences.
+    ///
+    /// Reads are not an atomic snapshot across keys. Implementations may purge
+    /// expired entries as `get` does, including before a later read fails.
+    /// Dropping the future stops further batches; an already started blocking
+    /// batch may finish. No results are cached between calls.
+    ///
+    /// # Arguments
+    /// * `keys` - Primary keys to read; an empty slice returns an empty vector.
+    ///
+    /// # Errors
+    /// Returns a backend read/decoding error without a partial result vector.
+    async fn get_many(&self, keys: &[E::Key]) -> anyhow::Result<Vec<Option<E>>> {
+        let mut results = Vec::with_capacity(keys.len());
+        for key in keys {
+            results.push(self.get(key).await?);
+        }
+        Ok(results)
+    }
     /// Validates and writes one entity.
     async fn put(&self, entity: &E) -> anyhow::Result<()>;
     /// Validates all entities before committing the complete batch atomically.

@@ -223,7 +223,7 @@ pub(crate) async fn build_browser_cloudflare_solver(
             build_explicit_chaser_cf_engine(config, proxy_url, session_store).await
         }
         CloudflareBrowserSolverKind::TauriCloudflareSolver => {
-            build_explicit_tauri_cloudflare_engine(config).await
+            build_explicit_tauri_cloudflare_engine(config, proxy_url).await
         }
     }
 }
@@ -248,9 +248,8 @@ pub(crate) async fn get_default_cloudflare_solver(
 ) -> Result<Option<DynHttpEngine>, ArachneaHttpError> {
     #[cfg(feature = "tauri-cloudflare-solver")]
     {
-        let _ = proxy_url;
         let _ = session_store;
-        return build_tauri_cloudflare_engine(config).await.map(Some);
+        return build_tauri_cloudflare_engine(config, proxy_url).await.map(Some);
     }
 
     #[cfg(all(not(feature = "tauri-cloudflare-solver"), feature = "chaser-cf"))]
@@ -320,15 +319,17 @@ async fn build_explicit_chaser_cf_engine(
 /// `tauri-cloudflare-solver` feature is not enabled.
 async fn build_explicit_tauri_cloudflare_engine(
     config: &ArachneaHttpConfig,
+    proxy_url: Option<&str>,
 ) -> Result<Option<DynHttpEngine>, ArachneaHttpError> {
     #[cfg(feature = "tauri-cloudflare-solver")]
     {
-        return build_tauri_cloudflare_engine(config).await.map(Some);
+        return build_tauri_cloudflare_engine(config, proxy_url).await.map(Some);
     }
 
     #[cfg(not(feature = "tauri-cloudflare-solver"))]
     {
         let _ = config;
+        let _ = proxy_url;
         Err(ArachneaHttpError::CloudflareSolverUnavailable)
     }
 }
@@ -397,8 +398,9 @@ pub(crate) async fn build_chaser_cf_engine(
 #[cfg(feature = "tauri-cloudflare-solver")]
 pub(crate) async fn build_tauri_cloudflare_engine(
     config: &ArachneaHttpConfig,
+    proxy_url: Option<&str>,
 ) -> Result<DynHttpEngine, ArachneaHttpError> {
     Ok(Arc::new(
-        tauri_cloudflare::TauriCloudflareSolverEngine::new(config),
+        tauri_cloudflare::TauriCloudflareSolverEngine::new_with_proxy_url(config, proxy_url)?,
     ))
 }

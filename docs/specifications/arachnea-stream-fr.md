@@ -722,6 +722,15 @@ Un joueur est soit un `direct-link` (média direct), soit un descripteur
 et `target` peuvent être déclarés en format plat (champs racine) ou en format
 objet legacy (`resolver > kind`, `resolver > target_id`).
 
+Pour `m6play-video` et `m6play-live`, la préparation optionnelle de la clé d'API
+Gigya dispose de cinq secondes au total pour la page de connexion et le bundle
+JavaScript, puis utilise la clé de secours embarquée si nécessaire. Un cache
+mémoire partagé conserve une clé extraite pendant quinze minutes, ou la clé de
+secours pendant une minute avant de retenter la récupération. Une réponse JSONP
+Gigya avec un `errorCode` numérique non nul invalide l'entrée utilisée pour le
+prochain essai, sans rejeu du POST. Ce budget ne borne pas toute la résolution
+`get_stream` et ne modifie pas le routage des étapes suivantes.
+
 Exemple avec résolveur générique (format plat) :
 
 ```yaml
@@ -942,13 +951,27 @@ codée en dur ne lui est substituée.
 Le résolveur TF1+ lit la liste de territoires autorisés dans `media.geoList`
 de la réponse `mediainfocombo`. Il normalise et déduplique ces codes, puis les
 utilise comme pays proxy pour relancer une négociation géobloquée avant
-d'évaluer `delivery.code`. Ce routage s'applique aussi à la résolution de l'URL
-finale du manifeste. Le champ `stream_url` retourné par `get_stream` conserve le
-proxy HTTP local, mais ne transmet ni pays proxy ni statuts de rejet géoproxy :
+d'évaluer `delivery.code`. Comme TF1 peut signaler un géoblocage avec un statut
+HTTP `200` et `delivery.code >= 400`, le résolveur installe aussi un classifier
+de réponse `mediainfo` qui rejette le proxy courant pour la destination et
+laisse la recherche proxy localisée essayer un autre candidat éligible ; un
+statut HTTP `403` reste également un rejet. L’inspection de contenu est demandée
+lorsque l’URL initiale ou effective identifie mediainfo, afin de préserver les
+contrôles à travers les redirections. Les autres réponses, dont les manifestes
+CDN, sont classées selon leur statut sans lecture préalable de préfixe. La collecte
+Rquest conserve la fenêtre bornée de réception auparavant accordée à l’inspection
+avant de démarrer son délai habituel de transfert ; le manifeste doit toujours
+être reçu intégralement. La priorité du callback, les refus de contenu et le
+budget global de recherche restent inchangés. Ce routage s’applique aussi à la
+résolution de l’URL finale du manifeste. Le champ `stream_url` retourné par
+`get_stream` conserve le proxy HTTP local, mais ne transmet ni pays proxy ni
+statuts de rejet géoproxy :
 la lecture ne passe donc plus par un proxy géolocalisé. La liste de territoires
 reste conservée pour le storyboard et la licence Widevine différée, sans retry
 local ni fallback direct. L'URL `/api/proxy` du storyboard encode le rejet du
-statut HTTP `403`, qui provoque un seul nouvel essai avec un autre candidat.
+statut HTTP `403`, qui autorise les essais séquentiels sûrs dans la fenêtre
+commune de 120 s et sa marge de 15 s pour une tentative déjà engagée, sans plafond
+fixe du nombre de candidats.
 
 Le résolveur TV5MONDE+ utilise la liste fournie par le lecteur pour
 l'authentification anonyme et l'appel entitlement initial. Il extrait ensuite

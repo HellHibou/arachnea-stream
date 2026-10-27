@@ -77,11 +77,23 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Added two-level SQLite persistence: `SqliteStoreConfig` / `SqliteDatabase` own a physical database and shared connection, while `PersistenceTableConfig` / typed table views manage independent entity schemas. `PersistenceStoreConfig` remains a compatibility alias for table configuration.
+
 #### Changed
+
+- Reduced grouped SQLite key reads from 128 to 32 keys per chunk after finite reader/writer comparisons on synthetic 0/69/1,024-entry eviction tables. Shared-connection write medians improve from about 1.6 ms to 0.3 ms in the focused comparison, with less than 1 ms median read overhead; commit serialization, expiration and cancellation semantics stay intact. All 31 core and 132 proxy tests pass; sustained fairness and API gains remain unqualified.
+
+- Added ordered typed `get_many` reads with scalar backend compatibility and bounded SQLite composite-key queries. SQLite releases its connection lock between chunks, checks expiration before entity decoding and documents partial cleanup/error/cancellation behavior; no cross-call caching or schema migration is introduced.
+
+- SQLite files now use flat `<data-root>/<STORENAME>.sqlite3*` paths instead of `<STORENAME>/records.sqlite3*`. Legacy data is not imported or automatically deleted; newly persisted data survives restarts.
 
 - `get_application_resource_path` now probes the release layouts (portable folder, macOS `Contents/Resources`, Linux system resource dir) for the requested relative path itself (file or directory) instead of resolving a cached resource root from a `services` directory check; `get_application_resource_root` was removed accordingly.
 
 #### Fixed
+
+- SQLite column/index metadata and managed-index cleanup are scoped to each table, preventing schema reconciliation from modifying other tables in a shared store. Schema changes commit transactionally.
+- Shared SQLite tables now use unambiguous, reserved-prefix managed index names: table `a_b` / column `name` no longer collides with table `a` / column `b_name`. Opening a table replaces its previous managed index names without changing records or external indexes; existing fixtures cover collision, reopening and reconciliation.
+- REST route registration now builds a balanced Warp filter tree instead of a linear chain. Registration priority and client ACL checks are preserved, while polling depth grows logarithmically; this reduces stack pressure during nested proxy/TLS operations implicated in macOS debug stack-overflow reports.
 
 - Linux resource probing now prefers the AppImage mount root (`$APPDIR/usr/lib/*/services`): the resolution previously derived `../lib` from the executable path alone, which resolved to `/tmp/.mount_.../usr/bin/services` (missing) instead of the Tauri bundler layout `$APPDIR/usr/lib/<product>/services`. deb/rpm probing via the executable path is unchanged.
 
@@ -89,13 +101,109 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Add bounded DEBUG exploration-ranking diagnostics: unique ranking identities, up to eight ordered candidate snapshots, sampled pipeline lifecycle/completion order, and winner paths even outside the sample. Preserve the comparator, validation concurrency, eligibility and deadlines; distinguish cancellation from endpoint failures and stored probe latency from pipeline elapsed time.
+
+- Add bounded DEBUG media-client diagnostics with monotonic attempt IDs, origin-only phase timings, status/classification and an owned body observer for consumed bytes, EOF, errors and early drops. Preserve streaming, cancellation, HTTP/1.1, routing and timeout behavior; omit signed URLs, headers and payloads.
+
+- Add a response-specific body-requirement hook that delegates to historical callbacks by default, plus an explicit-requirement inspection helper preserving the existing entry points and callback decisions.
+
+- Add an opt-in classifier capability for technical redirect transport retention and a compatible detailed inspection helper. Status policies allow supported inconclusive redirects only after successful inspection/classification; custom callbacks default to no additional retention, and the existing inspection API and business decisions remain unchanged.
+
+- Exposed sixteen configuration default constants and the Smart DNS header/context parameter identifiers at the crate root, covering transport/probe timeouts, complementary-target suspension and policy, IP-country resolution, and egress-pool validation batches. Default initializers now use them, and direct node/chain construction reuses the existing default route name; all values and runtime behavior are preserved.
+
+- The shared proxy service now prints its effective loopback address and port once after binding, matching the web server startup announcement even when INFO tracing is filtered. The announcement is owned by the proxy runtime rather than the application entry point.
+
+- The shared loopback socket also accepts authenticated internal SOCKS5 CONNECT for native macOS WebViews. It reuses live routing leases and existing limits; anonymous requests, public profiles, UDP and BIND are rejected without opening another port.
+
+- Added `LoopbackProxyRuntime`: one configurable IPv4 loopback HTTP listener, weak routing leases, external routing profiles through a `407` Basic challenge, strict parameter merging, and bounded connection/context lifetimes. Standalone proxy authentication is unchanged.
+
+- Added a source-size audit and staged file-splitting proposal in `docs/dev-tracking/analyse-decoupage-arachnea-proxy.md`, covering existing test extraction, responsibility-based private modules, public import compatibility, and planned validation. Implementation remains pending confirmation; no Rust behavior changed.
+- Documented the proposed consolidation of inventory, failure and preference tables into the physical `proxy-inventory` SQLite store, including table-scoped schema metadata, legacy data migration and the distinction between shared storage and business transaction atomicity. Implementation is pending confirmation.
+- Revised the persistence analysis following user decisions: select the shared SQLite owner with typed table views, separate store and table configuration, use flat `<STORENAME>.sqlite3*` paths for all SQLite stores, and discard legacy data instead of migrating it. The revised analysis supersedes the earlier migration proposal; runtime implementation remains outstanding.
+
+- Localized proxy lot 3 introduces a shared side-effect-free response classifier, conservative 2xx acceptance, configurable status/403 policies, exact-token destination exclusions with optional cooldowns, and bounded non-destructive body-prefix inspection before media post-actions. YAML/media URL policies preserve explicit legacy rejection lists and FranceTV/TF1 activation; unclassified errors remain inconclusive.
+
+- Extended localized-proxy validation with a verified-TLS Rquest keep-alive fixture returning 200 then 503, delayed-response eviction and aggregator replacement scenarios, scoped persistence-error log assertions, and four SQLite eviction commit-boundary simulations. Actual process/disk crashes and the HTTPS-specific `ProxyProbe` path remain outside this coverage.
+
+- Added eleven localized-proxy lifecycle tests covering synchronized HTTP responses and pinned reconnects, redirect attribution, injected preference write failures, probe context changes, HTTP 503 observations, retention/cooldown boundaries, partial SQLite eviction recovery and concurrent file-history commits. Fixtures use local endpoints and existing test infrastructure; Rquest keep-alive, HTTPS 503 and actual process-crash coverage remain pending.
+
+- Localized proxy lot 2 adds typed durable histories of three accepted endpoints per exact destination, lazy restoration before discovery, country-independent newest-eligible preference selection, awaited serialized commits and an observable persistence-failure counter. Separate bounded failure records preserve eviction cooldowns on rediscovery; endpoint eviction uses positive evidence or initial discovery instead of attempt dates. Technical successes no longer erase destination exclusions. Application and Scrapyfy integration inject and share the new stores without background maintenance.
+
+- Documented the feasibility of replacing the Rquest loopback with an internal pre-TLS stream connector: the locked `newwreq 5.1.7` middleware hook cannot construct its private connection types. The analysis distinguishes an upstream/dependency extension from an explicit internal HTTP engine and browser-specific compatibility; no runtime transport change is included.
+- Revised the no-loopback target to cover all traffic governed by proxy-enabled configuration, including solver/browser subrequests, while preserving explicit proxy-disabled direct access. Browser loopback and autonomous remote-proxy configuration are not final solutions; unsupported engines, bootstrap routing and existing core fallbacks require explicit handling. This revision changes documentation only.
+
+- Localized proxy lot 1 adds bounded contextual observations, optional positive-health/discovery evidence with compatible persistence, and request-owned selection tokens with pinned routes. Destination failures no longer promote or evict proxies globally; HTTP 5xx does not erase successful TLS evidence. Probe configuration changes invalidate aggregate capability reuse without discarding contextual history.
+
+
 - INFO country-routing diagnostics expose requested territories, local-country bypass decisions, selected candidate authority/country and route transport; unavailable geo-proxy warnings include the destination. Routing, fallback, and retry behavior are unchanged, and credentials and affinity values are not logged.
 - TLS handshake failure warnings expose the TLS server name and certificate-verification flag to distinguish HTTPS upstream-proxy failures from destination failures without disabling validation or logging signed media URLs.
 - HTTP CONNECT diagnostics distinguish tunnel establishment, client acknowledgement failures and subsequent relay failures, with elapsed time and directional byte totals on normal completion, without logging tunnel payloads or changing relay behavior.
 
 - Dynamic proxy records now preserve source declarations as persisted provenance metadata, including each provider identifier, advertised protocol and HTTPS hint. Refresh logs report endpoints with conflicting protocol declarations and runtime protocols recovered outside provider claims.
 
+- Established the October 21 initial localized-proxy measurement baseline: twenty repetitions of existing inventory/repository scenarios and twenty FranceTV calls each for entry retrieval and video resolution, with raw samples, environment fingerprints, comparison thresholds and explicit remaining deployment evidence. Added DEBUG microsecond timings for selection/ranking, persistent country reads/imports and slot waits, request IDs on shared subscriptions, task IDs on executions, provider-call duration and reserve lifecycle correlation. Existing fixture timing output was extended without adding tests or changing routing, deadlines, reserve settings or durability.
+
 #### Changed
+
+- Make performance-only observers, sampled ranking/search counters, provider progress mutexes and phase timers opt-in through the default-off `performance-diagnostics` feature. Default builds omit the media body wrapper and diagnostic allocations while preserving validation, refresh, timeouts, replay and cancellation. Remove duplicate lifecycle summaries; move routine selections, probes, successful tunnels and recoverable failures to DEBUG, preserving operational WARN/ERROR reports.
+
+- Recorded the first post-restart hierarchy/domain-group recipe with persistent cache retained: five successful alternating M6/FranceTV resolutions, including a real Hdfauth-to-K7 hierarchical candidate accepted in 1.002 s after an exact preference failed. One index snapshot loaded 18 histories in 2.488 ms. No explicit M6 domain-group event was observed; initial proxy/CDN delays and causal performance gains remain open. Added sanitized API/event/attempt evidence without production changes or cache reset.
+
+- Replace the initial Public Suffix List design with hostname hierarchy: remove one leading label at a time, prefer the nearest eligible level and stop after two labels. Remove the embedded domain list and the direct `publicsuffix` dependency. Add optional `proxy_domain_group` JSON context/header defaults across configured domains and their subdomains before hierarchy; retain exact preferences, explicit affinity, countries, capabilities, exclusions, callbacks, discovery profiles and budgets. Rebuild the suffix index from existing accepted histories without migration or cache reset; log domain-group candidates separately.
+
+- Prioritize eligible proxies accepted by sibling HTTP(S) origins sharing a scheme, registrable domain and port when no exact preference is available. Preserve exact redirect evidence and explicit affinity priority, country/capability/target exclusions, content callbacks and discovery attempt budgets. Derive a shared index from existing durable histories, load it once, restore endpoints lazily and update/prune it on acceptance/removal; no cache reset or schema migration. Embed the official Public Suffix List including private boundaries, and log `related_origin` candidate provenance separately from target acceptance. Extend existing preference, persistence and repository scenarios; real latency gains remain to be measured.
+
+- Increase capability-validation concurrency from two to three per active proxy search within the unchanged shared limit of four. Preserve TCP/provider limits, speculative admission, probe/search deadlines, cooldowns and replay rules. Extend the existing concurrency scenario to cover three local workers, a fourth waiting locally, another search using the last shared slot, global saturation and cancellation cleanup. All 132 proxy and 45 HTTP tests plus the core-only build pass; live latency and cross-search contention gains remain unqualified.
+
+- Suspend an exact proxy/destination association for 120 seconds after a proven tunnel-establishment timeout, using the existing persisted `Timeout` category. Preserve this classification when the HTTP adapter subsequently records a generic failure; explicit origin rejections keep priority. Strictly newer same-origin acceptance clears older `Other`/`Timeout` exclusions in memory and persistence, including restored histories. Ambiguous failures retain their 30-second cap; global health, other origins, network/search budgets and fallback permissions are unchanged. Extended existing scenarios: 132 proxy and 45 HTTP tests pass, with a core-only build; no cache reset or schema migration required.
+
+- Compute the probe context identity/key once per cached-candidate ranking instead of per record. Scalar and grouped preparation share invalidation rules, preserve TCP and positive evidence, and keep current-context capabilities intact; no key is cached across rankings. Extended the existing invalidation scenario and validated all 132 proxy tests plus the core-only build on integrated sources. Runtime deadlines, ranking and persistence remain unchanged; live acceptance testing is pending.
+
+- Country inventory reads now batch durable eviction lookups while sharing the scalar eviction predicate and retaining the commit lock and initial current-state restoration. Existing scenarios cover composite keys, current evidence and concurrent SQLite writes; all 132 proxy and 31 core tests pass. API latency and production load gains remain unqualified.
+
+- Retain typed upstream CONNECT rejection statuses and known pinned-route transport failure phases, selected protocols and bounded causes in existing contextual observations. Diagnostics share the destination-exclusion commit, retain current cooldown/replay/global-health policies, and attribute HTTPS-proxy TLS failures at their handshake boundary. Opaque outer HTTP-engine failures remain adapter diagnostics; no cache migration is required.
+
+- Recheck queued discovery candidates against current inventory and request exclusions before network work and between phases; skip removed/already-attempted candidates and redundant checks when capabilities became fresh while waiting. Added refresh completion/error/cancellation summaries, retained-partial-batch counts, first-memory-merge timing and new-endpoint/declaration diagnostics. Provider cooldowns, concurrency, ranking, search deadlines and routing remain unchanged.
+
+- Concurrent persistent country imports now share one cancellable read-and-merge operation per inventory/repository. Completed reads and errors are not memoized; cancelling one subscriber preserves the others. Internal loopback leases can be rebound exclusively for a newly selected request, and transport generations include core, TLS and DNS policy identity. Search deadlines, candidate ranking and direct-fallback policy are unchanged.
+
+- Moved all `arachnea-proxy` test implementations into crate-root `tests/`, mirroring source paths and filenames, with shared helpers in `tests/support/` and TLS fixtures in `tests/fixtures/`. Updated HTTP fixture references; post-action pipeline scenarios now run as library tests. `server/AGENTS.md` defines this layout for every server crate, with the remaining migrations tracked in `docs/TODO.md`.
+
+- Centralized all `InventoryConfig` and `ProxySearchLimits` numeric defaults as documented, core-gated constants in `arachnea-proxy/src/lib.rs`, reusing the existing destination-failure cooldown constant. Defaults and configurable overrides are unchanged; the 135-second business deadline remains the sum of the 120-second target and 15-second grace.
+
+- Localized destination selections retain engaged TCP/capability subscriptions during business attempts. After acceptance, the inventory can transfer them to supervised preparation of two fresh fallback endpoints, bounded to 15 seconds and two compatible preparations per inventory, without awaiting reserve probes or commits. Preparation uses inventory candidates only, reduced admission within existing shared limits, and no business replay or provider download. `InventoryConfig::reserve_size` (maximum two, zero disables) and `reserve_timeout` control this behavior; request deadlines and durable success commits remain unchanged.
+- Provider batch preparation clones only matching inventory endpoints. Country-cache imports overlap with concurrency two; repository country queries reuse their loaded records while retaining eviction filtering under the commit lock. Added contextual permissive-probe failure diagnostics and DEBUG shared-execution/subscriber/commit timing traces. Existing lifecycle assertions now cover retained work, non-blocking acceptance, ownership transfer and reserve expiry.
+
+- Consolidated the crate-wide constants of `arachnea-proxy` into `src/lib.rs`: connection budgets and cooldowns, request parameter/header wire-contract names, proxy HTTP service limits and action headers, pool-selection tuning values, preference limits, SQLite store names and the proxy protocol priority, each with a doc comment describing its purpose and gated by the feature owning the subsystem. Modules that previously owned a constant re-export it from the crate root so existing import paths (`arachnea_proxy::core::*` and module-scoped paths used by `arachnea-stream`, `arachnea-http` and `arachnea-scrapyfy`) keep working.
+- Renamed the private `src/core/core` module directory of `arachnea-proxy` to `src/core/proxy_core` for clarity. The module stays private; `ArachneaProxyCore` keeps its public re-export at `arachnea_proxy::core::ArachneaProxyCore`, so no public API path changed.
+
+- Added explicit `fallback_direct` configuration (default false), core default override, request parameter/header override, and a required web-proxy default with an optional boolean URL override. Missing dynamic country proxies now use the selected policy consistently with or without a search context; direct fallback removes all remote proxy hops and respects privacy restrictions. Source-scoped diagnostics preserve non-fatal selection errors.
+
+- Implemented the approved proxy persistence design: inventory, failures and accepted preferences share `proxy-inventory.sqlite3` through typed table views and one connection. Existing repositories, retention and separate business commits are preserved. Existing fixtures cover shared-table restoration and interrupted eviction; this completes the earlier analysis entries.
+
+- Moved all nine inline unit-test modules into dedicated files under adjacent `tests/` directories, retaining their module names, private access, feature gates, and existing inventory lifecycle inclusion. Production logic and public APIs are unchanged.
+
+- Split the dynamic proxy inventory into a facade and nine private modules for configuration, records, discovery, eligibility, selection, preferences, probing, observations, and persistence. Existing public imports, test module names, feature gates, lock ordering, shared cancellable work, and probe budgets are preserved.
+
+- Split `ArachneaProxyCore` and `ProxyProbe` into nine files each, separating routing, pool selection/state, connections, DNS, protocol detection, capability probing, HTTP/SOCKS exchanges, TLS, and result handling. Public imports and method signatures are preserved; existing algorithms, feature gates, timeouts, and TLS policies remain unchanged.
+
+- Grouped core and inventory unit tests into domain modules with shared test-only fixtures, replacing the inventory lifecycle textual inclusion. Test assertions, function names, and feature gates are preserved; qualified test names now include their domain. Split configuration types and their associated implementations into dedicated modules, retaining public reexports, defaults, validation, and Serde attributes. The HTTP proxy service split remains deferred, with an updated implementation analysis.
+
+- Split the controller HTTP proxy service into a facade and five private modules for request handling, options, headers, URLs, and redirects. Public imports, handler processing, retry rules, and existing qualified test names are preserved. Corrected the port-separator examples and registration-name documentation; no Rust file in the proxy crate now exceeds 1,000 lines.
+
+- Localized proxy searches no longer stop at 64 TCP prechecks, 32 full validations or eight business endpoints. Dynamic connection retries also follow the shared deadline and candidate exhaustion instead of a fixed attempt count. Concurrency and replay protections remain unchanged; cancelled technical reservations are released for later selection in the same search.
+
+- Localized search INFO diagnostics distinguish reserved/completed TCP and validation work, reachable endpoints, eligible results and business attempts, with elapsed/remaining budgets and a request-local search identity. Probe logs expose whether capabilities were actually proven. Existing fixtures verify progression beyond two concurrent validation slots; work limits are unchanged.
+
+- Localized proxy lot 7 extends existing acceptance fixtures to verify shared work/endpoint caps, semaphore waits, deadline grace, accepted transfers, replay eligibility, final-subscriber cancellation, restored country-filtered preferences and content-policy byte preservation. Local timing/counter samples and the acceptance coverage matrix are documented without changing production limits or adding test infrastructure.
+
+- Localized proxy lot 6 overlaps cache exploration with discovery after 10 seconds or eight unsuccessful validations, ranks country refreshes by cache state/age, preserves a configurable 10-second refresh floor and accepts progressive provider batches through a compatible list adapter. Configurable probe methods/policies, one deadline-sharing fallback and separate target acceptance retain real transport evidence. Relaxed mode allows bounded business trials after ambiguous complementary probes; target-only suspicion uses distinct endpoints and on-demand 30/60/120-second recovery without country exclusions or background work.
+
+- Localized proxy lot 5 adds a request-owned 120-second search target with 15-second engaged-origin grace, 64/32 technical-work reservations and eight distinct business endpoints. TCP/validation/country-load concurrency is bounded per search and inventory; prechecks and full validations complete progressively using subscriber-owned shared futures. Last-subscriber cancellation drops work without synthetic failures. CONNECT inherits remaining time, safe replay replaces independent retries, and contextual media options accept an explicit boolean replay guarantee. Contextual loopbacks own and abort their child connections; they reconnect across calls instead of retaining stale request budgets.
+
+
+- Localized proxy lot 4 treats countries as a canonical allowed set across routing parameters, dynamic pool markers, media URLs and Scrapyfy configuration/provider calls. HTTP and HTTPS selection ranks all allowed countries together after persistent-cache imports, preferring accepted histories and fresh validated candidates before revalidation, partial capabilities or unknowns. Ready candidates bypass precheck windows; static country routes use stable endpoint/name ordering. Preference eligibility also rejects known invalid proxy certificates. Cold discovery still loads countries sequentially before ranking their combined results; shared budgets and concurrent selection remain lot 5 work.
+
 
 - Routine dynamic country route evaluation, local-country mismatch, route selection, and validated-origin proxy reuse logs now use DEBUG instead of INFO; routing behavior and warning levels are unchanged.
 
@@ -109,6 +217,33 @@ All notable changes to the server workspace are recorded here.
 - Accepted origin responses now make the corresponding dynamic proxy the preferred candidate for that exact country, scheme, host and port instead of globally preferring it for every destination in the country. Concurrent domains therefore retain independent preferred proxies, and preferred reuse still passes every normal eligibility check.
 
 #### Fixed
+
+- Import persisted country candidates once when post-acceptance reserve preparation lacks ready fallbacks, including partially loaded in-memory inventories. Share concurrent imports with at most two countries in flight, recheck readiness before probing, and keep imports under the existing reserve deadline and supervisor cancellation. Preferred responses do not wait; provider refresh, reserve defaults and business search budgets remain unchanged.
+
+- Retain provider-refresh exploration time, failed capability validations and cache exhaustion across proxy selections within one logical search and exact destination. Preferred-attempt time counts from the first selection; redirects and independent searches keep separate progression. Preserve provider cooldowns, demand-driven cancellation, concurrency and the overall search budget. Log refresh-phase activation separately from actual provider loading.
+
+- Isolate controller media work in a request-owned child task to break the REST/media/proxy polling-stack chain. Propagate ambient search deadlines and tracing context, abort the child on caller cancellation, and preserve returned-stream ownership. Box media retry and discovery futures before generic search wrappers. Existing lifecycle coverage verifies task identity, inherited deadlines, redirect behavior, buffering and connection closure on request/body cancellation; search and TLS policies remain unchanged.
+
+- Reduce debug media-route stack pressure by boxing candidate pipeline futures before unordered buffering and boxing the core HTTP request future before search-context polling. The October 22 macOS crash report identifies a stack overflow while discovery is polled from the media handler. Scheduling, shared-work cancellation, TLS policy and timeouts are preserved; real-media replay qualification remains open.
+
+- Buffered proxy responses now finish chunked decoding at the final chunk and trailers instead of waiting for TLS shutdown, avoiding false `close_notify` failures. Compatibility fallback no longer hides truncated chunk framing. Buffered media acceptance waits for complete transfer; transfer failures retain the exact proxy selection, apply a destination-scoped exclusion, and allow GET/HEAD or explicitly replayable retries within the existing search deadline.
+
+- Coordinate cold localized discovery by exact destination and allowed-country set, wake pending discovery on business success, and release ownership on outcome/cancellation before media transfer. Preserve immutable selection provenance, allow longer connection budgets for known endpoints, cap ambiguous destination exclusions at 30 seconds even in existing caches, and persist followed-redirect evidence separately from final acceptance. Existing fixtures cover followers, cancellation, restored redirect evidence and transient exclusions.
+
+- Shared TCP prechecks and capability validations now own abort-on-drop child tasks, isolating probe TLS handshakes from the media handler's polling stack after the remaining FranceTV stack overflow. Work sharing, search deadlines and concurrency limits are preserved; existing fixtures verify task isolation and cancellation releasing inventory slots.
+
+- Accepted origin responses now clear strictly older ambiguous (`Other`) exclusions for the same proxy and exact destination. Preferred selection repairs and persists legacy exclusions superseded by stored successes, allowing reuse without deleting the cache; equal-date/newer failures, explicit origin rejections and unrelated health state remain protected.
+
+- Shared dynamic-provider refreshes now own an abort-on-drop child task, preventing nested media selection → Scrapyfy provider → HTTP selection from exhausting a Tokio worker stack. Refreshes remain shared per country and bounded by the existing slots and caller deadlines; the last subscriber aborts the child instead of leaving detached work. Existing progressive/cancellation fixtures cover the polling boundary, isolated business context and permit cleanup.
+
+- Localized endpoints now cap core TCP setup at three seconds and proxy handshakes at five seconds, preserving shorter configured limits and ordinary/idle policies. Unresponsive cached proxies return a phase failure sooner instead of consuming the HTTP response-header timeout.
+
+- Fixed localized selection stalling until the 120-second deadline after two probes when a suspended TCP precheck held the persistence commit lock. Candidate pipelines now keep both stages polled while separate semaphores preserve validation limits; writes remain awaited. The existing multi-country scenario reproduces the deadlock with yielding persistence and verifies all three candidates complete.
+
+- Current-country detection no longer inherits the pending business search's acceptance state. A successful auxiliary geo HTTP response previously closed the FranceTV K7 search and caused immediate proxy-search deadline errors. Detection retains its resolver timeout and awaited caller cancellation; an existing Rquest fixture reproduces the premature acceptance and verifies isolation.
+
+- SOCKS username parameter parsing preserves commas inside JSON arrays and quoted strings, fixing multi-country lists exposed by the combined proxy/HTTP feature validation.
+
 
 - Dynamic proxy selection now probes unknown or expired required capabilities on demand, including persisted and affinity candidates. Provider loading retains untested records instead of probing the full list; sequential selection stops at the first usable candidate, persists probe results, and throttles inconclusive attempts without disabling TLS validation.
 - HTTP CONNECT establishment stops after 20 seconds or client disconnect instead of continuing abandoned route searches. Complete automatic endpoint probes are bounded to 8 seconds and run inline for cancellation; per-endpoint locks replace the global probe lock without disabling TLS validation.
@@ -133,6 +268,10 @@ All notable changes to the server workspace are recorded here.
 - Wiflix film entries now expose their players. Film pages carry no `.hostsblock` episode block, so `get_entry` reads their flat `.tabs-sel.linkstab` player list into entry-level `players` (the shape Coflix films already use) instead of returning no player at all, while series pages keep players scoped inside each episode. Host names are decoded from the base64 `span[data-n]` attribute the site's own script reads, falling back to the visible label carried by VOSTFR anchors, and the film language is read from the `inLanguage` marker of the seventh metadata row with `TrueFrench` mapped to `vf`.
 - Wiflix players now also expose `web-link`, holding the same resolved hoster URL as `embed-link`, so the public frontend can open the player page externally for entries, seasons and player lists. The field is copied through `copy_item_fields` for entry-level film players and `set_nested_fields` for episode players, so the signed `ajax_player.php` request still runs once per player.
 - Wiflix now exposes `get_category` and `get_section` so category pages are no longer empty and their rails can paginate. Both scrape the category grid (`#grid .mov`, reusing the home `block_card` anchor) reached through `{query_url}page/{page}/` (DLE pagination). `get_category` wraps the grid in `sections` from a `load_home` category descriptor, `get_section` returns the flat follow-up page the frontend requests when scrolling a rail. Pagination is driven by the `.pnext a[href]` \"next\" affordance: `derive_pagination` reads the extracted `next_page` and stops reporting `have_more` once the anchor degrades to a bare `<span>` on the last page, instead of counting page numbers from the navigation block.
+- Starts the shared Scrapyfy proxy before serving application requests and preserves its listening port through validated source reloads. New default routes are published after successful rebuilds while existing connections retain their original contexts.
+
+- Application persistence now opens the shared proxy database and separate flat `cloudflare-session.sqlite3` / `arachnea-services.sqlite3` databases, ignoring old directory-based data. Legacy service activation overrides and stored credentials must be configured again. The obsolete destructive service-directory reset and schema marker were removed; new-format databases are retained across restarts.
+
 - RMC BFM Play now exposes a `search` query against the anonymous `recherche` BFF endpoint, returning the `mosaique` grid nested in the `onglet` tabs as landscape cards with player-page links consumable by `get_entry`; no pagination is advertised.
 - RMC BFM Play `get_entry` on episode `player` pages now keeps parent-programme episode rails titled "Episodes" without accent (for example "Episodes 1 à 39"), which the seasons label filter previously dropped, leaving those entries with no seasons.
 - RMC BFM Play `get_entry` recommendations no longer include the "À voir aussi" rail: on `player` pages it duplicates the season episodes (119 episode cards on "Un amour sauvage"). Top-level recommendation rails are now selected by title ("Titres similaires", portrait cards) since the pointer syntax cannot express the exclusion and season rails share the same `landscape` format.
@@ -171,6 +310,12 @@ All notable changes to the server workspace are recorded here.
 #### Changed
 
 - Wiflix series no longer resolve every episode player while loading the entry. `get_entry` now returns each episode with a deferred `players` link (`<page>#ep<N>`) and no inline players, and `get_players` scopes its rows to that episode's `ep<N>vs` / `ep<N>vf` blocks through `{url_fragment}`, so selecting an episode resolves its six players (three VOSTFR, three VF, each keeping its `lang`) instead of the 36 players of the page. The duplicated `get_season` and `get_episode` queries were removed; film entries keep their 16 entry-level players.
+- Expose the default-off `performance-diagnostics` application feature and forward it to proxy, HTTP and Scrapyfy. Document normal and diagnostic macOS launch commands and the revised proxy log levels.
+
+- Configure M6 resolver HTTP clients with the optional domain group `m6.fr`, `6play.fr`, `6cloud.fr`, `bedrock.tech`; reuse eligible accepted default candidates across their subdomains without changing returned media URL routing or forcing a common IP.
+
+- Enabled direct fallback for scraper/resolver requests and explicitly for the web proxy API when no country proxy is available. Successful `get_entry` data can now be returned alongside the proxy availability error through the existing frontend envelope.
+
 - Bouké now exposes the locality directory as one `Localités` category. Opening it returns navigable locality categories, each loading its own paginated `/commune/<slug>` video listing through `get_category` instead of publishing every locality as a separate home category or prefetching every commune page.
 - Arte, TF1, France TV and RMC BFM Play now emit source-owned `key: rail:<provider-id>` rail identities, independent of titles; LN24's single category rail uses `rail:category-content`. Existing published keys, pagination, content extraction and title-based aggregation remain unchanged. The TF1 fixture contract now requires section keys; local HTML rails without persistent container ids remain documented follow-ups rather than using random slider ids.
 - Canal Zoom now exposes its `/liste-localite` directory as a `Localités` home category without preloading individual communes.
@@ -228,6 +373,10 @@ All notable changes to the server workspace are recorded here.
 
 #### Fixed
 
+- Restrict TF1 content inspection to requested/effective mediainfo URLs. CDN responses retain status-based classification without waiting for a prefix, while their historical reception window is preserved in collection. Keep delivery-code rejection, incomplete-evidence handling, routing and global search budgets unchanged.
+
+- TF1+ replay and live negotiation no longer keep a localized proxy that TF1 rejects only inside the `mediainfocombo` JSON body. TF1 answers geo-restricted requests with HTTP `200` and `delivery.code >= 400`, so the status-only proxy classifier accepted the proxy and made it the preferred endpoint for `mediainfo.tf1.fr`; every later negotiation reused it and failed with the geo-restriction message. The resolver now installs a mediainfo response classifier that inspects the JSON prefix, rejects the proxy for the destination when `delivery.code >= 400`, and lets the localized search retry another eligible candidate. Non-mediainfo TF1 requests keep the previous status policy, and the diagnostics now also log `delivery.country`.
+- M6 replay/live API-key preparation now bounds the optional page/bundle lookup to five seconds before using the existing bundled fallback, instead of potentially spending a full localized HTTP search budget on bootstrap. A single process-local entry caches discovered keys for 15 minutes and fallback keys for one minute; parsed Gigya login errors invalidate the submitted entry for the next explicit attempt without replaying the POST. Lookup diagnostics omit key values, and subsequent routing and HTTP search policies are unchanged.
 - The `arachnea-stream-hoster` Uqload resolver now rewrites every manifest and storyboard URL it returns through the proxy. Its proxy headers sent a misspelled `Origine` header (so no real `Origin` reached the CDN) and the manifest rewrite only accepted `application/vnd.apple.mpegurl`, so a mirror answering `application/x-mpegurl` or `audio/mpegurl` was left with absolute CDN child URLs and the player requested them cross-origin; `Origin` now carries the embed origin and all HLS content types are rewritten. Absolute and relative manifest lines are both rewritten, and the storyboard rule no longer stacks its prefix on already-absolute sprite URLs. The service description now lists every supported `uqload.*` mirror.
 - The `arachnea-stream-hoster` Vidzy resolver now decodes the current player payload for `vidzy.cc`, `vidzy.live`, `vidzy.com` and `vidzy.org` embeds. The page folds a DOM layout measurement (`offsetWidth` of its probe element, i.e. `calc(1in + A px)` container minus its `calc(100% - B px)` child) into the XOR key after the hostname checksum, and the two probe offsets `A`/`B` are randomized on every response. The YAML's inline decoder used a fixed constant, so the payload decoded to garbage and `resolve_stream` produced no usable stream URL; the resolver now captures `A`, `B` and the payload from the same response and computes `BC = 96 + A - B`. The service description now lists every supported mirror.
 - TF1+ `get_entry` no longer fails with `Cannot serialize '$.link' as string: expected one value` on programmes such as Cat's Eyes. The culprit was `recommendations > link` (`select: all` on a scalar `string`): TF1 now emits the "Si vous aimez…" programme rail twice with the same label, producing the same deferred link twice. The entry now keeps only the first value (`select: first`), matching the scalar contract; the root `link`/`web-link` extraction is unchanged.
@@ -244,6 +393,13 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Added `--proxy-server-port` / `proxy-server-port`: absent or zero allocates and logs an automatic port; a nonzero port is required exactly. Aggregator clients and provider snapshots share the runtime while keeping independent routing contexts. Port changes require restart.
+
+- Localized proxy lot 3 adds inherited `http.proxy_response_classifier` configuration and code injection, replacing duplicated status checks with the early correlated decision. Injected policies survive derived clients; unclassified 4xx/5xx no longer establish accepted preferences. Existing retry counts are unchanged.
+
+- Localized proxy lot 1 attributes accepted/rejected HTTP results to their request-owned selection, including redirects, and avoids transport rotation after response-body collection errors. No new YAML policy or retry expansion is introduced.
+
+
 - Loaded query collections expose sorted query names for capability discovery without additional provider queries or duplicated YAML flags.
 
 - Scraper HTTP configuration uses `proxy_countries`, an ordered normalized country list forwarded to proxy routing as a JSON array; the singular `proxy_country` field is not accepted.
@@ -257,6 +413,21 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Forward optional performance diagnostics to HTTP/proxy and gate provider source-query observers. Default builds retain progressive publication and cancellation without profiling state; country-hint forwarding is DEBUG.
+
+- Add optional `http.proxy_domain_group` configuration and builder support, parent/child inheritance, transport reuse isolation and generic proxy-parameter forwarding. Preserve existing response policies and request budgets.
+
+- Provider source queries now report source/query/country, duration, output rows and completion/error/cancellation separately from downstream inventory publication, without logging query parameters, response bodies or credentials. Existing partial-success and source-order contracts are preserved.
+
+- Derived scraper HTTP clients share their family's bounded proxy transport pool while retaining independent routing overrides and cookie state. Compatible subsequent requests can reuse an idle transport after fresh route selection and request-context rebinding.
+
+- Return source-scoped direct-fallback diagnostics alongside successfully extracted data. Responses containing errors no longer emit a client ETag or return HTTP 304, preserving error delivery when content is unchanged.
+
+- Proxy discovery consumes source results as they complete while ordinary aggregation retains its ordering/cache behavior. Localized records publish immediately; deduplicated unknown IPs use at most 20 geo lookups per country load, four concurrent shared lookups, bounded positive/negative caching and cancellation with the final subscriber.
+
+- Localized HTTP calls share one search before client acquisition and delegate retries to arachnea-http, replacing the former 145-second per-attempt timeout and duplicate retry loops. Optional http.proxy_retry_replayable inherits with explicit false override; country loading uses bounded concurrency two instead of a 32-wide TCP precheck setting.
+
+
 - HTTP requests using the Arachnea geo-proxy transport now derive their timeout from the shared CONNECT budget plus 25 seconds (145 seconds currently), instead of abandoning proxy discovery after 25 seconds. Requests without Arachnea country routing retain the 25-second timeout.
 
 - `ScraperHttpConfig` now accepts only ordered `proxy_countries`; Scrapyfy no
@@ -268,6 +439,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Fixed
 
+- Standalone `arachnea-proxy` builds now enable the proxy controller helpers required by media URL resolution. Shared test-directory initialization prevents the full Scrapyfy suite from reconfiguring an already resolved application root and poisoning its `Once` guard.
+
 - Text and binary scraper requests now rotate a dynamically selected proxy once when `arachnea-http` reports a proxy transport failure before an HTTP response, including failures occurring after an HTTP CONNECT tunnel was accepted. If the replacement also fails, both error contexts are retained and no third request is sent.
 - Proxifly country lookups now treat a missing country file (`404`) as an empty proxy list, avoiding the misleading `Invalid JSON payload` error for unsupported countries such as Andorra (`AD`).
 - Proxy and IP-country providers now own independent query runtimes instead of raw pointers into application aggregators, preserving source lifetime across runtime replacements without a core/provider ownership cycle.
@@ -277,9 +450,43 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Tauri/Wry now applies prepared proxy contexts in both standalone WebViews and Tauri application windows, with isolated data stores and native authentication before navigation. macOS 14+ uses authenticated SOCKS5 on the shared port with direct failover disabled; Windows and Linux install proxy-scoped authentication handlers. Automatic proxy solver selection follows the normal feature priority. Unsupported platform/proxy combinations fail before navigation.
+
+- Built-in proxy engines and pinned Rquest attempts now share the injected loopback runtime. Browser page sessions retain their routing leases; Chaser-CF receives profile credentials on the same port. Tauri/Wry support is provided by the native adapter described above.
+
+- Localized proxy lot 3 exposes optional response policy injection and the early response decision, evaluated before Rquest body materialization with exact hop metadata and replayed prefixes up to 64 KiB. Existing Rquest streaming support is enabled; unsupported engines explicitly remain uncorrelated. Common search deadlines remain future work.
+
+- Localized proxy lot 1 pins Rquest routes per origin/endpoint/route identity, carries the exact selection in responses and attributed errors, and observes HTTP headers before body collection. Delivery evidence stays conservative; browser engines without reliable attribution expose no selection token.
+
+
 #### Changed
 
+- Add default-off `performance-diagnostics` forwarding to an already enabled proxy dependency; compile out timing-only checkout/classification/body instrumentation. Move routine request sends and retryable per-attempt failures to DEBUG and report terminal localized failures once at WARN with origin/method/delivery context; keep real deadlines and response callbacks unchanged.
+
+- Bound reused localized-proxy send/header attempts by the configured HTTP timeout and the existing 60-second ceiling, giving Scrapyfy clients 25 seconds instead of an automatic 60-second override. Keep discovery, the shared 120/135-second search horizon, accepted-body allowances, content callbacks, exact-origin failures and replay guarantees unchanged. Report the effective `timeout_ms` on header timeout warnings. Extended existing GET/POST scenarios for discovery, accepted and redirect provenance, and adjusted the delayed-header TLS fixture; all 45 HTTP tests and the build without proxy support pass. Live alternating-source and idle-reconnect gains remain unqualified.
+
+- Retain up to two idle Rquest transports per compatible route instead of replacing the first on every return. Checkout exclusively takes the newest available transport without waiting for active borrowers; the third idle return evicts the oldest for that route. The global limit remains 32 individual transports with oldest-entry eviction and the existing 60-second idle expiry. Route reselection, token rebinding, content callbacks, followed-redirect admission, incomplete-body handling and replay budgets are preserved. Extended the existing pool/redirect scenario; all 45 HTTP library tests pass, along with a build without proxy support.
+
+- Classify responses without a preliminary prefix when their policy requests it, while preserving the skipped prefix reception bounds in the owned body collector before its ordinary transfer timeout. Finish immediately at EOF, start the ordinary timer at the byte/time boundary, and retain the search deadline for non-accepted bodies. Add bounded DEBUG fields for the deferred window.
+
+- Retain complete accepted Rquest proxy transports in an exclusively checked-out idle pool, including contextual localized searches. Each request reselects its route, uses a fresh outcome token, and rebinds reconnects to its own deadline. Pool identity isolates origin, endpoint, route/security policy, HTTP profile, routing parameters, connector limits and listener; at most 32 idle entries are retained, with a 60-second idle cutoff checked on access. Errors, rejected/inconclusive responses and incomplete bodies discard the checked-out transport; search and replay limits remain unchanged.
+
+- Localized Rquest requests log the chosen proxy/origin before sending and report delivery evidence and retry eligibility on failure, correlating attempts with bounded search-progress diagnostics.
+
+- Localized Rquest calls propagate the common search across redirects and safe sequential retries, observe acceptance before body collection and keep a separate accepted-body transfer timeout. Modifying operations require NotSent evidence or explicit proxy_retry_replayable authorization; inconclusive results and body errors never rotate. Engines without early correlation reject the scoped search explicitly; ordinary request timeouts and non-search keep-alive remain unchanged.
+
+
 #### Fixed
+
+- Remove DEBUG dumps of the shared cookie cache and raw request body, retaining only body-size metadata and existing redacted headers. This prevents those diagnostics from exposing session values or payload credentials during transport qualification; request behavior is unchanged.
+
+- Retain a fully consumed redirect transport only after the facade confirms a valid HTTP(S) redirect within its follow quota and the response policy explicitly permits it. Keep pending ownership private and request-bound, preserve public response cloning and business classification, and exclude custom callbacks by default, including TF1. Existing HTTP/proxy scenarios cover content rejection, inspection failures, invalid/unfollowed redirects, quotas, incomplete bodies and cancellation.
+
+- Reuse exact-destination proxy evidence with the longer connection/header profile, publish accepted responses before body collection with one commit per token, and record intermediate redirect routing evidence without accepting the starting domain's content. Preserve conservative POST delivery rules and separate accepted-body transfer limits; the existing TLS fixture verifies a reused endpoint can exceed ordinary header timing.
+
+- Localized Rquest clients now bound complete connection establishment to 15 seconds (or a shorter request timeout), preserving native pre-send timeout evidence for safe proxy rotation. Outer response-header timeouts remain conservative and emit a correlated phase diagnostic. An existing POST fixture verifies the 15-second CONNECT timeout before the 25-second header deadline.
+
+- Rquest now preserves proven absence of business delivery for first-hop connector failures, including refused CONNECT and rejected destination TLS certificates, instead of treating every send error as `PossiblySent`. This permits bounded safe retries of 6play login setup failures. Transmitted POSTs, opaque timeouts and redirect-hop failures remain conservative. Sanitized failure categories expose TLS/tunnel causes without disabling verification or logging source chains.
 
 - The `rquest` engine now applies the configured total request timeout to loopback-proxy clients as well as ordinary clients, including response body collection. Previously supplied proxy clients skipped the timeout configuration and could hang after a successful tunnel connection.
 - The `chaser-cf` engine builds its default Chromium flags with `ChaserConfig::add_extra_arg` instead of `with_extra_args`. The latter *replaces* the whole flag set, so the defaults appended after `ChaserConfig::from_env()` silently discarded the flags that function had just parsed from `CHASER_EXTRA_ARGS`, making the documented override a no-op — a container passing `--no-sandbox` still started Chromium without it and hit `No usable sandbox!`.
@@ -370,7 +577,120 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Added the October 21 detailed plan for remaining localized-proxy optimizations, covering baseline measurements, reserve qualification, provider refresh, persistent reads, local contention, connection reuse, candidate ranking, and production acceptance criteria. Linked the plan from the proxy TODO; runtime behavior is unchanged.
+- Documented the shared Scrapyfy loopback proxy server, configurable port, per-connection routing contexts, and browser profile negotiation. Recorded user approval of approach B and the `407` challenge; delivery and validation details are recorded in the development analysis.
+
 #### Changed
+
+- Specified the requested generic sibling-host proxy priority: preserve exact-origin preferences, then consider eligible accepted endpoints from the same registrable domain with scheme/port isolation, public/private suffix boundaries and durable history restoration. Keep candidates unaccepted on the new origin, preserve content callbacks and avoid per-request history scans. This supersedes resolver-specific affinity as the proposed next implementation; selection and persistence changes await confirmation, with no runtime modifications.
+
+- Analyzed cross-origin proxy reuse from the TF1 token/mediainfo example: exact-origin acceptance histories share a country inventory and can reuse ready endpoints without provider discovery. Identified missing explicit TF1/M6 resolver affinity and the existing fresh-probe requirement that can reject affinity after a recent business success. Documented a scoped affinity/technical-evidence qualification path while preserving origin-specific acceptance, content callbacks and the deferred TF1 live recipe; no runtime changes or network calls.
+
+- Qualified the configured-header policy after rebuild with seven alternating M6play/FranceTV resolutions and a 65-second measurement pause: six succeed, seven expired transports are recreated, and the post-idle calls finish in 12.551/0.227 seconds. No outer header timer expires in this sample, so retained fixture coverage is distinct from live expiry evidence. Recorded the remaining 121.714-second cumulative M6 startup and a separate K7 HTTP 500 followed by a missing-video API error; no causal gain or runtime changes claimed.
+
+- Analyzed the reported M6play/FranceTV switching slowdown: an existing M6 redirect chain spends 125.927 seconds mostly in two 60-second pre-header timeouts on a previously known proxy, while selection and transport checkout remain fast. Five new alternating resolutions succeed without reproducing a deterministic source-switch penalty. Documented a proposal to respect the configured pre-header timeout for known proxies while retaining the existing 60-second ceiling, shared search budget and replay safeguards; no runtime timeout changed pending confirmation.
+
+- Qualified the three-validation proxy search after the M6play restart: eight successful resolutions, 103.374 seconds initially and 0.583–11.096 seconds thereafter, with three unfinished validation subscriptions observed per front-auth/DRM search. Recorded a 31.501-second final front-auth selection versus 51.091 seconds in the prior campaign, separate Gigya tunnel recovery, and persistent direct fallback without claiming causal gains or cross-source fairness; no runtime or cache changes during measurement.
+
+- Explained the final 51.091 seconds of the initial M6 front-auth selection from existing DEBUG traces: capability validation queues under the two-per-search limit, frequent eight-second probes, negligible shared-slot waits, and roughly 112 milliseconds for the subsequent direct response. Documented a proposed three-per-search limit with the shared ceiling of four unchanged, including fairness tradeoffs and pending confirmation; no runtime change or new network calls.
+
+- Qualified the post-restart M6play timeout policy with eight successful resolutions: 107.933 seconds initially and 2.279–7.697 seconds thereafter. Observed no same-origin retry after seven typed tunnel timeouts within the available window, while other failures retried after 31–34 seconds. Recorded direct front-auth/DRM fallback, incomplete runtime expiry coverage, and remaining front-auth selection/wait costs without claiming causal latency gains; preserved cache and search budgets.
+
+- Analyzed M6 front-auth/DRM delays from the existing pool2 capture: 53 remote attempts, seven HTTP 403 responses and 46 proven pre-send failures; 18 retries follow the existing transient cooldown, including four repeated typed tunnel timeouts totaling 20.123 seconds of overlapping attempt windows. Documented a proposed 120-second exact-destination exclusion for typed tunnel timeouts, preserving ambiguous failure handling and search budgets, pending confirmation. No production code or network activity changed.
+
+- Qualified the two-idle-transport Rquest pool after the M6play rebuild/restart: eight successful stream resolutions and two concurrent pairs, with overlapping reused metadata transports and no new CONNECT on the second pair (246/196 ms). Kept the 149-second initial negotiation, existing direct front-auth/DRM fallback, a separate 5.231-second lbcdn transport creation and unrelated capture activity distinct from causal pool gains; other routes and controlled reconnect remain open.
+
+- Deferred further TF1 recipe calls at the user's request after the Skylines authentication check. Preserved its unqualified status and retained the M6play Rquest pool proposal as the next decision. No runtime changes.
+
+- Updated the pending TF1 recipe with the supplied Skylines entry: metadata resolves successfully and declares a new video target with 61 allowed countries. A single stream check still fails on the provider account lock after accepted HTTP authentication exchanges; kept metadata latency separate from remote-proxy qualification and preserved the declared routing scope.
+
+- Repeated the lot 5 M6play recipe with sequential and concurrent calls: five valid streams in six attempts, eleven remote transport checkouts reused, four warm lbcdn exchanges without a new CONNECT, and existing direct DRM fallback identified on every success. Documented the one-idle-transport-per-route limit and a proposed bounded two-transport option without changing production code. Suspended TF1 after two provider account-lock errors at login; kept cold discovery, causal gain, controlled reconnect and media playback qualifications open.
+
+- Profiled lot 4 with one/four Tokio workers and 1/4/16 spawned clients: 2,016 isolated operations and 48 independently verified SQLite stores, including accepted-record/preference lock and transaction breakdowns. Two live four-client FranceTV bursts return eight valid streams in 1.079–1.216 seconds; measured inventory commit contention without attributing the earlier CONNECT outlier or a causal API gain. Preserved production sources, locks, awaited durability and cache; sustained load and live internal commit decomposition remain open.
+
+- Recorded the integrated lot 4 DEBUG recipe: five successful FranceTV stream resolutions (1.502–2.911 seconds), ten preferred proxy selections, six rankings, four completed reserve preparations and 54 inventory commits. Kept the unreproduced earlier CONNECT outlier, fine commit decomposition, concurrency and causal API gain open; published only scalar measurement exports without raw logs or signed responses.
+
+- Correlated the integrated lot 4 FranceTV recipe with supplied INFO traces: ten accepted-destination searches reuse the same proxy without business rotation. The 13.161-second call is dominated by k7 before a late CONNECT establishment; documented timestamp/attribution limits and a targeted macOS DEBUG capture command without assigning an unproven local or remote cause.
+
+- Recorded five successful FranceTV stream resolutions after the integrated lot 4 rebuild/restart, with a 1.770-second median and one 13.161-second outlier. Kept API functional acceptance separate from pending log correlation, local CPU gains and causal API latency attribution; no cache reset or runtime policy change was made.
+
+- Compared a per-ranking probe-context candidate in four isolated reference/candidate/candidate/reference passes, totaling 480 operations. Context-preparation CPU falls from about 1.26 to 0.05 ms for 276 records and 19.8 to 0.8 ms for 4,096, preserving expected winners and invalidation. Archived a clean candidate patch validated by 132 proxy tests and a core-only check; production integration and API gains remain pending.
+
+- Refreshed lot 4 preliminary checks on October 26 after an INFO-level server restart: eight archived source hashes match and five FranceTV stream resolutions succeed with ten correlated accepted-destination selections. The 7.966-second outlier spans two accepted searches without rotation; INFO cannot split transport time from awaited acceptance persistence. Kept the earlier CPU profile dated and left the isolated candidate comparison pending.
+
+- Profiled 240 isolated proxy operations across 276/4,096-record inventories, validated preferences versus cached discovery and one/four concurrent clients. Separated synchronous CPU, context preparation, ranking, persistent reload/merge and SQLite commit stages, and correlated existing live diagnostics. Proposed per-ranking probe-context identity reuse; retained durability and freshness contracts with no production code change in this profiling step.
+
+- Recorded five successful FranceTV stream resolutions after restart with 32-key SQLite read chunks: 2.271–4.339 seconds, ten accepted-destination selections, four 220-record imports and four completed reserve lifecycles. Correlated the longest calls with their remote HTTP phases; retained causal API gains and sustained-load qualification as open work.
+
+- Qualified the integrated grouped proxy-country reads after a cache-preserving restart: five FranceTV stream resolutions succeed in 1.874–2.482 seconds, with ten accepted-destination selections and four completed reserve/import lifecycles. Recorded country-read and merge timings separately; left causal API gains, physical SQL counting and production contention unqualified.
+
+- Compared an isolated bounded composite-key eviction-read prototype in four snapshot-restored baseline/batched/batched/baseline passes: FR country/filter SELECTs drop from 277 to 4 and median filtering from 13.409 to 3.577 ms, with identical candidate key digests and unchanged first-merge restoration. All 132 proxy tests pass in the copied workspace; production integration, generic storage contracts and concurrent-writer qualification remain open. No production storage API or cache behavior changed.
+
+- Qualified the first supplied TF1 response-specific inspection traces: CDN classification takes 0 ms with the preserved reception bounds declared, while mediainfo content checks remain active. Recorded 30.586/4.181/14.628 seconds of phases, the unmatched first client duration and normal pool expiration between widely spaced calls; kept isolated latency gains and timeout-boundary qualification open.
+- Recorded five sequential TF1 API calls with two-second gaps after a cache-preserving server restart: 12.284 seconds initially, then 1.088–1.923 seconds with successful stream responses. Correlated supplied DEBUG logs confirm eight mediainfo/CDN transport reuses without new CONNECTs on the four repeats and 7.392 seconds of initial authentication; controlled causal comparisons remain open.
+- Recorded two pairs of concurrent TF1 API calls with preserved cache: all four returned valid stream responses, with durations of 31.592/33.796 and 5.023/36.826 seconds. Correlated DEBUG logs locate 17.999 seconds of shared authentication and a 34.737-second CDN phase, and confirm one hit plus one miss per media origin in the second pair. Documented the one-idle-transport-per-route limit; broader route isolation and causal performance comparisons remain open.
+- Analyzed the FranceTV playback excerpt and documented the separate media transport: `/api/proxy` uses `SimpleHttpClient` with HTTP/1.1 and `Connection: close`, outside the Rquest idle pool. Recorded parallel origin response timings without equating them to completed streaming downloads; network/body diagnostics remain pending.
+- Analyzed the subsequent FranceTV/Video.js trace: a 69.977-second media search rotates after the preferred attempt and encounters tunnel failures; retained provider-refresh progression is observed with one completed 301 ms refresh. Kept network/body attribution open because the new media DEBUG events are absent from the excerpt.
+- Qualified FranceTV media phase diagnostics on 26 attempts: 21 EOFs, median connection/TLS cost of 1.426 seconds, body reception up to 14.219 seconds and retry after a 30.002-second body interruption. Documented unconditional action-driven buffering and the buffered reader’s first-byte/counting limits; MIME-aware buffering remains a proposed contract change.
+- Documented a proposed opt-in HTTP/1.1 media connection pool with exclusive checkout, complete-body return and per-route/global bounds. Identified close-delimited dechunking compatibility as a prerequisite to real activation; kept MIME-aware buffering deferred at user request and left runtime behavior unchanged.
+- Audited localized-proxy candidate ranking and three existing captures: capability/freshness groups precede composite probe latency, while 57 of 64 selection events reuse accepted destination history. Kept the comparator unchanged without historical candidate snapshots, recorded the latency-comparability limitation, and deferred both media buffering and HTTP/1.1 persistence at user request.
+- Clarified measurement scope across all sources after user confirmation: metadata `get_entry` calls generally bypass distant proxies and do not qualify stream-proxy performance. Preserved historical timings as API controls; the latest campaign did not measure FranceTV `get_stream`.
+- Recorded four successful TF1/M6play stream-resolution calls with 14 correlated rankings and 81 bounded candidate snapshots, plus two FranceTV metadata API controls excluded from distant-proxy qualification. Replaying the 13 sampled prefixes with failures before latency changes none of their orders; retained the comparator and separated ranking cost from long origin requests/retries.
+- Completed the initial ranking assessment with three FranceTV stream resolutions using observed distant routes (3.214/39.146/10.610 seconds). Attributed the slow call to Hdfauth retries across eight endpoints; 13 additional sampled prefixes remain unchanged under the alternative tie-break. Retained the comparator without closing the broader proxy qualification plan.
+- Audited post-acceptance proxy reserves and prepared an isolated cost/utility comparison. Extended the existing discovery scenario across reserve sizes 0/1/2 to check retained subscriptions, non-waiting acceptance and permit release; production reserve settings remain unchanged and real network/fallback gains are still unmeasured.
+- Recorded eight successful FranceTV stream resolutions in isolated reserve-size 0/2/2/0 blocks restored from the same SQLite snapshot. Size 2 adds two TCP prechecks and two capability validations across its blocks, with no standby consumed; retained production defaults and left fallback benefit, network bytes and contention qualification open. Archived the temporary injection patch without adding production configuration options.
+- Qualified four isolated FranceTV failovers after synthetic pre-send unavailability of the preferred Hdfauth endpoint. All eight calls succeed; the prepared candidate is tried twice, failing once and succeeding once. Its preexisting destination preference also permits selection with reserve disabled, so preparation benefit remains unproven and production defaults stay unchanged.
+- Qualified sixteen additional isolated FranceTV calls after removing alternative Hdfauth acceptance history. Identified that preferred-only startup leaves reserve exploration without in-memory alternatives despite persisted candidates; documented the limitation. With identical local preload in both variants, observed one prepared fallback accepted without new business prechecks or validation. Kept defaults and production code unchanged; proposed bounded local import inside background preparation for separate review.
+- Recorded the first real post-import recipe after a cache-preserving restart: three successful live FranceTV resolutions and five isolated corrected-code calls, including a simultaneous pair. Full isolated diagnostics show one 220-record country import in 97.368 ms and normal preparation completion in 99.305 ms without extra probes. Distinguished incomplete live logging, freshly validated isolated cache and unqualified fallback/contention gains.
+- Qualified corrected-reserve failover and controlled concurrent requests during a deficient import on isolated servers: five valid FranceTV responses. Discovery continues after two prepared endpoints fail; two preparations share one paused country read while the initial response finishes and two other business requests start. Matched preparation/worker lifecycles without inferring saturated-slot or explicit cancellation coverage.
+- Extended existing core scenarios to verify quantitative shared-import/probe permit release when the first or last subscriber leaves, accepted reserve ownership and supervisor cancellation. Controlled saturation preserves 8/16 TCP and 2/4 validation slots for active searches, wakes a queued caller after release and restores all permits; all 132 proxy tests pass. Kept REST disconnect and production-throughput qualification separate.
+- Profiled persistent proxy imports on an isolated real SQLite snapshot: 277 SELECTs per FR country read and 440 additional current-state lookups on first merge, with four subscribers sharing one read/merge. Separated repository/filter/merge costs from successful live API controls, retained external-write visibility without memoization, and documented bounded composite-key batching as a proposal rather than a shipped optimization.
+
+- Analyzed response-specific TF1 body inspection while preserving legacy callbacks and the requested/effective mediainfo predicate. Identified the accepted-body timeout starting after inspection as a contract decision before implementation; no transfer policy or production code changed.
+
+- Analyzed TF1 as a second transport-pool source: observed checkout with CDN reconnection, idle expiration per origin and fallback to another known endpoint after a request failure. Recorded 1.698/45.523/28.536 seconds of phases, a client-timing gap and body inspection on status-only CDN classification; callback-rejection and controlled concurrency qualification remain open.
+
+- Qualified the first real M6 redirect-transport reuse after the retention change: the warm request reuses all four transports, including an inconclusive followed `lbcdn` 302, with zero new CONNECTs. Recorded 37.552/7.863/3.304 seconds of resolver phases and a 291 ms warm redirect step; kept the single-repeat, network variability, concurrency/rotation and TF1 qualification limits explicit.
+
+- Verified the TF1 content-based proxy classifier and tightened the pending redirect-transport proposal: classifier decisions remain authoritative and additional redirect retention requires explicit policy permission, disabled by default for custom callbacks. No runtime behavior changed.
+
+- Documented the proposed transport-retention exception for fully consumed, actually followed redirects, with request-owned pending transport state and explicit inspection/classification failure exclusion. Public response cloning and business acceptance remain unchanged in the proposal; implementation awaits confirmation of the pool-contract change.
+
+- Qualified sequential M6 transport reuse from DEBUG traces: six pool hits across three origins without new CONNECTs to those destinations, with resolver phase sums of 6.457 seconds after idle expiration and 2.724/2.334 seconds on close repeats. Documented the accepted-only pool policy causing fresh CONNECTs for inconclusive CDN redirects; updated per-lot checklists without changing runtime policy.
+
+- Updated the localized-proxy optimization plan with per-lot completion checklists, delivered changes and outstanding real-world qualification. Identified connection/CDN qualification in lot 5 as the current priority, with lot 2 provider-trigger validation tracked separately; no runtime behavior changed.
+
+- Analyzed the next supplied M6 traces after retained provider-refresh progression: 25.811 and 25.727 seconds of resolver phases, with existing endpoint reuse and CDN resolution as the main remaining cost. Kept the first client-timing discrepancy, separate media requests and unexercised provider-refresh/pool scenarios explicit; no runtime changes.
+
+- Analyzed the first supplied M6 traces after the structural stack correction: no crash is observed, with 50.461 and 122.602 seconds of resolver phases. Separated the second upfront's direct fallback, late provider refresh and unmatched client duration from stack-stability evidence; the original media-discovery branch and transport-pool reuse remain unqualified.
+
+- Audited recurrent stack overflows across seven macOS reports, the current debug binary and compiler diagnostics. Identified cumulative native polling-stack pressure across REST/media/proxy boundaries, retained 18 large-future sites and documented why previous local mitigations and passing lower-level tests do not establish a full-route stack margin. Recorded candidate architectural approaches without changing scheduling or runtime policy.
+
+- Qualified the October 22 M6 logs: structured endpoint/tunnel failures and fifteen provider refresh summaries are present; resolver phases total 131.016 seconds for the failed first call, 67.821 seconds for the next success and 4.109 seconds for the third. Identified per-selection refresh-window resets as a follow-up design issue; retained transport-pool and durable-readback qualification limits without changing runtime policy.
+
+- Analyzed the new post-restart M6 trace: confirmed persisted preference reuse, separated 114.446 seconds of resolver phases from unmatched client timing, and identified repeated destination-specific tunnel failures. Kept provider-refresh and transport-pool qualification open; no runtime policy changed.
+
+- Checked off the delivered localized-proxy lot 0 work and recorded user confirmation that the FranceTV API measurements used a populated proxy cache. Documented an offline backup/reset/restore procedure for cold-inventory measurements, preserving the existing warm-cache baseline and distinguishing pending qualification.
+
+- Recorded a separate FranceTV video-resolution campaign after the user's proxy-cache reset and application restart: the first measured call succeeded in 51.956 seconds, followed by twenty successful calls with a 1.870-second median, 10.784-second p95 and 17.585-second maximum. Preserved the first sample separately from subsequent reuse and kept repeated cold-state qualification and server-trace attribution open.
+
+- Recorded the M6 metadata-resolution campaign after a confirmed stop/cache reset/restart: two client timeouts without HTTP responses at 150 seconds, followed by successful resolutions in 134.484 and 102.366 seconds. Saved raw samples and read-only inventory summaries, kept censored outcomes separate from complete latencies, and excluded playback of the returned URL from geolocated-proxy qualification.
+
+- Correlated the supplied UTC logs with localized-proxy measurements: decomposed the successful M6 calls into HTTP phases, identified repeated 120-second optional API-key bootstrap searches, explicit direct fallbacks and slow preferred routes, and attributed the main FranceTV spikes to Hdfauth rotations. Saved sanitized timing evidence and proposed targeted follow-up designs without changing runtime behavior; technical-worker cancellation and reserve costs remain unqualified.
+
+- Analyzed the first supplied M6 trace after the API-key fix: confirmed the 5.003-second lookup fallback, decomposed roughly 240 seconds of HTTP phases, identified Gigya and upfront searches as the dominant costs, and confirmed CDN destination-preference reuse. Kept subsequent-call attribution and key-cache lifecycle validation open; recorded upfront's direct fallback separately from proxy successes.
+
+- Documented the proposed M6 replay upfront policy: a 15-second localized-proxy branch followed, when permitted, by a separate 10-second direct branch, with error handling, routing constraints and acceptance criteria. Implementation awaits confirmation of the behavior contract; runtime behavior is unchanged.
+
+- Recorded the withdrawal of the proposed upfront search cap after user feedback. Reframed proxy optimization around discovery versus subsequent destination-preference reuse, preserving existing deadlines and routing. Identified repeated persistent reads, candidate ranking and the contextual HTTP path's connection-cache exclusion as separate investigation tracks; no production behavior changed.
+
+- Analyzed two subsequent supplied M6 traces: confirmed destination-preference reuse, a slow failed Gigya tunnel, and an upfront preferred proxy returning CONNECT 429 before discovery exhausted candidates and fell back directly. Recorded the technical-work tail, unmatched client timing and the inter-call gap exceeding the idle-pool cutoff; retained pool performance qualification and structured CONNECT failure analysis as follow-up work.
+
+- Recorded M6 API measurements after a user-confirmed restart with preserved proxy cache: five HTTP 200 responses without reported errors, including a 133.799-second first observed response and three subsequently qualified resolutions at 14.033, 6.318 and 0.804 seconds. Preserved two initial stream-validation outcomes as unknown after correcting the collector's relative-URL handling. Server-log attribution, actual routing and pool-reuse qualification remain open.
+
+- Analyzed the October 19 localized-proxy logs: confirmed preferred-proxy reuse followed by the five-second SOCKS timeout, parallel destination attempts, intermediate redirect preference gaps, and remaining media-timeout evidence limits. Recorded proposed follow-up work; runtime behavior is unchanged.
+
+- Reconciled localized-proxy completion checklists with the delivered lots and local acceptance results, closed the obsolete Scrapyfy test TODO, and consolidated the remaining production qualification and workspace-formatting tasks.
 
 - Reviewed `docs/dev-tracking/source-filtered-custom-homes-analysis.md`: recorded approved defaults, included title-based merging in the initial composition scope, and specified edit-mode-only add actions on service banners and categories, excluding custom-home banners. Documented remaining decisions and corrected illustrative TypeScript and Cargo commands. Documentation only; application implementation remains on hold.
 - Recorded follow-up approvals in the custom-home analysis: opt-in title merging, effective-title comparison, round-robin interleaving including intentionally repeated rails, and target selection with a saveable draft. Clarified the remaining choice of allowing category-reference copying from custom homes. No application implementation.

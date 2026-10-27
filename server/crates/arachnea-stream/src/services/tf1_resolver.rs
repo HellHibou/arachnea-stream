@@ -1,12 +1,16 @@
 use anyhow::{bail, Context, Result};
-use arachnea_proxy::http::{
-    actions::ReplaceAll, proxy_service::proxied_url_with_countries_and_policy,
+use arachnea_proxy::{
+    core::http::response_classifier::{
+        ProxyBodyRequirement, ProxyBodyState, ProxyResponseClassifier, ProxyResponseDecision,
+        ProxyResponsePolicy, ProxyResponseView, MAX_PROXY_RESPONSE_PREFIX,
+    },
+    http::{actions::ReplaceAll, proxy_service::proxied_url_with_countries_and_policy},
 };
 use async_trait::async_trait;
 use rand::{distr::Alphanumeric, Rng};
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use arachnea_core::persistence::CredentialsStore;
@@ -161,7 +165,7 @@ async fn resolve_replay_stream_with_config(
         configured_proxy_countries = ?http_config.proxy_countries,
         "starting TF1 replay negotiation"
     );
-    let http_client = scraper_agregator.create_http_client(http_config);
+    let http_client = tf1_http_client(scraper_agregator, http_config);
     let session = get_or_login_session(&http_client, credentials_store).await?;
     let media_info = fetch_media_info(&http_client, &session, normalized_video_id, false).await?;
 
@@ -179,7 +183,7 @@ async fn resolve_replay_stream_with_config(
     );
     if !media_proxy_countries.is_empty() && media_proxy_countries != proxy_countries {
         let media_http_client =
-            scraper_agregator.create_http_client(tf1_http_config(&media_proxy_countries));
+            tf1_http_client(scraper_agregator, tf1_http_config(&media_proxy_countries));
         let media_info = if delivery_rejected(&media_info) {
             fetch_media_info(&media_http_client, &session, normalized_video_id, false).await?
         } else {
@@ -248,7 +252,7 @@ async fn resolve_live_stream_with_config(
         configured_proxy_countries = ?http_config.proxy_countries,
         "starting TF1 live negotiation"
     );
-    let http_client = scraper_agregator.create_http_client(http_config);
+    let http_client = tf1_http_client(scraper_agregator, http_config);
     let session = get_or_login_session(&http_client, credentials_store).await?;
     let live_video_id = format!("L_{}", normalized_channel_id.to_uppercase());
     let media_info = fetch_media_info(&http_client, &session, &live_video_id, true).await?;
@@ -267,7 +271,7 @@ async fn resolve_live_stream_with_config(
     );
     if !media_proxy_countries.is_empty() && media_proxy_countries != proxy_countries {
         let media_http_client =
-            scraper_agregator.create_http_client(tf1_http_config(&media_proxy_countries));
+            tf1_http_client(scraper_agregator, tf1_http_config(&media_proxy_countries));
         let media_info = if delivery_rejected(&media_info) {
             fetch_media_info(&media_http_client, &session, &live_video_id, true).await?
         } else {
@@ -301,6 +305,110 @@ fn tf1_http_config(proxy_countries: &[String]) -> ScraperHttpConfig {
         proxy_rejection_statuses: vec![TF1_PROXY_REJECTION_STATUS],
         ..ScraperHttpConfig::default().proxy_countries(proxy_countries.to_vec())
     }
+}
+
+fn tf1_http_client(
+    scraper_agregator: &ScraperAgregator,
+    http_config: ScraperHttpConfig,
+) -> HttpClient {
+    scraper_agregator
+        .create_http_client(http_config)
+        .with_proxy_response_classifier(ProxyResponsePolicy(Arc::new(
+            Tf1MediainfoResponseClassifier,
+        )))
+}
+
+/// Rejects a localized proxy when TF1 reports the geo restriction inside the
+/// mediainfo JSON body. TF1 answers with HTTP 200 and a `delivery.code >= 400`
+/// for geo-blocked requests, so status-only policies accept the proxy.
+struct Tf1MediainfoResponseClassifier;
+
+impl ProxyResponseClassifier for Tf1MediainfoResponseClassifier {
+    fn body_requirement(&self) -> ProxyBodyRequirement {
+        ProxyBodyRequirement::Prefix(MAX_PROXY_RESPONSE_PREFIX)
+    }
+
+    fn body_requirement_for_response(
+        &self,
+        response: &ProxyResponseView<'_>,
+    ) -> ProxyBodyRequirement {
+        if is_tf1_mediainfo_url(response.requested_url)
+            || is_tf1_mediainfo_url(response.effective_url)
+        {
+            self.body_requirement()
+        } else {
+            ProxyBodyRequirement::None
+        }
+    }
+
+    fn classify(
+        &self,
+        response: &ProxyResponseView<'_>,
+    ) -> arachnea_proxy::core::Result<ProxyResponseDecision> {
+        let is_mediainfo = is_tf1_mediainfo_url(response.requested_url)
+            || is_tf1_mediainfo_url(response.effective_url);
+
+        if !is_mediainfo {
+            return Ok(classify_tf1_status(response.status));
+        }
+
+        if response.status == TF1_PROXY_REJECTION_STATUS {
+            return Ok(rejected_for_destination(format!(
+                "TF1 mediainfo HTTP {}",
+                response.status
+            )));
+        }
+
+        if !(200..300).contains(&response.status) {
+            return Ok(ProxyResponseDecision::Inconclusive);
+        }
+
+        let Some(delivery_code) = extract_delivery_code(response.body, response.body_state) else {
+            return Ok(ProxyResponseDecision::Inconclusive);
+        };
+
+        if delivery_code >= 400 {
+            return Ok(rejected_for_destination(format!(
+                "TF1 mediainfo delivery code {}",
+                delivery_code
+            )));
+        }
+
+        Ok(ProxyResponseDecision::Accepted)
+    }
+}
+
+fn classify_tf1_status(status: u16) -> ProxyResponseDecision {
+    if status == TF1_PROXY_REJECTION_STATUS {
+        rejected_for_destination(format!("TF1 HTTP {}", status))
+    } else if (200..300).contains(&status) {
+        ProxyResponseDecision::Accepted
+    } else {
+        ProxyResponseDecision::Inconclusive
+    }
+}
+
+fn rejected_for_destination(reason: String) -> ProxyResponseDecision {
+    ProxyResponseDecision::RejectedForDestination {
+        cooldown: None,
+        reason,
+    }
+}
+
+fn is_tf1_mediainfo_url(url: &str) -> bool {
+    url.parse::<http::Uri>()
+        .ok()
+        .and_then(|uri| uri.host().map(str::to_owned))
+        .is_some_and(|host| host.eq_ignore_ascii_case("mediainfo.tf1.fr"))
+}
+
+fn extract_delivery_code(body: &[u8], state: ProxyBodyState) -> Option<i64> {
+    if state == ProxyBodyState::Unavailable || body.is_empty() {
+        return None;
+    }
+
+    let value: Value = serde_json::from_slice(body).ok()?;
+    value.pointer("/delivery/code").and_then(Value::as_i64)
 }
 
 fn extract_media_proxy_countries(media_info: &Value) -> Vec<String> {
@@ -769,6 +877,7 @@ async fn fetch_media_info(
         is_live,
         http_status = status.as_u16(),
         delivery_code = ?media_info.pointer("/delivery/code").and_then(|value| value.as_i64()),
+        delivery_country = ?media_info.pointer("/delivery/country").and_then(|value| value.as_str()),
         media_proxy_countries = ?extract_media_proxy_countries(&media_info),
         "parsed TF1 mediainfo geo-routing metadata"
     );

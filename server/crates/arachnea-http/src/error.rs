@@ -4,6 +4,18 @@ use thiserror::Error;
 /// Error type returned by the Arachnea HTTP crate.
 #[derive(Debug, Error)]
 pub enum ArachneaHttpError {
+    /// Correlated attempt failure; delivery remains uncertain unless proven otherwise.
+    #[cfg(feature = "arachnea-proxy")]
+    #[error("proxy attempt failed ({delivery:?}): {source}")]
+    ProxyAttempt {
+        /// Route actually used by the failed attempt.
+        selection: Option<arachnea_proxy::core::ProxySelectionToken>,
+        /// Best available evidence about business-request delivery.
+        delivery: arachnea_proxy::core::ProxyRequestDelivery,
+        /// Original failure, retained for existing error-chain consumers.
+        #[source]
+        source: Box<ArachneaHttpError>,
+    },
     /// A URL could not be parsed or is missing required authority data.
     #[error("invalid URL: {0}")]
     InvalidUrl(String),

@@ -1,9 +1,13 @@
-use std::collections::HashMap;
+use futures::future::{BoxFuture, WeakShared};
+use futures::{FutureExt, StreamExt};
+use std::collections::{HashMap, HashSet};
+use std::net::IpAddr;
 use std::sync::Arc;
+use std::time::Duration;
+use tokio::sync::{Mutex, Semaphore};
 
 use async_trait::async_trait;
 
-use arachnea_core::controler::RequestControlerContext;
 use arachnea_core::persistence::TypedEntityStore;
 use arachnea_proxy::core::{
     ArachneaProxyCore, InventoryConfig, IpCountryResolver, IpCountryResolverConfig,
@@ -13,10 +17,10 @@ use arachnea_proxy::core::{
     ProxyRuntimeStatus, Result, RoutePolicy, PROXY_HEADER_PARAMETER_COUNTRIES,
     PROXY_PARAMETER_COUNTRIES, PROXY_PROTOCOL_PRIORITY,
 };
-use tracing::{info, trace};
+use tracing::trace;
 
 use crate::scrapyfy::ip_country_provider::ScrapyfyIpCountryDataProvider;
-use crate::scrapyfy::{CacheType, QueryParameters, ScraperDataNode};
+use crate::scrapyfy::ScraperDataNode;
 use crate::ScraperAgregator;
 use crate::DEFAULT_SERVICES_DIRECTORY;
 
@@ -31,6 +35,20 @@ const IP_COUNTRY_GROUP_NAME: &str = "arachnea-ip-countries";
 /// The snapshot remains valid even when the application replaces its aggregator.
 pub struct ScrapyfyProxyDataProvider {
     scraper_agregator: Arc<ScraperAgregator>,
+    geo_jobs: Arc<Mutex<HashMap<IpAddr, WeakShared<BoxFuture<'static, Option<String>>>>>>,
+    geo_slots: Arc<Semaphore>,
+    geo_cache: Arc<Mutex<HashMap<IpAddr, (tokio::time::Instant, Option<String>)>>>,
+}
+
+#[derive(Default)]
+struct CollectedProxyBatches(Mutex<Vec<ProxyRecord>>);
+
+#[async_trait]
+impl arachnea_proxy::core::ProxyBatchSink for CollectedProxyBatches {
+    async fn publish(&self, records: Vec<ProxyRecord>) -> Result<()> {
+        self.0.lock().await.extend(records);
+        Ok(())
+    }
 }
 
 impl ScrapyfyProxyDataProvider {
@@ -74,6 +92,9 @@ impl ScrapyfyProxyDataProvider {
         ScrapyfyProxyDataProvider {
             scraper_agregator: scraper_agregator
                 .provider_snapshot(&[PROXIES_GROUP_NAME, IP_COUNTRY_GROUP_NAME]),
+            geo_jobs: Arc::new(Mutex::new(HashMap::new())),
+            geo_slots: Arc::new(Semaphore::new(4)),
+            geo_cache: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
@@ -81,133 +102,176 @@ impl ScrapyfyProxyDataProvider {
 #[async_trait]
 impl ProxyDataProvider for ScrapyfyProxyDataProvider {
     async fn load_proxies(&self, request: ProxyLoadRequest) -> Result<Vec<ProxyRecord>> {
-        let countries = request
-            .countries
-            .iter()
-            .map(|country| normalize_proxy_country(country))
-            .filter(|country| !country.is_empty())
-            .collect::<Vec<_>>();
-        if countries.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        let mut records = Vec::new();
-        for country in countries {
-            records.extend(self.load_proxies_for_country(&country).await?);
-        }
+        let sink = Arc::new(CollectedProxyBatches::default());
+        self.load_proxies_progressively(request, sink.clone())
+            .await?;
+        let records = std::mem::take(&mut *sink.0.lock().await);
         Ok(records)
+    }
+
+    async fn load_proxies_progressively(
+        &self,
+        request: ProxyLoadRequest,
+        sink: Arc<dyn arachnea_proxy::core::ProxyBatchSink>,
+    ) -> Result<()> {
+        let countries = arachnea_proxy::core::canonical_proxy_countries(&request.countries);
+        let loads = futures::stream::iter(countries.into_iter().map(|country| {
+            let sink = sink.clone();
+            async move { self.publish_country(country, sink).await }
+        }))
+        .buffer_unordered(2);
+        futures::pin_mut!(loads);
+        while let Some(result) = loads.next().await {
+            result?;
+        }
+        Ok(())
     }
 }
 
 impl ScrapyfyProxyDataProvider {
-    async fn load_proxies_for_country(&self, country: &str) -> Result<Vec<ProxyRecord>> {
-        info!("Loading proxies for country: {}...", country);
-
-        let agregator = &self.scraper_agregator;
-
-        let mut params: HashMap<String, String> = HashMap::new();
-        params.insert("country".to_string(), country.to_string());
-        let result = agregator
-            .execute_query_async(
-                &RequestControlerContext::default(),
-                QueryParameters {
-                    cache_type: CacheType::NoCache,
-                },
-                PROXIES_GROUP_NAME,
-                "list_proxies_for_country",
-                &params,
-                None,
-                None,
-                None,
-                None,
-                Some("proxy_source"),
-                "load_proxies",
-            )
-            .await;
-
-        if !result.errors.is_empty() {
-            tracing::warn!(
-                country,
-                error_count = result.errors.len(),
-                errors = ?result.errors,
-                "dynamic proxy sources reported errors"
-            );
-        }
-        if result.data.is_empty() {
-            tracing::warn!(
-                country,
-                "dynamic proxy sources returned no rows; verify that at least one source is enabled"
-            );
-        }
-
-        let mut records: Vec<ProxyRecord> = result
-            .data
-            .into_iter()
-            .filter_map(|entry| entry_to_proxy_record(&entry))
-            .collect();
-
-        // Resolve country for records whose source did not provide one
-        let mut unresolved: Vec<(usize, String)> = Vec::new();
-        for (i, r) in records.iter().enumerate() {
-            if r.country.is_none() {
-                if let Some(ip) = r.host.parse::<std::net::IpAddr>().ok() {
-                    unresolved.push((i, ip.to_string()));
-                    if unresolved.len() >= 20 {
-                        break;
-                    }
-                }
-            }
-        }
-
-        if !unresolved.is_empty() {
-            let resolved_count = unresolved.len();
-            for (idx, ip_str) in &unresolved {
-                let mut ip_params = HashMap::new();
-                ip_params.insert("ip".to_string(), ip_str.clone());
-                let rows = agregator
-                    .execute_query_async(
-                        &RequestControlerContext::default(),
-                        QueryParameters {
-                            cache_type: CacheType::NoCache,
-                        },
-                        IP_COUNTRY_GROUP_NAME,
-                        "resolve_ip_country",
-                        &ip_params,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        "resolve_ip_country",
-                    )
-                    .await
-                    .data;
-                if !rows.is_empty() {
-                    for row in &rows {
-                        if let Some(country) =
-                            row.get("country_code").and_then(|n| n.value_as_string())
-                        {
-                            if !country.is_empty() {
-                                records[*idx].country = Some(country.trim().to_ascii_uppercase());
-                            }
-                            break;
+    async fn publish_country(
+        &self,
+        country: String,
+        sink: Arc<dyn arachnea_proxy::core::ProxyBatchSink>,
+    ) -> Result<()> {
+        let params = HashMap::from([("country".to_string(), country.clone())]);
+        let mut sources = self.scraper_agregator.proxy_source_batches(
+            PROXIES_GROUP_NAME,
+            "list_proxies_for_country",
+            params,
+        );
+        let mut source_done = false;
+        let mut pending = HashMap::<IpAddr, Vec<ProxyRecord>>::new();
+        let mut resolved = HashMap::<IpAddr, Option<String>>::new();
+        let mut requested = HashSet::new();
+        let mut seen = HashSet::new();
+        let mut geos =
+            futures::stream::FuturesUnordered::<BoxFuture<'_, (IpAddr, Option<String>)>>::new();
+        loop {
+            tokio::select! {
+                batch = sources.next(), if !source_done => {
+                    let rows = match batch {
+                        None => { source_done = true; continue; }
+                        Some(Err(error)) => { tracing::warn!(%error, country, "proxy source failed; retaining other sources"); continue; }
+                        Some(Ok(rows)) => rows,
+                    };
+                    let mut ready = Vec::new();
+                    for row in rows {
+                        let Some(mut record) = entry_to_proxy_record(&row) else { continue; };
+                        if !seen.insert((record.authority(), format!("{:?}", record.declarations))) { continue; }
+                        if record.country.is_some() {
+                            if record.country.as_deref() == Some(country.as_str()) { ready.push(record); }
+                            continue;
+                        }
+                        let Ok(ip) = record.host.parse::<IpAddr>() else { continue; };
+                        if let Some(known) = resolved.get(&ip) {
+                            record.country = known.clone();
+                            if record.country.as_deref() == Some(country.as_str()) { ready.push(record); }
+                        } else if pending.contains_key(&ip) {
+                            pending.get_mut(&ip).unwrap().push(record);
+                        } else if requested.len() < 20 {
+                            requested.insert(ip);
+                            pending.insert(ip, vec![record]);
+                            geos.push(async move { (ip, self.resolve_shared_ip(ip).await) }.boxed());
                         }
                     }
+                    if !ready.is_empty() { sink.publish(ready).await?; }
                 }
+                result = geos.next(), if !geos.is_empty() => {
+                    if let Some((ip, known)) = result {
+                        resolved.insert(ip, known.clone());
+                        let records = pending.remove(&ip).unwrap_or_default().into_iter().filter_map(|mut record| {
+                            record.country = known.clone();
+                            (record.country.as_deref() == Some(country.as_str())).then_some(record)
+                        }).collect::<Vec<_>>();
+                        if !records.is_empty() { sink.publish(records).await?; }
+                    }
+                }
+                else => break,
             }
-            info!(
-                resolved_count,
-                "resolved missing country codes via ip-api.com YAML query"
-            );
         }
+        Ok(())
+    }
 
-        let filtered: Vec<ProxyRecord> = records
-            .into_iter()
-            .filter(|r| r.country.as_deref() == Some(country))
-            .collect();
-
-        info!("Loaded proxies for country {}: {}", country, filtered.len());
-        Ok(filtered)
+    async fn resolve_shared_ip(&self, ip: IpAddr) -> Option<String> {
+        {
+            let mut cache = self.geo_cache.lock().await;
+            cache.retain(|_, (at, country)| {
+                at.elapsed()
+                    < if country.is_some() {
+                        Duration::from_secs(900)
+                    } else {
+                        Duration::from_secs(60)
+                    }
+            });
+            if let Some((_, country)) = cache.get(&ip) {
+                return country.clone();
+            }
+        }
+        let future = {
+            let mut jobs = self.geo_jobs.lock().await;
+            jobs.retain(|_, job| job.upgrade().is_some());
+            if let Some(job) = jobs.get(&ip).and_then(WeakShared::upgrade) {
+                job
+            } else {
+                let aggregator = self.scraper_agregator.clone();
+                let slots = self.geo_slots.clone();
+                let cache = self.geo_cache.clone();
+                let job = async move {
+                    let _slot = slots.acquire().await.ok()?;
+                    let query = async {
+                        let params = HashMap::from([("ip".to_string(), ip.to_string())]);
+                        let mut batches = aggregator.proxy_source_batches(
+                            IP_COUNTRY_GROUP_NAME,
+                            "resolve_ip_country",
+                            params,
+                        );
+                        while let Some(batch) = batches.next().await {
+                            if let Ok(rows) = batch {
+                                if let Some(country) = rows
+                                    .iter()
+                                    .filter_map(|row| {
+                                        row.get("country_code")
+                                            .and_then(|node| node.value_as_string())
+                                    })
+                                    .map(normalize_proxy_country)
+                                    .find(|country| {
+                                        country.len() == 2
+                                            && country
+                                                .bytes()
+                                                .all(|byte| byte.is_ascii_alphabetic())
+                                    })
+                                {
+                                    return Some(country);
+                                }
+                            }
+                        }
+                        None
+                    };
+                    let country = tokio::time::timeout(Duration::from_secs(5), Box::pin(query))
+                        .await
+                        .ok()
+                        .flatten();
+                    let mut cache = cache.lock().await;
+                    if cache.len() >= 1024 {
+                        if let Some(oldest) = cache
+                            .iter()
+                            .min_by_key(|(_, (at, _))| *at)
+                            .map(|(ip, _)| *ip)
+                        {
+                            cache.remove(&oldest);
+                        }
+                    }
+                    cache.insert(ip, (tokio::time::Instant::now(), country.clone()));
+                    country
+                }
+                .boxed()
+                .shared();
+                jobs.insert(ip, job.downgrade()?);
+                job
+            }
+        };
+        future.await
     }
 }
 
@@ -247,6 +311,8 @@ fn entry_to_proxy_record(entry: &HashMap<String, ScraperDataNode>) -> Option<Pro
         .unwrap_or(ProxyAvailabilityHint::Unknown);
 
     let record = ProxyRecord {
+        health_evidence: Default::default(),
+        observations: Vec::new(),
         probe_attempts: Default::default(),
         tcp_reachable: None,
         protocol: protocol.clone(),
@@ -255,7 +321,10 @@ fn entry_to_proxy_record(entry: &HashMap<String, ScraperDataNode>) -> Option<Pro
         country: entry
             .get("country")
             .and_then(|n| n.value_as_string())
-            .map(normalize_proxy_country),
+            .map(normalize_proxy_country)
+            .filter(|country| {
+                country.len() == 2 && country.bytes().all(|byte| byte.is_ascii_alphabetic())
+            }),
         supports_https,
         declarations: vec![ProxyDeclaration {
             source,
@@ -366,25 +435,27 @@ pub fn default_scrapyfy_proxy_inventory(
         ..ProbeConfig::default()
     };
     let resolver = default_scrapyfy_ip_country_resolver(scraper_agregator);
+    let repository = if Arc::ptr_eq(&proxy_store, &scraper_agregator.proxy_store) {
+        scraper_agregator.proxy_repository.clone()
+    } else {
+        Arc::new(arachnea_proxy::TypedProxyRepository::new(proxy_store))
+    };
+    let preferences = scraper_agregator.proxy_preferences.clone();
     ProxyInventory::new(
-        InventoryConfig {
-            probe_batch_size: 32,
-            ..InventoryConfig::default()
-        },
+        InventoryConfig::default(),
         Some(Arc::new(ScrapyfyProxyDataProvider::new(scraper_agregator))),
         Some(Arc::new(ProxyProbe::new(probe_config))),
     )
     .with_ip_country_resolver(Arc::new(resolver))
-    .with_proxy_repository(Arc::new(arachnea_proxy::TypedProxyRepository::new(
-        proxy_store,
-    )))
+    .with_proxy_repository(repository)
+    .with_preference_repository(preferences)
 }
 
 /// Builds a default [`ArachneaProxyCore`] with dynamic country routing backed
 /// by scrapyfy proxy sources.
 ///
 /// The returned core uses [`DynamicCountryRoutingProxyHandler`] with
-/// `DynamicOnly` coexistence policy — an ordered JSON `countries` request
+/// `DynamicOnly` coexistence policy — a JSON set of allowed `countries` in the request
 /// parameter triggers a `ProxyInventory` lookup that lazily loads proxy data through
 /// [`ScrapyfyProxyDataProvider`].
 ///

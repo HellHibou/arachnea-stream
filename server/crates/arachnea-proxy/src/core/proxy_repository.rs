@@ -1,6 +1,10 @@
 //! Typed repository for the dynamic proxy inventory.
 
-use std::{sync::Arc, time::SystemTime};
+use std::{
+    collections::HashMap,
+    sync::{Arc, OnceLock, Weak},
+    time::SystemTime,
+};
 
 use anyhow::{Context, Result};
 use arachnea_core::persistence::{
@@ -9,21 +13,48 @@ use arachnea_core::persistence::{
 };
 use async_trait::async_trait;
 use rusqlite::types::{Value as SqlValue, ValueRef};
+use tokio::sync::Mutex;
 
 use crate::core::{
     ProxyAvailabilityHint, ProxyCapabilityStatus, ProxyDeclaration, ProxyDestinationFailure,
     ProxyKey, ProxyProtocol, ProxyRecord, ProxyRuntimeStatus, PROXY_CACHE_TTL,
 };
 
-/// Stable store name for dynamic proxy records.
-pub const PROXY_STORE_NAME: &str = "proxy-inventory";
+/// Physical SQLite store and available-record table name for dynamic proxies.
+/// Table name for bounded eviction records in the shared proxy SQLite store.
+///
+/// Both store names are defined in the crate root and re-exported here for
+/// path compatibility.
+pub use crate::{PROXY_FAILURE_STORE_NAME, PROXY_STORE_NAME};
 /// Repository used by [`crate::core::ProxyInventory`].
 #[async_trait]
 pub trait ProxyRepository: Send + Sync {
+    /// Resolves an endpoint without relying on its historical country.
+    async fn get(&self, key: &ProxyKey) -> Result<Option<ProxyRecord>>;
+    /// Loads rediscovery protection retained outside the available inventory.
+    async fn get_failure(&self, key: &ProxyKey) -> Result<Option<ProxyRecord>>;
+    /// Removes an available endpoint after durably recording its failure state.
+    async fn evict(&self, record: &ProxyRecord) -> Result<()>;
     /// Returns the proxies indexed for `country`.
     async fn find_by_country(&self, country: &str) -> Result<Vec<ProxyRecord>>;
     /// Persists a batch of records atomically.
     async fn save_many(&self, records: &[ProxyRecord]) -> Result<()>;
+    /// Clears strictly older `Other`/`Timeout` exclusions for an accepted exact destination.
+    /// Reads and updates the latest record under the repository commit lock.
+    ///
+    /// # Arguments
+    /// * `key` - Endpoint whose accepted response was observed.
+    /// * `destination` - Exact scheme, host and port that accepted the response.
+    /// * `accepted_at` - Acceptance date; equal-date and newer failures remain intact.
+    ///
+    /// # Errors
+    /// Returns a storage error if reading or updating the record fails.
+    async fn clear_superseded_destination_failures(
+        &self,
+        key: &ProxyKey,
+        destination: &crate::core::Destination,
+        accepted_at: SystemTime,
+    ) -> Result<()>;
     /// Removes a record by its persisted endpoint identity.
     async fn delete(&self, key: &ProxyKey) -> Result<()>;
 }
@@ -31,11 +62,80 @@ pub trait ProxyRepository: Send + Sync {
 /// Repository implementation over a typed entity store.
 pub struct TypedProxyRepository {
     store: Arc<dyn TypedEntityStore<ProxyRecord>>,
+    failures: Arc<dyn TypedEntityStore<ProxyRecord>>,
+    commits: Arc<Mutex<()>>,
 }
 impl TypedProxyRepository {
     /// Creates a repository over `store`.
     pub fn new(store: Arc<dyn TypedEntityStore<ProxyRecord>>) -> Self {
-        Self { store }
+        Self::with_failure_store(store, memory_proxy_store().expect("valid failure schema"))
+    }
+
+    /// Creates a repository sharing application-owned inventory and failure stores.
+    ///
+    /// # Arguments
+    /// * `store` - Available inventory store.
+    /// * `failures` - Durable rediscovery-protection table, distinct from available records.
+    pub fn with_failure_store(
+        store: Arc<dyn TypedEntityStore<ProxyRecord>>,
+        failures: Arc<dyn TypedEntityStore<ProxyRecord>>,
+    ) -> Self {
+        static LOCKS: OnceLock<std::sync::Mutex<HashMap<usize, Weak<Mutex<()>>>>> = OnceLock::new();
+        let identity = Arc::as_ptr(&store) as *const () as usize;
+        let mut locks = LOCKS
+            .get_or_init(Default::default)
+            .lock()
+            .expect("inventory commit registry poisoned");
+        locks.retain(|_, lock| lock.strong_count() > 0);
+        let commits = locks
+            .get(&identity)
+            .and_then(Weak::upgrade)
+            .unwrap_or_else(|| {
+                let lock = Arc::new(Mutex::new(()));
+                locks.insert(identity, Arc::downgrade(&lock));
+                lock
+            });
+        Self {
+            store,
+            failures,
+            commits,
+        }
+    }
+
+    /// Filters an already-read record against current durable eviction evidence.
+    async fn filter_available(&self, record: Option<ProxyRecord>) -> Result<Option<ProxyRecord>> {
+        let Some(record) = record else {
+            return Ok(None);
+        };
+        let failure = self.get_failure(&record.key()).await?;
+        Ok(Self::available_with_failure(record, failure))
+    }
+
+    /// Applies the same durable eviction rules to scalar and grouped reads.
+    fn available_with_failure(
+        record: ProxyRecord,
+        failure: Option<ProxyRecord>,
+    ) -> Option<ProxyRecord> {
+        if let Some(failure) = failure.filter(Self::failure_is_retained) {
+            if record.health_evidence.last_positive_at <= failure.health_evidence.evicted_at
+                && record.health_evidence.first_discovered_at <= failure.health_evidence.evicted_at
+                && record.last_checked <= failure.health_evidence.evicted_at
+            {
+                return None;
+            }
+        }
+        record
+            .health_evidence
+            .evicted_at
+            .is_none()
+            .then_some(record)
+    }
+
+    fn failure_is_retained(record: &ProxyRecord) -> bool {
+        record.health_evidence.evicted_at.is_some_and(|date| {
+            SystemTime::now().duration_since(date).unwrap_or_default()
+                < std::time::Duration::from_secs(48 * 3600)
+        })
     }
 }
 
@@ -46,16 +146,112 @@ pub fn memory_proxy_store() -> Result<Arc<dyn TypedEntityStore<ProxyRecord>>> {
 }
 #[async_trait]
 impl ProxyRepository for TypedProxyRepository {
-    async fn find_by_country(&self, country: &str) -> Result<Vec<ProxyRecord>> {
+    async fn get(&self, key: &ProxyKey) -> Result<Option<ProxyRecord>> {
+        let record = self.store.get(key).await?;
+        self.filter_available(record).await
+    }
+    async fn get_failure(&self, key: &ProxyKey) -> Result<Option<ProxyRecord>> {
         Ok(self
+            .failures
+            .get(key)
+            .await?
+            .filter(Self::failure_is_retained))
+    }
+
+    async fn evict(&self, record: &ProxyRecord) -> Result<()> {
+        let _guard = self.commits.lock().await;
+        let mut failures = self.failures.find(&EntityQuery::new()).await?;
+        failures.sort_by_key(|record| record.health_evidence.evicted_at);
+        let excess = failures.len().saturating_sub(1023);
+        for (index, failure) in failures.iter().enumerate() {
+            if index < excess
+                || failure.health_evidence.evicted_at.is_some_and(|date| {
+                    SystemTime::now().duration_since(date).unwrap_or_default()
+                        >= std::time::Duration::from_secs(48 * 3600)
+                })
+            {
+                self.failures.delete(&failure.key()).await?;
+            }
+        }
+        self.failures.put(record).await?;
+        self.store.delete(&record.key()).await
+    }
+    async fn find_by_country(&self, country: &str) -> Result<Vec<ProxyRecord>> {
+        let _guard = self.commits.lock().await;
+        let records = self
             .store
             .find(&EntityQuery::new().where_string(&ProxyRecord::country_field(), country))
-            .await?)
+            .await?;
+        let keys = records.iter().map(ProxyRecord::key).collect::<Vec<_>>();
+        let failures = self.failures.get_many(&keys).await?;
+        anyhow::ensure!(
+            failures.len() == records.len(),
+            "proxy failure store returned an invalid batch length"
+        );
+        Ok(records
+            .into_iter()
+            .zip(failures)
+            .filter_map(|(record, failure)| Self::available_with_failure(record, failure))
+            .collect())
     }
+
     async fn save_many(&self, records: &[ProxyRecord]) -> Result<()> {
-        Ok(self.store.put_all(records).await?)
+        let _guard = self.commits.lock().await;
+        let mut merged = Vec::with_capacity(records.len());
+        for record in records {
+            let mut record = record.clone();
+            if let Some(current) = self.store.get(&record.key()).await? {
+                record.health_evidence.last_positive_at = record
+                    .health_evidence
+                    .last_positive_at
+                    .max(current.health_evidence.last_positive_at);
+                record.health_evidence.first_discovered_at = match (
+                    record.health_evidence.first_discovered_at,
+                    current.health_evidence.first_discovered_at,
+                ) {
+                    (Some(a), Some(b)) => Some(a.min(b)),
+                    (a, b) => a.or(b),
+                };
+                for failure in current.destination_failures {
+                    if let Some(existing) = record.destination_failures.iter_mut().find(|item| {
+                        item.scheme == failure.scheme
+                            && item.host == failure.host
+                            && item.port == failure.port
+                    }) {
+                        let until = existing.cooldown_until.max(failure.cooldown_until);
+                        if failure.last_failed > existing.last_failed {
+                            *existing = failure;
+                        }
+                        existing.cooldown_until = until;
+                    } else {
+                        record.destination_failures.push(failure);
+                    }
+                }
+            }
+            merged.push(record);
+        }
+        Ok(self.store.put_all(&merged).await?)
+    }
+    async fn clear_superseded_destination_failures(
+        &self,
+        key: &ProxyKey,
+        destination: &crate::core::Destination,
+        accepted_at: SystemTime,
+    ) -> Result<()> {
+        let _guard = self.commits.lock().await;
+        if let Some(mut record) = self.store.get(key).await? {
+            if super::proxy_inventory::clear_superseded_destination_failures(
+                &mut record,
+                destination,
+                accepted_at,
+            ) {
+                self.store.put(&record).await?;
+            }
+        }
+        Ok(())
     }
     async fn delete(&self, key: &ProxyKey) -> Result<()> {
+        let _guard = self.commits.lock().await;
         Ok(self.store.delete(key).await?)
     }
 }
@@ -109,6 +305,8 @@ impl PersistentEntity for ProxyRecord {
             .field(Field::boolean("supports_https").nullable())
             .field(Field::json("declarations").nullable())
             .field(Field::json("probe_attempts").nullable())
+            .field(Field::json("health_evidence").nullable())
+            .field(Field::json("observations").nullable())
             .field(Field::boolean("tcp_reachable").nullable())
             .field(Field::string("status"))
             .field(Field::string("http_forwarding").nullable())
@@ -130,6 +328,11 @@ impl PersistentEntity for ProxyRecord {
     }
     fn write_to(&self, writer: &mut EntityWriter) -> Result<()> {
         writer.string("host", &self.host)?;
+        writer.json(
+            "health_evidence",
+            serde_json::to_value(&self.health_evidence)?,
+        )?;
+        writer.json("observations", serde_json::to_value(&self.observations)?)?;
         writer.integer("port", i64::from(self.port))?;
         if let Some(protocol) = &self.protocol {
             writer.string("protocol", protocol.to_string())?;
@@ -206,6 +409,16 @@ impl PersistentEntity for ProxyRecord {
         let failure_count = u32::try_from(reader.integer("failure_count")?)
             .context("persisted proxy failure count is outside the u32 range")?;
         Ok(ProxyRecord {
+            health_evidence: reader
+                .optional_json("health_evidence")?
+                .map(|value| serde_json::from_value(value.clone()))
+                .transpose()?
+                .unwrap_or_default(),
+            observations: reader
+                .optional_json("observations")?
+                .map(|value| serde_json::from_value(value.clone()))
+                .transpose()?
+                .unwrap_or_default(),
             probe_attempts: reader
                 .optional_json("probe_attempts")?
                 .map(|value| serde_json::from_value(value.clone()))
@@ -321,158 +534,5 @@ impl ProxyRecord {
     }
 }
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use arachnea_core::persistence::{FileEntityStore, SqliteEntityStore};
-    use std::{
-        path::PathBuf,
-        sync::atomic::{AtomicU64, Ordering},
-        time::{Duration, SystemTime},
-    };
-
-    fn temp_dir(label: &str) -> PathBuf {
-        static COUNTER: AtomicU64 = AtomicU64::new(0);
-        let directory = std::env::temp_dir().join(format!(
-            "arachnea-proxy-persistence-{label}-{}-{}",
-            std::process::id(),
-            COUNTER.fetch_add(1, Ordering::Relaxed)
-        ));
-        let _ = std::fs::remove_dir_all(&directory);
-        directory
-    }
-
-    fn record(host: &str, port: u16, country: Option<&str>) -> ProxyRecord {
-        let destination_failure_time = SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|duration| {
-                std::time::UNIX_EPOCH + Duration::from_millis(duration.as_millis() as u64)
-            })
-            .expect("system time after UNIX_EPOCH");
-        ProxyRecord {
-            probe_attempts: std::collections::HashMap::from([("https".to_string(), 1791540000000)]),
-            tcp_reachable: Some(true),
-            protocol: Some(ProxyProtocol::Socks5),
-            host: host.to_string(),
-            port,
-            country: country.map(str::to_string),
-            supports_https: Some(true),
-            declarations: vec![ProxyDeclaration {
-                source: "test-provider".to_string(),
-                protocol: Some(ProxyProtocol::Socks5),
-                supports_https: Some(true),
-            }],
-            status: ProxyRuntimeStatus::Ok,
-            http_forwarding: ProxyCapabilityStatus::Available,
-            https_tunnel: ProxyCapabilityStatus::Available,
-            destination_tls: ProxyCapabilityStatus::Unknown,
-            proxy_tls_certificate: ProxyCapabilityStatus::Unknown,
-            latency_ms: Some(42),
-            failure_count: 0,
-            authentication_required: Some(false),
-            availability: ProxyAvailabilityHint::High,
-            destination_failures: vec![ProxyDestinationFailure {
-                scheme: "https".to_string(),
-                host: "origin.example".to_string(),
-                port: 443,
-                reason: crate::core::ProxyDestinationFailureReason::Timeout,
-                failure_count: 1,
-                last_failed: destination_failure_time,
-                cooldown_until: None,
-            }],
-            last_checked: Some(SystemTime::now()),
-            last_validated_at: Some(SystemTime::now()),
-            cooldown_until: None,
-        }
-    }
-
-    fn config() -> PersistenceStoreConfig {
-        PersistenceStoreConfig::new(PROXY_STORE_NAME, ProxyRecord::schema()).expect("valid config")
-    }
-
-    #[tokio::test]
-    async fn composite_proxy_key_roundtrips_on_all_backends() -> Result<()> {
-        let proxy = record("2001:db8::1", 1080, Some("BE"));
-        let key = proxy.key();
-
-        let memory = MemoryEntityStore::<ProxyRecord>::new(config())?;
-        memory.put(&proxy).await?;
-        assert_eq!(memory.get(&key).await?, Some(proxy.clone()));
-
-        let file_root = temp_dir("file-roundtrip");
-        let file = FileEntityStore::<ProxyRecord>::new(file_root.clone(), config())?;
-        file.put(&proxy).await?;
-        assert_eq!(file.get(&key).await?, Some(proxy.clone()));
-
-        let sqlite_root = temp_dir("sqlite-roundtrip");
-        {
-            let sqlite = SqliteEntityStore::<ProxyRecord>::new(config(), &sqlite_root)?;
-            sqlite.put(&proxy).await?;
-            assert_eq!(sqlite.get(&key).await?, Some(proxy.clone()));
-            assert_eq!(
-                sqlite
-                    .find(&EntityQuery::new().where_string(&ProxyRecord::country_field(), "BE"))
-                    .await?,
-                vec![proxy.clone()]
-            );
-        }
-        let reopened = SqliteEntityStore::<ProxyRecord>::new(config(), &sqlite_root)?;
-        assert_eq!(reopened.get(&key).await?, Some(proxy));
-
-        let _ = std::fs::remove_dir_all(&file_root);
-        let _ = std::fs::remove_dir_all(&sqlite_root);
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn composite_sqlite_batch_is_atomic_and_stale_records_remain_available() -> Result<()> {
-        let root = temp_dir("atomic-stale");
-        let store = SqliteEntityStore::<ProxyRecord>::new(config(), &root)?;
-        let kept = record("kept.example", 8080, Some("BE"));
-        store.put(&kept).await?;
-
-        let mut invalid = record("invalid.example", 8081, Some("BE"));
-        invalid.latency_ms = Some(u64::MAX);
-        assert!(store
-            .put_all(&[record("new.example", 8082, Some("BE")), invalid])
-            .await
-            .is_err());
-        assert_eq!(store.get(&kept.key()).await?, Some(kept));
-
-        let mut stale = record("stale.example", 8083, Some("BE"));
-        stale.last_validated_at =
-            Some(SystemTime::now() - PROXY_CACHE_TTL - Duration::from_secs(1));
-        store.put(&stale).await?;
-        assert_eq!(store.get(&stale.key()).await?, Some(stale));
-
-        let _ = std::fs::remove_dir_all(&root);
-        Ok(())
-    }
-
-    #[test]
-    fn legacy_authority_key_sqlite_cache_is_rejected() -> Result<()> {
-        let root = temp_dir("legacy-cache");
-        let store_directory = root.join(PROXY_STORE_NAME);
-        std::fs::create_dir_all(&store_directory)?;
-        let connection = rusqlite::Connection::open(store_directory.join("records.sqlite3"))?;
-        connection.execute_batch(
-            "CREATE TABLE \"proxy-inventory\" (\
-                authority TEXT PRIMARY KEY, \
-                country TEXT, \
-                expires_at INTEGER NOT NULL, \
-                record TEXT NOT NULL\
-            ) STRICT;",
-        )?;
-        drop(connection);
-
-        let error = SqliteEntityStore::<ProxyRecord>::new(config(), &root)
-            .err()
-            .expect("legacy authority key must be rejected");
-        assert!(error.to_string().contains("primary key"));
-
-        std::fs::remove_dir_all(&store_directory)?;
-        assert!(SqliteEntityStore::<ProxyRecord>::new(config(), &root).is_ok());
-
-        let _ = std::fs::remove_dir_all(&root);
-        Ok(())
-    }
-}
+#[path = "../../tests/core/proxy_repository.rs"]
+mod tests;

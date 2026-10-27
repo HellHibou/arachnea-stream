@@ -6,6 +6,7 @@ license.workspace = true
 autoexamples = false
 
 [features]
+performance-diagnostics = []
 default = ["core", "connectors", "tower", "hyper"]
 core = []
 server = ["core"]
@@ -30,6 +31,7 @@ futures.workspace = true
 http.workspace = true
 ipnet.workspace = true
 regex.workspace = true
+rand.workspace = true
 rquest = { workspace = true, optional = true }
 rusqlite = { workspace = true, optional = true }
 rustls.workspace = true

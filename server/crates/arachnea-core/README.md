@@ -6,10 +6,44 @@
 
 - Define controller abstractions and the REST/Tauri controller backends under `src/controler/`.
 - Provide a main-thread dispatcher abstraction for native UI/event-loop work shared by controller backends.
-- Define credentials persistence and runtime resource helpers under `src/persistence/`. The generic `PersistenceStore` contract is a factory of namespace-bound `PersistenceTransaction` handles (`get`/`put`/`delete`/`find_by_fields`/`commit`); records are stored exclusively as named fields, and the file backend defers writes until `commit` (dirty flag per namespace, atomic tmp + fsync + rename).
+- Define credentials persistence and runtime resource helpers under `src/persistence/`. `TypedEntityStore<E>` provides typed `get`/`get_many`/`put`/`put_all`/`delete`/`find` operations over declared entity schemas. File stores persist snapshots through the configured codec.
 - Provide small shared utilities that are useful across backend crates and do not belong to the scraper engine or stream service.
 
 ## Notes
+
+SQLite persistence has two levels: `SqliteStoreConfig` identifies a physical
+database opened by `SqliteDatabase::open(config, data_root)`, and
+`PersistenceTableConfig` names an entity table with its schema. Use
+`database.table::<E>(table_config)` to obtain typed views sharing one connection
+and its mutex. Views keep the database alive after the original owner is dropped.
+Column and index metadata are scoped to each table; opening one table cannot
+remove another table's managed indexes. Schema reconciliation is transactional.
+Managed index names include the table-name length to distinguish table/column
+pairs containing underscores, and use the reserved `arachnea_idx_` prefix.
+Previously generated managed names are replaced on table opening without
+changing rows or external indexes.
+The `arachnea_` and `sqlite_` table prefixes are reserved.
+
+`get_many(keys)` preserves input order, duplicate keys and missing/expired
+entries (`None`). The default implementation uses scalar reads. SQLite groups
+up to 32 keys and 900 bound parameters per SELECT; single-key requests and
+keys wider than that parameter budget use scalar reads. The connection lock is
+released between groups, with an asynchronous yield. Reads are not an atomic
+snapshot across groups and do not cache results between calls. Expired rows
+are checked before entity decoding and purged using their physical primary key.
+An error returns no partial vector, but earlier expiration purges may remain.
+Dropping the future prevents further groups; an already started blocking group
+can complete, including expiration cleanup.
+
+Files use `<data-root>/<STORENAME>.sqlite3` with SQLite's adjacent `-wal`/`-shm`
+files when present. Old `<STORENAME>/records.sqlite3*` databases are ignored;
+there is no import, rename or automatic deletion. New-format data persists
+normally across restarts. `SqliteEntityStore::new` remains a convenience for
+a standalone store/table sharing a name, using the same flat file layout.
+`PersistenceStoreConfig` is a compatibility alias for `PersistenceTableConfig`,
+not a physical database configuration. Memory/file backends retain their
+existing layout. Each CRUD call commits separately; sharing a physical database
+does not provide a multi-table transaction through `TypedEntityStore`.
 
 `TauriControlerService` is application-agnostic. Application crates must provide the generated `tauri::Context`, embedded frontend asset provider, custom URI scheme, and API prefix. Keep Tauri application config files, capabilities, icons, and build scripts out of this crate.
 
@@ -25,4 +59,7 @@ In tab mode, the strip is hidden when there is only one tab or when the active p
 
 On macOS, tab layout reads AppKit `contentLayoutRect` on the main thread and converts it into the native parent view coordinates before placing child webviews. This accounts for native title bar and toolbar insets without a fixed decoration offset. Other desktop platforms continue to use the window inner size.
 
-Binary routes on the desktop custom URI scheme execute in background async tasks and reply through Tauri’s asynchronous protocol responder. Response bodies remain fully buffered before delivery; network waits do not block the protocol callback. REST routes can deliver streaming bodies progressively.
+Binary routes on the desktop custom URI scheme execute in background async tasks and reply through Tauri’s asynchronous protocol responder. Response bodies remain fully buffered before delivery; network waits do not block the protocol callback. REST routes can deliver streaming bodies progressively. Registered REST routes are
+combined in a balanced Warp filter tree, preserving registration priority and
+per-route client ACL checks while keeping polling depth logarithmic. This avoids
+linear routing stack growth underneath TLS and proxy work in debug builds.

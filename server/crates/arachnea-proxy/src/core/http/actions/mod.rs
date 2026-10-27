@@ -278,3 +278,7 @@ pub fn apply_post_actions(
 
     Ok(current_body)
 }
+
+#[cfg(test)]
+#[path = "../../../../tests/core/http/actions/mod.rs"]
+mod tests;

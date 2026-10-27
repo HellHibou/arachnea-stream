@@ -1,5 +1,54 @@
 # Spécification du format YAML arachnea-proxies
 
+### Classification HTTP runtime — lot 3
+
+Le schéma des listes fournisseur ne change pas. Les options HTTP du scraper et
+les options JSON des URLs médias partagent `proxy_response_classifier` :
+`{"type":"default"}`, `{"type":"http403"}`, ou
+`{"type":"statuses","rejected_statuses":[403],"accepted_statuses":[200,206],"cooldown_seconds":86400}`.
+Les statuts 100..599 doivent être disjoints entre acceptation et rejet ; un
+cooldown explicite est positif et représentable. Cette politique remplace la
+liste historique `proxy_rejection_statuses` ; un handler injecté par code reste
+prioritaire. Aucun objet trait n’est sérialisé. La politique suit les URLs de
+redirection réécrites, et ne change pas les activations 403 de FranceTV/TF1.
+
+Par défaut, seuls les 2xx créent une préférence. Un 4xx/5xx ou une redirection
+non classifiés restent inconclusifs ; un rejet explicite exclut seulement le
+couple endpoint/destination du jeton. La classification précède les post-actions,
+sans lecture du corps par défaut. Un handler de contenu peut demander un extrait
+non destructif de 64 Kio maximum, pendant trois secondes au plus et dans le
+timeout restant disponible. Un extrait incomplet ne prouve pas l’absence d’un
+marqueur. Les moteurs sans observation précoce corrélée restent sans effet sur
+les préférences/exclusions. Les budgets et retries communs restent au lot 5.
+
+### Persistance runtime — lot 2
+
+Sans changement du YAML fournisseur, l’application injecte les vues typées des
+tables `proxy-inventory`, `proxy-preferences` et `proxy-failures` d’un seul store
+SQLite physique, `<application-data>/data/proxy-inventory.sqlite3`, avec une
+connexion partagée et des métadonnées propres à chaque table. Les fichiers
+auxiliaires sont adjacents (`proxy-inventory.sqlite3-wal` et `-shm` si présents).
+Les anciennes bases `<STORENAME>/records.sqlite3*` ne sont pas reprises ; les
+nouvelles bases démarrent vides, puis persistent normalement entre redémarrages.
+Les autres stores SQLite utilisent aussi `<STORENAME>.sqlite3*` sans sous-dossier ;
+les sessions Cloudflare et les activations/credentials des anciens stores ne
+sont donc pas repris. L’historique durable
+conserve jusqu’à trois endpoints acceptés par schéma/hôte/port, sans pays dans la
+clé ni expiration par âge. Il est restauré avant découverte ; le succès éligible
+le plus récent gagne dans les pays autorisés, sans priorité liée à leur ordre.
+Les exclusions par destination restent persistées et ne sont pas effacées par
+une réussite technique ou une actualisation fournisseur.
+
+L’éviction globale exige un échec de connexion à l’endpoint après 24 heures depuis
+la dernière preuve positive, ou la découverte initiale sans preuve positive.
+`last_checked` n’est pas une preuve. Avant ce seuil, le cooldown global vaut
+15 minutes par défaut, configurable. La table distincte `proxy-failures` conserve au maximum
+1 024 états d’éviction pendant 48 heures, nettoyés à la demande, pour préserver
+les temporisations lors d’une redécouverte. Aucun worker n’est ajouté. L’ordre
+du parcours des autres candidats reste à traiter au lot 4. Le regroupement
+physique ne rend pas atomiques les commits d’éviction et de nettoyage des
+préférences ; les références restaurées sont vérifiées avant utilisation.
+
 ## 1. Aperçu
 
 Une collection arachnea-proxies déclare une ou plusieurs sources de proxys publics

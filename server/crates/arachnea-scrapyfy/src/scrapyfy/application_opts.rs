@@ -1,7 +1,7 @@
+use crate::scrapyfy::{ScraperAdminSettings, ScraperCacheConfig};
 use anyhow::Context;
 use arachnea_core::application::{ApplicationOptionDefinition, ApplicationOptionsProvider};
 use arachnea_core::controler::options::{CoreApplicationOptions, SettingSource};
-use crate::scrapyfy::{ScraperAdminSettings, ScraperCacheConfig};
 use std::collections::BTreeMap;
 
 /// Runtime options parsed from command line arguments.
@@ -10,6 +10,8 @@ pub struct SrcapyfyApplicationOptions {
     pub application_option: CoreApplicationOptions,
     /// Explicit local country used for geo proxy decisions.
     pub current_country: Option<String>,
+    /// Loopback proxy listening port; absent or zero selects an ephemeral port.
+    pub proxy_server_port: Option<u16>,
     /// Override of the maximum on-disk server cache size in K (kilobytes).
     pub cache_max_disk_bytes: Option<u64>,
     /// Override of the maximum in-memory server cache size in K (kilobytes).
@@ -92,14 +94,10 @@ impl SrcapyfyApplicationOptions {
             anyhow::bail!("`--cache-block-size` must be a multiple of 4 K.");
         }
         if config.block_size_bytes >= config.max_disk_bytes {
-            anyhow::bail!(
-                "`--cache-block-size` must be smaller than the disk cache size."
-            );
+            anyhow::bail!("`--cache-block-size` must be smaller than the disk cache size.");
         }
         if config.block_size_bytes >= config.max_memory_bytes {
-            anyhow::bail!(
-                "`--cache-block-size` must be smaller than the memory cache size."
-            );
+            anyhow::bail!("`--cache-block-size` must be smaller than the memory cache size.");
         }
         Ok(Some(config))
     }
@@ -110,6 +108,7 @@ impl Default for SrcapyfyApplicationOptions {
         Self {
             application_option: CoreApplicationOptions::default(),
             current_country: None,
+            proxy_server_port: None,
             cache_max_disk_bytes: None,
             cache_max_memory_bytes: None,
             cache_block_size_bytes: None,
@@ -122,6 +121,10 @@ impl ApplicationOptionsProvider for SrcapyfyApplicationOptions {
     fn get_options(&self) -> Vec<ApplicationOptionDefinition> {
         let mut options = self.application_option.get_options();
         options.extend([
+            ApplicationOptionDefinition::new(
+                "--proxy-server-port",
+                "Loopback proxy port (0 selects an automatic port; restart required).",
+            ),
             ApplicationOptionDefinition::new(
                 "--current-country",
                 "Override the current country for the application.",
@@ -144,6 +147,9 @@ impl ApplicationOptionsProvider for SrcapyfyApplicationOptions {
 
     fn export(&self, output: &mut BTreeMap<String, Option<String>>) {
         self.application_option.export(output);
+        if let Some(port) = self.proxy_server_port {
+            output.insert("proxy-server-port".to_string(), Some(port.to_string()));
+        }
         if let Some(current_country) = &self.current_country {
             output.insert("current-country".to_string(), Some(current_country.clone()));
         }
@@ -174,6 +180,19 @@ impl ApplicationOptionsProvider for SrcapyfyApplicationOptions {
 
         while let Some(arg) = iter.next() {
             match arg.as_str() {
+                "--proxy-server-port" => {
+                    #[cfg(not(feature = "arachnea-proxy"))]
+                    anyhow::bail!("`--proxy-server-port` requires the arachnea-proxy feature");
+                    #[cfg(feature = "arachnea-proxy")]
+                    {
+                        let value = iter
+                            .next()
+                            .context("Missing value for `--proxy-server-port`")?;
+                        self.proxy_server_port = Some(value.parse::<u16>().context(
+                            "Invalid value for `--proxy-server-port`: expected 0..65535",
+                        )?);
+                    }
+                }
                 "--current-country" => {
                     self.current_country = Some(
                         iter.next()

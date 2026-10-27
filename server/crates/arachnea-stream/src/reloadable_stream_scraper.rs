@@ -261,6 +261,7 @@ impl ReloadableStreamScraper {
                     .read()
                     .expect("stream scraper runtime options lock poisoned")
                     .apply_to(&mut scraper.scraper_agregator);
+                scraper.proxy_handle().publish_default_route()?;
                 *self.inner.write().expect("stream scraper lock poisoned") = Arc::new(scraper);
                 report.applied = true;
                 tracing::info!("stream scraper reloaded");
@@ -291,7 +292,8 @@ fn register_routes(
                     .proxy_http_core
                     .as_ref()
                     .ok_or_else(|| "HTTP proxy core is unavailable".to_string())?;
-                arachnea_proxy::core::http::handle_proxy_http(Arc::new(core.clone()), input).await
+                arachnea_proxy::core::http::handle_proxy_http(Arc::new(core.clone()), input, true)
+                    .await
             },
         );
     }

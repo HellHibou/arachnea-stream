@@ -3,7 +3,7 @@ use std::pin::Pin;
 use std::time::Duration;
 
 use crate::core::http::body_readers::{
-    decode_chunked_body, ChunkedBodyReader, ContentLengthBodyReader, UntilEofBodyReader,
+    ChunkedBodyReader, ContentLengthBodyReader, UntilEofBodyReader,
 };
 use crate::core::{
     ArachneaProxyCore, ClientContext, ConnectRequest, Destination, HttpRequestTargetForm,
@@ -12,8 +12,130 @@ use crate::core::{
 use crate::http::actions::{apply_post_actions, PostActionContext, ProxyHttpPostActionConfig};
 use bytes::Bytes;
 use futures::StreamExt;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio_util::io::ReaderStream;
+
+/// Monotonic diagnostic identity independent of reusable search-context addresses.
+#[cfg(feature = "performance-diagnostics")]
+static NEXT_MEDIA_REQUEST_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+/// Owns bounded diagnostics through response-body consumption or early drop.
+#[cfg(feature = "performance-diagnostics")]
+struct MediaRequestDiagnostics {
+    id: u64,
+    search_id: Option<usize>,
+    origin: String,
+    started: std::time::Instant,
+    phase_started: std::time::Instant,
+    phase: &'static str,
+    finished: Option<std::time::Instant>,
+    bytes: u64,
+    outcome: &'static str,
+}
+
+#[cfg(feature = "performance-diagnostics")]
+impl MediaRequestDiagnostics {
+    fn new(origin: String, method: &str, range_requested: bool, buffered: bool) -> Box<Self> {
+        let started = std::time::Instant::now();
+        let diagnostics = Box::new(Self {
+            id: NEXT_MEDIA_REQUEST_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            search_id: crate::core::ProxySearchContext::current().map(|search| search.id()),
+            origin,
+            started,
+            phase_started: started,
+            phase: "selection",
+            finished: None,
+            bytes: 0,
+            outcome: "interrupted",
+        });
+        tracing::debug!(
+            media_request_id = diagnostics.id,
+            search_id = diagnostics.search_id,
+            origin = %diagnostics.origin,
+            method,
+            range_requested,
+            buffered,
+            "started media upstream request"
+        );
+        diagnostics
+    }
+
+    fn next_phase(&mut self, phase: &'static str) {
+        tracing::debug!(
+            media_request_id = self.id,
+            search_id = self.search_id,
+            origin = %self.origin,
+            phase = self.phase,
+            duration_ms = self.phase_started.elapsed().as_millis() as u64,
+            "completed media upstream phase"
+        );
+        self.phase = phase;
+        self.phase_started = std::time::Instant::now();
+    }
+}
+
+#[cfg(feature = "performance-diagnostics")]
+impl Drop for MediaRequestDiagnostics {
+    fn drop(&mut self) {
+        let finished = self.finished.unwrap_or_else(std::time::Instant::now);
+        tracing::debug!(
+            media_request_id = self.id,
+            search_id = self.search_id,
+            origin = %self.origin,
+            phase = self.phase,
+            outcome = self.outcome,
+            body_bytes = self.bytes,
+            phase_ms = finished.duration_since(self.phase_started).as_millis() as u64,
+            total_ms = finished.duration_since(self.started).as_millis() as u64,
+            "finished media upstream observation"
+        );
+    }
+}
+
+/// Counts decoded upstream bytes without prefetching or changing stream ownership.
+#[cfg(feature = "performance-diagnostics")]
+struct ObservedMediaBody {
+    inner: super::response_classifier::ProxyResponseStream,
+    diagnostics: Box<MediaRequestDiagnostics>,
+}
+
+#[cfg(feature = "performance-diagnostics")]
+impl futures::Stream for ObservedMediaBody {
+    type Item = std::io::Result<Bytes>;
+
+    fn poll_next(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        let result = self.inner.as_mut().poll_next(cx);
+        match &result {
+            std::task::Poll::Ready(Some(Ok(bytes))) => {
+                if self.diagnostics.bytes == 0 && !bytes.is_empty() {
+                    tracing::debug!(
+                        media_request_id = self.diagnostics.id,
+                        body_wait_ms = self.diagnostics.phase_started.elapsed().as_millis() as u64,
+                        "received first media upstream body bytes"
+                    );
+                }
+                self.diagnostics.bytes = self.diagnostics.bytes.saturating_add(bytes.len() as u64);
+            }
+            std::task::Poll::Ready(Some(Err(_))) => {
+                self.diagnostics.outcome = "body_error";
+                self.diagnostics
+                    .finished
+                    .get_or_insert_with(std::time::Instant::now);
+            }
+            std::task::Poll::Ready(None) if self.diagnostics.outcome != "body_error" => {
+                self.diagnostics.outcome = "eof";
+                self.diagnostics
+                    .finished
+                    .get_or_insert_with(std::time::Instant::now);
+            }
+            _ => {}
+        }
+        result
+    }
+}
 
 /// Minimal HTTP response returned by the core convenience client.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -34,6 +156,10 @@ pub enum ProxiedResponseBody {
 
 /// Full proxied HTTP response with parsed headers and body.
 pub struct ProxiedHttpResponse {
+    /// Original response decision, computed before post-actions.
+    pub response_decision: super::response_classifier::ProxyResponseDecision,
+    /// Exact route used by the final response, including after redirects.
+    pub selection_token: Option<crate::core::ProxySelectionToken>,
     /// Numeric HTTP status code.
     pub status: u16,
     /// Response headers.
@@ -45,6 +171,8 @@ pub struct ProxiedHttpResponse {
 /// Input for a proxied HTTP request through the Arachnea proxy core.
 #[derive(Clone, Debug)]
 pub struct ProxiedHttpRequest {
+    /// Code-injected policy, taking precedence over serialized policies.
+    pub response_classifier: Option<super::response_classifier::ProxyResponsePolicy>,
     /// Absolute target URL (http or https scheme only).
     pub url: String,
     /// HTTP method (GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS).
@@ -61,7 +189,8 @@ pub struct ProxiedHttpRequest {
     pub post_actions: Vec<ProxyHttpPostActionConfig>,
     /// Whether the caller requires a fully buffered response body.
     ///
-    /// This must be enabled when `post_actions` is non-empty.
+    /// This must be enabled when `post_actions` is non-empty. Buffered response
+    /// acceptance is committed only after the complete body has been received.
     pub buffer_response_body: bool,
     /// Whether only response headers should be read (e.g. HEAD requests).
     pub headers_only: bool,
@@ -102,7 +231,8 @@ impl SimpleHttpClient {
     /// the `Transfer-Encoding: chunked` response header in place.
     ///
     /// When enabled (the default), buffered responses fall back to their raw
-    /// body when chunk decoding fails. Streaming responses remain strict.
+    /// body when the first line is not a chunk size. Once framing is detected,
+    /// truncated or malformed chunks remain errors. Streaming responses remain strict.
     pub fn with_dechunked_body_tolerance(mut self, enabled: bool) -> Self {
         self.tolerate_dechunked_bodies = enabled;
         self
@@ -160,13 +290,41 @@ impl SimpleHttpClient {
     /// # Errors
     ///
     /// Returns an error when URL parsing, connection, or HTTP I/O fails.
+    /// Buffered transfer failures retain the selected route and response-received
+    /// delivery evidence so callers can apply destination health and replay policy.
     pub async fn request_proxied(
+        &self,
+        request: ProxiedHttpRequest,
+    ) -> Result<ProxiedHttpResponse> {
+        if crate::core::ProxySearchContext::current().is_none()
+            && request
+                .client_context
+                .get_string("countries")
+                .is_some_and(|countries| !countries.is_empty() && countries != "[]")
+        {
+            let search = crate::core::ProxySearchContext::default();
+            return search.scope(self.request_proxied_scoped(request)).await;
+        }
+        self.request_proxied_scoped(request).await
+    }
+
+    async fn request_proxied_scoped(
         &self,
         mut request: ProxiedHttpRequest,
     ) -> Result<ProxiedHttpResponse> {
         let redirect_limit = request.follow_redirects;
+        let requested_url = request.url.clone();
+        let mut redirect_urls = Vec::new();
         for redirect_index in 0..redirect_limit.unwrap_or_default() {
-            let response = self.request_proxied_once(request.clone()).await?;
+            let response = self
+                .request_proxied_once(request.clone(), &requested_url, &redirect_urls)
+                .await?;
+            if matches!(
+                response.response_decision,
+                super::response_classifier::ProxyResponseDecision::RejectedForDestination { .. }
+            ) {
+                return Ok(response);
+            }
             if !(300..400).contains(&response.status) {
                 return Ok(response);
             }
@@ -183,6 +341,9 @@ impl SimpleHttpClient {
                     ))
                 })?
                 .to_string();
+            if let Some(token) = &response.selection_token {
+                token.record_redirect(response.status).await;
+            }
             tracing::debug!(
                 from = %request.url,
                 to = %next_url,
@@ -190,14 +351,37 @@ impl SimpleHttpClient {
                 "following proxied HTTP redirect"
             );
             request.url = next_url.clone();
+            redirect_urls.push(next_url.clone());
             request.context.target_url = next_url;
         }
-        self.request_proxied_once(request).await
+        self.request_proxied_once(request, &requested_url, &redirect_urls)
+            .await
     }
 
     async fn request_proxied_once(
         &self,
         request: ProxiedHttpRequest,
+        requested_url: &str,
+        redirect_urls: &[String],
+    ) -> Result<ProxiedHttpResponse> {
+        if let Some(search) = crate::core::ProxySearchContext::current() {
+            return search
+                .for_url(&request.url)
+                .scope(search.origin(Box::pin(self.request_proxied_once_inner(
+                    request,
+                    requested_url,
+                    redirect_urls,
+                ))))
+                .await?;
+        }
+        Box::pin(self.request_proxied_once_inner(request, requested_url, redirect_urls)).await
+    }
+
+    async fn request_proxied_once_inner(
+        &self,
+        request: ProxiedHttpRequest,
+        requested_url: &str,
+        redirect_urls: &[String],
     ) -> Result<ProxiedHttpResponse> {
         if !request.buffer_response_body && !request.post_actions.is_empty() {
             return Err(ProxyError::Protocol(
@@ -236,15 +420,51 @@ impl SimpleHttpClient {
         };
         let is_https = protocol == crate::core::ApplicationProtocol::Https;
 
+        #[cfg(feature = "performance-diagnostics")]
+        let mut diagnostics = MediaRequestDiagnostics::new(
+            url.origin().ascii_serialization(),
+            &request.method,
+            request
+                .headers
+                .keys()
+                .any(|name| name.eq_ignore_ascii_case("range")),
+            request.buffer_response_body,
+        );
         let destination = Destination::host_port(host, port).with_protocol(protocol);
-        let stream = self
+        let selected = self
             .core
-            .connect_http_request(
-                ConnectRequest::new(destination)
+            .select_for_request(
+                ConnectRequest::new(destination.clone())
                     .with_client_context(request.client_context.clone()),
             )
             .await?;
+        let reuses_destination = selected
+            .selection_token
+            .as_ref()
+            .is_some_and(|token| token.reuses_destination());
+        #[cfg(feature = "performance-diagnostics")]
+        diagnostics.next_phase("connection");
+        let connection_deadline = tokio::time::Instant::now() + Duration::from_secs(60);
+        let connect = selected.core.connect_http_request(
+            ConnectRequest::new(destination).with_client_context(request.client_context.clone()),
+        );
+        let stream = if reuses_destination {
+            tokio::time::timeout_at(connection_deadline, connect)
+                .await
+                .unwrap_or(Err(ProxyError::Timeout(
+                    "known proxy connection establishment",
+                )))
+        } else {
+            connect.await
+        }
+        .map_err(|error| ProxyError::RequestAttempt {
+            selection: selected.selection_token.clone(),
+            delivery: crate::core::ProxyRequestDelivery::NotSent,
+            source: Box::new(error),
+        })?;
 
+        #[cfg(feature = "performance-diagnostics")]
+        diagnostics.next_phase("request_preparation");
         // Build request headers
         let mut header_lines = Vec::new();
         let method = request.method.to_ascii_uppercase();
@@ -324,38 +544,228 @@ impl SimpleHttpClient {
 
         let mut unified_stream =
             if is_https && stream.target_form == HttpRequestTargetForm::OriginForm {
-                let tls_stream = crate::core::transport::tls::client_tls(
+                #[cfg(feature = "performance-diagnostics")]
+                diagnostics.next_phase("destination_tls");
+                let handshake = crate::core::transport::tls::client_tls(
                     stream.stream,
                     host,
-                    Duration::from_secs(10),
+                    Duration::from_secs(if reuses_destination { 30 } else { 10 }),
                     request.verify_tls,
-                )
-                .await?;
+                );
+                let tls_stream = if reuses_destination {
+                    tokio::time::timeout_at(connection_deadline, handshake)
+                        .await
+                        .unwrap_or(Err(ProxyError::Timeout(
+                            "known proxy connection establishment",
+                        )))
+                } else {
+                    handshake.await
+                }
+                .map_err(|error| ProxyError::RequestAttempt {
+                    selection: selected.selection_token.clone(),
+                    delivery: crate::core::ProxyRequestDelivery::NotSent,
+                    source: Box::new(error),
+                })?;
+                if let Some(token) = selected
+                    .selection_token
+                    .as_ref()
+                    .filter(|_| request.verify_tls)
+                {
+                    token
+                        .record_phase(
+                            crate::core::ProxyObservationPhase::DestinationTls,
+                            true,
+                            None,
+                        )
+                        .await;
+                }
                 ProxyStream::new(tls_stream, metadata)
             } else {
                 stream.stream
             };
 
-        let (status_code, mut headers) = send_request_and_read_head(
+        #[cfg(feature = "performance-diagnostics")]
+        diagnostics.next_phase("send_and_headers");
+        let head = send_request_and_read_head(
             &mut unified_stream,
             &request_to_send,
             &request.body,
             send_body,
-        )
-        .await?;
+        );
+        let (status_code, mut headers) = if crate::core::ProxySearchContext::current().is_some() {
+            tokio::time::timeout(
+                Duration::from_secs(if reuses_destination { 60 } else { 30 }),
+                head,
+            )
+            .await
+            .unwrap_or_else(|_| Err(ProxyError::Timeout("media response headers")))
+        } else {
+            head.await
+        }
+        .map_err(|error| ProxyError::RequestAttempt {
+            selection: selected.selection_token.clone(),
+            delivery: crate::core::ProxyRequestDelivery::PossiblySent,
+            source: Box::new(error),
+        })?;
 
-        let body = if request.headers_only || (300..400).contains(&status_code) {
+        #[cfg(feature = "performance-diagnostics")]
+        diagnostics.next_phase("response_setup");
+        #[cfg(feature = "performance-diagnostics")]
+        tracing::debug!(
+            media_request_id = diagnostics.id,
+            search_id = diagnostics.search_id,
+            origin = %diagnostics.origin,
+            status = status_code,
+            "received media upstream headers"
+        );
+        if let Some(token) = &selected.selection_token {
+            token.record_http_response(status_code).await;
+        }
+
+        use super::response_classifier::*;
+        let classifier_headers: http::HeaderMap = headers
+            .iter()
+            .filter_map(|(name, value)| {
+                Some((
+                    http::header::HeaderName::from_bytes(name.as_bytes()).ok()?,
+                    http::HeaderValue::from_str(value).ok()?,
+                ))
+            })
+            .collect();
+        let stream: ProxyResponseStream =
+            if request.headers_only || matches!(status_code, 204 | 304) {
+                Box::pin(futures::stream::empty())
+            } else if request.buffer_response_body
+                && self.tolerate_dechunked_bodies
+                && !matches!(
+                    request
+                        .response_classifier
+                        .as_ref()
+                        .map(|policy| policy.0.body_requirement()),
+                    Some(ProxyBodyRequirement::Prefix(_))
+                )
+            {
+                let headers = headers.clone();
+                let tolerate = self.tolerate_dechunked_bodies;
+                Box::pin(futures::stream::once(async move {
+                    read_buffered_response_body(
+                        unified_stream,
+                        &headers,
+                        transfer_encoding_is_chunked(&headers),
+                        tolerate,
+                    )
+                    .await
+                    .map(Bytes::from)
+                    .map_err(std::io::Error::other)
+                }))
+            } else {
+                Box::pin(ReaderStream::new(select_body_reader(
+                    unified_stream,
+                    &headers,
+                )))
+            };
+        #[cfg(feature = "performance-diagnostics")]
+        diagnostics.next_phase("body");
+        #[cfg(feature = "performance-diagnostics")]
+        let media_request_id = diagnostics.id;
+        #[cfg(feature = "performance-diagnostics")]
+        let stream: ProxyResponseStream = Box::pin(ObservedMediaBody {
+            inner: stream,
+            diagnostics,
+        });
+        #[cfg(feature = "performance-diagnostics")]
+        let classification_started = std::time::Instant::now();
+        let (response_decision, mut inspected_stream) = inspect_proxy_response(
+            request.response_classifier.as_ref(),
+            ProxyResponseView {
+                method: &request.method,
+                requested_url,
+                effective_url: &request.url,
+                redirect_urls,
+                status: status_code,
+                headers: &classifier_headers,
+                selection: selected.selection_token.as_ref(),
+                body: &[],
+                body_state: ProxyBodyState::Unavailable,
+            },
+            stream,
+            crate::core::ProxySearchContext::current()
+                .map(|search| {
+                    search
+                        .origin_remaining()
+                        .min(PROXY_RESPONSE_INSPECTION_TIMEOUT)
+                })
+                .unwrap_or(PROXY_RESPONSE_INSPECTION_TIMEOUT),
+        )
+        .await;
+        #[cfg(feature = "performance-diagnostics")]
+        tracing::debug!(
+            media_request_id,
+            decision = match &response_decision {
+                ProxyResponseDecision::Accepted => "accepted",
+                ProxyResponseDecision::RejectedForDestination { .. } => "rejected",
+                ProxyResponseDecision::Inconclusive => "inconclusive",
+            },
+            duration_ms = classification_started.elapsed().as_millis() as u64,
+            "classified media upstream response"
+        );
+        if matches!(response_decision, ProxyResponseDecision::Accepted)
+            && !(300..400).contains(&status_code)
+            && (!request.buffer_response_body || request.headers_only)
+        {
+            if let Some(search) = crate::core::ProxySearchContext::current() {
+                search.accept();
+            }
+            if let Some(token) = &selected.selection_token {
+                token.record_accepted().await;
+            }
+        }
+        let retry_rejection =
+            matches!(
+                response_decision,
+                ProxyResponseDecision::RejectedForDestination { .. }
+            ) && crate::core::ProxySearchContext::current().is_some_and(|search| {
+                search.can_start()
+                    && crate::core::proxy_retry_allowed(
+                        &request.method,
+                        search.replayable(),
+                        crate::core::ProxyRequestDelivery::ResponseReceived,
+                        true,
+                    )
+            });
+        let body = if retry_rejection || request.headers_only || (300..400).contains(&status_code) {
             ProxiedResponseBody::Buffered(Vec::new())
         } else {
             let is_chunked = transfer_encoding_is_chunked(&headers);
             if request.buffer_response_body {
-                let body = read_buffered_response_body(
-                    unified_stream,
-                    &headers,
-                    is_chunked,
-                    self.tolerate_dechunked_bodies,
-                )
-                .await?;
+                let mut body = Vec::new();
+                let collect = async {
+                    while let Some(chunk) = inspected_stream.next().await {
+                        body.extend_from_slice(&chunk?);
+                    }
+                    Ok::<_, std::io::Error>(())
+                };
+                let collected = if crate::core::ProxySearchContext::current().is_some() {
+                    tokio::time::timeout(Duration::from_secs(30), collect)
+                        .await
+                        .map_err(|_| ProxyError::Timeout("media response body transfer"))
+                        .and_then(|result| result.map_err(ProxyError::from))
+                } else {
+                    collect.await.map_err(ProxyError::from)
+                };
+                collected.map_err(|error| ProxyError::RequestAttempt {
+                    selection: selected.selection_token.clone(),
+                    delivery: crate::core::ProxyRequestDelivery::ResponseReceived,
+                    source: Box::new(error),
+                })?;
+                if matches!(response_decision, ProxyResponseDecision::Accepted) {
+                    if let Some(search) = crate::core::ProxySearchContext::current() {
+                        search.accept();
+                    }
+                    if let Some(token) = &selected.selection_token {
+                        token.record_accepted().await;
+                    }
+                }
                 if is_chunked {
                     remove_header_case_insensitive(&mut headers, "transfer-encoding");
                     remove_header_case_insensitive(&mut headers, "content-length");
@@ -368,17 +778,17 @@ impl SimpleHttpClient {
                     &request.context,
                 )?)
             } else {
-                let reader = select_body_reader(unified_stream, &headers);
                 if is_chunked {
                     remove_header_case_insensitive(&mut headers, "transfer-encoding");
                     remove_header_case_insensitive(&mut headers, "content-length");
                 }
-                let reader_stream = ReaderStream::new(reader);
-                ProxiedResponseBody::Streamed(Box::pin(reader_stream))
+                ProxiedResponseBody::Streamed(inspected_stream)
             }
         };
 
         Ok(ProxiedHttpResponse {
+            response_decision,
+            selection_token: selected.selection_token,
             status: status_code,
             headers,
             body,
@@ -388,7 +798,7 @@ impl SimpleHttpClient {
 
 /// Reads a response body that must be buffered for post-response processing.
 async fn read_buffered_response_body<S>(
-    mut stream: S,
+    stream: S,
     headers: &HashMap<String, String>,
     is_chunked: bool,
     tolerate_dechunked_bodies: bool,
@@ -397,19 +807,41 @@ where
     S: AsyncRead + Send + Unpin + 'static,
 {
     if is_chunked && tolerate_dechunked_bodies {
-        let mut raw_body = Vec::new();
-        stream.read_to_end(&mut raw_body).await?;
-        return match decode_chunked_body(&raw_body) {
-            Ok(body) => Ok(body),
-            Err(error) => {
-                tracing::warn!(
-                    %error,
-                    body_len = raw_body.len(),
-                    "upstream retained Transfer-Encoding: chunked after dechunking the response; using raw body"
-                );
-                Ok(raw_body)
+        // Inspect only the first line before choosing strict framing or compatibility mode.
+        let mut reader = BufReader::new(stream);
+        let mut prefix = Vec::new();
+        while prefix.len() < 8192 {
+            let mut byte = [0];
+            if reader.read(&mut byte).await? == 0 {
+                break;
             }
-        };
+            prefix.push(byte[0]);
+            if byte[0] == b'\n' {
+                break;
+            }
+        }
+        let framed = prefix.strip_suffix(b"\r\n").is_some_and(|line| {
+            std::str::from_utf8(line)
+                .ok()
+                .and_then(|line| line.split(';').next())
+                .and_then(|size| usize::from_str_radix(size.trim(), 16).ok())
+                .is_some()
+        });
+        let stream = std::io::Cursor::new(prefix).chain(reader);
+        let mut body = Vec::new();
+        if framed {
+            ChunkedBodyReader::new(stream)
+                .read_to_end(&mut body)
+                .await?;
+        } else {
+            tracing::warn!(
+                "upstream retained Transfer-Encoding: chunked without chunk framing; using raw body"
+            );
+            UntilEofBodyReader::new(stream)
+                .read_to_end(&mut body)
+                .await?;
+        }
+        return Ok(body);
     }
 
     let reader = select_body_reader(stream, headers);
@@ -618,35 +1050,5 @@ where
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use tokio::io::{AsyncWriteExt, DuplexStream};
-
-    async fn response_stream(response: &[u8]) -> DuplexStream {
-        let (mut writer, reader) = tokio::io::duplex(response.len().max(1));
-        let response = response.to_vec();
-        tokio::spawn(async move {
-            writer.write_all(&response).await.unwrap();
-            writer.shutdown().await.unwrap();
-        });
-        reader
-    }
-
-    #[tokio::test]
-    async fn reads_complete_headers_without_consuming_body() {
-        let mut stream = response_stream(b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\ntest").await;
-        let headers = read_headers_only(&mut stream).await.unwrap();
-        assert_eq!(headers, b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\n");
-
-        let mut body = Vec::new();
-        stream.read_to_end(&mut body).await.unwrap();
-        assert_eq!(body, b"test");
-    }
-
-    #[tokio::test]
-    async fn rejects_truncated_headers() {
-        let mut stream = response_stream(b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\n").await;
-        let error = read_headers_only(&mut stream).await.unwrap_err();
-        assert!(matches!(error, ProxyError::Protocol(_)));
-    }
-}
+#[path = "../../../tests/core/http/client.rs"]
+mod tests;

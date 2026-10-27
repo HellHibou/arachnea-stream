@@ -455,12 +455,27 @@ pub struct ArachneaHttpConfig {
     pub user_agent_profile: BrowserProfile,
     /// Transport override applied to engines that support proxy configuration.
     pub proxy: HttpProxyConfig,
+    /// Shared loopback server for application-owned proxy transports.
+    #[cfg(feature = "arachnea-proxy")]
+    pub proxy_runtime: Option<Arc<arachnea_proxy::server::LoopbackProxyRuntime>>,
+    /// Optional caller-owned pool of idle, request-rebound proxy transports.
+    #[cfg(feature = "arachnea-proxy")]
+    pub proxy_transport_pool: Option<Arc<crate::client::ProxyTransportPool>>,
     /// Request routing parameters sent to proxy transports that support them.
     pub proxy_parameters: Vec<(String, String)>,
+    /// Optional code-injected response policy; not part of serialized configuration.
+    #[cfg(feature = "arachnea-proxy")]
+    pub proxy_response_classifier:
+        Option<arachnea_proxy::core::http::response_classifier::ProxyResponsePolicy>,
     /// Margin before cookie expiry where Cloudflare cookies are proactively refreshed.
     pub cookie_refresh_margin: Duration,
-    /// Timeout applied to outbound HTTP requests.
+    /// Ordinary total timeout. Localized searches use it separately for origin
+    /// response headers and accepted-body transfer within their shared search budget.
+    /// Reused proxy evidence caps the header allowance at 60 seconds without
+    /// increasing a shorter configured timeout.
     pub request_timeout: Duration,
+    /// Explicit operation-level authorization to replay a reproducible modifying request.
+    pub proxy_retry_replayable: bool,
     /// Maximum number of HTTP redirects followed by the facade.
     ///
     /// `None` uses the crate default, currently three redirects. `Some(0)`
@@ -502,9 +517,16 @@ impl Default for ArachneaHttpConfig {
             cloudflare_browser_solver: CloudflareBrowserSolverKind::Auto,
             user_agent_profile: BrowserProfile::default(),
             proxy: HttpProxyConfig::Disabled,
+            #[cfg(feature = "arachnea-proxy")]
+            proxy_runtime: None,
+            #[cfg(feature = "arachnea-proxy")]
+            proxy_transport_pool: None,
             proxy_parameters: Vec::new(),
+            #[cfg(feature = "arachnea-proxy")]
+            proxy_response_classifier: None,
             cookie_refresh_margin: Duration::from_secs(300),
             request_timeout: Duration::from_secs(30),
+            proxy_retry_replayable: false,
             max_redirects: None,
             max_cloudflare_retries: 1,
             default_session_cookie_ttl: Duration::from_secs(60 * 60),
@@ -521,6 +543,18 @@ pub struct ArachneaHttpConfigBuilder {
 }
 
 impl ArachneaHttpConfigBuilder {
+    /// Injects a response classifier for correlated Rquest proxy requests.
+    ///
+    /// # Arguments
+    /// - `classifier`: Nonblocking policy evaluated before body materialization.
+    #[cfg(feature = "arachnea-proxy")]
+    pub fn proxy_response_classifier(
+        mut self,
+        classifier: arachnea_proxy::core::http::response_classifier::ProxyResponsePolicy,
+    ) -> Self {
+        self.config.proxy_response_classifier = Some(classifier);
+        self
+    }
     /// Sets the outbound HTTP engine.
     ///
     /// # Parameters
@@ -681,6 +715,29 @@ impl ArachneaHttpConfigBuilder {
         self
     }
 
+    /// Shares one application-owned loopback listener across HTTP clients.
+    ///
+    /// # Arguments
+    /// - `runtime`: Shared listener and connection-context registry.
+    #[cfg(feature = "arachnea-proxy")]
+    pub fn proxy_runtime(
+        mut self,
+        runtime: Arc<arachnea_proxy::server::LoopbackProxyRuntime>,
+    ) -> Self {
+        self.config.proxy_runtime = Some(runtime);
+        self
+    }
+
+    /// Shares idle proxy connections across a family of compatible HTTP clients.
+    ///
+    /// # Arguments
+    /// - `pool`: Caller-owned bounded transport pool, independent of cookies and requests.
+    #[cfg(feature = "arachnea-proxy")]
+    pub fn proxy_transport_pool(mut self, pool: Arc<crate::client::ProxyTransportPool>) -> Self {
+        self.config.proxy_transport_pool = Some(pool);
+        self
+    }
+
     /// Routes requests through an explicit network proxy URL.
     ///
     /// # Parameters
@@ -745,6 +802,15 @@ impl ArachneaHttpConfigBuilder {
     /// The updated builder.
     pub fn cookie_refresh_margin(mut self, duration: Duration) -> Self {
         self.config.cookie_refresh_margin = duration;
+        self
+    }
+
+    /// Authorizes proxy retries for operations whose effects and body permit replay.
+    ///
+    /// # Arguments
+    /// - `replayable`: Explicit caller guarantee; false preserves safe defaults.
+    pub fn proxy_retry_replayable(mut self, replayable: bool) -> Self {
+        self.config.proxy_retry_replayable = replayable;
         self
     }
 

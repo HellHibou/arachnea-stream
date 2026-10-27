@@ -2,11 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::core::{ClientContext, ClientParameter};
 
-/// Client-context parameter carrying a Smart DNS-selected proxy chain.
-pub const PROXY_PARAMETER_SMART_DNS_CHAIN: &str = "smart_dns_chain";
-
-/// Client-context parameter carrying a Smart DNS-selected egress pool.
-pub const PROXY_PARAMETER_SMART_DNS_EGRESS_POOL: &str = "smart_dns_egress_pool";
+pub use crate::{PROXY_PARAMETER_SMART_DNS_CHAIN, PROXY_PARAMETER_SMART_DNS_EGRESS_POOL};
 
 /// Optional Smart DNS hint consumed by route plugins.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]

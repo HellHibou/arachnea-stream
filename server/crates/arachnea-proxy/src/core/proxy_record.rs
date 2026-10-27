@@ -1,15 +1,11 @@
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 use crate::core::{ProxyNameResolutionMode, ProxyNode, Result, TransportKind};
 
-/// Maximum age of a proxy validation before a subsequent failure removes it.
-///
-/// Stale proxies remain selectable: this is a conditional eviction threshold,
-/// not a hard expiration deadline.
-pub const PROXY_CACHE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
+pub use crate::{PROXY_CACHE_TTL, PROXY_PROTOCOL_PRIORITY};
 
 /// Proxy protocol variant advertised or detected for a record.
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
@@ -25,18 +21,6 @@ pub enum ProxyProtocol {
     /// SOCKS5 (TCP CONNECT with optional hostname forwarding).
     Socks5,
 }
-
-/// Preferred protocol order for source selection and runtime detection.
-///
-/// HTTP is intentionally last because it provides the weakest transport
-/// capabilities among the supported proxy protocols.
-pub const PROXY_PROTOCOL_PRIORITY: [ProxyProtocol; 5] = [
-    ProxyProtocol::Socks5,
-    ProxyProtocol::Socks4,
-    ProxyProtocol::Https,
-    ProxyProtocol::Socks4a,
-    ProxyProtocol::Http,
-];
 
 /// One source-level declaration attached to a dynamic proxy endpoint.
 ///
@@ -164,6 +148,12 @@ pub struct ProxyDestinationFailure {
 /// addresses are automatically bracketed during conversion to [`ProxyNode`].
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ProxyRecord {
+    /// Positive health facts; legacy attempt timestamps are not migrated into evidence.
+    #[serde(default)]
+    pub health_evidence: super::ProxyHealthEvidence,
+    /// Latest contextual observations, bounded to 64 contexts per endpoint.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub observations: Vec<super::ProxyObservation>,
     /// Persisted attempt times in epoch milliseconds, keyed by tcp/http/https.
     /// Missing entries mean that phase has never been attempted.
     #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
@@ -205,8 +195,8 @@ pub struct ProxyRecord {
     pub https_tunnel: ProxyCapabilityStatus,
     /// Runtime result of destination HTTPS validation through the tunnel.
     ///
-    /// Availability requires a valid TLS handshake and certificate followed by
-    /// an accepted HTTP response from the configured probe URL.
+    /// Availability requires a valid TLS handshake and certificate, independently
+    /// of the HTTP status returned afterwards.
     #[serde(default)]
     pub destination_tls: ProxyCapabilityStatus,
     /// Runtime validity of the TLS certificate presented by an HTTPS proxy.
@@ -237,7 +227,8 @@ pub struct ProxyRecord {
     /// Timestamp of the last successful probe or non-rejected origin response.
     ///
     /// Records older than [`PROXY_CACHE_TTL`] remain usable, but are deleted if
-    /// their next observed proxy or origin interaction fails.
+    /// a directly observed endpoint connection fails; destination failures alone
+    /// never trigger global eviction.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -254,7 +245,7 @@ pub struct ProxyRecord {
 }
 
 /// Native persisted identity of a proxy endpoint.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 pub struct ProxyKey {
     /// Proxy host, preserved exactly as recorded.
     pub host: String,
@@ -263,6 +254,53 @@ pub struct ProxyKey {
 }
 
 impl ProxyRecord {
+    /// Records a completed phase without erasing an earlier positive fact.
+    ///
+    /// # Arguments
+    /// - `observation`: Completed, contextualized observation without secrets.
+    pub fn record_observation(&mut self, mut observation: super::ProxyObservation) {
+        if let Some(index) = self
+            .observations
+            .iter()
+            .position(|existing| existing.context == observation.context)
+        {
+            let mut existing = self.observations.remove(index);
+            observation.last_succeeded_at = observation
+                .last_succeeded_at
+                .max(existing.last_succeeded_at);
+            if existing.completed_at > observation.completed_at {
+                existing.last_succeeded_at = existing
+                    .last_succeeded_at
+                    .max(observation.last_succeeded_at);
+                if observation.outcome == super::ProxyObservationOutcome::Succeeded {
+                    existing.last_succeeded_at = existing
+                        .last_succeeded_at
+                        .max(Some(observation.completed_at));
+                    self.health_evidence.last_positive_at = self
+                        .health_evidence
+                        .last_positive_at
+                        .max(Some(observation.completed_at));
+                }
+                self.observations.push(existing);
+                return;
+            }
+        }
+        if observation.outcome == super::ProxyObservationOutcome::Succeeded {
+            observation.last_succeeded_at = observation
+                .last_succeeded_at
+                .max(Some(observation.completed_at));
+            self.health_evidence.last_positive_at = self
+                .health_evidence
+                .last_positive_at
+                .max(Some(observation.completed_at));
+        }
+        self.observations.push(observation);
+        self.observations.sort_by_key(|item| item.completed_at);
+        if self.observations.len() > 64 {
+            self.observations.remove(0);
+        }
+    }
+
     /// Returns the native endpoint key used by persistent stores.
     pub fn key(&self) -> ProxyKey {
         ProxyKey {
@@ -402,9 +440,23 @@ impl std::fmt::Display for ProxyProtocol {
 /// Parameters for requesting a dynamic proxy load.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProxyLoadRequest {
-    /// Ordered ISO country codes to load. An empty list does not constrain the
+    /// Allowed ISO country codes to load; their order has no priority. An empty list does not constrain the
     /// provider.
     pub countries: Vec<String>,
+}
+
+/// Consumer of incrementally discovered proxy batches. Publishing is awaited,
+/// and dropping the load cancels source work without leaving a producer task.
+#[async_trait]
+pub trait ProxyBatchSink: Send + Sync {
+    /// Publishes source records without claiming any runtime validation.
+    ///
+    /// # Arguments
+    /// - `records`: A partial batch; later sources may add declarations for the same endpoint.
+    ///
+    /// # Errors
+    /// Returns an error when the consumer can no longer accept the batch.
+    async fn publish(&self, records: Vec<ProxyRecord>) -> Result<()>;
 }
 
 /// Provider that loads dynamic proxy records from an external source.
@@ -423,6 +475,22 @@ pub trait ProxyDataProvider: Send + Sync {
     ///
     /// A list of proxy records loaded from the external source.
     async fn load_proxies(&self, request: ProxyLoadRequest) -> Result<Vec<ProxyRecord>>;
+
+    /// Publishes batches as they become available. Legacy providers publish one batch.
+    ///
+    /// # Arguments
+    /// - `request`: Allowed countries for this load.
+    /// - `sink`: Awaited consumer sharing the lifetime of the load.
+    ///
+    /// # Errors
+    /// Returns provider or consumer errors; already published batches remain useful.
+    async fn load_proxies_progressively(
+        &self,
+        request: ProxyLoadRequest,
+        sink: std::sync::Arc<dyn ProxyBatchSink>,
+    ) -> Result<()> {
+        sink.publish(self.load_proxies(request).await?).await
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -430,7 +498,7 @@ pub trait ProxyDataProvider: Send + Sync {
 // ---------------------------------------------------------------------------
 
 /// Serialises a `SystemTime` as epoch millis (u64).
-mod system_time_serde {
+pub(crate) mod system_time_serde {
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     use serde::{Deserialize, Deserializer, Serializer};
@@ -456,7 +524,7 @@ mod system_time_serde {
 }
 
 /// Serialises an `Option<SystemTime>` as epoch millis or null.
-mod option_system_time_serde {
+pub(crate) mod option_system_time_serde {
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     use serde::{Deserialize, Deserializer, Serializer};

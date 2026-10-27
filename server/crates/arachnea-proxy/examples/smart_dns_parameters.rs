@@ -36,7 +36,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let status = response.status();
     let body = response.text().await?;
 
-    println!("Loopback proxy: {}", loopback.proxy_url());
+    println!("Loopback proxy: {:?}", loopback.runtime().local_addr());
     println!("GET {url} with {SMART_DNS_PARAMETER}={hint} -> {status}");
     println!("{body}");
     Ok(())

@@ -4,13 +4,14 @@ version = "0.1.1"
 edition = "2021"
 
 [features]
+performance-diagnostics = ["arachnea-http/performance-diagnostics", "arachnea-proxy?/performance-diagnostics"]
 test-support = []
 default = []
 sqlite-persistence = ["arachnea-core/sqlite-persistence", "dep:rusqlite"]
 ghostwire = ["arachnea-http/ghostwire"]
 tauri-cloudflare-solver = ["arachnea-http/ghostwire", "arachnea-http/tauri-cloudflare-solver"]
 chaser-cf = ["arachnea-http/ghostwire", "arachnea-http/chaser-cf"]
-arachnea-proxy = ["arachnea-http/arachnea-proxy", "dep:arachnea-proxy"]
+arachnea-proxy = ["arachnea-http/arachnea-proxy", "dep:arachnea-proxy", "arachnea-proxy/controller-service"]
 
 [dependencies]
 quick_html2md.workspace = true

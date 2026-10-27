@@ -123,18 +123,35 @@ http:
   mode: auto                    # auto | direct | cloudflare_smart | cloudflare_browser
   user_agent_profile: chrome    # chrome | chrome_stable | firefox | firefox_stable
   user_agent: "Custom UA"       # optional: complete User-Agent override
-  proxy_countries: ["US", "CA"] # optional: ordered proxy country hints
+  proxy_countries: ["US", "CA"] # optional: allowed proxy countries
+  proxy_domain_group: ["m6.fr", "6play.fr", "6cloud.fr", "bedrock.tech"] # optional domain defaults
   proxy_affinity: "opaque-session-id" # optional: retain the same eligible proxy
-  proxy_rejection_statuses: [403] # optional: rotate the dynamic proxy and retry once
+  proxy_rejection_statuses: [403] # optional: destination rejection; safe retries share one budget
+  proxy_retry_replayable: false # optional: explicit safe-replay guarantee for modifying operations
   max_redirects: 16             # optional: max redirect count (global default: 16)
 ```
-`proxy_countries` is normalized as ordered, uppercase ISO alpha-2 codes with
-duplicates removed. `proxy_countries` is a static YAML list; each list item
+`proxy_countries` is an unordered set of allowed uppercase ISO alpha-2 codes.
+Invalid codes are ignored; duplicates are removed and resolved values are sorted
+for stable identities. Sorting does not define routing priority. Candidates from
+all allowed countries are ranked together, with accepted destination history and
+fresh validated capabilities preferred before revalidation or unknown candidates.
+Persistent country caches are imported before costly exploration or discovery.
+`proxy_countries` is a static YAML list; each list item
 supports runtime template interpolation. A runtime JSON country list can be
 expanded with `http.proxy_countries: ["{proxy_countries}"]`; static entries can
 be combined with it. A single country must also use a one-item list, for example
 `http.proxy_countries: ["US"]`. The singular `proxy_country` field is not
 accepted.
+
+`proxy_domain_group` is an optional static list of domain names. The proxy
+normalizes case/IDNA/final dots, ignores invalid entries and deduplicates names.
+It applies only to those domains and their subdomains: an eligible proxy accepted
+by another group member can supply a default before hostname hierarchy and
+ordinary discovery. Exact preferences and eligible explicit affinity retain
+priority. Countries, capabilities, target exclusions, content callbacks and
+attempt/search budgets remain unchanged. An empty child list inherits its parent;
+a nonempty child replaces it. It neither forces a common IP nor changes returned
+media URL routing, and has no effect without dynamic proxy routing.
 
 `proxy_affinity` is an opaque process-local identifier. Requests sharing it
 reuse the same dynamic proxy while that proxy remains eligible for the country,
@@ -146,10 +163,62 @@ currently selected dynamic proxy for that destination. A matching request is
 retried once with another cached eligible candidate. The list is empty by
 default and has no effect without an in-process dynamic proxy route. The
 rejection is persisted in the proxy inventory for 24 hours and is scoped to the
-exact scheme, host and port. After a non-rejected response, the selected proxy
+exact scheme, host and port. After an accepted response (2xx by default), the selected proxy
 becomes the preferred candidate for that exact destination while remaining
 subject to all normal eligibility checks; different destinations keep separate
 preferences.
+
+With the `arachnea-proxy` feature, `http.proxy_response_classifier` selects a
+known policy and replaces the legacy list without implicit composition:
+
+```yaml
+http:
+  proxy_response_classifier:
+    type: statuses
+    rejected_statuses: [403]
+    accepted_statuses: [200, 206]
+    cooldown_seconds: 86400
+```
+
+Known types are `default` (accept 2xx), `http403` (reject 403, otherwise apply
+conservative acceptance), and `statuses`. Statuses must be in 100..599,
+acceptance/rejection lists must not overlap, and an explicit cooldown must be
+positive and representable. Omitted acceptance statuses mean all 2xx; an empty
+list accepts nothing. Omitted cooldown uses the inventory default; an active
+exclusion is never shortened. Child policies override parents; `type: default`
+explicitly resets an inherited policy. Precedence is code-injected handler,
+known policy, legacy list, then conservative defaults. Unclassified 4xx/5xx and
+redirects remain inconclusive: no exclusion or new accepted preference.
+
+Classification observes original headers before transformations and the exact
+response destination token, never validating prior redirect origins by inference.
+Status handlers read no body. Code handlers can request up to 64 KiB within
+three seconds and the remaining request timeout; all consumed bytes are replayed.
+An incomplete/unavailable prefix cannot demonstrate the absence of a marker.
+Handler errors are logged and inconclusive. Engines without early correlated
+observation do not infer preferences or exclusions. The public HTTP response
+remains materialized. Localized HTTP calls share a 120-second acceptance target,
+with at most 15 seconds to finish an already engaged business attempt. All retry
+layers share the same deadline without count caps on prechecks, validations or
+distinct business endpoints; concurrency remains bounded. No new work begins during grace. Accepted
+body collection uses the separate ordinary HTTP timeout (25 seconds in Scrapyfy).
+
+GET/HEAD may retry relevant transport failures or configured rejections.
+Modifying requests with uncertain delivery are never retried by default, even
+on a configured rejection. `proxy_retry_replayable: true` explicitly guarantees
+safe replay of the operation and a reproducible body; it inherits like other
+optional HTTP settings, and `false` overrides a parent. Proven pre-send failures
+may retry without this flag. Inconclusive results and body collection errors do
+not rotate. Browser/custom engines without early correlation reject the scoped
+localized HTTP search mode; explicit browser-page execution remains separate.
+Contextual Rquest calls retain destination preferences and may reuse compatible
+idle transports across derived clients. Every call reselects its route and
+exclusively rebinds the lease to its fresh token and deadline. The pool keeps at
+most two idle transports per route and 32 globally, rejects entries idle for
+60 seconds on access, and only
+retains complete accepted attempts or explicitly permitted followed redirects. Cookies and mutable routing handles remain
+independent. Keep-alive depends on the server; reconnects use the current context.
+Search budgets and replay rules are unchanged; no new YAML setting is introduced.
 
 ### HTTP modes (`mode`)
 
@@ -1848,3 +1917,18 @@ queries:
           - type: ratio
             argument: 60
 ```
+
+## Application-level local proxy option
+
+The shared proxy listener is configured outside the YAML request schema through
+`--proxy-server-port` (persisted key `proxy-server-port`). Absent or zero selects
+an automatic port, logged after binding to `127.0.0.1`; a nonzero port is required
+exactly. Source reloads preserve the listener, and a port change requires restart.
+All scraper routing contexts share the listening port while retaining independent
+parameters. Existing YAML `http.proxy_countries` and `http.proxy_affinity` are
+unchanged. Local browser profiles use proxy username `countries=BE,FR` and
+password `local`, with a `407` challenge before routing; `default` / `local`
+selects the application's default route. See the crate README for lifecycle,
+parameter encoding and external-client limitations.
+
+Tauri/Wry fallbacks also share this port and retain their routing context; on macOS 14+, they use authenticated SOCKS5 on the same socket without an additional listener.

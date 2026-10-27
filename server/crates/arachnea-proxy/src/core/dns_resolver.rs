@@ -15,6 +15,15 @@ pub(crate) struct ProxyDnsResolver {
 }
 
 impl ProxyDnsResolver {
+    /// In-process resolver identity used to isolate reusable transport policies.
+    pub(crate) fn transport_identity(&self) -> usize {
+        #[cfg(feature = "arachnea-dns")]
+        if let Some(core) = &self.dns_core {
+            return Arc::as_ptr(core) as usize;
+        }
+        0
+    }
+
     /// Creates a resolver that falls back to the system resolver.
     pub(crate) fn system() -> Self {
         Self::default()

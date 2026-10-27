@@ -225,7 +225,7 @@ pub struct IpCountryResolverConfig {
 impl Default for IpCountryResolverConfig {
     fn default() -> Self {
         Self {
-            resolve_timeout: Duration::from_secs(5),
+            resolve_timeout: crate::PROXY_IP_COUNTRY_DEFAULT_RESOLVE_TIMEOUT,
             persist_on_resolve: true,
         }
     }
@@ -469,6 +469,8 @@ impl IpCountryResolver {
     /// Explicit configuration has priority over automatic detection. Automatic
     /// detection is attempted at most once per resolver instance; failures are
     /// cached conservatively as unknown so callers keep using the requested proxy.
+    /// Provider HTTP responses do not accept the caller's business search.
+    /// Detection retains its own timeout and is cancelled with the awaiting caller.
     pub async fn resolve_current_country(&self) -> Result<Option<String>> {
         {
             let inner = self.inner.read().await;
@@ -545,7 +547,7 @@ impl IpCountryResolver {
 
         let result = tokio::time::timeout(
             self.config.resolve_timeout,
-            provider.resolve_current_country(),
+            super::ProxySearchContext::unscoped(provider.resolve_current_country()),
         )
         .await;
 

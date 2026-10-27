@@ -8,9 +8,7 @@ use std::sync::Arc;
 
 use arachnea_core::{
     application::{self, ApplicationOptionsProvider},
-    controler::{
-        options::{ApplicationMode, CoreApplicationOptions, DEFAULT_SERVER_PORT},
-    },
+    controler::options::{ApplicationMode, CoreApplicationOptions, DEFAULT_SERVER_PORT},
     persistence::CredentialsStore,
 };
 use arachnea_scrapyfy::admin::{register_admin_service, ReloadCoordinator};
@@ -82,6 +80,13 @@ fn parse_runtime_options() -> Result<CliAction> {
             }
             "--refresh-ip-countries" => {
                 return Ok(CliAction::RefreshIpCountries);
+            }
+            "--proxy-server-port"
+            | "--current-country"
+            | "--cache-max-disk-bytes"
+            | "--cache-max-memory-bytes"
+            | "--cache-block-size" => {
+                args.next().context("Missing scraper option value")?;
             }
             // Finder passes this process serial number argument when opening a
             // macOS application bundle. It is not an application option.
@@ -197,7 +202,10 @@ async fn main() -> Result<()> {
         .application_mode
         .unwrap_or_default();
 
-    let build_options = StreamScraperBuildOptions::new(credentials_store, stores.clone());
+    let mut build_options = StreamScraperBuildOptions::new(credentials_store, stores.clone());
+    build_options.proxy_runtime = Arc::new(arachnea_proxy::server::LoopbackProxyRuntime::new(
+        options.proxy_server_port.unwrap_or(0),
+    ));
     let runtime_options = ScraperRuntimeOptions {
         cache_config: options
             .scraper_cache_config()
@@ -208,6 +216,11 @@ async fn main() -> Result<()> {
     if let Some(current_country) = &options.current_country {
         reloadable.set_current_country(current_country).await;
     }
+    reloadable
+        .current()
+        .proxy_handle()
+        .start_proxy_server()
+        .await?;
 
     let admin_runtime_settings = build_admin_runtime_settings(&options, effective_mode);
 
@@ -279,6 +292,11 @@ async fn main() -> Result<()> {
     let _ = late_reload.set(admin_state.reload_coordinator);
 
     controler.launch();
+    reloadable
+        .current()
+        .proxy_handle()
+        .proxy_runtime()
+        .shutdown();
 
     Ok(())
 }

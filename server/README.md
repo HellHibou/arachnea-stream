@@ -140,3 +140,21 @@ The proxy binds to loopback by default. Public binds without ACLs are rejected u
 - `CHANGELOG.md` records meaningful server workspace changes.
 - Crate `README.md` files hold crate-specific design context, capabilities, commands, and known gaps.
 - Crate `AGENTS.md` files are AI-agent-only implementation instructions.
+
+## Local proxy listening port
+
+The Stream executable starts one shared Scrapyfy HTTP proxy on IPv4 loopback.
+Use `arachnea --proxy-server-port 18080` or add `"proxy-server-port": 18080` to
+`data/config.json`. Command-line values override persisted values. Omit the
+option or set it to `0` for an automatic port. After binding, the proxy service prints
+`Proxy Server Application launched: http://127.0.0.1:<port>`, like the web server,
+regardless of the tracing filter. The structured `shared loopback proxy listening`
+info event also records the effective address. A fixed-port bind
+failure stops startup. Source reloads preserve the port; changing it requires a
+restart.
+
+Local applications can configure `127.0.0.1:<port>` as their HTTP/HTTPS proxy.
+The routing-profile challenge accepts username `countries=BE,FR` and password
+`local`; use `default` / `local` for the default application route. Details and
+limitations are documented in the Scrapyfy and proxy crate READMEs. Only loopback
+is exposed, inside the application's network namespace when containerized.

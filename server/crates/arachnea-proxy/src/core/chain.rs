@@ -675,8 +675,8 @@ impl ProxyChain {
     /// Direct proxy chain.
     pub fn direct() -> Self {
         Self {
-            name: "direct".to_string(),
-            nodes: vec![ProxyNode::direct("direct")],
+            name: crate::PROXY_ROUTE_DEFAULT_CHAIN.to_string(),
+            nodes: vec![ProxyNode::direct(crate::PROXY_ROUTE_DEFAULT_CHAIN)],
             strategy: ChainStrategy::FixedOrder,
         }
     }

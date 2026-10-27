@@ -8,6 +8,10 @@ build = "build.rs"
 name = "arachnea"
 path = "src/main.rs"
 
+[features]
+default = []
+performance-diagnostics = ["arachnea-proxy/performance-diagnostics", "arachnea-http/performance-diagnostics", "arachnea-scrapyfy/performance-diagnostics"]
+
 [dependencies]
 arachnea-core = { path = "../arachnea-core", features = ["sqlite-persistence"] }
 arachnea-http = { path = "../arachnea-http", default-features = false, features = ["chaser-cf"] }

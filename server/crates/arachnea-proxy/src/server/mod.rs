@@ -9,17 +9,19 @@ mod auth;
 mod config;
 pub mod handlers;
 pub mod listeners;
+mod loopback;
 mod server;
 
 pub use acl::ClientAcl;
 pub use auth::{validate_http_basic_header, ProxyAuthConfig, ProxyCredentials};
 pub use config::{FileConfig, NetworkConfig, ServerConfig};
+pub use loopback::{LoopbackProxyRuntime, LoopbackRoute};
 pub use server::ProxyServer;
 
 #[cfg(test)]
-#[path = "tests/config_tests.rs"]
+#[path = "../../tests/server/config.rs"]
 mod config_tests;
 
 #[cfg(test)]
-#[path = "tests/proxy_integration_tests.rs"]
+#[path = "../../tests/server/mod.rs"]
 mod proxy_integration_tests;
