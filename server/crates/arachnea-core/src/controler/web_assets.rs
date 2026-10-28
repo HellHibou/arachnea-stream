@@ -452,6 +452,7 @@ fn executable_hash62() -> Option<String> {
 ///
 /// The bare (unquoted) instance value shared by all non-HTML embedded assets.
 pub(crate) fn web_instance_etag() -> &'static str {
+    /// Cached process-wide ETag value.
     static INSTANCE_ETAG: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     INSTANCE_ETAG.get_or_init(new_instance_etag)
 }
@@ -495,6 +496,10 @@ pub(crate) fn asset_etag_for(
 /// comparison so weak and strong wire forms both match.
 ///
 /// [`normalize_etag`]: crate::controler::normalize_etag
+///
+/// # Arguments
+/// * `if_none_match` - Optional client `If-None-Match` header value.
+/// * `bare_etag` - Current bare ETag compared against each candidate.
 pub(crate) fn etag_not_modified(if_none_match: Option<&str>, bare_etag: &str) -> bool {
     let Some(header) = if_none_match
         .map(str::trim)

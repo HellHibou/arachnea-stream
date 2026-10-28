@@ -17,9 +17,22 @@ pub trait PersistenceFileCodec: Send + Sync + 'static {
     fn file_extension(&self) -> &str;
 
     /// Serializes a document for storage.
+    ///
+    /// # Arguments
+    /// * `document` - Typed document to encode.
+    ///
+    /// # Errors
+    /// Returns an error when the document cannot be serialized.
     fn serialize<T: Serialize>(&self, document: &T) -> anyhow::Result<Vec<u8>>;
 
     /// Deserializes a document loaded from storage.
+    ///
+    /// # Arguments
+    /// * `payload` - Raw file contents to decode.
+    ///
+    /// # Errors
+    /// Returns an error when the payload is not valid for this codec or the
+    /// target type.
     fn deserialize<T: DeserializeOwned>(&self, payload: &[u8]) -> anyhow::Result<T>;
 
     /// Serializes and atomically saves a document to a file.
@@ -91,6 +104,12 @@ pub trait PersistenceFileCodec: Send + Sync + 'static {
 }
 
 /// Derives a randomized temporary path in the target file's directory.
+///
+/// # Arguments
+/// * `path` - Final persistence path whose parent and file name seed the temporary path.
+///
+/// # Errors
+/// Returns an error when `path` has no file name or no parent directory.
 fn temporary_path_for(path: &Path) -> anyhow::Result<std::path::PathBuf> {
     let file_name = path.file_name().with_context(|| {
         format!(

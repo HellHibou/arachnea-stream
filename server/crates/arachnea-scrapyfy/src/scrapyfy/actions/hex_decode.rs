@@ -2,6 +2,10 @@
 ///
 /// Values containing non-hexadecimal characters, an odd number of digits, or
 /// bytes that are not valid UTF-8 are discarded.
+///
+/// # Arguments
+///
+/// * `texts` - Values produced by earlier actions in the pipeline.
 pub(super) fn apply(texts: Vec<String>) -> Vec<String> {
     texts
         .into_iter()
@@ -9,6 +13,11 @@ pub(super) fn apply(texts: Vec<String>) -> Vec<String> {
         .collect()
 }
 
+/// Decodes an even-length hexadecimal string as UTF-8, returning `None` for invalid input.
+///
+/// # Arguments
+///
+/// * `value` - Even-length ASCII hexadecimal text expected to decode as UTF-8.
 fn decode(value: &str) -> Option<String> {
     if value.len() % 2 != 0 || !value.is_ascii() {
         return None;

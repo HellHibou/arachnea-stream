@@ -7,7 +7,7 @@
 //!   for portable layouts, per-OS standard directory for packaged installs.
 //!
 //! Read-only resources are resolved per call by
-//! [`get_application_resource_path`], which probes the layouts the release
+//! [`get_application_resource_path`](crate::application::get_application_resource_path), which probes the layouts the release
 //! artifacts produce (portable folder, macOS bundle `Contents/Resources`,
 //! Linux system resource dir) for the requested relative path.
 
@@ -22,8 +22,11 @@ use anyhow::{bail, Context};
 use crate::controler::options::SettingSource;
 use crate::persistence::{JsonPersistenceFileCodec, PersistenceFileCodec};
 
+/// Cached legacy application root resolved on first use.
 static APP_ROOT: OnceLock<PathBuf> = OnceLock::new();
+/// Cached writable application data root resolved on first use.
 static APP_DATA_ROOT: OnceLock<PathBuf> = OnceLock::new();
+/// Configured per-user application data directory name.
 static APPLICATION_DATA_DIR_NAME: OnceLock<String> = OnceLock::new();
 
 /// Configures the application identifier used as the per-user data directory
@@ -32,6 +35,10 @@ static APPLICATION_DATA_DIR_NAME: OnceLock<String> = OnceLock::new();
 /// The application crate must call this before any data path is requested. It
 /// should supply its own application identifier, such as the Tauri
 /// `identifier` value.
+///
+/// # Arguments
+///
+/// * `identifier` - Non-empty directory name used for per-user data.
 ///
 /// # Errors
 ///
@@ -338,6 +345,9 @@ fn init_app_data_root() -> PathBuf {
 
 /// Returns `true` when the executable runs from a system-managed install
 /// whose directory must not receive writable data.
+///
+/// # Arguments
+/// * `exe_dir` - Directory containing the running executable.
 #[allow(unused_variables)]
 fn is_packaged_install(exe_dir: &Path) -> bool {
     #[cfg(target_os = "macos")]
@@ -369,6 +379,9 @@ fn is_packaged_install(exe_dir: &Path) -> bool {
 
 /// Returns `true` when a file can be created inside the directory (cheap
 /// create-and-remove probe, more reliable than permission bits).
+///
+/// # Arguments
+/// * `dir` - Directory whose write access is probed.
 fn is_writable_dir(dir: &Path) -> bool {
     let probe = dir.join(".arachnea-write-probe");
     match fs::OpenOptions::new()
@@ -386,6 +399,9 @@ fn is_writable_dir(dir: &Path) -> bool {
 
 /// Returns the per-OS standard application data directory, or `None` when it
 /// cannot be determined (missing `HOME`/`APPDATA`).
+///
+/// # Arguments
+/// * `application_data_dir_name` - Application-specific directory name appended to the OS data root.
 fn platform_data_root(application_data_dir_name: &str) -> Option<PathBuf> {
     #[cfg(target_os = "macos")]
     {

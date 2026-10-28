@@ -75,6 +75,16 @@ impl DynamicTemplateVariables {
     /// This is intended for extraction pipelines that deliberately read the same
     /// request-scoped declarations more than once. Standard parameters remain
     /// protected from overwrite.
+    ///
+    /// # Arguments
+    ///
+    /// * `standard_params` - Standard query parameters, which must not use the reserved `@` prefix.
+    /// * `name` - Identifier of the parameter or entry being processed.
+    /// * `value` - Input value interpreted by this operation.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for a name outside the reserved dynamic namespace or a collision with a standard parameter.
     pub fn insert_or_replace(
         &mut self,
         standard_params: &HashMap<String, String>,
@@ -108,6 +118,10 @@ impl DynamicTemplateVariables {
 
 /// Validates one dynamic template variable name.
 ///
+/// # Arguments
+///
+/// * `name` - Identifier of the parameter or entry being processed.
+///
 /// # Errors
 ///
 /// Returns an error when the name does not use the reserved `@` namespace.
@@ -130,6 +144,11 @@ pub fn validate_dynamic_template_variable_name(name: &str) -> Result<()> {
 /// Dynamic variables keep their `@` prefix and can therefore be referenced as
 /// `{@name}`. Standard parameters are rejected if they use the reserved dynamic
 /// namespace, preventing a standard value from overwriting an extracted value.
+///
+/// # Arguments
+///
+/// * `standard_params` - Standard query parameters, which must not use the reserved `@` prefix.
+/// * `dynamic_variables` - Shared dynamic variables in the reserved `@` namespace, scoped to this execution.
 ///
 /// # Errors
 ///

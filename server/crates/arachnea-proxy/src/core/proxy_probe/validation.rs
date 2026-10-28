@@ -21,6 +21,10 @@ impl ProxyProbe {
     /// or an error describing the failure so the caller can record a
     /// per-destination cooldown.
     ///
+    /// # Arguments
+    /// * `record` - Proxy record whose endpoint and runtime evidence are inspected or updated.
+    /// * `destination` - Final origin used for capability checks and destination-specific exclusions.
+    ///
     /// # Errors
     ///
     /// Returns an error when the proxy is unreachable, the protocol handshake
@@ -38,6 +42,11 @@ impl ProxyProbe {
         .map_err(|_| ProxyError::Timeout("destination validation attempt"))?
     }
 
+    /// Checks destination reachability through the record's known proxy protocol.
+    ///
+    /// # Arguments
+    /// * `record` - Proxy record whose endpoint and runtime evidence are inspected or updated.
+    /// * `destination` - Final origin used for capability checks and destination-specific exclusions.
     async fn validate_destination_inner(
         &self,
         record: &ProxyRecord,

@@ -114,6 +114,12 @@ pub struct ReloadCoordinator {
 
 impl ReloadCoordinator {
     /// Creates a reload coordinator for declared groups and one application runtime adapter.
+    ///
+    /// # Arguments
+    ///
+    /// * `groups` - Configured service-store groups used by administration and reload orchestration.
+    /// * `source_enabled` - Typed activation/credentials store shared with the administration service.
+    /// * `adapter` - Application-owned hooks for persistence, credentials, settings and runtime rebuilding.
     pub fn new(
         groups: Vec<AdminServiceGroupConfig>,
         source_enabled: Arc<dyn TypedEntityStore<SourceServiceRecord>>,

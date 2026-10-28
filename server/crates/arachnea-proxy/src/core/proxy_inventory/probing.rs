@@ -17,6 +17,7 @@ use super::eligibility::{
     needs_capability_probe, probe_is_expired, recent_probe_attempt,
 };
 
+/// Weak subscription to shared probe work; it does not keep the worker alive on its own.
 pub(super) type SharedProbe = WeakShared<BoxFuture<'static, Option<ProxyRecord>>>;
 
 /// Releases unfinished request-local work when a candidate pipeline is cancelled.
@@ -74,6 +75,12 @@ impl ProxyInventory {
 
     /// Shares an owned probe task without extending the caller's polling stack.
     /// The last subscriber aborts the task; caller deadlines and slots stay local.
+    ///
+    /// # Arguments
+    /// * `key` - Technical-operation identity used to share work among concurrent subscribers.
+    /// * `validation` - Whether the operation is a capability validation rather than an endpoint precheck.
+    /// * `operation` - Owned technical operation shared by subscribers for the same phase key.
+    ///
     pub(super) async fn shared_operation(
         &self,
         key: String,
@@ -202,6 +209,13 @@ impl ProxyInventory {
     /// Persists phase attempts independently of health and capability results,
     /// so completed inconclusive validations remain throttled after restart.
     /// Cancellation without a completed result never writes a synthetic attempt.
+    ///
+    /// # Arguments
+    /// * `authority` - Proxy endpoint identity in host:port form, with IPv6 brackets where needed.
+    /// * `phase` - Probe phase whose attempt or observation is being recorded.
+    /// * `started` - Probe start time in milliseconds since the Unix epoch.
+    /// * `tcp` - Measured TCP reachability, or `None` when this phase supplies no new TCP evidence.
+    ///
     pub(super) async fn save_probe_attempt(
         &self,
         authority: &str,
@@ -256,6 +270,12 @@ impl ProxyInventory {
 
     /// Validates missing capabilities on demand without holding inventory data
     /// locks during network I/O. Inconclusive attempts are throttled by probe TTL.
+    ///
+    /// # Arguments
+    /// * `candidate` - Candidate record to validate before returning it to a caller.
+    /// * `require_https` - Whether selection requires an HTTPS tunnel and destination TLS capability.
+    /// * `destination` - Final origin used for capability checks and destination-specific exclusions.
+    ///
     pub(super) async fn validate_selection_candidate(
         &self,
         candidate: ProxyRecord,

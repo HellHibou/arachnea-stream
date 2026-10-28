@@ -27,6 +27,11 @@ impl RquestEngine {
     /// # Arguments
     /// - `request`: Business request sent only through the pinned client.
     /// - `selection`: Exact route correlation for this attempt.
+    /// - `policy`: Optional response policy controlling body collection.
+    /// - `requested_url`: URL requested by the caller, used for classification.
+    /// - `redirect_urls`: Redirect chain already followed; an empty chain allows
+    ///   a connection failure to be classified as not sent. These redirects are
+    ///   not followed by this method.
     ///
     /// # Errors
     /// Returns an attributed failure with conservative delivery evidence.
@@ -335,9 +340,15 @@ impl RquestEngine {
 
     /// Creates a configured `rquest` engine.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `config`: Client configuration.
+    /// - `proxy_url`: Optional proxy URL used to build the underlying client.
+    /// - `client_override`: Optional prebuilt client. When present, it is used
+    ///   as-is and the engine treats the route as proxied.
+    ///
+    /// The engine-level redirect policy is always `none`; redirect following is
+    /// handled by the HTTP client.
     ///
     /// # Returns
     ///
@@ -345,7 +356,8 @@ impl RquestEngine {
     ///
     /// # Errors
     ///
-    /// Returns `Network` when the underlying client cannot be built.
+    /// Returns `InvalidConfiguration` for an invalid proxy URL, or `Network`
+    /// when the underlying client cannot be built.
     pub(crate) fn new(
         config: &ArachneaHttpConfig,
         proxy_url: Option<&str>,
@@ -409,7 +421,7 @@ impl HttpEngine for RquestEngine {
 
     /// Sends a request with `rquest`.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `request`: Normalized request to execute.
     ///

@@ -54,9 +54,11 @@ const FRANCETV_LICENSE_TTL: std::time::Duration = std::time::Duration::from_secs
 /// Alphanumeric character count of FranceTV proxy affinity identifiers, independent of license tokens.
 const FRANCETV_PROXY_AFFINITY_LENGTH: usize = 32;
 
+/// Process-wide cache of FranceTV license proxy requests.
 static FRANCETV_LICENSE_CACHE: OnceLock<Mutex<HashMap<String, CachedFrancetvLicense>>> =
     OnceLock::new();
 
+/// Cached FranceTV authorization data with its routing settings and expiry.
 #[derive(Clone)]
 struct CachedFrancetvLicense {
     authorization_token: String,
@@ -133,6 +135,27 @@ impl PlayerStreamResolver for FrancetvResolver {
     }
 }
 
+/// Resolves a FranceTV video or live stream into a protected player stream.
+///
+/// The K7 metadata determines the manifest URL, DRM mode, chapters and token
+/// endpoints. Signed manifest URLs and license requests use a stable per-call
+/// proxy affinity.
+///
+/// # Arguments
+/// * `scraper_agregator` - Aggregator used to create the HTTP client.
+/// * `media_id` - FranceTV media identifier; surrounding whitespace is ignored.
+/// * `stream_kind` - Optional caller-selected stream kind.
+/// * `service_parameters` - Service parameters, including optional `country_code`.
+/// * `proxy_countries` - Countries selected for outbound routing.
+/// * `endpoints` - Public endpoint settings used to build proxy URLs.
+/// * `is_live` - Whether to resolve a live stream rather than replay.
+///
+/// # Errors
+/// Returns an error when the identifier is empty, metadata or token retrieval
+/// fails, or required response fields are missing.
+///
+/// # Returns
+/// The resolved stream with proxied manifest, chapters and optional DRM proxy.
 async fn resolve_francetv_stream(
     scraper_agregator: &ScraperAgregator,
     media_id: &str,
@@ -226,6 +249,13 @@ async fn resolve_francetv_stream(
     })
 }
 
+/// Extracts and orders FranceTV marker chapters from a video payload.
+///
+/// # Arguments
+/// * `video` - FranceTV K7 `video` object.
+///
+/// # Returns
+/// Chapters sorted by start time, or `None` when no valid marker exists.
 fn extract_chapters(video: &Value) -> Option<Vec<Chapter>> {
     let video_duration = video
         .get("duration")
@@ -258,6 +288,16 @@ fn extract_chapters(video: &Value) -> Option<Vec<Chapter>> {
     (!chapters.is_empty()).then_some(chapters)
 }
 
+/// Extracts one chapter from a FranceTV marker.
+///
+/// # Arguments
+/// * `video` - FranceTV K7 `video` object.
+/// * `marker_name` - Marker field containing `timecode` and `duration`.
+/// * `chapter_type` - Chapter type assigned to the result.
+/// * `video_duration` - Optional media duration used as a fallback end bound.
+///
+/// # Returns
+/// The chapter, or `None` when the marker is absent or its timing is invalid.
 fn extract_chapter(
     video: &Value,
     marker_name: &str,
@@ -285,6 +325,18 @@ fn extract_chapter(
     })
 }
 
+/// Fetches FranceTV K7 media metadata for a media identifier.
+///
+/// # Arguments
+/// * `http_client` - HTTP client used for the request.
+/// * `media_id` - FranceTV media identifier.
+/// * `country_code` - Country sent to K7 for availability checks.
+///
+/// # Errors
+/// Returns an error when the URL is invalid or the request fails.
+///
+/// # Returns
+/// The decoded K7 payload.
 async fn fetch_media_info(
     http_client: &HttpClient,
     media_id: &str,
@@ -306,6 +358,19 @@ async fn fetch_media_info(
         .with_context(|| format!("Failed to fetch FranceTV K7 media info for `{}`.", media_id))
 }
 
+/// Exchanges a manifest URL for a signed FranceTV playback URL.
+///
+/// # Arguments
+/// * `http_client` - HTTP client used for the token request.
+/// * `token_url` - FranceTV signing endpoint from the K7 metadata.
+/// * `manifest_url` - Unsigned manifest URL.
+///
+/// # Errors
+/// Returns an error when the token URL is invalid, the request fails, or the
+/// response has no signed URL.
+///
+/// # Returns
+/// The signed manifest URL.
 async fn fetch_signed_manifest_url(
     http_client: &HttpClient,
     token_url: &str,
@@ -334,6 +399,18 @@ async fn fetch_signed_manifest_url(
     )
 }
 
+/// Fetches a Widevine authorization token for FranceTV DRM.
+///
+/// # Arguments
+/// * `http_client` - HTTP client used for the token request.
+/// * `token_url` - FranceTV DRM authorization endpoint.
+/// * `media_id` - FranceTV media identifier.
+///
+/// # Errors
+/// Returns an error when the request fails or the response has no usable token.
+///
+/// # Returns
+/// The authorization token accepted by the license endpoint.
 async fn fetch_widevine_authorization_token(
     http_client: &HttpClient,
     token_url: &str,
@@ -364,6 +441,15 @@ async fn fetch_widevine_authorization_token(
     )
 }
 
+/// Selects the token endpoint exposed by a FranceTV video payload.
+///
+/// # Arguments
+/// * `video` - FranceTV K7 `video` object.
+/// * `prefer_drm` - Whether DRM token endpoints take precedence over Akamai.
+///
+/// # Returns
+/// The selected token URL, falling back to `FRANCETV_DEFAULT_TOKEN_URL` when
+/// no usable URL is present.
 fn token_url_from_video(video: &Value, prefer_drm: bool) -> String {
     let Some(token) = video.get("token") else {
         return FRANCETV_DEFAULT_TOKEN_URL.to_string();
@@ -407,6 +493,14 @@ fn token_url_from_video(video: &Value, prefer_drm: bool) -> String {
         .unwrap_or_else(|| FRANCETV_DEFAULT_TOKEN_URL.to_string())
 }
 
+/// Determines the manifest type from the K7 format or signed URL.
+///
+/// # Arguments
+/// * `format` - Source-declared format string.
+/// * `url` - Signed manifest URL.
+///
+/// # Returns
+/// `m3u8` when either value identifies HLS, otherwise `mpd`.
 fn manifest_type_from_format_or_url(format: &str, url: &str) -> String {
     let format = format.to_ascii_lowercase();
     let url = url.to_ascii_lowercase();
@@ -417,6 +511,14 @@ fn manifest_type_from_format_or_url(format: &str, url: &str) -> String {
     "mpd".to_string()
 }
 
+/// Returns a non-empty service parameter value by case-insensitive name.
+///
+/// # Arguments
+/// * `parameters` - Service parameters to search.
+/// * `name` - Case-insensitive parameter name.
+///
+/// # Returns
+/// The trimmed non-empty value, or `None` when absent.
 fn parameter_value(parameters: &[ScraperQueryCollectionParameter], name: &str) -> Option<String> {
     parameters
         .iter()
@@ -425,10 +527,22 @@ fn parameter_value(parameters: &[ScraperQueryCollectionParameter], name: &str) -
         .filter(|value| !value.is_empty())
 }
 
+/// Builds the generic FranceTV request headers.
+///
+/// # Returns
+/// Headers containing the resolver user-agent.
 fn generic_headers() -> HashMap<String, String> {
     HashMap::from([("user-agent".to_string(), USER_AGENT.to_string())])
 }
 
+/// Builds the HTTP configuration used for FranceTV requests.
+///
+/// # Arguments
+/// * `proxy_countries` - Countries to use for outbound routing.
+/// * `proxy_affinity` - Stable affinity shared by related requests.
+///
+/// # Returns
+/// A configuration treating HTTP 403 as a destination rejection.
 fn francetv_http_config(proxy_countries: &[String], proxy_affinity: &str) -> ScraperHttpConfig {
     ScraperHttpConfig {
         proxy_rejection_statuses: vec![FRANCETV_PROXY_REJECTION_STATUS],
@@ -438,6 +552,13 @@ fn francetv_http_config(proxy_countries: &[String], proxy_affinity: &str) -> Scr
     }
 }
 
+/// Returns the proxy countries to use, defaulting to France.
+///
+/// # Arguments
+/// * `proxy_countries` - Caller-selected countries.
+///
+/// # Returns
+/// A copy of the selected countries, or `[FRANCETV_PROXY_COUNTRY]` when empty.
 fn francetv_proxy_countries(proxy_countries: &[String]) -> Vec<String> {
     if proxy_countries.is_empty() {
         vec![FRANCETV_PROXY_COUNTRY.to_string()]
@@ -446,6 +567,10 @@ fn francetv_proxy_countries(proxy_countries: &[String]) -> Vec<String> {
     }
 }
 
+/// Generates a random proxy affinity identifier.
+///
+/// # Returns
+/// A string of `FRANCETV_PROXY_AFFINITY_LENGTH` random characters.
 fn random_proxy_affinity() -> String {
     rand::rng()
         .sample_iter(&Alphanumeric)
@@ -454,6 +579,14 @@ fn random_proxy_affinity() -> String {
         .collect()
 }
 
+/// Normalizes a FranceTV stream kind to the supported license proxy kind.
+///
+/// # Arguments
+/// * `stream_kind` - Optional caller-selected stream kind.
+///
+/// # Returns
+/// The trimmed non-empty kind, or `FRANCETV_PROXY_STREAM_KIND` when absent or
+/// blank.
 fn normalize_francetv_stream_kind(stream_kind: Option<String>) -> String {
     stream_kind
         .map(|value| value.trim().to_string())
@@ -461,6 +594,18 @@ fn normalize_francetv_stream_kind(stream_kind: Option<String>) -> String {
         .unwrap_or_else(|| FRANCETV_PROXY_STREAM_KIND.to_string())
 }
 
+/// Returns the first readable non-empty scalar from several JSON paths.
+///
+/// # Arguments
+/// * `payload` - JSON value to traverse.
+/// * `paths` - Candidate key paths tried in order.
+/// * `error_message` - Message used when every path fails.
+///
+/// # Errors
+/// Returns an error when no path yields a supported non-empty scalar.
+///
+/// # Returns
+/// The first trimmed scalar value.
 fn read_first_json_string(
     payload: &Value,
     paths: &[&[&str]],
@@ -475,6 +620,19 @@ fn read_first_json_string(
     bail!(error_message.to_string())
 }
 
+/// Reads a non-empty string or integer from a nested JSON path.
+///
+/// # Arguments
+/// * `payload` - JSON value to traverse.
+/// * `path` - Object keys applied successively.
+/// * `error_message` - Message used when a key or scalar is missing.
+///
+/// # Errors
+/// Returns an error when traversal fails or the target is neither a non-empty
+/// string nor an integer.
+///
+/// # Returns
+/// The trimmed string representation of the scalar.
 fn read_json_string(payload: &Value, path: &[&str], error_message: &str) -> Result<String> {
     let mut current = payload;
 
@@ -502,6 +660,18 @@ fn read_json_string(payload: &Value, path: &[&str], error_message: &str) -> Resu
     bail!(error_message.to_string())
 }
 
+/// Caches FranceTV license data and returns its public proxy URL.
+///
+/// # Arguments
+/// * `endpoints` - Public endpoint settings used to build the proxy URL.
+/// * `authorization_token` - FranceTV Widevine authorization token.
+/// * `stream_kind` - Stream kind validated when the token is used.
+/// * `license_url` - Upstream Widevine license URL.
+/// * `proxy_countries` - Countries to reuse for the license request.
+/// * `proxy_affinity` - Affinity to reuse for the license request.
+///
+/// # Returns
+/// The public license proxy URL containing a generated token.
 fn save_francetv_license_proxy_url(
     endpoints: &PlayerResolverEndpoints,
     authorization_token: &str,
@@ -520,6 +690,18 @@ fn save_francetv_license_proxy_url(
     endpoints.drm_license_url(FRANCETV_SERVICE_ID, &token)
 }
 
+/// Stores a FranceTV license request under a newly generated token.
+///
+/// # Arguments
+/// * `authorization_token` - FranceTV Widevine authorization token.
+/// * `stream_kind` - Stream kind validated when the token is used.
+/// * `license_url` - Upstream Widevine license URL.
+/// * `proxy_countries` - Countries to reuse for the license request.
+/// * `proxy_affinity` - Affinity to reuse for the license request.
+///
+/// # Returns
+/// The generated token. The entry is not stored when the cache mutex is
+/// poisoned.
 fn save_cached_license(
     authorization_token: &str,
     stream_kind: &str,
@@ -555,6 +737,14 @@ fn save_cached_license(
     token
 }
 
+/// Loads a non-expired FranceTV license request, pruning expired entries.
+///
+/// # Arguments
+/// * `token` - Public token used as the cache key.
+///
+/// # Returns
+/// The cached license request, or `None` when absent, expired, or the cache
+/// mutex is poisoned.
 fn load_cached_license(token: &str) -> Option<CachedFrancetvLicense> {
     let cache = FRANCETV_LICENSE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     let Ok(mut cache_guard) = cache.lock() else {
@@ -566,6 +756,19 @@ fn load_cached_license(token: &str) -> Option<CachedFrancetvLicense> {
     cache_guard.get(token).cloned()
 }
 
+/// Proxies a Widevine challenge using a cached FranceTV license request.
+///
+/// # Arguments
+/// * `scraper_agregator` - Aggregator used to create the HTTP client.
+/// * `token` - Public token identifying the cached license request.
+/// * `challenge_body` - Raw Widevine challenge bytes.
+///
+/// # Errors
+/// Returns an error when the token is empty, expired or unsupported, or when
+/// the upstream request fails or is rejected.
+///
+/// # Returns
+/// The upstream license response with a `no-store` cache policy.
 async fn proxy_francetv_license_request(
     scraper_agregator: &ScraperAgregator,
     token: &str,
@@ -633,6 +836,10 @@ async fn proxy_francetv_license_request(
     })
 }
 
+/// Builds proxy actions that rewrite FranceTV HLS key URLs.
+///
+/// # Returns
+/// Replacement actions scoped to HLS manifest content types.
 fn stream_headers() -> Vec<ProxyHttpActionConfig> {
     let hls_content_types = hls_manifest_content_types();
 
@@ -643,6 +850,10 @@ fn stream_headers() -> Vec<ProxyHttpActionConfig> {
     )]
 }
 
+/// Returns the content types identifying HLS manifests.
+///
+/// # Returns
+/// The supported HLS MIME types.
 fn hls_manifest_content_types() -> Vec<String> {
     [
         "application/vnd.apple.mpegurl",

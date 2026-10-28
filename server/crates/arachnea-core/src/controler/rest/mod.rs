@@ -20,7 +20,9 @@ pub use supervisor::{
 use warp::filters::BoxedFilter;
 use warp::Reply;
 
+/// Boxed Warp reply returned by REST handlers.
 type RestReply = (Box<dyn Reply + Send>,);
+/// Boxed Warp filter producing a REST reply.
 type RestRouter = BoxedFilter<(RestReply,)>;
 
 /// Collects the local network ranges from the machine's interface addresses.
@@ -86,6 +88,9 @@ pub(crate) fn build_public_url(
 ///
 /// Loopback listeners are displayed as `localhost`. Listeners bound to all
 /// interfaces use the first non-loopback IPv4 interface when available.
+///
+/// # Arguments
+/// * `socket_addr` - Bound server address whose display host is resolved.
 pub(crate) fn display_server_host(socket_addr: std::net::SocketAddr) -> String {
     if socket_addr.ip().is_loopback() {
         return "localhost".to_string();

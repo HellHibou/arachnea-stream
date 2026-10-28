@@ -13,7 +13,7 @@ use super::ArachneaProxyCore;
 
 /// Returns whether a SOCKS5 error likely means remote hostname resolution failed.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `error`: Proxy error returned by a SOCKS5 handshake.
 ///
@@ -38,7 +38,7 @@ impl ArachneaProxyCore {
     /// default upstream so callers can replace it with a private resolver by
     /// installing their own `ArachneaDnsCore`.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `profile`: Proxy profile whose DNS counterpart should be built.
     ///
@@ -69,7 +69,7 @@ impl ArachneaProxyCore {
 
     /// Builds the default DNS core that corresponds to a proxy profile.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `profile`: Proxy profile whose DNS counterpart should be built.
     ///
@@ -92,7 +92,7 @@ impl ArachneaProxyCore {
 
     /// Resolves the relay endpoint returned by a SOCKS5 UDP association.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `node`: SOCKS5 node that returned the relay endpoint.
     /// - `relay_endpoint`: Relay endpoint returned by the upstream handshake.
@@ -133,7 +133,7 @@ impl ArachneaProxyCore {
 
     /// Resolves a destination to a concrete socket address.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `destination`: Destination whose hostname may need DNS resolution.
     ///
@@ -160,7 +160,7 @@ impl ArachneaProxyCore {
 
     /// Resolves a hostname destination into an IP destination.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `destination`: Destination that may contain a hostname.
     ///
@@ -188,7 +188,7 @@ impl ArachneaProxyCore {
     /// SOCKS4 cannot carry IPv6 addresses, so local DNS mode must select an
     /// IPv4 address before the protocol handshake.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `destination`: Destination that may contain a hostname.
     ///
@@ -219,7 +219,7 @@ impl ArachneaProxyCore {
 
     /// Resolves a proxy handshake target when a node cannot receive hostnames.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `node`: Proxy node that will receive the target.
     /// - `target`: Original destination for the proxy handshake.
@@ -254,7 +254,7 @@ impl ArachneaProxyCore {
 
     /// Flags one SOCKS5 fallback node for local DNS resolution after a remote DNS failure.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `chain`: Chain whose SOCKS5 nodes may be flagged.
     /// - `target`: Destination that failed through remote proxy resolution.
@@ -295,7 +295,7 @@ impl ArachneaProxyCore {
 
     /// Returns whether a SOCKS5 fallback node is remembered as local-DNS-only.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `node`: Proxy node to inspect.
     ///
@@ -311,7 +311,7 @@ impl ArachneaProxyCore {
 
     /// Remembers a SOCKS5 fallback node as requiring local DNS resolution.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `node`: Proxy node to flag by stable name.
     fn remember_socks5_local_dns_node(&self, node: &ProxyNode) {

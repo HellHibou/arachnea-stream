@@ -43,6 +43,7 @@ pub struct SharedProxyConfigHandle {
 }
 
 #[derive(Clone, Default)]
+/// Versioned proxy configuration used to invalidate derived transports and manage the default route.
 struct ProxyConfigState {
     version: u64,
     proxy: Option<HttpProxyConfig>,
@@ -51,6 +52,7 @@ struct ProxyConfigState {
 }
 
 #[derive(Clone)]
+/// Cached transport tagged with the routing and local-country versions used to construct it.
 struct CachedHttpClient {
     proxy_version: u64,
     local_country_version: u64,
@@ -66,6 +68,7 @@ impl SharedProxyConfigHandle {
     /// Creates an independent routing configuration sharing an application listener.
     ///
     /// # Arguments
+    ///
     /// - `runtime`: Shared loopback listener, including provider bootstrap transports.
     #[cfg(feature = "arachnea-proxy")]
     pub fn with_runtime(runtime: Arc<arachnea_proxy::server::LoopbackProxyRuntime>) -> Self {
@@ -95,6 +98,7 @@ impl SharedProxyConfigHandle {
     /// Publishes the active core for external clients, preserving existing connections.
     ///
     /// # Errors
+    ///
     /// Returns an error when there is no active core or the registry is unavailable.
     #[cfg(feature = "arachnea-proxy")]
     pub fn publish_default_route(&self) -> Result<()> {
@@ -118,6 +122,7 @@ impl SharedProxyConfigHandle {
     /// Publishes the current default route and binds the shared server before external use.
     ///
     /// # Errors
+    ///
     /// Returns a contextual error if the route cannot be published or the port cannot bind.
     #[cfg(feature = "arachnea-proxy")]
     pub async fn start_proxy_server(&self) -> Result<std::net::SocketAddr> {
@@ -129,6 +134,10 @@ impl SharedProxyConfigHandle {
     }
 
     /// Replaces the proxy configuration and increments the version.
+    ///
+    /// # Arguments
+    ///
+    /// * `proxy` - Proxy transport configuration replacing the current shared override.
     pub fn set_proxy(&self, proxy: HttpProxyConfig) {
         if let Ok(mut guard) = self.inner.write() {
             guard.version = guard.version.saturating_add(1);
@@ -193,6 +202,14 @@ impl SharedProxyConfigHandle {
     }
 }
 
+/// Logs a bounded preview of an invalid JSON response for parser diagnostics.
+///
+/// # Arguments
+///
+/// * `url` - Absolute request URL used by the HTTP transport.
+/// * `payload_kind` - Diagnostic label identifying whether the payload is JSON text or an embedded response.
+/// * `payload` - Invalid response text whose bounded preview is included in the diagnostic.
+/// * `error` - Underlying error wrapped with the administration operation status.
 fn log_invalid_json_payload(
     url: &str,
     payload_kind: &str,
@@ -222,6 +239,7 @@ fn log_invalid_json_payload(
 /// Installs a temporary HTTP router override used by integration/unit tests.
 ///
 /// # Arguments
+///
 /// * `f` - Callback returning a mocked payload for the requested URL.
 pub fn set_router<F>(f: F)
 where
@@ -263,17 +281,26 @@ impl HttpClient {
     ///
     /// # Arguments
     ///
-    /// * `base_url` - Source base URL kept for API compatibility.
+    /// * `_base_url` - Source URL retained for API compatibility; ignored by this constructor.
     pub fn new(_base_url: &str) -> Self {
         Self::with_http_config(ScraperHttpConfig::default())
     }
 
     /// Builds a client with explicit scraper HTTP configuration.
+    ///
+    /// # Arguments
+    ///
+    /// * `http_config` - Effective scraper HTTP options used for client construction or configuration.
     pub fn with_http_config(http_config: ScraperHttpConfig) -> Self {
         Self::with_http_config_and_proxy_handle(http_config, SharedProxyConfigHandle::new())
     }
 
     /// Builds a client with explicit scraper HTTP configuration and a shared proxy handle.
+    ///
+    /// # Arguments
+    ///
+    /// * `http_config` - Effective scraper HTTP options used for client construction or configuration.
+    /// * `proxy_handle` - Shared, versioned routing configuration observed by derived HTTP clients.
     pub fn with_http_config_and_proxy_handle(
         http_config: ScraperHttpConfig,
         proxy_handle: SharedProxyConfigHandle,
@@ -287,6 +314,12 @@ impl HttpClient {
 
     /// Builds a client with explicit scraper HTTP configuration, a shared proxy
     /// handle, and shared local-country state.
+    ///
+    /// # Arguments
+    ///
+    /// * `http_config` - Effective scraper HTTP options used for client construction or configuration.
+    /// * `proxy_handle` - Shared, versioned routing configuration observed by derived HTTP clients.
+    /// * `local_country` - Shared explicit or detected outbound-country state used for local-country proxy bypass.
     pub fn with_http_config_proxy_handle_and_local_country(
         http_config: ScraperHttpConfig,
         proxy_handle: SharedProxyConfigHandle,
@@ -302,6 +335,13 @@ impl HttpClient {
 
     /// Builds a client with explicit scraper HTTP configuration, a shared proxy
     /// handle, shared local-country state, and a shared persistence store.
+    ///
+    /// # Arguments
+    ///
+    /// * `http_config` - Effective scraper HTTP options used for client construction or configuration.
+    /// * `proxy_handle` - Shared, versioned routing configuration observed by derived HTTP clients.
+    /// * `local_country` - Shared explicit or detected outbound-country state used for local-country proxy bypass.
+    /// * `session_store` - Typed store for reusable chaser-cf sessions shared by this client family.
     pub fn with_http_config_proxy_handle_and_local_country_and_session_store(
         http_config: ScraperHttpConfig,
         proxy_handle: SharedProxyConfigHandle,
@@ -317,6 +357,15 @@ impl HttpClient {
         )
     }
 
+    /// Builds a client family with explicit routing, local-country, session-store and cookie-cache handles.
+    ///
+    /// # Arguments
+    ///
+    /// * `http_config` - Effective scraper HTTP options used for client construction or configuration.
+    /// * `proxy_handle` - Shared, versioned routing configuration observed by derived HTTP clients.
+    /// * `local_country` - Shared explicit or detected outbound-country state used for local-country proxy bypass.
+    /// * `session_store` - Typed store for reusable chaser-cf sessions shared by this client family.
+    /// * `cookie_cache` - Cookie cache shared by derived clients unless isolation is requested.
     fn with_http_config_proxy_handle_and_cookie_cache(
         http_config: ScraperHttpConfig,
         proxy_handle: SharedProxyConfigHandle,
@@ -362,6 +411,10 @@ impl HttpClient {
     }
 
     /// Returns a clone using a different HTTP configuration.
+    ///
+    /// # Arguments
+    ///
+    /// * `http_config` - Effective scraper HTTP options used for client construction or configuration.
     pub fn configured(&self, http_config: ScraperHttpConfig) -> Self {
         if http_config == self.http_config {
             return self.clone();
@@ -416,6 +469,7 @@ impl HttpClient {
     /// Installs a code policy overriding YAML and legacy statuses, with a fresh cache.
     ///
     /// # Arguments
+    ///
     /// - `policy`: Nonblocking response classifier shared with derived clients.
     #[cfg(feature = "arachnea-proxy")]
     pub fn with_proxy_response_classifier(
@@ -436,6 +490,11 @@ impl HttpClient {
         Box::pin(self.http_client_inner()).await
     }
 
+    /// Reuses the cached transport while routing versions match, otherwise constructs and caches a replacement.
+    ///
+    /// # Errors
+    ///
+    /// Returns errors from invalid HTTP/proxy policies, unavailable engine initialization or client construction.
     async fn http_client_inner(&self) -> Result<Arc<ArachneaHttpClient>> {
         let proxy_state = self.proxy_handle.snapshot();
         let local_country_state = self.local_country.snapshot();
@@ -526,7 +585,19 @@ impl HttpClient {
         Ok(client)
     }
 
-    /// Sends one textual request without applying status-based proxy rotation.
+    /// Sends a textual request through the HTTP facade, which owns correlated proxy retries.
+    /// Text bodies are attached only for POST; an omitted POST body uses the URL query string.
+    ///
+    /// # Arguments
+    ///
+    /// * `method` - HTTP method used for this request.
+    /// * `url` - Absolute request URL used by the HTTP transport.
+    /// * `request_headers` - Request header names and values resolved for this fetch.
+    /// * `request_body` - Optional request payload; `None` leaves the body unspecified.
+    ///
+    /// # Errors
+    ///
+    /// Returns client-construction, header-conversion or HTTP-send errors with the target URL as context.
     async fn send_text_once(
         &self,
         method: Method,
@@ -559,7 +630,19 @@ impl HttpClient {
             .with_context(|| format!("Fetch fail {}", url))
     }
 
-    /// Sends one binary request without applying status-based proxy rotation.
+    /// Sends a binary request through the HTTP facade, which owns correlated proxy retries.
+    /// A supplied body is attached for any method; this wrapper adds no retry loop.
+    ///
+    /// # Arguments
+    ///
+    /// * `method` - HTTP method used for this request.
+    /// * `url` - Absolute request URL used by the HTTP transport.
+    /// * `request_headers` - Request header names and values resolved for this fetch.
+    /// * `request_body` - Optional request payload; `None` leaves the body unspecified.
+    ///
+    /// # Errors
+    ///
+    /// Returns client-construction, header-conversion or HTTP-send errors with the target URL as context.
     async fn send_bytes_once(
         &self,
         method: Method,
@@ -590,6 +673,7 @@ impl HttpClient {
     ///
     /// # Arguments
     ///
+    /// * `method` - HTTP method used for this request.
     /// * `url` - Absolute URL to request.
     ///
     /// # Errors
@@ -608,7 +692,7 @@ impl HttpClient {
     /// * `method` - HTTP verb used for the request.
     /// * `url` - Absolute URL to request.
     /// * `request_headers` - Additional headers applied to this request only.
-    /// * `request_body` - Optional request body used as-is.
+    /// * `request_body` - Explicit POST text body; omitted POST bodies use the URL query, and other methods ignore it.
     ///
     /// # Errors
     ///
@@ -636,7 +720,7 @@ impl HttpClient {
     /// * `method` - HTTP verb used for the request.
     /// * `url` - Absolute URL to request.
     /// * `request_headers` - Additional headers applied to this request only.
-    /// * `request_body` - Optional request body used as-is.
+    /// * `request_body` - Explicit POST text body; omitted POST bodies use the URL query, and other methods ignore it.
     ///
     /// # Errors
     ///
@@ -699,7 +783,7 @@ impl HttpClient {
     /// * `method` - HTTP verb used for the request.
     /// * `url` - Absolute URL of the JSON payload to download.
     /// * `request_headers` - Additional headers applied to this request only.
-    /// * `request_body` - Optional request body used as-is.
+    /// * `request_body` - Explicit POST text body; omitted POST bodies use the URL query, and other methods ignore it.
     ///
     /// # Errors
     ///
@@ -781,7 +865,7 @@ impl HttpClient {
     /// * `method` - HTTP verb used for the request.
     /// * `url` - Absolute URL of the HTML page containing a Next.js payload.
     /// * `request_headers` - Additional headers applied to this request only.
-    /// * `request_body` - Optional request body used as-is.
+    /// * `request_body` - Explicit POST text body; omitted POST bodies use the URL query, and other methods ignore it.
     ///
     /// # Errors
     ///
@@ -842,7 +926,7 @@ impl HttpClient {
     /// * `method` - HTTP verb used for the request.
     /// * `url` - Absolute URL to request.
     /// * `request_headers` - Additional headers applied to this request only.
-    /// * `request_body` - Optional request body used as-is.
+    /// * `request_body` - Explicit POST text body; omitted POST bodies use the URL query, and other methods ignore it.
     ///
     /// # Errors
     ///

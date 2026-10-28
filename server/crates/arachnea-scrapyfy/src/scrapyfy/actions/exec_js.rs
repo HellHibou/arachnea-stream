@@ -93,6 +93,10 @@ pub(super) fn apply(
 
 /// Build a [`JsContext`] with a fresh Boa [`Context`], loop iteration limit based
 /// on `timeout_ms`, and registered `document` / `window` global objects.
+///
+/// # Arguments
+///
+/// * `timeout_ms` - Maximum JavaScript execution duration in milliseconds.
 fn build_context(timeout_ms: u64) -> Result<JsContext> {
     let mut ctx = ContextBuilder::new()
         .build()
@@ -136,6 +140,12 @@ fn build_context(timeout_ms: u64) -> Result<JsContext> {
 /// Create a `JsFunction` that appends joined arguments to a shared buffer,
 /// optionally adding a trailing newline (for `document.writeln`).
 ///
+/// # Arguments
+///
+/// * `buffer` - Shared output buffer receiving simulated `document.write` calls.
+/// * `append_newline` - Whether a write appends a newline, as with `document.writeln`.
+/// * `realm` - JavaScript realm used to allocate the native write callback.
+///
 /// # Safety
 ///
 /// Uses `NativeFunction::from_closure` because the closure captures an
@@ -167,6 +177,10 @@ fn create_document_write_fn(
 }
 
 /// Extract the content of all `<script>…</script>` tags from an HTML string.
+///
+/// # Arguments
+///
+/// * `html` - HTML source from which inline script bodies are extracted.
 fn extract_html_scripts(html: &str) -> Vec<String> {
     let script_re = Regex::new(r"(?is)<script[^>]*>(.*?)</script>").unwrap();
     script_re
@@ -178,6 +192,11 @@ fn extract_html_scripts(html: &str) -> Vec<String> {
 
 /// Evaluate a JS source string in the given Boa context and return the resulting
 /// value as a [`String`].
+///
+/// # Arguments
+///
+/// * `ctx` - JavaScript context in which the supplied source is evaluated.
+/// * `source` - JavaScript source evaluated in the provided context.
 ///
 /// # Errors
 ///

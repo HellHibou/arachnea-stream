@@ -39,10 +39,14 @@ const SESSION_TTL: std::time::Duration = std::time::Duration::from_secs(55 * 60)
 /// Lifetime of cached Antenne Réunion license proxy tokens.
 const LICENSE_TTL: std::time::Duration = std::time::Duration::from_secs(15 * 60);
 
+/// Process-wide cache of authenticated Antenne Réunion sessions.
 static SESSION_CACHE: OnceLock<Mutex<HashMap<String, CachedSession>>> = OnceLock::new();
+/// Process-wide cache of Antenne Réunion license proxy requests.
 static LICENSE_CACHE: OnceLock<Mutex<HashMap<String, CachedLicense>>> = OnceLock::new();
+/// Serializes cache misses during the Antenne Réunion login flow.
 static LOGIN_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
 
+/// Authenticated Antenne Réunion customer, device and profile tokens.
 #[derive(Clone)]
 struct Session {
     customer_token: String,
@@ -50,11 +54,13 @@ struct Session {
     profile_token: String,
 }
 
+/// Cached session with its expiry instant.
 struct CachedSession {
     session: Session,
     expires_at: Instant,
 }
 
+/// Cached license request with its routing headers and expiry.
 #[derive(Clone)]
 struct CachedLicense {
     license_url: String,
@@ -102,6 +108,20 @@ impl PlayerStreamResolver for AntenneReunionResolver {
     }
 }
 
+/// Resolves an Antenne Réunion asset into a protected player stream.
+///
+/// # Arguments
+/// * `scraper_agregator` - Aggregator used to create the HTTP client.
+/// * `credentials_store` - Store providing the Antenne Réunion credentials.
+/// * `asset_id` - Asset identifier; surrounding whitespace is ignored.
+/// * `endpoints` - Public endpoint settings used to build proxy URLs.
+///
+/// # Errors
+/// Returns an error when the identifier is empty, authentication fails, the
+/// playback endpoint refuses the asset, or the stream URL is missing.
+///
+/// # Returns
+/// The resolved stream with proxied manifest and optional license proxy.
 async fn resolve_vod_stream(
     scraper_agregator: &ScraperAgregator,
     credentials_store: &dyn CredentialsStore,
@@ -168,6 +188,21 @@ async fn resolve_vod_stream(
     })
 }
 
+/// Returns a cached session or authenticates and activates an account profile.
+///
+/// Cache misses are serialized by `LOGIN_LOCK`. A refreshed `newAuthToken` from
+/// the profile listing replaces the original customer token.
+///
+/// # Arguments
+/// * `http_client` - HTTP client used for the OAuth and profile requests.
+/// * `login` - Antenne Réunion account login used as the cache key.
+/// * `password` - Account password submitted to the OAuth endpoint.
+///
+/// # Errors
+/// Returns an error when login, profile listing or profile activation fails.
+///
+/// # Returns
+/// The authenticated customer, device and profile tokens.
 async fn get_or_login_session(
     http_client: &HttpClient,
     login: &str,
@@ -259,6 +294,18 @@ async fn get_or_login_session(
     Ok(session)
 }
 
+/// Returns the first profile identifier from the profile listing.
+///
+/// The identifier is searched under `id`, `idProfile` and `profileId`.
+///
+/// # Arguments
+/// * `payload` - Decoded profile listing response.
+///
+/// # Errors
+/// Returns an error when no profile exists or none exposes an identifier.
+///
+/// # Returns
+/// The first profile identifier.
 fn first_profile_id(payload: &Value) -> Result<String> {
     let profile = payload
         .get("profiles")
@@ -280,6 +327,13 @@ fn first_profile_id(payload: &Value) -> Result<String> {
 ///
 /// Tucano profile identifiers can be named differently by deployment and can
 /// be JSON strings or numbers.
+///
+/// # Arguments
+/// * `payload` - JSON value to search recursively.
+/// * `key` - Object key to match.
+///
+/// # Returns
+/// The first non-empty string or integer value, or `None` when absent.
 fn find_first_json_string(payload: &Value, key: &str) -> Option<String> {
     match payload {
         Value::Object(object) => {
@@ -311,6 +365,13 @@ fn find_first_json_string(payload: &Value, key: &str) -> Option<String> {
 }
 
 /// Finds the first JSON value stored under `key` in a nested API response.
+///
+/// # Arguments
+/// * `payload` - JSON value to search recursively.
+/// * `key` - Object key to match.
+///
+/// # Returns
+/// A borrow of the first matching value, or `None` when absent.
 fn find_first_json_value<'a>(payload: &'a Value, key: &str) -> Option<&'a Value> {
     match payload {
         Value::Object(object) => object.get(key).or_else(|| {
@@ -326,6 +387,12 @@ fn find_first_json_value<'a>(payload: &'a Value, key: &str) -> Option<&'a Value>
 }
 
 /// Describes the JSON container shape without including sensitive values.
+///
+/// # Arguments
+/// * `payload` - JSON value to describe.
+///
+/// # Returns
+/// A structural summary containing object keys, array length, or scalar type.
 fn json_shape(payload: &Value) -> String {
     match payload {
         Value::Object(object) => {
@@ -341,6 +408,20 @@ fn json_shape(payload: &Value) -> String {
     }
 }
 
+/// Posts a form to an Antenne Réunion proxy endpoint.
+///
+/// # Arguments
+/// * `http_client` - HTTP client used for the request.
+/// * `endpoint` - Playback endpoint name appended to the proxy base URL.
+/// * `headers` - Session headers sent with the request.
+/// * `fields` - Form fields encoded in the request body.
+///
+/// # Errors
+/// Returns an error when encoding or the request fails, or when the API result
+/// reports a failure.
+///
+/// # Returns
+/// The unwrapped API result payload.
 async fn post_proxy_form(
     http_client: &HttpClient,
     endpoint: &str,
@@ -357,6 +438,21 @@ async fn post_proxy_form(
     .await
 }
 
+/// Posts URL-encoded fields and unwraps the API result.
+///
+/// # Arguments
+/// * `http_client` - HTTP client used for the request.
+/// * `url` - Absolute request URL.
+/// * `headers` - Headers sent with the request.
+/// * `fields` - Form fields encoded in the request body.
+/// * `error_context` - Context used when encoding, transport or the API fails.
+///
+/// # Errors
+/// Returns an error when encoding or the request fails, or when the API result
+/// reports a failure.
+///
+/// # Returns
+/// The unwrapped API result payload.
 async fn post_form(
     http_client: &HttpClient,
     url: &str,
@@ -373,6 +469,17 @@ async fn post_form(
     unwrap_api_result(payload, error_context)
 }
 
+/// Rejects a failed API envelope and extracts its `result`.
+///
+/// # Arguments
+/// * `payload` - Decoded API response.
+/// * `error_context` - Context prepended to the server error message.
+///
+/// # Errors
+/// Returns an error when `status` is explicitly `false`.
+///
+/// # Returns
+/// The `result` member when present, otherwise the complete payload.
 fn unwrap_api_result(payload: Value, error_context: &str) -> Result<Value> {
     if payload.get("status").and_then(Value::as_bool) == Some(false) {
         let message = payload
@@ -387,6 +494,15 @@ fn unwrap_api_result(payload: Value, error_context: &str) -> Result<Value> {
 }
 
 /// Serializes advertising metadata exactly like the official web player.
+///
+/// # Arguments
+/// * `asset_id` - Asset identifier inserted into the advertising page URL.
+///
+/// # Errors
+/// Returns an error when the form data cannot be encoded.
+///
+/// # Returns
+/// The URL-encoded advertising query string.
 fn ads_macro(asset_id: &str) -> Result<String> {
     serde_urlencoded::to_string([
         (
@@ -399,6 +515,13 @@ fn ads_macro(asset_id: &str) -> Result<String> {
 }
 
 /// Surfaces a playback entitlement error before attempting to read its stream URL.
+///
+/// # Arguments
+/// * `payload` - Decoded `readAsset` response.
+///
+/// # Errors
+/// Returns an error when the payload contains an `errorCode`, using the
+/// server message when available.
 fn bail_on_read_asset_error(payload: &Value) -> Result<()> {
     let Some(error_code) = payload.get("errorCode") else {
         return Ok(());
@@ -425,6 +548,13 @@ fn bail_on_read_asset_error(payload: &Value) -> Result<()> {
     bail!("Antenne Réunion readAsset was refused with error code {error_code}{message}");
 }
 
+/// Builds the authenticated headers for playback API requests.
+///
+/// # Arguments
+/// * `session` - Authenticated customer, device and profile tokens.
+///
+/// # Returns
+/// The identity and token headers plus the form content type.
 fn playback_headers(session: &Session) -> HashMap<String, String> {
     HashMap::from([
         (
@@ -451,6 +581,13 @@ fn playback_headers(session: &Session) -> HashMap<String, String> {
 }
 
 /// Builds the customer/device headers used by the official Tucano `BaseApi` client.
+///
+/// # Arguments
+/// * `customer_token` - Customer authentication token.
+/// * `device_token` - Device authentication token.
+///
+/// # Returns
+/// The identity, customer and device headers plus the form content type.
 fn customer_headers(customer_token: &str, device_token: &str) -> HashMap<String, String> {
     HashMap::from([
         (
@@ -472,11 +609,26 @@ fn customer_headers(customer_token: &str, device_token: &str) -> HashMap<String,
     ])
 }
 
+/// Parsed Antenne Réunion DRM license parameter.
 struct LicenseParameter {
     license_url: String,
     headers: HashMap<String, String>,
 }
 
+/// Parses a string or object `licParam` into a license request.
+///
+/// String parameters are URL-encoded forms. `skd://` URLs are converted to
+/// HTTPS, and the vendor selects whether the token is appended to the URL or
+/// sent through vendor-specific headers.
+///
+/// # Arguments
+/// * `value` - Raw `licParam` JSON value.
+///
+/// # Errors
+/// Returns an error when a string parameter or object has an invalid shape.
+///
+/// # Returns
+/// The parsed license request, or `None` for `null` or a missing URL.
 fn parse_license_parameter(value: &Value) -> Result<Option<LicenseParameter>> {
     let payload = match value {
         Value::String(query) => {
@@ -538,6 +690,14 @@ fn parse_license_parameter(value: &Value) -> Result<Option<LicenseParameter>> {
     }))
 }
 
+/// Reads a trimmed non-empty string from a JSON object.
+///
+/// # Arguments
+/// * `object` - JSON object to query.
+/// * `key` - Field name to read.
+///
+/// # Returns
+/// The trimmed string, or an empty string when absent or not a string.
 fn object_string(object: &Map<String, Value>, key: &str) -> String {
     object
         .get(key)
@@ -548,6 +708,14 @@ fn object_string(object: &Map<String, Value>, key: &str) -> String {
         .to_string()
 }
 
+/// Caches a license request and returns its public proxy URL.
+///
+/// # Arguments
+/// * `endpoints` - Public endpoint settings used to build the proxy URL.
+/// * `license` - Parsed upstream license URL and headers.
+///
+/// # Returns
+/// The public license proxy URL containing a generated token.
 fn save_license(endpoints: &PlayerResolverEndpoints, license: &LicenseParameter) -> String {
     let token: String = rand::rng()
         .sample_iter(&Alphanumeric)
@@ -570,6 +738,19 @@ fn save_license(endpoints: &PlayerResolverEndpoints, license: &LicenseParameter)
     endpoints.drm_license_url(SERVICE_ID, &token)
 }
 
+/// Proxies a Widevine challenge using a cached Antenne Réunion license.
+///
+/// # Arguments
+/// * `scraper_agregator` - Aggregator used to create the HTTP client.
+/// * `token` - Public token identifying the cached license request.
+/// * `challenge_body` - Raw Widevine challenge bytes.
+///
+/// # Errors
+/// Returns an error when the token is expired or missing, or when the upstream
+/// request fails or is rejected.
+///
+/// # Returns
+/// The upstream license response with a `no-store` cache policy.
 async fn proxy_license_request(
     scraper_agregator: &ScraperAgregator,
     token: &str,
@@ -619,6 +800,16 @@ async fn proxy_license_request(
     })
 }
 
+/// Loads the configured Antenne Réunion login and password.
+///
+/// # Arguments
+/// * `credentials_store` - Store queried for the service credentials.
+///
+/// # Errors
+/// Returns an error when the store cannot be read or has no credentials.
+///
+/// # Returns
+/// The credential login and password.
 fn load_credentials(credentials_store: &dyn CredentialsStore) -> Result<(String, String)> {
     let credentials = credentials_store
         .get_credentials(SERVICE_ID)
@@ -627,6 +818,14 @@ fn load_credentials(credentials_store: &dyn CredentialsStore) -> Result<(String,
     Ok((credentials.login, credentials.password))
 }
 
+/// Loads a non-expired session, pruning expired entries.
+///
+/// # Arguments
+/// * `login` - Account login used as the cache key.
+///
+/// # Returns
+/// The cached session, or `None` when absent, expired, or the cache mutex is
+/// poisoned.
 fn load_cached_session(login: &str) -> Option<Session> {
     let cache = SESSION_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     let Ok(mut cache) = cache.lock() else {
@@ -637,6 +836,13 @@ fn load_cached_session(login: &str) -> Option<Session> {
     cache.get(login).map(|entry| entry.session.clone())
 }
 
+/// Caches a session for `login` using `SESSION_TTL`.
+///
+/// # Arguments
+/// * `login` - Account login used as the cache key.
+/// * `session` - Session to store.
+///
+/// The write is skipped when the cache mutex is poisoned.
 fn save_cached_session(login: &str, session: &Session) {
     let cache = SESSION_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     let Ok(mut cache) = cache.lock() else {
@@ -651,6 +857,14 @@ fn save_cached_session(login: &str, session: &Session) {
     );
 }
 
+/// Loads a non-expired license request, pruning expired entries.
+///
+/// # Arguments
+/// * `token` - Public token used as the cache key.
+///
+/// # Returns
+/// The cached license request, or `None` when absent, expired, or the cache
+/// mutex is poisoned.
 fn load_cached_license(token: &str) -> Option<CachedLicense> {
     let cache = LICENSE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     let Ok(mut cache) = cache.lock() else {
@@ -661,6 +875,13 @@ fn load_cached_license(token: &str) -> Option<CachedLicense> {
     cache.get(token.trim()).cloned()
 }
 
+/// Derives a stable UUID-shaped device identifier from the account login.
+///
+/// # Arguments
+/// * `login` - Account login; surrounding whitespace is ignored.
+///
+/// # Returns
+/// A deterministic device identifier accepted by the API.
 fn stable_device_id(login: &str) -> String {
     let first = xxh3_64(login.trim().as_bytes());
     let second = xxh3_64(format!("{login}:antennereunion").as_bytes());
@@ -674,6 +895,13 @@ fn stable_device_id(login: &str) -> String {
     )
 }
 
+/// Determines the manifest type from the stream URL path.
+///
+/// # Arguments
+/// * `stream_url` - Stream manifest URL.
+///
+/// # Returns
+/// `mpd` for URLs whose path ends in `.mpd`, otherwise `m3u8`.
 fn manifest_type(stream_url: &str) -> &'static str {
     Url::parse(stream_url)
         .ok()
@@ -683,6 +911,19 @@ fn manifest_type(stream_url: &str) -> &'static str {
         .unwrap_or("m3u8")
 }
 
+/// Reads a non-empty string from a nested JSON path.
+///
+/// # Arguments
+/// * `payload` - JSON value to traverse.
+/// * `path` - Object keys applied successively.
+/// * `error_message` - Message used when a key or string is missing.
+///
+/// # Errors
+/// Returns an error when traversal fails or the target is missing, blank or
+/// not a string.
+///
+/// # Returns
+/// The trimmed string value.
 fn read_json_string(payload: &Value, path: &[&str], error_message: &str) -> Result<String> {
     let mut current = payload;
     for segment in path {

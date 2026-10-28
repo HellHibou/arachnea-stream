@@ -25,6 +25,10 @@ pub struct ScraperSourceParamsRequestEntry {
 ///
 /// Entries with a blank source name are skipped, and a nested `source`
 /// field is dropped so it never leaks into execution parameters.
+///
+/// # Arguments
+///
+/// * `entries` - Controller request entries containing a source name and flattened JSON parameter fields.
 pub fn source_params_from_entries(
     entries: Vec<ScraperSourceParamsRequestEntry>,
 ) -> ScraperSourceParams {
@@ -52,6 +56,10 @@ pub fn source_params_from_entries(
 }
 
 /// Converts one JSON request parameter into its string form for execution.
+///
+/// # Arguments
+///
+/// * `value` - JSON parameter value; null is omitted, strings are preserved, and other values use their JSON text.
 fn request_param_value_to_string(value: Value) -> Option<String> {
     match value {
         Value::Null => None,

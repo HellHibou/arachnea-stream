@@ -16,7 +16,7 @@ pub struct SmartDnsRouteHint {
 impl SmartDnsRouteHint {
     /// Creates a Smart DNS route hint from optional routing parts.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `chain`: Optional proxy chain name selected by Smart DNS.
     /// - `egress_pool`: Optional egress pool selected by Smart DNS.
@@ -30,7 +30,7 @@ impl SmartDnsRouteHint {
 
     /// Reads a Smart DNS route hint from a client context.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `context`: Client context that may contain Smart DNS parameters.
     ///
@@ -53,7 +53,7 @@ impl SmartDnsRouteHint {
 
     /// Inserts this Smart DNS route hint into a client context.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `context`: Client context receiving the hint parameters.
     pub fn insert_into_context(&self, context: &mut ClientContext) {
@@ -74,7 +74,7 @@ impl SmartDnsRouteHint {
 
 /// Returns the Smart DNS-selected chain from a client context.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `context`: Client context that may contain a Smart DNS route hint.
 ///
@@ -87,7 +87,7 @@ pub fn smart_dns_chain_from_context(context: &ClientContext) -> Option<&str> {
 
 /// Returns the Smart DNS-selected egress pool from a client context.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `context`: Client context that may contain a Smart DNS route hint.
 ///

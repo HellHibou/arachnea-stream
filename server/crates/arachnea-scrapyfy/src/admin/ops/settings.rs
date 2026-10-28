@@ -3,6 +3,12 @@
 use super::*;
 
 /// Builds the `settings` reply.
+///
+/// # Arguments
+///
+/// * `state` - Shared administration state providing settings, sessions, stores and runtime hooks.
+/// * `context` - Incoming controller context used for access checks and request metadata.
+/// * `_input` - Unused input accepted for compatibility with the administration handler signature.
 pub(crate) async fn op_settings(
     state: Arc<AdminState>,
     context: RequestControlerContext,
@@ -65,6 +71,12 @@ pub(crate) async fn op_settings(
 }
 
 /// Builds the `update-settings` reply.
+///
+/// # Arguments
+///
+/// * `state` - Shared administration state providing settings, sessions, stores and runtime hooks.
+/// * `context` - Incoming controller context used for access checks and request metadata.
+/// * `input` - Deserialized input for the administration operation.
 pub(crate) async fn op_update_settings(
     state: Arc<AdminState>,
     context: RequestControlerContext,
@@ -256,6 +268,12 @@ pub(crate) async fn op_update_settings(
 /// origin the administrator is talking to; the target port replaces the port
 /// of the header, and the target root prefixes the admin path. Returns `None`
 /// when the header is missing.
+///
+/// # Arguments
+///
+/// * `context` - Incoming controller context used for access checks and request metadata.
+/// * `entrypoint_root` - Effective root path or entry-point prefix of the running controller.
+/// * `target_port` - Effective controller port used when rebuilding the public administration URL.
 pub(super) fn hot_apply_admin_url(
     context: &RequestControlerContext,
     entrypoint_root: Option<&str>,
@@ -276,6 +294,12 @@ pub(super) fn hot_apply_admin_url(
 }
 
 /// Builds the `set-admin-password` reply.
+///
+/// # Arguments
+///
+/// * `state` - Shared administration state providing settings, sessions, stores and runtime hooks.
+/// * `context` - Incoming controller context used for access checks and request metadata.
+/// * `input` - Deserialized input for the administration operation.
 pub(crate) async fn op_set_admin_password(
     state: Arc<AdminState>,
     context: RequestControlerContext,

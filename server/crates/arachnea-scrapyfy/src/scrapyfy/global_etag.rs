@@ -11,10 +11,20 @@ use std::collections::HashMap;
 
 pub use crate::GLOBAL_ETAG_SEPARATOR;
 
+/// Percent-encodes a source name for inclusion in a global ETag.
+///
+/// # Arguments
+///
+/// * `name` - Identifier of the parameter or entry being processed.
 fn encode_name(name: &str) -> String {
     urlencoding::encode(name).to_string()
 }
 
+/// Decodes a percent-encoded source name, retaining malformed encoded text unchanged.
+///
+/// # Arguments
+///
+/// * `raw` - Encoded component to decode, preserving the original text if decoding fails.
 fn decode_name(raw: &str) -> String {
     urlencoding::decode(raw)
         .map(|value| value.to_string())

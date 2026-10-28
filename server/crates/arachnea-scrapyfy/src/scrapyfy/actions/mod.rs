@@ -73,6 +73,7 @@ pub enum ProxyFollowRedirects {
 }
 
 impl ProxyFollowRedirects {
+    /// Encodes enabled redirect following as `true` or a positive limit; disabled settings return `None`.
     pub(crate) fn as_json_value(&self) -> Option<serde_json::Value> {
         match self {
             Self::Default(true) => Some(serde_json::Value::Bool(true)),
@@ -82,6 +83,7 @@ impl ProxyFollowRedirects {
         }
     }
 
+    /// Rejects a zero redirect limit while allowing either boolean setting.
     fn is_valid(&self) -> bool {
         !matches!(self, Self::Limit(0))
     }
@@ -412,6 +414,11 @@ impl ScraperAction {
     /// * `request_url` - Final URL used to fetch the current page.
     /// * `response_body` - Raw response body of the current request when available.
     /// * `response_json` - Parsed JSON response when available (for JSON scrapers).
+    ///
+    /// # Returns
+    ///
+    /// The transformed values, or the original input if the fallible action path returns an error.
+    /// Dynamic-variable actions do nothing without an execution-scoped variable store.
     pub fn apply(
         &self,
         selected: &Option<scraper::ElementRef<'_>>,
@@ -439,6 +446,21 @@ impl ScraperAction {
     /// errors. It is required for actions such as `extract_variables`, where
     /// duplicate dynamic variables must fail the current request instead of being
     /// silently ignored.
+    ///
+    /// # Arguments
+    ///
+    /// * `selected` - Optional selected HTML element available to the action.
+    /// * `texts` - Values produced by earlier actions in the pipeline.
+    /// * `params` - Runtime parameters available to query templates and action pipelines.
+    /// * `request_url` - URL of the current response, used as the base for URL and header templates.
+    /// * `response_body` - Current response text exposed to extraction actions.
+    /// * `response_json` - Optional parsed JSON response supplied to JSON-aware actions.
+    /// * `dynamic_variables` - Shared dynamic variables in the reserved `@` namespace, scoped to this execution.
+    ///
+    /// # Errors
+    ///
+    /// Returns extraction-variable validation, duplicate-policy, regex or lock errors.
+    /// Previously inserted dynamic variables are not rolled back after a later failure.
     pub fn apply_with_dynamic_variables(
         &self,
         selected: &Option<scraper::ElementRef<'_>>,
@@ -698,6 +720,7 @@ impl ScraperAction {
     }
 }
 
+/// Returns the default JavaScript execution timeout in milliseconds.
 fn default_exec_js_timeout() -> u64 {
     crate::JS_DEFAULT_TIMEOUT_MS
 }

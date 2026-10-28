@@ -34,9 +34,9 @@ pub enum CacheState {
     Hit,
     /// Stale,
     ///
-    /// The answer was served from cache but was stale (expired). This
-    /// typically happens when serve_stale is enabled and fresh data
-    /// cannot be obtained.
+    /// The answer was served from cache after its fresh TTL expired while it
+    /// was still inside the configured stale window. The current resolver
+    /// serves it without revalidating with an upstream first.
     Stale,
 }
 
@@ -110,7 +110,7 @@ pub struct Cache {
 impl Cache {
     /// Creates a cache from configuration.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `config`: Cache configuration to use.
     ///
@@ -128,7 +128,7 @@ impl Cache {
 
     /// Reads a fresh or stale entry for the key.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `key`: Cache key to look up.
     ///
@@ -162,7 +162,7 @@ impl Cache {
 
     /// Reads a cached negative response when negative caching is enabled.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `key`: Cache key to look up.
     ///
@@ -181,7 +181,7 @@ impl Cache {
 
     /// Synthesizes a negative answer from cached NSEC denial proofs when safe.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `query`: Query to test against cached denial proofs.
     ///
@@ -205,7 +205,7 @@ impl Cache {
 
     /// Inserts a positive answer when caching is enabled.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `key`: Cache key for the answer.
     /// - `answer`: Positive DNS answer to store.
@@ -234,7 +234,7 @@ impl Cache {
 
     /// Inserts a bounded negative cache entry for NXDOMAIN or NODATA.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `key`: Cache key for the negative response.
     /// - `error`: DNS error to store when cacheable.
@@ -273,7 +273,7 @@ impl Cache {
     /// Stores DNSSEC NSEC proofs that can later synthesize NXDOMAIN or NODATA.
     /// Inserts DNSSEC NSEC proofs for aggressive negative caching.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `proofs`: NSEC proofs extracted from recursive responses.
     #[cfg_attr(not(feature = "recursive"), allow(dead_code))]
@@ -332,8 +332,8 @@ struct DnssecNegativeProof {
     expires_at: Instant,
 }
 
-/// A cached NSEC denial proof. NSEC3 proofs are intentionally collected by the
-/// recursor but not synthesized here until a full validator is wired in.
+/// A cached NSEC denial proof. NSEC3 proofs are ignored until a full validator
+/// and canonical hash support are wired in.
 ///
 /// This struct represents a DNSSEC NSEC record that can be used for
 /// aggressive negative caching. NSEC records provide cryptographic proof
@@ -359,7 +359,7 @@ pub(crate) struct NsecProof {
 impl DnssecNegativeProof {
     /// Builds a DNS error when this proof covers a query.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `query`: Query to test against the negative proof.
     ///
@@ -383,7 +383,7 @@ impl DnssecNegativeProof {
 
 /// Returns whether an NSEC owner range covers a name.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `name`: Candidate normalized DNS name.
 /// - `owner`: NSEC owner name.
@@ -413,7 +413,7 @@ enum NegativeCachedError {
 impl NegativeCachedError {
     /// Converts a DNS error into a cacheable negative error.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `error`: DNS error returned by resolution.
     ///
@@ -478,7 +478,7 @@ pub(crate) struct CacheKey {
 impl CacheKey {
     /// Builds a key for a query and effective policy settings.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `query`: Query represented by the cache key.
     /// - `ecs`: Effective ECS policy dimension.

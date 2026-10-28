@@ -15,7 +15,8 @@ use super::*;
 /// * `headers` - HTTP headers to include in the request.
 /// * `body` - Optional request body.
 /// * `extract_next_data` - Whether to parse the response as Next.js `__NEXT_DATA__`.
-/// * `scraper_type` - The type of scraper (HTML, JSON, or Static).
+/// * `scraper_type` - Parser kind: HTML, JSON, text or static.
+/// * `empty_on_statuses` - HTTP statuses whose bodies are replaced with an empty response of the scraper type.
 /// * `pre_processes` - Response transformations declared by the query.
 /// * `query_name` - Query name used in pre-processing diagnostics.
 /// * `base_url` - Source base URL exposed as `{base_url}` to pre-processing templates.
@@ -27,7 +28,8 @@ use super::*;
 ///
 /// # Errors
 ///
-/// Returns an error if the HTTP request fails.
+/// Returns an error on transport/body-read failure, invalid pre-processing delimiters,
+/// a missing Next.js payload, or malformed JSON when JSON parsing is required.
 pub(super) async fn fetch_single(
     client: &HttpClient,
     method: http::Method,
@@ -73,6 +75,11 @@ pub(super) async fn fetch_single(
     }
 }
 
+/// Builds a parser-specific empty response: an empty JSON array, empty text, or static marker.
+///
+/// # Arguments
+///
+/// * `scraper_type` - Parser kind determining whether an empty response is HTML, JSON, text or static.
 pub(super) fn empty_response(scraper_type: ScraperType) -> FetchedResponse {
     match scraper_type {
         ScraperType::Json => FetchedResponse::Json(Value::Array(Vec::new())),
@@ -82,6 +89,11 @@ pub(super) fn empty_response(scraper_type: ScraperType) -> FetchedResponse {
     }
 }
 
+/// Returns `[]` for JSON and an empty string for every other scraper type.
+///
+/// # Arguments
+///
+/// * `scraper_type` - Parser kind determining whether an empty response is HTML, JSON, text or static.
 pub(super) fn empty_response_body(scraper_type: ScraperType) -> &'static str {
     match scraper_type {
         ScraperType::Json => "[]",
@@ -300,12 +312,11 @@ pub(super) async fn fetch_responses_with_validation(
 ///
 /// * `query` - The query containing the URL template.
 /// * `context` - Runtime context containing parameters for template resolution.
-/// * `response` - Optional parent response for sub-query URL resolution.
 ///
 /// # Returns
 ///
 /// A vector containing the resolved URL(s). Returns empty vector for sub-queries
-/// without a query_url template when response/context is not provided.
+/// when no URL template, usable runtime URL or parent response pointer supplies a target.
 pub(super) fn resolve_request_urls(
     query: &dyn ScraperQuery,
     context: &QueryContext<'_>,

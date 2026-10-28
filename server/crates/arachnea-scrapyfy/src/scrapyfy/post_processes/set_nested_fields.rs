@@ -95,6 +95,10 @@ pub(super) fn validate(
 }
 
 /// Extracts the hostname from a URL string, removing the `www.` prefix.
+///
+/// # Arguments
+///
+/// * `url` - Absolute request URL used by the HTTP transport.
 fn extract_host(url: &str) -> Option<String> {
     let parsed = url::Url::parse(url).ok()?;
     let host = parsed.host_str()?;

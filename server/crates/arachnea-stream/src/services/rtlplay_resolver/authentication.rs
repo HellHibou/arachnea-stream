@@ -2,6 +2,22 @@
 
 use super::*;
 
+/// Returns a cached RTLplay session or performs the full SSO login flow.
+///
+/// Cached sessions are keyed by the configured login. A process-wide lock
+/// serializes cache misses so concurrent calls do not start duplicate logins.
+///
+/// # Arguments
+/// * `http_client` - HTTP client used for warm-up, redirect and login requests.
+/// * `credentials_store` - Store providing the RTLplay login and password.
+///
+/// # Errors
+/// Returns an error when credentials are missing, the warm-up or SSO flow
+/// fails, the device cookie is absent, or the resulting session cannot be
+/// cached.
+///
+/// # Returns
+/// A session containing the cookies required by player and media requests.
 pub(super) async fn get_or_login_session(
     http_client: &HttpClient,
     credentials_store: &dyn CredentialsStore,
@@ -226,6 +242,15 @@ pub(super) async fn get_or_login_session(
     Ok(session)
 }
 
+/// Merges the HTTP client's cookies for `url` into `cookies`.
+///
+/// # Arguments
+/// * `http_client` - Client owning the cookie jar to read.
+/// * `url` - URL whose cookie scope should be queried.
+/// * `cookies` - Accumulator updated with the scoped cookies.
+///
+/// # Errors
+/// Returns an error when the client cannot read cookies for the URL.
 pub(super) async fn merge_seen_cookies_for_url(
     http_client: &HttpClient,
     url: &str,
@@ -236,6 +261,19 @@ pub(super) async fn merge_seen_cookies_for_url(
 }
 
 /// Extracts SSO redirect URLs from the connexion flow.
+///
+/// The `__NEXT_DATA__` payload is preferred. When it is unavailable or does
+/// not contain `ssoUrls`, the function falls back to matching SSO URLs in the
+/// response body and redirect history.
+///
+/// # Arguments
+/// * `response_url` - Final URL of the connexion response.
+/// * `redirect_urls` - URLs visited while following the connexion redirects.
+/// * `response` - Decoded body of the final connexion response.
+///
+/// # Returns
+/// Unique SSO URLs in discovery order. The result may be empty when neither
+/// the payload nor the fallbacks expose an SSO redirect.
 pub(super) fn extract_sso_urls(
     response_url: &str,
     redirect_urls: &[String],

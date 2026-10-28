@@ -49,7 +49,7 @@ use crate::{
 /// For example, `text/html; charset=iso-8859-1` returns `iso-8859-1`.
 /// Returns `None` when no charset is declared.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `content_type`: The Content-Type header value to parse
 ///
@@ -164,7 +164,7 @@ impl ArachneaHttpClient {
 
     /// Builds a new HTTP client.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `config`: Validated runtime configuration.
     ///
@@ -181,7 +181,7 @@ impl ArachneaHttpClient {
 
     /// Builds a new HTTP client with an explicit cookie cache.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `config`: Validated runtime configuration.
     /// - `cookies`: Cookie cache used by this client.
@@ -210,6 +210,21 @@ impl ArachneaHttpClient {
     ///
     /// Callers that derive clients with distinct request modes can pass the same
     /// manager to preserve pages for matching origin, profile, and proxy keys.
+    /// This constructor uses an in-memory Cloudflare session store.
+    ///
+    /// # Arguments
+    ///
+    /// - `config`: Validated runtime configuration.
+    /// - `cookies`: Shared cookie cache used by this client.
+    /// - `browser_session_manager`: Shared browser page manager.
+    ///
+    /// # Returns
+    ///
+    /// A client bound to the provided caches.
+    ///
+    /// # Errors
+    ///
+    /// Returns engine or proxy initialization errors.
     pub async fn new_with_cookie_cache_and_browser_session_manager(
         config: ArachneaHttpConfig,
         cookies: Arc<RwLock<SharedCookieCache>>,
@@ -229,6 +244,22 @@ impl ArachneaHttpClient {
     ///
     /// Callers that derive clients with distinct request modes can pass the same
     /// manager to preserve pages for matching origin, profile, and proxy keys.
+    ///
+    /// # Arguments
+    ///
+    /// - `config`: Validated runtime configuration.
+    /// - `cookies`: Shared cookie cache used by this client.
+    /// - `browser_session_manager`: Shared browser page manager.
+    /// - `session_store`: Typed store used to persist chaser-cf sessions.
+    ///
+    /// # Returns
+    ///
+    /// A client bound to the provided caches and session store.
+    ///
+    /// # Errors
+    ///
+    /// Returns engine, proxy initialization, or session-store construction
+    /// errors.
     pub async fn new_with_cookie_cache_browser_session_manager_and_session_store(
         config: ArachneaHttpConfig,
         cookies: Arc<RwLock<SharedCookieCache>>,
@@ -270,9 +301,10 @@ impl ArachneaHttpClient {
 
     /// Builds the optional smart Cloudflare refresh engine for a client.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `config`: Client configuration.
+    /// - `proxy_runtime`: Prepared runtime supplying the loopback proxy URL.
     ///
     /// # Returns
     ///
@@ -300,7 +332,7 @@ impl ArachneaHttpClient {
 
     /// Creates a GET request builder.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `url`: Absolute request URL.
     ///
@@ -313,7 +345,7 @@ impl ArachneaHttpClient {
 
     /// Creates a POST request builder.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `url`: Absolute request URL.
     ///
@@ -326,7 +358,7 @@ impl ArachneaHttpClient {
 
     /// Creates a PUT request builder.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `url`: Absolute request URL.
     ///
@@ -339,7 +371,7 @@ impl ArachneaHttpClient {
 
     /// Creates a PATCH request builder.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `url`: Absolute request URL.
     ///
@@ -352,7 +384,7 @@ impl ArachneaHttpClient {
 
     /// Creates a DELETE request builder.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `url`: Absolute request URL.
     ///
@@ -365,7 +397,7 @@ impl ArachneaHttpClient {
 
     /// Creates a HEAD request builder.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `url`: Absolute request URL.
     ///
@@ -378,7 +410,7 @@ impl ArachneaHttpClient {
 
     /// Creates a request builder with a caller-provided method.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `method`: HTTP method.
     /// - `url`: Absolute request URL.
@@ -399,7 +431,7 @@ impl ArachneaHttpClient {
 
     /// Creates a request builder with a caller-provided method and execution mode.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `method`: HTTP method.
     /// - `url`: Absolute request URL.
@@ -418,6 +450,24 @@ impl ArachneaHttpClient {
     }
 
     /// Executes a request and follows redirects according to the client configuration.
+    ///
+    /// Redirect targets are recorded on the final response. A redirect response
+    /// rejected by a correlated proxy classifier stops the chain without being
+    /// followed. Exceeding the configured limit returns `RedirectLimitExceeded`.
+    ///
+    /// # Arguments
+    ///
+    /// - `options`: Prepared options for the first hop.
+    /// - `engine_name`: Engine label used in diagnostics.
+    /// - `execute_once`: Callback that executes one hop without following redirects.
+    ///
+    /// # Returns
+    ///
+    /// The final response with its redirect history.
+    ///
+    /// # Errors
+    ///
+    /// Returns URL, redirect, engine, or proxy-classification failures.
     async fn execute_with_redirects<F, Fut>(
         &self,
         mut options: RequestOptions,
@@ -496,7 +546,7 @@ impl ArachneaHttpClient {
 
     /// Builds an engine request with shared cookies injected.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `options`: Prepared request options.
     ///
@@ -538,7 +588,7 @@ impl ArachneaHttpClient {
 
     /// Builds common request headers.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `cookie`: Optional cookie header value.
     /// - `user_agent`: Optional user-agent learned from a Cloudflare solver.
@@ -576,7 +626,7 @@ impl ArachneaHttpClient {
 
     /// Stores solver metadata returned by a Cloudflare refresh.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `url`: Final response URL associated with the refresh.
     /// - `headers`: Refresh response headers containing internal metadata.
@@ -609,7 +659,7 @@ impl ArachneaHttpClient {
 
     /// Returns the solver-observed user-agent for a URL.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `url`: Request URL whose origin is inspected.
     ///
@@ -635,7 +685,7 @@ impl ArachneaHttpClient {
 
     /// Stores cookies from a response into the shared cache.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `url`: Final response URL.
     /// - `headers`: Response headers.
@@ -657,6 +707,16 @@ impl ArachneaHttpClient {
 
     /// Synchronizes browser page metadata with the shared HTTP cookie and
     /// user-agent caches.
+    ///
+    /// Metadata with an empty URL is ignored.
+    ///
+    /// # Arguments
+    ///
+    /// - `metadata`: Final page URL and synthesized browser headers.
+    ///
+    /// # Errors
+    ///
+    /// Returns URL or header errors from the shared caches.
     async fn store_browser_session_metadata(
         &self,
         metadata: BrowserSessionMetadata,
@@ -682,7 +742,7 @@ pub use response::ArachneaResponse;
 /// format (e.g., from configuration files) and need to convert them for use
 /// with the HTTP client.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `headers`: Iterable of header name/value pairs as strings
 ///
@@ -728,12 +788,12 @@ where
 
 /// Builds a redacted header map suitable for logging or diagnostics.
 ///
-/// Sensitive headers such as authorization and cookie are replaced with
-/// <redacted>. Non-UTF-8 values are replaced with <non-utf8>.
+/// Sensitive headers such as `Authorization` and `Cookie` are replaced with
+/// `<redacted>`. Non-UTF-8 values are replaced with `<non-utf8>`.
 ///
-/// # Parameters
+/// # Arguments
 ///
-/// - headers: Original header map to redact.
+/// - `headers`: Original header map to redact.
 ///
 /// # Returns
 ///

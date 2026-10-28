@@ -215,7 +215,7 @@ type LogSubscriber = Box<dyn Fn(&LogRecord) + Send + Sync + 'static>;
 
 /// In-memory ring buffer of the most recent structured log records.
 ///
-/// The cache is fed by a `tracing` layer (see [`LogCaptureLayer`]) and keeps at
+/// The cache is fed by a `tracing` layer (see `LogCaptureLayer`) and keeps at
 /// most [`LOG_CACHE_CAPACITY`] records. It also forwards every new record to the
 /// registered subscribers so a live consumer (for example the dedicated log
 /// window) can be updated without polling the whole buffer.
@@ -476,7 +476,7 @@ where
 /// Two layers are installed:
 /// - a console `fmt` layer that renders the free-form colored text to `stdout`
 ///   (preserving the original console behavior);
-/// - a [`LogCaptureLayer`] that stores structured [`LogRecord`]s in the shared
+/// - a `LogCaptureLayer` that stores structured [`LogRecord`]s in the shared
 ///   log cache for the dedicated log window.
 ///
 /// # Panics

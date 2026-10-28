@@ -12,7 +12,7 @@ use super::ArachneaProxyCore;
 
 /// Extracts the host portion from a `host:port` endpoint.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `endpoint`: Endpoint string that may contain a bracketed IPv6 address.
 ///
@@ -78,7 +78,7 @@ impl ArachneaProxyCore {
 
     /// Opens the TCP connection to the first proxy node in a chain.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `first`: First non-direct proxy node.
     /// - `chain`: Chain used for route metadata.
@@ -138,7 +138,7 @@ impl ArachneaProxyCore {
 
     /// Wraps a proxy stream in client TLS for an HTTPS proxy hop.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `stream`: Existing stream connected to the HTTPS proxy endpoint.
     /// - `node`: HTTPS proxy node whose endpoint supplies the TLS server name.
@@ -174,7 +174,7 @@ impl ArachneaProxyCore {
 
     /// Performs the protocol handshake for one proxy hop toward a target.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `stream`: Stream already connected to `node`.
     /// - `node`: Proxy node whose protocol should be used for the handshake.

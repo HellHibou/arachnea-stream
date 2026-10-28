@@ -6,7 +6,7 @@ use crate::core::{ClientContext, ConnectRequest, ProxyError, Result, RouteDecisi
 pub trait ClientParameterExtractor<Input>: Send + Sync {
     /// Extracts a context from a protocol-specific input.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `input`: Protocol-specific input to inspect.
     ///
@@ -24,7 +24,7 @@ pub trait ClientParameterExtractor<Input>: Send + Sync {
 pub trait ClientParameterValidator: Send + Sync {
     /// Returns a filtered client context.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `context`: Client context to validate.
     ///
@@ -43,7 +43,7 @@ pub trait ClientParameterValidator: Send + Sync {
 pub trait RoutePlugin: Send + Sync {
     /// Returns a replacement route or the original decision.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `request`: Connect request being routed.
     /// - `decision`: Current route decision.
@@ -74,7 +74,7 @@ pub struct RejectAllParameters;
 impl ClientParameterValidator for RejectAllParameters {
     /// Rejects any non-empty client context.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `context`: Client context proposed by an inbound adapter.
     ///

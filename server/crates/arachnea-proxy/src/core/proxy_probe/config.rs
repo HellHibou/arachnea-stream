@@ -64,7 +64,7 @@ pub struct ProbeConfig {
     pub https_policy: ProbeTargetPolicy,
     /// Time limits for the individual probe phases and complete attempts.
     pub timeouts: ProbeTimeoutConfig,
-    /// Probe mode.
+    /// Strict measured-capability policy or relaxed use of inconclusive source claims.
     pub mode: ProbeMode,
     /// Protocol detection order for records without a known protocol.
     pub protocol_detection_order: Vec<ProxyProtocol>,
@@ -88,6 +88,11 @@ impl Default for ProbeConfig {
 }
 
 impl ProxyProbe {
+    /// Validates configured complementary probe URLs and their target policies.
+    ///
+    /// # Errors
+    ///
+    /// Rejects invalid target schemes or credentials, empty policy identities, non-5xx service indications, identical fallbacks and invalid suspension thresholds.
     pub(super) fn validate_configuration(&self) -> Result<()> {
         for (url, policy, scheme) in [
             (

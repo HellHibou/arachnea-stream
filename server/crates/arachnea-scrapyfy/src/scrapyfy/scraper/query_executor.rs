@@ -1,4 +1,4 @@
-//! [`execute_query`] — unified polymorphic executor for every query type.
+//! [`crate::scrapyfy::scraper::query_executor::execute_query_items`] — unified polymorphic executor for every query type.
 //!
 //! Uses the shared types ([`ScraperQuery`], [`ScraperEntrySpec`], [`RowLocator`])
 //! and trait objects for polymorphic dispatch.  Proper downcasts via
@@ -98,6 +98,10 @@ use crate::QUERY_DEFAULT_FETCH_CONCURRENCY as DEFAULT_FETCH_CONCURRENCY;
 use crate::QUERY_DEFAULT_ISOLATED_PAGE_CLICK_CONCURRENCY as DEFAULT_ISOLATED_PAGE_CLICK_CONCURRENCY;
 
 /// Returns whether entries contain an isolated page-click sub-query at any depth.
+///
+/// # Arguments
+///
+/// * `entries` - Entry definitions applied to the current extraction context.
 fn entries_contain_isolated_page_click(entries: &[&dyn ScraperEntrySpec]) -> bool {
     entries.iter().any(|entry| {
         entry.sub_queries().iter().any(|sub_query| {

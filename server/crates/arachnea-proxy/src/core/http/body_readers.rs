@@ -17,6 +17,11 @@ pub struct ContentLengthBodyReader<S> {
 
 impl<S> ContentLengthBodyReader<S> {
     /// Wraps a stream, limiting reads to at most `content_length` bytes.
+    ///
+    /// # Arguments
+    /// * `stream` - Connected stream from which HTTP or proxy-protocol bytes are read or written.
+    /// * `content_length` - Number of body bytes exposed before reporting end of stream.
+    ///
     pub fn new(stream: S, content_length: usize) -> Self {
         Self {
             stream,
@@ -58,6 +63,10 @@ pub struct UntilEofBodyReader<S> {
 
 impl<S> UntilEofBodyReader<S> {
     /// Wraps a stream, reading until EOF.
+    ///
+    /// # Arguments
+    /// * `stream` - Connected stream from which HTTP or proxy-protocol bytes are read or written.
+    ///
     pub fn new(stream: S) -> Self {
         Self { stream }
     }
@@ -87,7 +96,7 @@ pub struct ChunkedBodyReader<R> {
     /// Read position within `decoded`.
     decoded_pos: usize,
 }
-
+/// Incremental chunked-transfer decoder state, including framing and trailer consumption.
 enum ChunkedState {
     /// Reading the hex chunk size line (until \r\n).
     ChunkSize,
@@ -103,6 +112,10 @@ enum ChunkedState {
 
 impl<R> ChunkedBodyReader<R> {
     /// Wraps a stream, decoding chunked transfer encoding on reads.
+    ///
+    /// # Arguments
+    /// * `reader` - Buffered HTTP stream positioned at the start of the chunked body.
+    ///
     pub fn new(reader: R) -> Self {
         Self {
             reader,
@@ -162,6 +175,10 @@ impl<R: AsyncRead + Unpin> AsyncRead for ChunkedBodyReader<R> {
 }
 
 impl<R: AsyncRead + Unpin> ChunkedBodyReader<R> {
+    /// Polls additional chunk framing bytes without retaining unfilled buffer space.
+    ///
+    /// # Arguments
+    /// * `cx` - Task context used to register wakeups while polling the underlying reader.
     fn read_more(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         let start = self.read_buf.len();
         self.read_buf.resize(start + 4096, 0);
@@ -185,6 +202,10 @@ impl<R: AsyncRead + Unpin> ChunkedBodyReader<R> {
         Poll::Ready(Ok(()))
     }
 
+    /// Consumes a chunk-size line and advances the decoder state when enough bytes arrive.
+    ///
+    /// # Arguments
+    /// * `cx` - Task context used to register wakeups while polling the underlying reader.
     fn try_read_chunk_size(&mut self, cx: &mut Context<'_>) -> Result<bool, io::Error> {
         loop {
             if let Some(end) = self.read_buf.windows(2).position(|w| w == b"\r\n") {
@@ -214,6 +235,11 @@ impl<R: AsyncRead + Unpin> ChunkedBodyReader<R> {
         }
     }
 
+    /// Moves available chunk payload into the decoded buffer and updates the remaining count.
+    ///
+    /// # Arguments
+    /// * `cx` - Task context used to register wakeups while polling the underlying reader.
+    /// * `remaining` - Number of payload bytes still expected in the current chunk.
     fn try_read_chunk_data(
         &mut self,
         cx: &mut Context<'_>,
@@ -239,6 +265,10 @@ impl<R: AsyncRead + Unpin> ChunkedBodyReader<R> {
         }
     }
 
+    /// Consumes and validates the CRLF following a completed chunk.
+    ///
+    /// # Arguments
+    /// * `cx` - Task context used to register wakeups while polling the underlying reader.
     fn try_read_chunk_crlf(&mut self, cx: &mut Context<'_>) -> Result<bool, io::Error> {
         loop {
             if self.read_buf.len() >= 2 {
@@ -259,6 +289,10 @@ impl<R: AsyncRead + Unpin> ChunkedBodyReader<R> {
         }
     }
 
+    /// Discards one trailer line and marks the decoder done at the terminating empty line.
+    ///
+    /// # Arguments
+    /// * `cx` - Task context used to register wakeups while polling the underlying reader.
     fn try_read_trailers(&mut self, cx: &mut Context<'_>) -> Result<bool, io::Error> {
         loop {
             if let Some(end) = self

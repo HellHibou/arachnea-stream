@@ -41,6 +41,19 @@ pub fn resolve_manifest_sources(
     Ok(resolved)
 }
 
+/// Expands manifest imports recursively, skipping repeated identities and cycles with a warning.
+///
+/// # Arguments
+///
+/// * `config_path` - Path of the JSON manifest currently being expanded.
+/// * `manifest_rel_dir` - Directory against which declared source paths are normalized.
+/// * `visited` - Manifest identities already expanded, used to skip duplicate imports and cycles.
+/// * `import_chain` - Current import stack retained for diagnostic messages.
+/// * `resolved` - Output source entries accumulated in manifest traversal order.
+///
+/// # Errors
+///
+/// Returns errors when a manifest cannot be opened or decoded, or a source/import path cannot be resolved. Duplicate and cyclic imports are skipped with a warning.
 pub(super) fn resolve_manifest_sources_recursive(
     config_path: &Path,
     manifest_rel_dir: &PathBuf,

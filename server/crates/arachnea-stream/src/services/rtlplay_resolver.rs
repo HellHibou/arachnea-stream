@@ -69,21 +69,27 @@ const GIGYA_COOKIE_VALUE: &str = "_gigya_ver4";
 /// Seconds subtracted from the RTLplay JWT expiry before cache reuse.
 const RTLPLAY_JWT_REFRESH_MARGIN_SECONDS: u64 = 60;
 
+/// Process-wide cache of authenticated RTLplay sessions keyed by login.
 static RTLPLAY_SESSION_CACHE: OnceLock<Mutex<HashMap<String, CachedRtlPlaySession>>> =
     OnceLock::new();
+/// Serializes cache misses during the RTLplay login flow.
 static RTLPLAY_LOGIN_LOCK: OnceLock<AsyncMutex<()>> = OnceLock::new();
+/// Shared regex used to locate `__NEXT_DATA__` payloads.
 static NEXT_DATA_REGEX: OnceLock<Regex> = OnceLock::new();
 
+/// Authenticated RTLplay cookie set.
 #[derive(Clone)]
 struct RtlPlaySession {
     cookies: HashMap<String, String>,
 }
 
+/// Cached RTLplay session with its expiry instant.
 struct CachedRtlPlaySession {
     session: RtlPlaySession,
     expires_at: Instant,
 }
 
+/// Playback data extracted from an RTLplay player configuration.
 struct ResolvedRtlPlayVideo {
     manifest_url: String,
     license_url: Option<String>,
@@ -92,6 +98,7 @@ struct ResolvedRtlPlayVideo {
     chapters: Vec<Chapter>,
 }
 
+/// RTLplay client version taken from service parameters.
 struct RtlPlayApiVersion {
     major: String,
     minor: String,
@@ -99,6 +106,17 @@ struct RtlPlayApiVersion {
 }
 
 impl RtlPlayApiVersion {
+    /// Builds the API version from required service parameters.
+    ///
+    /// # Arguments
+    /// * `parameters` - Service parameters containing `api_version_major`,
+    ///   `api_version_minor` and `api_version_build`.
+    ///
+    /// # Errors
+    /// Returns an error when any required parameter is missing or empty.
+    ///
+    /// # Returns
+    /// The validated API version.
     fn from_parameters(parameters: &[ScraperQueryCollectionParameter]) -> Result<Self> {
         Ok(Self {
             major: required_collection_parameter(parameters, "api_version_major")?,
@@ -108,6 +126,17 @@ impl RtlPlayApiVersion {
     }
 }
 
+/// Returns a required non-empty service parameter value.
+///
+/// # Arguments
+/// * `parameters` - Service parameters to search.
+/// * `name` - Exact trimmed parameter name.
+///
+/// # Errors
+/// Returns an error when the parameter is absent or empty.
+///
+/// # Returns
+/// The trimmed parameter value.
 fn required_collection_parameter(
     parameters: &[ScraperQueryCollectionParameter],
     name: &str,
@@ -186,6 +215,22 @@ impl PlayerStreamResolver for RtlPlayResolver {
     }
 }
 
+/// Resolves an RTLplay replay video into a protected player stream.
+///
+/// # Arguments
+/// * `scraper_agregator` - Aggregator used to create the HTTP client.
+/// * `credentials_store` - Store providing the RTLplay credentials.
+/// * `video_id` - RTLplay video identifier; surrounding whitespace is ignored.
+/// * `stream_kind` - Optional caller-selected stream kind.
+/// * `api_version` - Client version sent to RTLplay.
+/// * `endpoints` - Public endpoint settings used to build proxy URLs.
+///
+/// # Errors
+/// Returns an error when the identifier is empty, authentication fails, or
+/// playback metadata cannot be resolved.
+///
+/// # Returns
+/// The resolved replay stream.
 async fn resolve_replay_stream(
     scraper_agregator: &ScraperAgregator,
     credentials_store: &dyn CredentialsStore,
@@ -210,6 +255,22 @@ async fn resolve_replay_stream(
     build_resolved_player_stream(resolved, stream_kind, endpoints)
 }
 
+/// Resolves an RTLplay live channel into a protected player stream.
+///
+/// # Arguments
+/// * `scraper_agregator` - Aggregator used to create the HTTP client.
+/// * `credentials_store` - Store providing the RTLplay credentials.
+/// * `channel_id` - RTLplay live channel identifier or URL.
+/// * `stream_kind` - Optional caller-selected stream kind.
+/// * `api_version` - Client version sent to RTLplay.
+/// * `endpoints` - Public endpoint settings used to build proxy URLs.
+///
+/// # Errors
+/// Returns an error when the channel is unsupported, authentication fails, or
+/// playback metadata cannot be resolved.
+///
+/// # Returns
+/// The resolved live stream.
 async fn resolve_live_stream(
     scraper_agregator: &ScraperAgregator,
     credentials_store: &dyn CredentialsStore,
@@ -230,6 +291,16 @@ async fn resolve_live_stream(
     build_resolved_player_stream(resolved, stream_kind, endpoints)
 }
 
+/// Converts RTLplay playback data into the generic player stream contract.
+///
+/// # Arguments
+/// * `resolved` - Playback data extracted from the player configuration.
+/// * `stream_kind` - Optional caller-selected stream kind.
+/// * `endpoints` - Public endpoint settings used to build license proxy URLs.
+///
+/// # Returns
+/// The resolved player stream. License proxying is included only when a DRM
+/// token is present.
 fn build_resolved_player_stream(
     resolved: ResolvedRtlPlayVideo,
     stream_kind: Option<String>,
@@ -261,6 +332,10 @@ fn build_resolved_player_stream(
     })
 }
 
+/// Builds the HTTP configuration used for RTLplay authentication and playback.
+///
+/// # Returns
+/// A configuration with `RTLPLAY_AUTH_MAX_REDIRECTS` as the redirect limit.
 fn rtlplay_http_config() -> ScraperHttpConfig {
     ScraperHttpConfig {
         max_redirects: Some(RTLPLAY_AUTH_MAX_REDIRECTS),
@@ -268,6 +343,17 @@ fn rtlplay_http_config() -> ScraperHttpConfig {
     }
 }
 
+/// Builds the common RTLplay request headers for an API version.
+///
+/// # Arguments
+/// * `api_version` - Client version used in the user-agent and app-version
+///   headers.
+///
+/// # Errors
+/// Returns an error when a generated header value is invalid.
+///
+/// # Returns
+/// The headers required by RTLplay endpoints.
 fn rtlplay_headers(api_version: &RtlPlayApiVersion) -> Result<HeaderMap> {
     let user_agent = rtlplay_user_agent(api_version);
     let mut map = HeaderMap::new();
@@ -303,6 +389,13 @@ fn rtlplay_headers(api_version: &RtlPlayApiVersion) -> Result<HeaderMap> {
     Ok(map)
 }
 
+/// Formats the RTLplay Android user-agent for an API version.
+///
+/// # Arguments
+/// * `api_version` - Version components inserted into the user-agent.
+///
+/// # Returns
+/// The RTLplay user-agent string.
 fn rtlplay_user_agent(api_version: &RtlPlayApiVersion) -> String {
     format!(
         "RTL_PLAY/{}.{} (com.tapptic.rtl.tvi; build:{}; Android 30)",
@@ -310,6 +403,19 @@ fn rtlplay_user_agent(api_version: &RtlPlayApiVersion) -> String {
     )
 }
 
+/// Reads a non-empty scalar from a nested JSON path.
+///
+/// # Arguments
+/// * `payload` - JSON value to traverse.
+/// * `path` - Object keys applied successively.
+/// * `error_message` - Message used when a key or scalar is missing.
+///
+/// # Errors
+/// Returns an error when traversal fails or the target is not a supported
+/// non-empty scalar.
+///
+/// # Returns
+/// The trimmed scalar as a string.
 fn read_json_string(payload: &Value, path: &[&str], error_message: &str) -> Result<String> {
     let mut current = payload;
 
@@ -326,6 +432,14 @@ fn read_json_string(payload: &Value, path: &[&str], error_message: &str) -> Resu
     bail!(error_message.to_string())
 }
 
+/// Converts a string, number or boolean JSON scalar into a trimmed string.
+///
+/// # Arguments
+/// * `value` - JSON value to convert.
+///
+/// # Returns
+/// The non-empty trimmed scalar, or `None` for other value types or empty
+/// strings.
 fn json_scalar_to_string(value: &Value) -> Option<String> {
     let value = match value {
         Value::String(value) => value.clone(),

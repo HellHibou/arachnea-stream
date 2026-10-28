@@ -12,7 +12,7 @@ pub struct ClientAcl {
 impl ClientAcl {
     /// Creates an ACL from allow and deny networks.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `allow`: Networks that may use the listener when the allowlist is not empty.
     /// - `deny`: Networks that are always denied.
@@ -26,7 +26,7 @@ impl ClientAcl {
 
     /// Returns true if a client IP may use the server.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `ip`: Client IP address to check.
     ///

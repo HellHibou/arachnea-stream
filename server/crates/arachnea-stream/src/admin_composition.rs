@@ -27,6 +27,13 @@ pub struct StreamAdminRuntimeAdapter {
 
 impl StreamAdminRuntimeAdapter {
     /// Creates the Stream runtime adapter.
+    ///
+    /// # Arguments
+    /// * `configuration` - Persisted application options shared with the REST settings resolver.
+    /// * `configuration_path` - File receiving saved application options.
+    /// * `credentials` - Encrypted service credentials store.
+    /// * `reloadable` - Reloadable scraper runtime controlled by the admin service.
+    /// * `rest_server` - Optional REST server handle used for hot settings application.
     pub fn new(
         configuration: CoreApplicationOptions,
         configuration_path: PathBuf,

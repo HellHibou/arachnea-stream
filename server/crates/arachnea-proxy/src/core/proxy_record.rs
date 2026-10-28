@@ -169,7 +169,7 @@ pub struct ProxyRecord {
     pub protocol: Option<ProxyProtocol>,
     /// Proxy host — an IPv4, IPv6, or hostname string.
     pub host: String,
-    /// Proxy port.
+    /// TCP port of the proxy endpoint, independent of the final destination port.
     pub port: u16,
     /// Optional ISO country code associated with this proxy.
     ///
@@ -348,7 +348,7 @@ impl ProxyRecord {
     /// Converts this record into a [`ProxyNode`] using an explicit transport
     /// kind. This is useful when a probe resolved the protocol externally.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `kind`: Concrete transport kind to use.
     ///
@@ -369,6 +369,10 @@ impl ProxyRecord {
         format!("dynamic-{}{}:{}", protocol_tag, self.host, self.port)
     }
 
+    /// Deserializes epoch milliseconds into a timestamp.
+    ///
+    /// # Arguments
+    /// * `kind` - Transport kind used when converting the inventory record into a proxy node.
     fn to_node_with_kind(&self, kind: TransportKind) -> ProxyNode {
         let endpoint = self.authority();
         let send_hostname = !matches!(kind, TransportKind::Socks4);
@@ -388,7 +392,7 @@ impl ProxyRecord {
 impl TransportKind {
     /// Maps a [`ProxyProtocol`] to the corresponding [`TransportKind`].
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `protocol`: Proxy protocol variant.
     ///
@@ -409,7 +413,7 @@ impl TransportKind {
 
 /// Formats a host and port into an authority string, bracketing IPv6 addresses.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `host`: Hostname, IPv4, or IPv6 address.
 /// - `port`: Port number.
@@ -467,7 +471,7 @@ pub trait ProxyBatchSink: Send + Sync {
 pub trait ProxyDataProvider: Send + Sync {
     /// Load proxy records matching the given request parameters.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `request`: Load parameters such as an optional country filter.
     ///
@@ -503,6 +507,15 @@ pub(crate) mod system_time_serde {
 
     use serde::{Deserialize, Deserializer, Serializer};
 
+    /// Serializes a timestamp as epoch milliseconds.
+    ///
+    /// # Arguments
+    /// * `time` - Timestamp encoded as milliseconds since the Unix epoch; pre-epoch values become zero.
+    /// * `serializer` - Serde serializer receiving the epoch-millisecond representation.
+    ///
+    /// # Errors
+    ///
+    /// Propagates errors from the selected Serde serializer.
     pub fn serialize<S>(time: &SystemTime, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -514,6 +527,14 @@ pub(crate) mod system_time_serde {
         serializer.serialize_u64(millis)
     }
 
+    /// Deserializes epoch milliseconds into a timestamp.
+    ///
+    /// # Arguments
+    /// * `deserializer` - Serde deserializer supplying an epoch-millisecond value.
+    ///
+    /// # Errors
+    ///
+    /// Propagates errors when the input cannot be deserialized as unsigned epoch milliseconds.
     pub fn deserialize<'de, D>(deserializer: D) -> Result<SystemTime, D::Error>
     where
         D: Deserializer<'de>,
@@ -529,6 +550,11 @@ pub(crate) mod option_system_time_serde {
 
     use serde::{Deserialize, Deserializer, Serializer};
 
+    /// Serializes an optional timestamp as epoch milliseconds or null.
+    ///
+    /// # Arguments
+    /// * `time` - Timestamp encoded as milliseconds since the Unix epoch; pre-epoch values become zero. Optional `None` is encoded as null.
+    /// * `serializer` - Serde serializer receiving the epoch-millisecond representation.
     pub fn serialize<S>(time: &Option<SystemTime>, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -545,6 +571,10 @@ pub(crate) mod option_system_time_serde {
         }
     }
 
+    /// Deserializes epoch milliseconds or null into an optional timestamp.
+    ///
+    /// # Arguments
+    /// * `deserializer` - Serde deserializer supplying an epoch-millisecond value.
     pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<SystemTime>, D::Error>
     where
         D: Deserializer<'de>,

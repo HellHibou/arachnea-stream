@@ -55,26 +55,46 @@ pub struct Field {
 
 impl Field {
     /// Creates a required string field.
+    ///
+    /// # Arguments
+    /// * `name` - Stable field name used by the schema, documents and queries.
     pub fn string(name: impl Into<String>) -> Self {
         Self::new(name, FieldType::String)
     }
     /// Creates a required integer field.
+    ///
+    /// # Arguments
+    /// * `name` - Stable field name used by the schema, documents and queries.
     pub fn integer(name: impl Into<String>) -> Self {
         Self::new(name, FieldType::Integer)
     }
     /// Creates a required boolean field.
+    ///
+    /// # Arguments
+    /// * `name` - Stable field name used by the schema, documents and queries.
     pub fn boolean(name: impl Into<String>) -> Self {
         Self::new(name, FieldType::Boolean)
     }
     /// Creates a required date-time field.
+    ///
+    /// # Arguments
+    /// * `name` - Stable field name used by the schema, documents and queries.
     pub fn date_time(name: impl Into<String>) -> Self {
         Self::new(name, FieldType::DateTime)
     }
     /// Creates a required JSON field.
+    ///
+    /// # Arguments
+    /// * `name` - Stable field name used by the schema, documents and queries.
     pub fn json(name: impl Into<String>) -> Self {
         Self::new(name, FieldType::Json)
     }
 
+    /// Creates a required field with the given logical type.
+    ///
+    /// # Arguments
+    /// * `name` - Stable field name used by the schema, documents and queries.
+    /// * `field_type` - Logical type expected for the field.
     fn new(name: impl Into<String>, field_type: FieldType) -> Self {
         Self {
             name: name.into(),
@@ -133,6 +153,13 @@ impl EntitySchema {
         Self { fields: Vec::new() }
     }
     /// Adds one primary-key component in declaration order.
+    ///
+    /// The field is forced to be non-nullable and its role is replaced with
+    /// [`FieldRole::PrimaryKey`], including when it was previously marked as an
+    /// expiration field.
+    ///
+    /// # Arguments
+    /// * `field` - Field declaration to append to the primary key.
     pub fn primary_key(mut self, mut field: Field) -> Self {
         field.nullable = false;
         field.role = Some(FieldRole::PrimaryKey);
@@ -140,6 +167,12 @@ impl EntitySchema {
         self
     }
     /// Adds a regular field.
+    ///
+    /// Fields keep declaration order. Names must be non-empty and unique when
+    /// the schema is validated.
+    ///
+    /// # Arguments
+    /// * `field` - Field declaration to append.
     pub fn field(mut self, field: Field) -> Self {
         self.fields.push(field);
         self
@@ -149,6 +182,9 @@ impl EntitySchema {
         &self.fields
     }
     /// Finds one field by its stable name.
+    ///
+    /// # Arguments
+    /// * `name` - Stable field name to look up.
     pub fn field_named(&self, name: &str) -> Option<&Field> {
         self.fields.iter().find(|field| field.name == name)
     }
@@ -166,6 +202,7 @@ impl EntitySchema {
             .find(|field| field.role == Some(FieldRole::Expiration))
     }
 
+    /// Validates that the schema has unique names, a primary key and valid roles.
     fn validate(&self) -> anyhow::Result<()> {
         let mut names = std::collections::HashSet::new();
         let primary_keys = self
@@ -273,8 +310,26 @@ pub trait PersistentEntity: Clone + Send + Sync + Sized + 'static {
     /// Returns the complete, stable schema for this entity.
     fn schema() -> EntitySchema;
     /// Writes every declared field to `writer`.
+    ///
+    /// Implementations must write each schema field at most once and must not
+    /// write undeclared fields. The store validates the completed document
+    /// before persisting it.
+    ///
+    /// # Arguments
+    /// * `writer` - Schema-bound writer that validates field names and types.
+    ///
+    /// # Errors
+    /// Returns an error for an undeclared field, a type mismatch, a duplicate
+    /// write, or a value that cannot be represented by the storage format.
     fn write_to(&self, writer: &mut EntityWriter) -> anyhow::Result<()>;
     /// Rebuilds the entity from a validated entity document.
+    ///
+    /// # Arguments
+    /// * `reader` - Schema-bound reader for the stored entity document.
+    ///
+    /// # Errors
+    /// Returns an error when a required field is absent, a field has the wrong
+    /// logical type, or a stored value cannot be converted to the expected type.
     fn read_from(reader: &EntityReader<'_>) -> anyhow::Result<Self>;
 }
 
@@ -290,6 +345,7 @@ pub(crate) enum StoredValue {
 }
 
 impl StoredValue {
+    /// Returns the logical schema type represented by this value.
     pub(crate) fn field_type(&self) -> FieldType {
         match self {
             Self::String(_) => FieldType::String,
@@ -315,6 +371,9 @@ pub struct EntityWriter {
 
 impl EntityWriter {
     /// Creates a writer bound to `schema`.
+    ///
+    /// # Arguments
+    /// * `schema` - Entity schema used to validate field names and types.
     pub fn new(schema: EntitySchema) -> Self {
         Self {
             schema,
@@ -322,25 +381,73 @@ impl EntityWriter {
         }
     }
     /// Writes a string field.
+    ///
+    /// # Arguments
+    /// * `field` - Declared field name.
+    /// * `value` - String value to store.
+    ///
+    /// # Errors
+    /// Returns an error when the field is undeclared, expects another type, or
+    /// has already been written.
     pub fn string(&mut self, field: &str, value: impl Into<String>) -> anyhow::Result<()> {
         self.write(field, StoredValue::String(value.into()))
     }
     /// Writes an integer field.
+    ///
+    /// # Arguments
+    /// * `field` - Declared field name.
+    /// * `value` - Signed 64-bit integer to store.
+    ///
+    /// # Errors
+    /// Returns an error when the field is undeclared, expects another type, or
+    /// has already been written.
     pub fn integer(&mut self, field: &str, value: i64) -> anyhow::Result<()> {
         self.write(field, StoredValue::Integer(value))
     }
     /// Writes a boolean field.
+    ///
+    /// # Arguments
+    /// * `field` - Declared field name.
+    /// * `value` - Boolean value to store.
+    ///
+    /// # Errors
+    /// Returns an error when the field is undeclared, expects another type, or
+    /// has already been written.
     pub fn boolean(&mut self, field: &str, value: bool) -> anyhow::Result<()> {
         self.write(field, StoredValue::Boolean(value))
     }
     /// Writes a date-time field.
+    ///
+    /// # Arguments
+    /// * `field` - Declared field name.
+    /// * `value` - Timestamp to store with nanosecond precision.
+    ///
+    /// # Errors
+    /// Returns an error when the field is undeclared, expects another type, has
+    /// already been written, or the timestamp predates [`UNIX_EPOCH`].
     pub fn date_time(&mut self, field: &str, value: SystemTime) -> anyhow::Result<()> {
         self.write(field, StoredValue::DateTime(to_nanos(value)?))
     }
     /// Writes an explicitly declared JSON field.
+    ///
+    /// # Arguments
+    /// * `field` - Declared field name.
+    /// * `value` - JSON value to store.
+    ///
+    /// # Errors
+    /// Returns an error when the field is undeclared, expects another type, or
+    /// has already been written.
     pub fn json(&mut self, field: &str, value: Value) -> anyhow::Result<()> {
         self.write(field, StoredValue::Json(value))
     }
+    /// Writes one value after validating its declaration and logical type.
+    ///
+    /// # Arguments
+    /// * `field` - Declared field name.
+    /// * `value` - Stored value whose logical type must match the declaration.
+    ///
+    /// # Errors
+    /// Returns an error when the field is undeclared, has another type, or was already written.
     fn write(&mut self, field: &str, value: StoredValue) -> anyhow::Result<()> {
         let declaration = self.schema.field_named(field).ok_or_else(|| {
             anyhow::anyhow!("field '{field}' is not declared in the entity schema")
@@ -357,6 +464,7 @@ impl EntityWriter {
         }
         Ok(())
     }
+    /// Completes the document after checking that all required fields exist.
     fn finish(self) -> anyhow::Result<EntityDocument> {
         for field in self.schema.fields() {
             if !field.nullable && !self.fields.contains_key(&field.name) {
@@ -375,10 +483,21 @@ pub struct EntityReader<'a> {
 }
 
 impl<'a> EntityReader<'a> {
+    /// Creates a reader over a validated entity document.
+    ///
+    /// # Arguments
+    /// * `document` - Entity document previously validated against the schema.
     pub(crate) fn new(document: &'a EntityDocument) -> Self {
         Self { document }
     }
     /// Reads a required string field.
+    ///
+    /// # Arguments
+    /// * `field` - Declared field name.
+    ///
+    /// # Errors
+    /// Returns an error when the field is absent. The store validates declared
+    /// types before invoking the entity reader.
     pub fn string(&self, field: &str) -> anyhow::Result<&str> {
         match self.get(field)? {
             StoredValue::String(value) => Ok(value),
@@ -386,6 +505,13 @@ impl<'a> EntityReader<'a> {
         }
     }
     /// Reads a required integer field.
+    ///
+    /// # Arguments
+    /// * `field` - Declared field name.
+    ///
+    /// # Errors
+    /// Returns an error when the field is absent. The store validates declared
+    /// types before invoking the entity reader.
     pub fn integer(&self, field: &str) -> anyhow::Result<i64> {
         match self.get(field)? {
             StoredValue::Integer(value) => Ok(*value),
@@ -393,6 +519,13 @@ impl<'a> EntityReader<'a> {
         }
     }
     /// Reads a required boolean field.
+    ///
+    /// # Arguments
+    /// * `field` - Declared field name.
+    ///
+    /// # Errors
+    /// Returns an error when the field is absent. The store validates declared
+    /// types before invoking the entity reader.
     pub fn boolean(&self, field: &str) -> anyhow::Result<bool> {
         match self.get(field)? {
             StoredValue::Boolean(value) => Ok(*value),
@@ -400,6 +533,14 @@ impl<'a> EntityReader<'a> {
         }
     }
     /// Reads a required date-time field.
+    ///
+    /// # Arguments
+    /// * `field` - Declared field name.
+    ///
+    /// # Errors
+    /// Returns an error when the field is absent or stores a timestamp outside
+    /// the supported range. The store validates declared types before invoking
+    /// the entity reader.
     pub fn date_time(&self, field: &str) -> anyhow::Result<SystemTime> {
         match self.get(field)? {
             StoredValue::DateTime(value) => from_nanos(*value),
@@ -407,12 +548,26 @@ impl<'a> EntityReader<'a> {
         }
     }
     /// Reads a required JSON field.
+    ///
+    /// # Arguments
+    /// * `field` - Declared field name.
+    ///
+    /// # Errors
+    /// Returns an error when the field is absent. The store validates declared
+    /// types before invoking the entity reader.
     pub fn json(&self, field: &str) -> anyhow::Result<&Value> {
         match self.get(field)? {
             StoredValue::Json(value) => Ok(value),
             _ => unreachable!(),
         }
     }
+    /// Returns a required stored value or an error when it is absent.
+    ///
+    /// # Arguments
+    /// * `field` - Declared field name.
+    ///
+    /// # Errors
+    /// Returns an error when the field is absent from the document.
     fn get(&self, field: &str) -> anyhow::Result<&StoredValue> {
         self.document
             .fields
@@ -420,6 +575,12 @@ impl<'a> EntityReader<'a> {
             .ok_or_else(|| anyhow::anyhow!("required field '{field}' is absent"))
     }
     /// Reads an optional string field.
+    ///
+    /// # Arguments
+    /// * `field` - Declared field name.
+    ///
+    /// # Errors
+    /// Returns an error when the field is present but does not contain a string.
     pub fn optional_string(&self, field: &str) -> anyhow::Result<Option<&str>> {
         match self.document.fields.get(field) {
             None => Ok(None),
@@ -428,6 +589,12 @@ impl<'a> EntityReader<'a> {
         }
     }
     /// Reads an optional integer field.
+    ///
+    /// # Arguments
+    /// * `field` - Declared field name.
+    ///
+    /// # Errors
+    /// Returns an error when the field is present but does not contain an integer.
     pub fn optional_integer(&self, field: &str) -> anyhow::Result<Option<i64>> {
         match self.document.fields.get(field) {
             None => Ok(None),
@@ -436,6 +603,12 @@ impl<'a> EntityReader<'a> {
         }
     }
     /// Reads an optional boolean field.
+    ///
+    /// # Arguments
+    /// * `field` - Declared field name.
+    ///
+    /// # Errors
+    /// Returns an error when the field is present but does not contain a boolean.
     pub fn optional_boolean(&self, field: &str) -> anyhow::Result<Option<bool>> {
         match self.document.fields.get(field) {
             None => Ok(None),
@@ -444,6 +617,13 @@ impl<'a> EntityReader<'a> {
         }
     }
     /// Reads an optional date-time field.
+    ///
+    /// # Arguments
+    /// * `field` - Declared field name.
+    ///
+    /// # Errors
+    /// Returns an error when the field is present but is not a date-time or
+    /// stores a timestamp outside the supported range.
     pub fn optional_date_time(&self, field: &str) -> anyhow::Result<Option<SystemTime>> {
         match self.document.fields.get(field) {
             None => Ok(None),
@@ -452,6 +632,12 @@ impl<'a> EntityReader<'a> {
         }
     }
     /// Reads an optional JSON field.
+    ///
+    /// # Arguments
+    /// * `field` - Declared field name.
+    ///
+    /// # Errors
+    /// Returns an error when the field is present but does not contain JSON.
     pub fn optional_json(&self, field: &str) -> anyhow::Result<Option<&Value>> {
         match self.document.fields.get(field) {
             None => Ok(None),
@@ -475,18 +661,39 @@ impl<E: PersistentEntity> EntityQuery<E> {
         }
     }
     /// Adds a string equality predicate.
+    ///
+    /// The predicate is combined with the other predicates using logical AND.
+    /// Field declaration and value type are checked when the query is executed.
+    ///
+    /// # Arguments
+    /// * `field` - Declared field to compare.
+    /// * `value` - Expected string value.
     pub fn where_string(mut self, field: &Field, value: impl Into<String>) -> Self {
         self.predicates
             .push((field.name.clone(), StoredValue::String(value.into())));
         self
     }
     /// Adds an integer equality predicate.
+    ///
+    /// The predicate is combined with the other predicates using logical AND.
+    /// Field declaration and value type are checked when the query is executed.
+    ///
+    /// # Arguments
+    /// * `field` - Declared field to compare.
+    /// * `value` - Expected integer value.
     pub fn where_integer(mut self, field: &Field, value: i64) -> Self {
         self.predicates
             .push((field.name.clone(), StoredValue::Integer(value)));
         self
     }
     /// Adds a boolean equality predicate.
+    ///
+    /// The predicate is combined with the other predicates using logical AND.
+    /// Field declaration and value type are checked when the query is executed.
+    ///
+    /// # Arguments
+    /// * `field` - Declared field to compare.
+    /// * `value` - Expected boolean value.
     pub fn where_boolean(mut self, field: &Field, value: bool) -> Self {
         self.predicates
             .push((field.name.clone(), StoredValue::Boolean(value)));
@@ -512,6 +719,13 @@ where
     E: PersistentEntity,
 {
     /// Reads one non-expired entity by its primary key.
+    ///
+    /// # Arguments
+    /// * `key` - Primary key of the entity to read.
+    ///
+    /// # Errors
+    /// Returns a backend read or decoding error. Expired entities are treated as
+    /// absent; implementations may purge them as a side effect.
     async fn get(&self, key: &E::Key) -> anyhow::Result<Option<E>>;
     /// Reads non-expired entities in input order, preserving duplicates and absences.
     ///
@@ -533,15 +747,56 @@ where
         Ok(results)
     }
     /// Validates and writes one entity.
+    ///
+    /// # Arguments
+    /// * `entity` - Entity to validate and persist.
+    ///
+    /// # Errors
+    /// Returns an error when the entity does not match the store schema or the
+    /// backend cannot persist it.
     async fn put(&self, entity: &E) -> anyhow::Result<()>;
-    /// Validates all entities before committing the complete batch atomically.
+    /// Validates every entity before writing any of them.
+    ///
+    /// A validation error leaves the store unchanged. Backend write failures are
+    /// reported after the batch has been accepted for writing; implementations
+    /// are not required to roll back an already-started write.
+    ///
+    /// # Arguments
+    /// * `entities` - Entities to validate and persist.
+    ///
+    /// # Errors
+    /// Returns an error when any entity is invalid or the backend cannot write
+    /// the batch.
     async fn put_all(&self, entities: &[E]) -> anyhow::Result<()>;
     /// Removes an entity by its primary key.
+    ///
+    /// # Arguments
+    /// * `key` - Primary key of the entity to remove.
+    ///
+    /// # Errors
+    /// Returns a backend write error. Removing an absent key is not an error.
     async fn delete(&self, key: &E::Key) -> anyhow::Result<()>;
     /// Returns the non-expired entities matching every query predicate.
+    ///
+    /// Result order is backend-dependent and unspecified. Implementations may
+    /// purge expired entries while scanning.
+    ///
+    /// # Arguments
+    /// * `query` - Conjunction of equality predicates to apply.
+    ///
+    /// # Errors
+    /// Returns an error when a predicate references an undeclared field, uses the
+    /// wrong value type, or the backend cannot read or decode an entity.
     async fn find(&self, query: &EntityQuery<E>) -> anyhow::Result<Vec<E>>;
 }
 
+/// Checks that `config` matches the schema and primary key declared by `E`.
+///
+/// # Arguments
+/// * `config` - Store configuration validated against the entity schema.
+///
+/// # Errors
+/// Returns an error when the schema is invalid, differs from the entity schema, or its primary key does not match `E::Key`.
 pub(crate) fn checked_schema<E: PersistentEntity>(
     config: &PersistenceStoreConfig,
 ) -> anyhow::Result<()> {
@@ -567,6 +822,14 @@ pub(crate) fn checked_schema<E: PersistentEntity>(
     }
     Ok(())
 }
+/// Validates `entity` against `config` and encodes it as an entity document.
+///
+/// # Arguments
+/// * `config` - Store configuration whose schema is validated.
+/// * `entity` - Entity written into the resulting document.
+///
+/// # Errors
+/// Returns an error when the configuration or entity violates the schema, or when writing a field fails.
 pub(crate) fn encode<E: PersistentEntity>(
     config: &PersistenceStoreConfig,
     entity: &E,
@@ -576,6 +839,14 @@ pub(crate) fn encode<E: PersistentEntity>(
     entity.write_to(&mut writer)?;
     writer.finish()
 }
+/// Returns whether `document` has an expiration field at or before now.
+///
+/// # Arguments
+/// * `schema` - Entity schema declaring the optional expiration field.
+/// * `document` - Entity document whose expiration value is checked.
+///
+/// # Errors
+/// Returns an error when the expiration value is not a valid date-time.
 pub(crate) fn expired(schema: &EntitySchema, document: &EntityDocument) -> anyhow::Result<bool> {
     let Some(field) = schema.expiration_field() else {
         return Ok(false);
@@ -586,6 +857,15 @@ pub(crate) fn expired(schema: &EntitySchema, document: &EntityDocument) -> anyho
         Some(_) => anyhow::bail!("expiration field '{}' has an invalid value", field.name),
     }
 }
+/// Evaluates all equality predicates in `query` against `document`.
+///
+/// # Arguments
+/// * `config` - Store configuration providing the schema.
+/// * `document` - Entity document tested against the predicates.
+/// * `query` - Conjunction of equality predicates.
+///
+/// # Errors
+/// Returns an error when a predicate references an undeclared field or uses the wrong value type.
 fn matches<E: PersistentEntity>(
     config: &PersistenceStoreConfig,
     document: &EntityDocument,
@@ -605,6 +885,14 @@ fn matches<E: PersistentEntity>(
     }
     Ok(true)
 }
+/// Checks document fields against the schema's names, types and required fields.
+///
+/// # Arguments
+/// * `schema` - Entity schema expected for the document.
+/// * `document` - Entity document to validate.
+///
+/// # Errors
+/// Returns an error for undeclared fields, type mismatches, or missing required fields.
 fn validate_document(schema: &EntitySchema, document: &EntityDocument) -> anyhow::Result<()> {
     for (name, value) in &document.fields {
         let field = schema
@@ -625,6 +913,14 @@ fn validate_document(schema: &EntitySchema, document: &EntityDocument) -> anyhow
     }
     Ok(())
 }
+/// Validates an entity document and rebuilds the entity through `E::read_from`.
+///
+/// # Arguments
+/// * `schema` - Entity schema expected for the document.
+/// * `document` - Entity document decoded into `E`.
+///
+/// # Errors
+/// Returns an error when validation fails or the entity reader rejects a field.
 pub(crate) fn decode<E: PersistentEntity>(
     schema: &EntitySchema,
     document: &EntityDocument,
@@ -632,12 +928,26 @@ pub(crate) fn decode<E: PersistentEntity>(
     validate_document(schema, document)?;
     E::read_from(&EntityReader::new(document))
 }
+/// Converts a timestamp to nanoseconds since [`UNIX_EPOCH`].
+///
+/// # Arguments
+/// * `value` - Timestamp to convert.
+///
+/// # Errors
+/// Returns an error when the timestamp predates [`UNIX_EPOCH`].
 fn to_nanos(value: SystemTime) -> anyhow::Result<i128> {
     Ok(value
         .duration_since(UNIX_EPOCH)
         .map_err(|_| anyhow::anyhow!("date-time must not predate UNIX_EPOCH"))?
         .as_nanos() as i128)
 }
+/// Converts nanoseconds since [`UNIX_EPOCH`] to a timestamp.
+///
+/// # Arguments
+/// * `value` - Nanoseconds elapsed since [`UNIX_EPOCH`].
+///
+/// # Errors
+/// Returns an error when the value is negative or does not fit the supported duration range.
 fn from_nanos(value: i128) -> anyhow::Result<SystemTime> {
     if value < 0 {
         anyhow::bail!("date-time must not predate UNIX_EPOCH");
@@ -655,6 +965,12 @@ pub struct MemoryEntityStore<E: PersistentEntity> {
 }
 impl<E: PersistentEntity> MemoryEntityStore<E> {
     /// Creates an empty store for the explicit configuration.
+    ///
+    /// # Arguments
+    /// * `config` - Table identity and entity schema accepted by the store.
+    ///
+    /// # Errors
+    /// Returns an error when the schema is invalid or does not match `E`.
     pub fn new(config: PersistenceStoreConfig) -> anyhow::Result<Self> {
         checked_schema::<E>(&config)?;
         Ok(Self {
@@ -728,6 +1044,7 @@ impl<E: PersistentEntity> TypedEntityStore<E> for MemoryEntityStore<E> {
     }
 }
 
+/// Serialized file document holding entity records by storage key.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct TypedFileDocument {
     records: HashMap<String, EntityDocument>,
@@ -744,6 +1061,13 @@ pub struct FileEntityStore<E: PersistentEntity, C = JsonPersistenceFileCodec> {
 
 impl<E: PersistentEntity> FileEntityStore<E, JsonPersistenceFileCodec> {
     /// Creates a JSON store rooted at `directory`.
+    ///
+    /// # Arguments
+    /// * `directory` - Directory containing the store file.
+    /// * `config` - Table identity and entity schema accepted by the store.
+    ///
+    /// # Errors
+    /// Returns an error when the schema is invalid or does not match `E`.
     pub fn new(
         directory: impl Into<PathBuf>,
         config: PersistenceStoreConfig,
@@ -751,6 +1075,14 @@ impl<E: PersistentEntity> FileEntityStore<E, JsonPersistenceFileCodec> {
         Self::new_with_codec(directory, config, JsonPersistenceFileCodec)
     }
     /// Creates a JSON store under the default application data directory.
+    ///
+    /// The file is stored in the application's `data` directory.
+    ///
+    /// # Arguments
+    /// * `config` - Table identity and entity schema accepted by the store.
+    ///
+    /// # Errors
+    /// Returns an error when the schema is invalid or does not match `E`.
     pub fn default_data_dir(config: PersistenceStoreConfig) -> anyhow::Result<Self> {
         Self::new(
             crate::application::get_application_data_path("data"),
@@ -760,6 +1092,14 @@ impl<E: PersistentEntity> FileEntityStore<E, JsonPersistenceFileCodec> {
 }
 impl<E: PersistentEntity, C: PersistenceFileCodec> FileEntityStore<E, C> {
     /// Creates a store using `codec` and explicit store configuration.
+    ///
+    /// # Arguments
+    /// * `directory` - Directory containing the store file.
+    /// * `config` - Table identity and entity schema accepted by the store.
+    /// * `codec` - File codec used to load and save the store document.
+    ///
+    /// # Errors
+    /// Returns an error when the schema is invalid or does not match `E`.
     pub fn new_with_codec(
         directory: impl Into<PathBuf>,
         config: PersistenceStoreConfig,
@@ -774,6 +1114,13 @@ impl<E: PersistentEntity, C: PersistenceFileCodec> FileEntityStore<E, C> {
             marker: PhantomData,
         })
     }
+    /// Loads the store document on first use and returns the mutable state.
+    ///
+    /// # Arguments
+    /// * `state` - Cached document state filled from disk when empty.
+    ///
+    /// # Errors
+    /// Returns an error when the file cannot be read or decoded, or when the blocking read task fails.
     async fn document<'a>(
         &self,
         state: &'a mut Option<TypedFileDocument>,
@@ -798,6 +1145,7 @@ impl<E: PersistentEntity, C: PersistenceFileCodec> FileEntityStore<E, C> {
         }
         Ok(state.as_mut().expect("typed file document was loaded"))
     }
+    /// Returns the file path of the store document.
     fn path(&self) -> PathBuf {
         self.directory.join(format!(
             "store-{}.{}",
@@ -805,6 +1153,13 @@ impl<E: PersistentEntity, C: PersistenceFileCodec> FileEntityStore<E, C> {
             self.codec.file_extension().trim_start_matches('.')
         ))
     }
+    /// Persists the store document through the configured codec.
+    ///
+    /// # Arguments
+    /// * `document` - Document snapshot to write.
+    ///
+    /// # Errors
+    /// Returns an error when the blocking write task or the codec save fails.
     async fn persist(&self, document: TypedFileDocument) -> anyhow::Result<()> {
         let path = self.path();
         let codec = Arc::clone(&self.codec);
@@ -878,6 +1233,10 @@ impl<E: PersistentEntity, C: PersistenceFileCodec> TypedEntityStore<E> for FileE
         Ok(result)
     }
 }
+/// Percent-encodes characters that are unsafe in a store file name.
+///
+/// # Arguments
+/// * `name` - Store name to encode.
 pub(crate) fn safe_name(name: &str) -> String {
     let mut safe = String::with_capacity(name.len());
     for byte in name.bytes() {
@@ -896,6 +1255,10 @@ pub(crate) fn safe_name(name: &str) -> String {
 /// read back as integers and scalar `Json` values read back as their inner
 /// scalar. Each file belongs to one store schema, which provides the declared
 /// type of every field.
+///
+/// # Arguments
+/// * `document` - Loaded document whose field values are normalized in place.
+/// * `schema` - Store schema providing the declared field types.
 fn normalize_loaded_documents(document: &mut TypedFileDocument, schema: &EntitySchema) {
     for record in document.records.values_mut() {
         for (name, value) in record.fields.iter_mut() {

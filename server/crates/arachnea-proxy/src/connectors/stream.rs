@@ -12,7 +12,7 @@ pub struct ConnectorStream {
 impl ConnectorStream {
     /// Wraps a proxy stream.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `inner`: Proxy stream returned by the core.
     ///
@@ -32,7 +32,7 @@ impl ConnectorStream {
 impl AsyncRead for ConnectorStream {
     /// Polls the wrapped proxy stream for readable bytes.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `cx`: Task context used for wakeups.
     /// - `buf`: Read buffer that receives bytes.
@@ -52,7 +52,7 @@ impl AsyncRead for ConnectorStream {
 impl AsyncWrite for ConnectorStream {
     /// Polls the wrapped proxy stream for writable capacity.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `cx`: Task context used for wakeups.
     /// - `buf`: Bytes to write.
@@ -70,7 +70,7 @@ impl AsyncWrite for ConnectorStream {
 
     /// Polls the wrapped proxy stream for flush completion.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `cx`: Task context used for wakeups.
     ///
@@ -83,7 +83,7 @@ impl AsyncWrite for ConnectorStream {
 
     /// Polls the wrapped proxy stream for shutdown completion.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `cx`: Task context used for wakeups.
     ///

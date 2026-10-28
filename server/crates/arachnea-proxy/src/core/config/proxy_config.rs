@@ -79,7 +79,7 @@ impl ProxyConfig {
 
     /// Replaces core timeout values.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `timeouts`: Timeout values to install.
     ///
@@ -93,7 +93,7 @@ impl ProxyConfig {
 
     /// Appends one proxy hop to the current default chain.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `node`: Proxy node appended after the existing hops.
     ///
@@ -118,7 +118,7 @@ impl ProxyConfig {
 
     /// Appends one proxy hop to an existing chain.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `chain_name`: Name of the chain to update.
     /// - `node`: Proxy node appended after the existing hops.
@@ -229,7 +229,7 @@ impl ProxyConfig {
 
 /// Applies derived defaults for the selected proxy profile.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `config`: Mutable configuration that receives profile-derived defaults.
 fn apply_profile_defaults(config: &mut ProxyConfig) {

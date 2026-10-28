@@ -42,6 +42,10 @@ pub struct ProxyProbe {
 
 impl ProxyProbe {
     /// Creates a new proxy prober.
+    ///
+    /// # Arguments
+    /// * `config` - Probe targets, protocol detection order, mode and per-phase timeouts.
+    ///
     pub fn new(config: ProbeConfig) -> Self {
         Self {
             configuration_identity: None,
@@ -55,6 +59,10 @@ impl ProxyProbe {
     }
 
     /// Configures local probe resolution with an Arachnea DNS core.
+    ///
+    /// # Arguments
+    /// * `dns_core` - Shared DNS core used for local hostname resolution.
+    ///
     #[cfg(feature = "arachnea-dns")]
     pub fn with_arachnea_dns(mut self, dns_core: Arc<arachnea_dns::core::ArachneaDnsCore>) -> Self {
         self.dns_resolver = ProxyDnsResolver::with_arachnea_dns(dns_core);
@@ -86,6 +94,10 @@ impl ProxyProbe {
             .diagnostics(&format!("{}|{}", self.configuration_id(), url))
     }
 
+    /// Builds the identity of the current probe configuration for observation correlation.
+    ///
+    /// # Arguments
+    /// * `target` - Optional complementary probe URL included in the configuration identity.
     fn observation_configuration(&self, target: Option<&str>) -> String {
         use std::hash::{Hash, Hasher};
         if let Some(target) = target {
@@ -131,6 +143,14 @@ impl ProxyProbe {
         }
     }
 
+    /// Records a bounded probe observation with phase, target and configuration metadata.
+    ///
+    /// # Arguments
+    /// * `phase` - Network phase associated with this observation.
+    /// * `protocol` - Proxy transport protocol used for the endpoint handshake.
+    /// * `target` - Optional complementary probe URL included in the configuration identity.
+    /// * `succeeded` - Whether the observed phase completed successfully.
+    /// * `status` - Optional HTTP response status recorded with this observation.
     fn observe(
         &self,
         phase: crate::core::ProxyObservationPhase,
@@ -193,6 +213,10 @@ impl ProxyProbe {
 
     /// Checks endpoint TCP reachability without asking the proxy to connect to
     /// a destination. Success does not establish protocol or application support.
+    ///
+    /// # Arguments
+    /// * `record` - Proxy record whose endpoint and runtime evidence are inspected or updated.
+    ///
     pub(crate) async fn precheck_endpoint(&self, record: &ProxyRecord) -> Result<()> {
         tcp_connect(
             &record.host,
@@ -205,6 +229,11 @@ impl ProxyProbe {
 
     /// Measures only the capability required by automatic selection, retaining
     /// the unrelated capability and the configured DNS resolver.
+    ///
+    /// # Arguments
+    /// * `record` - Proxy record whose endpoint and runtime evidence are inspected or updated.
+    /// * `require_https` - Whether selection requires an HTTPS tunnel and destination TLS capability.
+    ///
     pub(crate) async fn probe_required(
         &self,
         record: &mut ProxyRecord,
@@ -253,6 +282,9 @@ impl ProxyProbe {
     /// Source-declared protocols are tested first in configured priority order.
     /// Relaxed mode then tries undeclared protocols as a controlled correction
     /// path. Records without declarations retain full protocol detection.
+    ///
+    /// # Arguments
+    /// * `record` - Proxy record whose endpoint and runtime evidence are inspected or updated.
     ///
     /// # Errors
     ///

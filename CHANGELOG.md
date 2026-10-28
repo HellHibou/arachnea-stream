@@ -90,6 +90,8 @@ All notable changes to the server workspace are recorded here.
 - SQLite files now use flat `<data-root>/<STORENAME>.sqlite3*` paths instead of `<STORENAME>/records.sqlite3*`. Legacy data is not imported or automatically deleted; newly persisted data survives restarts.
 
 - `get_application_resource_path` now probes the release layouts (portable folder, macOS `Contents/Resources`, Linux system resource dir) for the requested relative path itself (file or directory) instead of resolving a cached resource root from a `services` directory check; `get_application_resource_root` was removed accordingly.
+- Corrected the public rustdoc of `arachnea-core` after the crate refactorings: added `# Arguments`/`# Errors` contracts for typed persistence, stores, application and controller APIs, and fixed the four broken intra-doc links. No signature or runtime behavior changed; `cargo doc` passes with and without `sqlite-persistence`.
+- Completed the global rustdoc review of `arachnea-core`: documented the remaining private application, controller, REST supervisor/service/tray, file-codec, SQLite and typed-store helper parameters, with ordered `# Arguments` and contextual `# Errors` where the path is fallible. No signature or runtime behavior changed; the final six-crate scan reports zero missing or obsolete argument entries for Core.
 
 #### Fixed
 
@@ -104,6 +106,7 @@ All notable changes to the server workspace are recorded here.
 #### Changed
 
 - Moved the eleven existing DNS test scenarios out of `src/` into exact source-path mirrors for core configuration, cache, resolution and server configuration, preserving function names, assertions and feature gates while updating module-qualified test names. Centralized 46 internal defaults and operational limits in `src/lib.rs` without changing values, resolver decision order, per-core cache defaults, TLS policy, listener exposure or public configuration contracts. Updated the README and server CLI commands; all-feature/default/minimal-core/minimal-server suites pass (11/9/8/10 tests), four isolated transport configurations compile, all eight TOML samples validate, and three proxy DNS integration tests pass. Details are recorded in `docs/dev-tracking/harmonisation-crates-rust-lot2.md`.
+- Corrected the `arachnea-dns` rustdoc contracts: normalized 101 `# Parameters` sections to `# Arguments` or to field descriptions on enum variants, documented which configuration fields and policy actions are declared but not enforced, clarified DNSSEC, ODoH, NXDOMAIN and Smart DNS limits, stale-cache and ACL behavior, and removed a duplicated `encode_answer` block. No signature or runtime behavior changed; `cargo doc` passes for default, `core`, `server` and `--all-features`.
 
 ### <u>arachnea-proxy</u>
 
@@ -227,7 +230,12 @@ All notable changes to the server workspace are recorded here.
 - Dynamic proxy cache lifetime now uses a fixed 24-hour per-record validation age instead of a provider-refresh TTL or hard persistence expiration. Accepted HTTP responses renew the selected proxy without clearing unrelated destination failures; stale proxies remain selectable and are removed only after an observed proxy failure or configured origin rejection.
 - Accepted origin responses now make the corresponding dynamic proxy the preferred candidate for that exact country, scheme, host and port instead of globally preferring it for every destination in the country. Concurrent domains therefore retain independent preferred proxies, and preferred reuse still passes every normal eligibility check.
 
+- Completed the global rustdoc review of `arachnea-proxy`: normalized `parse_dynamic_country_pool` and reattached ten internal type comments that were separated from their declarations by a blank line, so `ParsedProxyActionHeaders`, the redirect/action types, fallback preparation, probe health/capability state, search work/progress and parsed HTTP head/header items are documented in the generated docs. Runtime code, APIs and feature gates are unchanged.
+
 #### Fixed
+
+- Restored Proxy rustdoc after the module refactoring: standardized argument sections, completed public and internal parameter descriptions, documented probe/selection ownership and error contracts, and repaired the feature-gated loopback-runtime link. Clarified strict versus relaxed selection, affinity replacement, configured DNS error propagation, backend-dependent batch guarantees and explicit redirect budgets. Runtime code, APIs and feature gates are unchanged; strict documentation builds and the existing doctest pass with default and full features.
+
 
 - Import persisted country candidates once when post-acceptance reserve preparation lacks ready fallbacks, including partially loaded in-memory inventories. Share concurrent imports with at most two countries in flight, recheck readiness before probing, and keep imports under the existing reserve deadline and supervisor cancellation. Preferred responses do not wait; provider refresh, reserve defaults and business search budgets remain unchanged.
 
@@ -320,6 +328,7 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Completed the `arachnea-stream` Rust documentation pass: player resolvers, stream facade, catalog/playback/persistence modules, YAML stream resolver, reloadable runtime, administration composition and typed credentials now document arguments, returns and errors consistently. Behavior, signatures, visibility and YAML contracts are unchanged; trait implementations keep their contracts on the trait. Existing live-provider tests remain unchanged.
 - Keep single-service resolver constants at the beginning of their owning resolver files; retain only genuinely shared resolver constants in `lib.rs`, alongside application/facade defaults. Deduplicate the common browser user-agent (including inline occurrences) and diagnostic preview limit while preserving independent provider TTLs, timeout policies and protocol identifiers. Server and Stream agent instructions document this exception. All values remain unchanged.
 
 - Harmonized Stream with two exact source-mirrored unit suites and three test-support files, preserving all fifteen scenarios and Scrapyfy helper access. Split catalog/playback/store/registration operations, HTML fallback handling, TF1 authentication/media/license work and RTLplay authentication/media work into private modules. Centralized 116 documented constants and relevant defaults in `src/lib.rs`, preserving provider values, public paths, endpoint commands, encryption-key bytes, persistent formats, proxy policies and tracing targets. Tauri assets and configuration stay application-owned. Ten local tests pass with and without diagnostics; five provider-dependent scenarios remain available for manual execution. All six server crates now keep every Rust file within 1,000 lines. Completion and validation limits are recorded in `docs/dev-tracking/harmonisation-crates-rust-lot5.md`.
@@ -454,7 +463,12 @@ All notable changes to the server workspace are recorded here.
 - Proxy protocol selection and runtime detection now share the priority `SOCKS5`, `SOCKS4`, `HTTPS`, `SOCKS4A`, then `HTTP`, making HTTP the lowest-priority option.
 - Ghostwire is no longer enabled by default. Consumers that still need the smart Cloudflare solver must explicitly enable the `ghostwire` feature.
 
+- Completed the global rustdoc review of `arachnea-scrapyfy`: reformulated `HtmlScraperEntry::for_each_selected` so the selector, mode, card and callback are described under `# Arguments` without treating `HtmlScraperSelectMode` variants as obsolete parameters. The remaining no-doc functions are trait implementations whose contracts stay on their traits; no schema, API or runtime behavior changed.
+
 #### Fixed
+
+- Restored Scrapyfy rustdoc after module extraction: completed parameter contracts, documented shared client/context ownership, cache and typed-result behavior, corrected obsolete executor/storage references and repaired public/private documentation links. Clarified duplicate-variable and output-conversion rules in both YAML specifications without changing schema, APIs or runtime behavior.
+
 
 - Removed the unused, empty JSON `response_parser.rs` file and corrected stale module documentation to point to the unified executor and existing JSON entry helpers. No compiled module or runtime behavior changes.
 
@@ -496,6 +510,8 @@ All notable changes to the server workspace are recorded here.
 - Localized Rquest requests log the chosen proxy/origin before sending and report delivery evidence and retry eligibility on failure, correlating attempts with bounded search-progress diagnostics.
 
 - Localized Rquest calls propagate the common search across redirects and safe sequential retries, observe acceptance before body collection and keep a separate accepted-body transfer timeout. Modifying operations require NotSent evidence or explicit proxy_retry_replayable authorization; inconclusive results and body errors never rotate. Engines without early correlation reject the scoped search explicitly; ordinary request timeouts and non-search keep-alive remain unchanged.
+
+- Corrected the `arachnea-http` rustdoc: replaced every `# Parameters` heading with `# Arguments`, documented call arguments and fallible contracts, clarified redirect replay, cookie matching, proxy-pool retention, Cloudflare detection, chaser-cf session/page behavior and engine-selection limits, and aligned the README with those contracts. No signature or runtime behavior changed; `cargo doc` passes for default, `arachnea-proxy` and `--all-features`.
 
 
 #### Fixed
@@ -598,6 +614,8 @@ All notable changes to the server workspace are recorded here.
 ### <u>Other</u>
 
 #### Added
+
+- Added a detailed six-crate Rust documentation correction plan with an exploratory inventory, parameter documentation rules, staged execution, validation coverage and acceptance criteria. Linked the pending work from `docs/TODO.md`; Rust implementation remains unchanged.
 
 - Archived the crate harmonization lot 0 baseline: initial Git state, Cargo targets and feature declarations, oversized-source inventory, 316 statically identified test functions, and preexisting validation findings. Preserved staged changes and left Rust sources and agent instructions unchanged.
 - Extended the harmonization plan to include updates to applicable `AGENTS.md` instructions for crate-root constants and exact test/source path mirroring, with explicit support/fixture exceptions and preserved test-support loading.

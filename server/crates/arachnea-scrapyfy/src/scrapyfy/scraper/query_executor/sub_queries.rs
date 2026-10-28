@@ -40,6 +40,13 @@ pub(super) async fn execute_entry_sub_queries(
 ///
 /// Each object-group item receives its own template parameters, preventing
 /// follow-up requests from mixing values extracted from distinct rows.
+///
+/// # Arguments
+///
+/// * `entries` - Entry definitions applied to the current extraction context.
+/// * `item` - Current result item receiving merged fields or sub-query results.
+/// * `request_url` - URL of the current response, used as the base for URL and header templates.
+/// * `context` - Execution context supplying runtime parameters, parent response and request metadata.
 pub(super) async fn execute_entry_sub_queries_for_entries(
     entries: &[&dyn ScraperEntrySpec],
     item: &mut ScraperDataNode,
@@ -423,6 +430,11 @@ pub(super) fn collect_entry_values(item: &ScraperDataNode) -> HashMap<String, Ve
 /// Both the original field name and an underscore-normalized variant are
 /// available, so YAML can reference a field such as `player-id` through the
 /// placeholder `{player_id}` accepted by the template grammar.
+///
+/// # Arguments
+///
+/// * `base` - Parent parameter map cloned before inserting entry-local values.
+/// * `entry_values` - Flattened values extracted from the current entry and exposed to the nested query.
 pub(super) fn build_sub_query_params(
     base: &HashMap<String, String>,
     entry_values: &HashMap<String, Vec<String>>,
@@ -453,6 +465,12 @@ pub(super) fn build_sub_query_params(
 /// Recursive helper for [`collect_entry_values`].
 ///
 /// Walks the tree accumulating leaf values under their `>`-separated path.
+///
+/// # Arguments
+///
+/// * `node` - Entry node whose nested values are flattened into parameters.
+/// * `map` - Destination parameter map populated with flattened node values.
+/// * `path` - Accumulated child path used as the flattened parameter name.
 pub(super) fn collect_entry_values_recursive<'a>(
     node: &'a ScraperDataNode,
     map: &mut HashMap<String, Vec<String>>,
@@ -492,6 +510,7 @@ pub(super) fn collect_entry_values_recursive<'a>(
 /// * `url` - The URL to fetch (derived from the parent entry value).
 /// * `item` - The item to populate with extracted data.
 /// * `context` - Runtime context containing the HTTP client and params.
+/// * `params` - Runtime parameters available to query templates and action pipelines.
 ///
 /// # Returns
 ///

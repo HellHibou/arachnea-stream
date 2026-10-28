@@ -2,6 +2,17 @@
 
 use super::*;
 
+/// Caches license request data and returns its public proxy URL.
+///
+/// # Arguments
+/// * `endpoints` - Public endpoint settings used to build the proxy URL.
+/// * `license_url` - Upstream Widevine license URL.
+/// * `headers` - Headers to forward to the license server.
+/// * `stream_kind` - Stream kind validated when the token is used.
+/// * `proxy_countries` - Countries to reuse for the license request.
+///
+/// # Returns
+/// The public DRM license URL containing the generated token.
 pub(super) fn save_tf1_license_proxy_url(
     endpoints: &PlayerResolverEndpoints,
     license_url: &str,
@@ -13,6 +24,17 @@ pub(super) fn save_tf1_license_proxy_url(
     endpoints.drm_license_url(TF1_SERVICE_ID, &token)
 }
 
+/// Stores a license proxy entry under a newly generated token.
+///
+/// # Arguments
+/// * `license_url` - Upstream Widevine license URL.
+/// * `headers` - Headers to forward to the license server.
+/// * `stream_kind` - Stream kind validated when the token is used.
+/// * `proxy_countries` - Countries to reuse for the license request.
+///
+/// # Returns
+/// The generated token. The entry is not stored when the cache mutex is
+/// poisoned.
 pub(super) fn save_cached_license(
     license_url: &str,
     headers: &HashMap<String, String>,
@@ -46,6 +68,14 @@ pub(super) fn save_cached_license(
     token
 }
 
+/// Loads a non-expired license proxy entry, pruning expired entries.
+///
+/// # Arguments
+/// * `token` - Public proxy token.
+///
+/// # Returns
+/// The cached entry, or `None` when it is absent, expired, or the cache mutex
+/// is poisoned.
 pub(super) fn load_cached_license(token: &str) -> Option<CachedTf1License> {
     let cache = TF1_LICENSE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     let Ok(mut cache_guard) = cache.lock() else {
@@ -57,6 +87,19 @@ pub(super) fn load_cached_license(token: &str) -> Option<CachedTf1License> {
     cache_guard.get(token).cloned()
 }
 
+/// Proxies a Widevine challenge using the cached license routing settings.
+///
+/// # Arguments
+/// * `scraper_agregator` - Aggregator used to create the HTTP client.
+/// * `token` - Public proxy token identifying the cached license entry.
+/// * `challenge_body` - Raw Widevine challenge bytes.
+///
+/// # Errors
+/// Returns an error when the token is missing or expired, the upstream request
+/// fails, or the license server rejects the challenge.
+///
+/// # Returns
+/// The upstream license response.
 pub(super) async fn proxy_tf1_license_request(
     scraper_agregator: &ScraperAgregator,
     token: &str,
@@ -74,6 +117,20 @@ pub(super) async fn proxy_tf1_license_request(
     .await
 }
 
+/// Proxies a Widevine challenge with an explicit HTTP configuration.
+///
+/// # Arguments
+/// * `scraper_agregator` - Aggregator used to create the HTTP client.
+/// * `token` - Public proxy token identifying the cached license entry.
+/// * `challenge_body` - Raw Widevine challenge bytes.
+/// * `http_config` - HTTP configuration for the upstream request.
+///
+/// # Errors
+/// Returns an error when the token is missing, expired or has an unsupported
+/// stream kind, or when the upstream request fails.
+///
+/// # Returns
+/// The upstream license response with a `no-store` cache policy.
 pub(super) async fn proxy_tf1_license_request_with_config(
     scraper_agregator: &ScraperAgregator,
     token: &str,

@@ -42,9 +42,9 @@ pub trait IpCountryDataProvider: Send + Sync {
     /// that only support bulk refresh. Providers that can resolve individual
     /// IPs should override this method.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
-    /// - `ip`: IP address to resolve.
+    /// - `_ip`: IP address to resolve; unused by the default bulk-only provider implementation.
     ///
     /// # Returns
     ///
@@ -71,6 +71,10 @@ pub trait IpCountryStore: Send + Sync {
     async fn load_ip_countries(&self) -> Result<Vec<IpCountryRecord>>;
 
     /// Save a complete set of IP-country records, replacing any existing data.
+    ///
+    /// # Arguments
+    /// * `entries` - IP-to-country entries to encode or persist.
+    ///
     async fn save_ip_countries(&self, entries: &[IpCountryRecord]) -> Result<()>;
 }
 
@@ -80,9 +84,17 @@ pub trait IpCountrySerdeCodec: Send + Sync {
     fn format_name(&self) -> &'static str;
 
     /// Serialise IP-country records into bytes.
+    ///
+    /// # Arguments
+    /// * `entries` - IP-to-country entries to encode or persist.
+    ///
     fn serialize_ip_countries(&self, entries: &[IpCountryRecord]) -> Result<Vec<u8>>;
 
     /// Deserialise IP-country records from bytes.
+    ///
+    /// # Arguments
+    /// * `bytes` - Serialized IP-country cache payload to decode.
+    ///
     fn deserialize_ip_countries(&self, bytes: &[u8]) -> Result<Vec<IpCountryRecord>>;
 }
 
@@ -106,7 +118,7 @@ pub struct IpCountrySerdeStore {
 impl IpCountrySerdeStore {
     /// Creates a new file-backed IP-country store.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `path`: Filesystem path for the IP-country data file.
     /// - `codec`: Serialisation codec (e.g. `JsonIpCountryCodec`).
@@ -249,7 +261,7 @@ pub struct IpCountryResolver {
     store: Option<Arc<dyn IpCountryStore>>,
     config: IpCountryResolverConfig,
 }
-
+/// Shared geolocation cache and explicit or detected current-country state.
 struct IpCountryResolverInner {
     /// IP-to-country map indexed by string representation for fast lookup.
     map: HashMap<String, String>,
@@ -270,7 +282,7 @@ struct IpCountryResolverInner {
 impl IpCountryResolver {
     /// Creates a new IP-country resolver.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `config`: Resolver configuration (timeout, persistence).
     /// - `provider`: Optional provider for on-demand resolution.
@@ -339,7 +351,7 @@ impl IpCountryResolver {
     /// 3. If the provider returns a country, stores it in the map and
     ///    optionally persists to the store.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `ip`: IP address to resolve.
     ///
@@ -450,6 +462,10 @@ impl IpCountryResolver {
     ///
     /// Empty values clear the explicit country. Stored values are normalized to
     /// uppercase ASCII after trimming whitespace.
+    ///
+    /// # Arguments
+    /// * `country` - Current-country code trimmed and uppercased; a blank value clears the explicit override.
+    ///
     pub async fn set_current_country(&self, country: impl AsRef<str>) {
         let country = normalize_country(country.as_ref());
         let mut inner = self.inner.write().await;
@@ -599,6 +615,10 @@ impl IpCountryResolver {
 
     /// Returns whether a requested proxy country should be bypassed because the
     /// current outbound country already matches it.
+    ///
+    /// # Arguments
+    /// * `requested_country` - Requested country compared with the known current country to decide direct bypass.
+    ///
     pub async fn should_bypass_requested_country(&self, requested_country: &str) -> bool {
         let requested_country = normalize_country(requested_country);
         if requested_country.is_empty() {
@@ -623,7 +643,11 @@ impl IpCountryResolver {
         self.inner.read().await.loaded
     }
 }
-
+/// Trims a country value and converts ASCII letters to uppercase without validating the code.
+///
+/// # Arguments
+///
+/// * `country` - Raw country value, which may be empty.
 fn normalize_country(country: &str) -> String {
     country.trim().to_ascii_uppercase()
 }

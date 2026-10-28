@@ -10,6 +10,15 @@ use crate::server::handlers;
 use crate::server::ServerConfig;
 
 /// Runs the SOCKS proxy listener.
+///
+/// # Arguments
+/// * `addr` - Local socket address to bind for incoming proxy connections.
+/// * `config` - Shared server configuration controlling limits, ACLs and authentication.
+/// * `core` - Proxy core used to route and establish outbound connections.
+///
+/// # Errors
+///
+/// Returns an error if binding, accepting a connection or acquiring a listener permit fails. Individual connection failures are logged.
 pub async fn run(
     addr: SocketAddr,
     config: Arc<ServerConfig>,

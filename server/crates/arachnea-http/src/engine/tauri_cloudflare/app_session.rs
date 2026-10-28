@@ -2,6 +2,33 @@
 
 use super::*;
 
+/// Starts a solve using the application-owned Tauri window when available,
+/// otherwise the standalone Wry event-loop path.
+///
+/// # Arguments
+///
+/// - `context`: Main-thread context that may contain a Tauri `AppHandle`.
+/// - `url`: Cloudflare-protected URL to load.
+/// - `user_agent`: Optional browser user-agent override.
+/// - `timeout`: Maximum solve duration for the Wry path.
+/// - `poll_interval`: Cookie polling interval for the Wry path.
+/// - `clearance_stabilization`: Delay required after clearance before closing.
+/// - `window_width`: Initial window width.
+/// - `window_height`: Initial window height.
+/// - `devtools`: Whether to open developer tools when the build permits it.
+/// - `auto_close_after_clearance`: Whether the Wry path closes automatically.
+/// - `incognito`: Whether to use an incognito webview.
+/// - `collect_page_source`: Whether to capture page HTML after solving.
+/// - `proxy`: Optional native webview proxy configuration.
+///
+/// # Returns
+///
+/// Either a live Tauri app session to observe asynchronously, or a completed Wry
+/// solve result.
+///
+/// # Errors
+///
+/// Returns Tauri, Wry, proxy, or URL failures from the selected path.
 pub(super) fn start_cloudflare_solve_on_main_thread(
     context: &mut MainThreadContext,
     url: &str,
@@ -48,6 +75,32 @@ pub(super) fn start_cloudflare_solve_on_main_thread(
     .map(MainThreadSolveStart::Completed)
 }
 
+/// Creates an application-owned Tauri solve window and registers its listeners.
+///
+/// When a proxy is configured, the window initially opens `about:blank` and the
+/// caller navigates after native proxy setup completes. Incognito is forced when
+/// a proxy is used.
+///
+/// # Arguments
+///
+/// - `app_handle`: Owning Tauri application handle.
+/// - `url`: Cloudflare-protected URL to load.
+/// - `user_agent`: Optional browser user-agent override.
+/// - `window_width`: Initial window width.
+/// - `window_height`: Initial window height.
+/// - `devtools`: Whether to open developer tools when the build permits it.
+/// - `incognito`: Whether to use an incognito webview.
+/// - `proxy`: Optional native webview proxy configuration.
+///
+/// # Returns
+///
+/// A session containing the window, current URL, page-load state, and optional
+/// proxy readiness receiver.
+///
+/// # Errors
+///
+/// Returns `InvalidUrl`, `TauriCloudflareSolverFailure`, or proxy configuration
+/// errors.
 pub(super) fn create_tauri_app_solve_session(
     app_handle: tauri::AppHandle<tauri::Wry>,
     url: &str,
@@ -183,6 +236,34 @@ pub(super) fn create_tauri_app_solve_session(
     })
 }
 
+/// Observes an application-owned Tauri window until clearance and stabilization.
+///
+/// Waits for native proxy setup, navigates when needed, polls cookies, requests
+/// one post-clearance reload when no new load is observed, and optionally
+/// captures the page HTML before closing the window.
+///
+/// # Arguments
+///
+/// - `dispatcher`: Dispatcher used for all webview operations.
+/// - `session`: Live application-owned solve session.
+/// - `url`: Target URL.
+/// - `user_agent`: Optional browser user-agent override.
+/// - `timeout`: Maximum solve duration.
+/// - `poll_interval`: Cookie polling interval.
+/// - `clearance_stabilization`: Minimum stable delay after a post-clearance
+///   page load; raised to the Tauri-specific minimum.
+/// - `auto_close_after_clearance`: Whether to return immediately once the page
+///   is stable. When `false`, the loop keeps the window open.
+/// - `collect_page_source`: Whether to capture page HTML after solving.
+///
+/// # Returns
+///
+/// Solver headers and optional page HTML.
+///
+/// # Errors
+///
+/// Returns Tauri, navigation, proxy, URL, or cookie failures. Timeout before
+/// clearance is an error.
 pub(super) async fn solve_cloudflare_with_tauri_app_session(
     dispatcher: Arc<dyn arachnea_core::controler::MainThreadDispatcher>,
     mut session: TauriAppSolveSession,
@@ -327,6 +408,27 @@ pub(super) async fn solve_cloudflare_with_tauri_app_session(
     }
 }
 
+/// Reads solver cookies on the main thread and builds response headers.
+///
+/// Uses the latest navigated URL, falling back to `fallback_url`, then retries
+/// with all window cookies when URL-scoped cookie lookup fails.
+///
+/// # Arguments
+///
+/// - `dispatcher`: Dispatcher used to access the webview.
+/// - `window`: Tauri window to inspect.
+/// - `current_url`: Last observed navigation URL.
+/// - `fallback_url`: URL used when `current_url` cannot be locked.
+/// - `user_agent`: Optional browser user-agent to expose to the caller.
+///
+/// # Returns
+///
+/// `Set-Cookie` headers and an optional solver user-agent header.
+///
+/// # Errors
+///
+/// Returns URL, Tauri, cancellation, or header failures and `CookieAbsent` when
+/// `cf_clearance` is missing.
 pub(super) async fn poll_tauri_solver_cookies(
     dispatcher: &Arc<dyn arachnea_core::controler::MainThreadDispatcher>,
     window: tauri::WebviewWindow<tauri::Wry>,
@@ -362,6 +464,15 @@ pub(super) async fn poll_tauri_solver_cookies(
     })?
 }
 
+/// Unregisters the page-state listener and closes the solver window.
+///
+/// Dispatch, listener, and close failures are ignored. This waits for the
+/// main-thread task to finish when it is accepted.
+///
+/// # Arguments
+///
+/// - `dispatcher`: Dispatcher used for webview operations.
+/// - `session`: Session whose window and listener should be released.
 pub(super) async fn close_tauri_solver_window(
     dispatcher: &Arc<dyn arachnea_core::controler::MainThreadDispatcher>,
     session: &TauriAppSolveSession,
@@ -380,6 +491,24 @@ pub(super) async fn close_tauri_solver_window(
     let _ = receiver.await;
 }
 
+/// Captures the current user-agent and optional page HTML through a Tauri event.
+///
+/// The capture waits up to [`crate::HTTP_TAURI_PAGE_STATE_TIMEOUT`] for the page
+/// state event. A missing result after that deadline is not an error.
+///
+/// # Arguments
+///
+/// - `dispatcher`: Dispatcher used to evaluate the bridge script.
+/// - `session`: Live solve session providing the event name and result slot.
+/// - `collect_page_source`: Whether to capture HTML in addition to the user-agent.
+///
+/// # Returns
+///
+/// The captured page state, or `None` when no event arrives before the deadline.
+///
+/// # Errors
+///
+/// Returns Tauri, serialization, cancellation, or page-state event failures.
 pub(super) async fn capture_tauri_solver_page_state(
     dispatcher: &Arc<dyn arachnea_core::controler::MainThreadDispatcher>,
     session: &TauriAppSolveSession,
@@ -437,6 +566,16 @@ pub(super) async fn capture_tauri_solver_page_state(
     }
 }
 
+/// Reloads the solver window on the main thread.
+///
+/// # Arguments
+///
+/// - `dispatcher`: Dispatcher used for the webview operation.
+/// - `window`: Window to reload.
+///
+/// # Errors
+///
+/// Returns Tauri or cancellation failures.
 pub(super) async fn reload_tauri_solver_window(
     dispatcher: &Arc<dyn arachnea_core::controler::MainThreadDispatcher>,
     window: tauri::WebviewWindow<tauri::Wry>,

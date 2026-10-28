@@ -7,7 +7,7 @@ use crate::core::{ConnectMetadata, Destination, ProxyError, ProxyStream, Result,
 
 /// Logs a direct TCP connection attempt at DEBUG level.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `destination`: Target being connected to.
 fn log_connect(destination: &Destination) {
@@ -20,7 +20,7 @@ fn log_connect(destination: &Destination) {
 
 /// Opens a direct TCP stream to a destination.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `destination`: Target destination for the TCP connection.
 /// - `timeout`: Maximum duration for the connect operation.

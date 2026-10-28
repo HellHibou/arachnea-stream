@@ -29,6 +29,8 @@ impl TypedServiceCredentialsStore {
     /// # Arguments
     /// * `store` - Typed store holding the `arachnea-services` records.
     /// * `encryption_key` - Static AES-256-GCM key applied to each field.
+    /// * `default_service_store_id` - Service store used by the generic
+    ///   [`CredentialsStore`] implementation.
     ///
     /// # Returns
     /// A credentials store encrypting login and password independently.
@@ -46,6 +48,12 @@ impl TypedServiceCredentialsStore {
 
     /// Blocks on one async store operation, reusing the ambient runtime when
     /// available.
+    ///
+    /// # Arguments
+    /// * `future` - Store operation to complete.
+    ///
+    /// # Errors
+    /// Returns an error when a dedicated runtime cannot be created.
     fn wait<F>(&self, future: F) -> Result<F::Output>
     where
         F: Future,
@@ -57,6 +65,13 @@ impl TypedServiceCredentialsStore {
     }
 
     /// Reads one service record from the typed store.
+    ///
+    /// # Arguments
+    /// * `service_store_id` - Service store containing the record.
+    /// * `service_id` - Normalized service identifier.
+    ///
+    /// # Errors
+    /// Returns an error when the store read fails.
     fn read_record(
         &self,
         service_store_id: &str,
@@ -68,12 +83,29 @@ impl TypedServiceCredentialsStore {
     }
 
     /// Writes one service record to the typed store.
+    ///
+    /// # Arguments
+    /// * `record` - Complete record to persist.
+    ///
+    /// # Errors
+    /// Returns an error when the store write fails.
     fn write_record(&self, record: SourceServiceRecord) -> Result<()> {
         let store = Arc::clone(&self.store);
         self.wait(store.put(&record))?
     }
 
     /// Reads credentials for a source identified by its service store and ID.
+    ///
+    /// # Arguments
+    /// * `service_store_id` - Service store containing the record.
+    /// * `service_id` - Service identifier to look up.
+    ///
+    /// # Errors
+    /// Returns an error for a blank identifier, store failure, or invalid
+    /// encrypted field.
+    ///
+    /// # Returns
+    /// The decrypted credentials, or `None` when absent.
     pub fn get_credentials_for(
         &self,
         service_store_id: &str,
@@ -93,6 +125,14 @@ impl TypedServiceCredentialsStore {
     }
 
     /// Persists credentials for a source identified by its service store and ID.
+    ///
+    /// # Arguments
+    /// * `service_store_id` - Service store containing the record.
+    /// * `service_id` - Service identifier to update.
+    /// * `credentials` - Plaintext credentials to encrypt and persist.
+    ///
+    /// # Errors
+    /// Returns an error for blank fields, store failures, or encryption failures.
     pub fn set_credentials_for(
         &self,
         service_store_id: &str,
@@ -120,6 +160,13 @@ impl TypedServiceCredentialsStore {
     }
 
     /// Removes credentials for a source identified by its service store and ID.
+    ///
+    /// # Arguments
+    /// * `service_store_id` - Service store containing the record.
+    /// * `service_id` - Service identifier to clear.
+    ///
+    /// # Errors
+    /// Returns an error for a blank identifier or store failure.
     pub fn clear_credentials_for(&self, service_store_id: &str, service_id: &str) -> Result<()> {
         let service_id = normalize_service_id(service_id)?;
         let Some(mut record) = self.read_record(service_store_id, &service_id)? else {
@@ -132,6 +179,15 @@ impl TypedServiceCredentialsStore {
 }
 
 /// Trims and validates a service identifier.
+///
+/// # Arguments
+/// * `service_id` - Raw service identifier.
+///
+/// # Errors
+/// Returns an error when the trimmed identifier is empty.
+///
+/// # Returns
+/// The trimmed identifier.
 fn normalize_service_id(service_id: &str) -> Result<String> {
     let service_id = service_id.trim().to_string();
     if service_id.is_empty() {

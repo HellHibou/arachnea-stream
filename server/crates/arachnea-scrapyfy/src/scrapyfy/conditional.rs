@@ -112,6 +112,10 @@ impl ValidationSlot {
     }
 
     /// Records the outcome, keeping the first value written.
+    ///
+    /// # Arguments
+    ///
+    /// * `outcome` - Conditional-validation outcome accumulated for this execution.
     pub fn record(&self, outcome: RootFetchOutcome) {
         if let Ok(mut guard) = self.outcome.lock() {
             if guard.is_none() {
@@ -131,16 +135,28 @@ impl ValidationSlot {
 /// XXH3 is used instead of a cryptographic hash because fragments only need a
 /// fast, stable change detector — not tamper resistance. The digest is encoded
 /// in full (up to 22 base62 characters for 128 bits), without truncation.
+///
+/// # Arguments
+///
+/// * `data` - Response data or raw bytes consumed by this operation.
 pub fn hash62(data: &[u8]) -> String {
     base62::encode(xxh3_128(data))
 }
 
 /// Encodes a fragment component so it never contains the `;` separator.
+///
+/// # Arguments
+///
+/// * `value` - Validator component encoded or decoded for the conditional fragment format.
 fn encode_component(value: &str) -> String {
     urlencoding::encode(value).to_string()
 }
 
 /// Decodes a previously encoded fragment component.
+///
+/// # Arguments
+///
+/// * `value` - Validator component encoded or decoded for the conditional fragment format.
 fn decode_component(value: &str) -> String {
     urlencoding::decode(value)
         .map(|value| value.to_string())
@@ -265,6 +281,10 @@ pub fn conditional_from_fragment(fragment: &str) -> Option<ConditionalRequest> {
 }
 
 /// Formats a unix timestamp (seconds) as an HTTP-date string.
+///
+/// # Arguments
+///
+/// * `timestamp` - Unix timestamp formatted as an HTTP date.
 fn format_http_date(timestamp: u64) -> String {
     let time = UNIX_EPOCH + std::time::Duration::from_secs(timestamp);
     httpdate::fmt_http_date(time)

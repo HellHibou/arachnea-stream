@@ -36,7 +36,7 @@ pub struct Server {
 impl Server {
     /// Creates a server from listener config and a core instance.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `config`: DNS listener configuration.
     /// - `core`: DNS core shared by listener tasks.
@@ -91,9 +91,13 @@ impl Server {
     }
 }
 
-/// Runs the UDP DNS listener.
+/// Runs the UDP DNS listener with the default ACL policy.
 ///
-/// # Parameters
+/// The default policy allows loopback clients only when `addr` binds to a
+/// loopback address; non-loopback binds deny all clients until an explicit
+/// policy is supplied.
+///
+/// # Arguments
 ///
 /// - `addr`: UDP socket address to bind.
 /// - `core`: Shared DNS core used for packet handling.
@@ -112,7 +116,7 @@ pub async fn run_udp(addr: SocketAddr, core: Arc<ArachneaDnsCore>) -> Result<()>
 
 /// Runs the UDP DNS listener with runtime ACL and rate-limit policy.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `addr`: UDP socket address to bind.
 /// - `core`: Shared DNS core used for packet handling.
@@ -156,9 +160,13 @@ async fn run_udp_with_policy(
     }
 }
 
-/// Runs the TCP DNS listener.
+/// Runs the TCP DNS listener with the default ACL policy.
 ///
-/// # Parameters
+/// The default policy allows loopback clients only when `addr` binds to a
+/// loopback address; non-loopback binds deny all clients until an explicit
+/// policy is supplied.
+///
+/// # Arguments
 ///
 /// - `addr`: TCP socket address to bind.
 /// - `core`: Shared DNS core used for stream handling.
@@ -177,7 +185,7 @@ pub async fn run_tcp(addr: SocketAddr, core: Arc<ArachneaDnsCore>) -> Result<()>
 
 /// Runs the TCP DNS listener with runtime ACL and rate-limit policy.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `addr`: TCP socket address to bind.
 /// - `core`: Shared DNS core used for stream handling.
@@ -213,7 +221,7 @@ async fn run_tcp_with_policy(
 
 /// Handles one TCP DNS stream.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `stream`: TCP stream carrying length-prefixed DNS messages.
 /// - `core`: Shared DNS core used for packet handling.
@@ -276,7 +284,7 @@ struct RuntimePolicy {
 impl RuntimePolicy {
     /// Creates a runtime policy from server configuration.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `config`: Server configuration containing ACL settings.
     /// - `listen_addr`: Listener address used for loopback defaults.
@@ -307,7 +315,7 @@ impl RuntimePolicy {
 
     /// Creates a default policy that allows loopback clients for loopback binds.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `listen_addr`: Listener address used to determine loopback behavior.
     /// - `rate_limit_per_second`: Optional per-client request limit.
@@ -327,7 +335,7 @@ impl RuntimePolicy {
 
     /// Returns whether a peer is allowed by ACL and rate limit.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `peer`: Remote peer socket address.
     ///
@@ -351,7 +359,7 @@ impl RuntimePolicy {
 
     /// Applies the per-IP rate limit.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `ip`: Client IP address to account.
     ///
@@ -405,7 +413,7 @@ struct RateBucket {
 
 /// Parses CIDR network strings into IP network values.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `values`: CIDR strings from server configuration (e.g., "192.168.1.0/24").
 ///

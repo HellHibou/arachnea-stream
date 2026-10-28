@@ -130,6 +130,7 @@ impl JsonScraperEntry {
     /// * `root` - Data node receiving the extracted values.
     /// * `row` - JSON row to extract values from.
     /// * `params` - Runtime template parameters.
+    /// * `dynamic_variables` - Shared dynamic variables in the reserved `@` namespace, scoped to this execution.
     /// * `request_url` - URL of the request for action pipelines.
     pub fn apply_to(
         &self,
@@ -233,6 +234,12 @@ impl JsonScraperEntry {
 
     /// Validates and returns the output type for one scalar JSON entry.
     ///
+    /// # Arguments
+    ///
+    /// * `name` - Identifier of the parameter or entry being processed.
+    /// * `output_type` - Declared scalar or container type governing the result shape.
+    /// * `has_sub_queries` - Whether the entry owns nested queries, affecting admissible output types.
+    ///
     /// # Errors
     ///
     /// Returns an error when `type` is missing or when an object type is used
@@ -263,6 +270,12 @@ impl JsonScraperEntry {
     }
 
     /// Resolves the output type for one grouped JSON entry.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Identifier of the parameter or entry being processed.
+    /// * `output_type` - Declared scalar or container type governing the result shape.
+    /// * `select` - Whether to extract the first match or all matching elements.
     ///
     /// # Errors
     ///
@@ -302,6 +315,10 @@ impl TryFrom<JsonScraperEntryRaw> for JsonScraperEntry {
     type Error = anyhow::Error;
 
     /// Converts a raw YAML entry definition into a validated runtime entry.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - Cache sizing and directory configuration used to construct the server-side cache.
     ///
     /// # Errors
     ///
@@ -365,6 +382,10 @@ impl TryFrom<JsonScraperEntryRaw> for JsonScraperEntry {
 
 impl From<&JsonScraperEntry> for JsonScraperEntryRaw {
     /// Converts a runtime entry back into its raw YAML-compatible representation.
+    ///
+    /// # Arguments
+    ///
+    /// * `entry` - Source result row converted into a proxy record.
     fn from(entry: &JsonScraperEntry) -> Self {
         match entry {
             JsonScraperEntry::Field {
@@ -405,6 +426,10 @@ impl From<&JsonScraperEntry> for JsonScraperEntryRaw {
 
 impl Serialize for JsonScraperEntry {
     /// Serializes the entry through its raw YAML representation.
+    ///
+    /// # Arguments
+    ///
+    /// * `serializer` - Serde serializer receiving the raw or typed representation.
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
         S: Serializer,

@@ -80,6 +80,12 @@ pub(super) fn merge_targeted(
 /// A targeted sub-query represents an object array; each returned row must
 /// become one item under the target. Without a target, rows are merged into
 /// the current item as before.
+///
+/// # Arguments
+///
+/// * `item` - Current result item receiving merged fields or sub-query results.
+/// * `sources` - Declared source identities and their default activation states.
+/// * `target` - `>`-delimited destination path that receives the transformed result.
 pub(super) fn merge_targeted_items(
     item: &mut ScraperDataNode,
     sources: Vec<ScraperDataNode>,
@@ -110,6 +116,11 @@ pub(super) fn merge_targeted_items(
     item.merge(merged);
 }
 
+/// Uses a scalar or array-element type from the source, falling back to string.
+///
+/// # Arguments
+///
+/// * `source` - Source result node whose type and values determine the merged output.
 pub(super) fn scalar_output_type_from_source(source: &ScraperDataNode) -> ScraperOutputType {
     source
         .output_type
@@ -119,6 +130,12 @@ pub(super) fn scalar_output_type_from_source(source: &ScraperDataNode) -> Scrape
         .unwrap_or(ScraperOutputType::String)
 }
 
+/// Builds one scalar node using the source scalar type or array-element type.
+///
+/// # Arguments
+///
+/// * `value` - Input value interpreted by this operation.
+/// * `source` - Source result node whose type and values determine the merged output.
 pub(super) fn scalar_node_from_source_value(
     value: String,
     source: &ScraperDataNode,
@@ -131,6 +148,16 @@ pub(super) fn scalar_node_from_source_value(
 /// Scalar fields are converted to their element type, while object fields recurse
 /// through their children so descriptors such as `resolver > target_id` remain
 /// attached to the same array item as their sibling scalar fields.
+///
+/// # Arguments
+///
+/// * `source` - Source result node whose type and values determine the merged output.
+/// * `index` - Zero-based row position; callers must keep it below `cardinality`.
+/// * `cardinality` - Expected number of merged rows used to align flattened source values.
+///
+/// # Panics
+///
+/// Panics when a leaf has exactly `cardinality` values but `index` is outside that range.
 pub(super) fn node_at_index(
     source: &ScraperDataNode,
     index: usize,
@@ -176,6 +203,11 @@ pub(super) fn walk_mut<'a>(
 }
 
 /// Walks an existing `>`-split path without creating output nodes.
+///
+/// # Arguments
+///
+/// * `item` - Current result item receiving merged fields or sub-query results.
+/// * `path` - Path identifying the node in diagnostics or traversal.
 pub(super) fn get_node_mut<'a>(
     item: &'a mut ScraperDataNode,
     path: &[&str],
@@ -192,6 +224,10 @@ pub(super) fn get_node_mut<'a>(
 /// A valid fetch URL must start with `http://` or `https://` and have
 /// a non-empty host component. This prevents sending requests to invalid
 /// URLs with empty query parameters or unresolved placeholders.
+///
+/// # Arguments
+///
+/// * `url` - Absolute request URL used by the HTTP transport.
 pub(super) fn is_valid_fetch_url(url: &str) -> bool {
     if !url.starts_with("http://") && !url.starts_with("https://") {
         return false;

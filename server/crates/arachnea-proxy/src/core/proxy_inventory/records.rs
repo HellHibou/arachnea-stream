@@ -11,6 +11,10 @@ use crate::core::{
 
 use super::eligibility::probe_is_expired;
 
+/// Detects failure, authentication or cooldown evidence that provider refresh must preserve.
+///
+/// # Arguments
+/// * `record` - Proxy record whose endpoint and runtime evidence are inspected or updated.
 fn should_preserve_runtime_exclusion(record: &ProxyRecord) -> bool {
     matches!(
         record.status,
@@ -18,7 +22,11 @@ fn should_preserve_runtime_exclusion(record: &ProxyRecord) -> bool {
     ) || record.authentication_required == Some(true)
         || record.cooldown_until.is_some()
 }
-
+/// Checks for a timestamped runtime status other than unknown; this helper does not evaluate age.
+///
+/// # Arguments
+///
+/// * `record` - Runtime record whose status and measurement timestamp are inspected.
 fn has_fresh_runtime_update(record: &ProxyRecord) -> bool {
     record.last_checked.is_some() && !matches!(record.status, ProxyRuntimeStatus::Unknown)
 }
@@ -30,6 +38,13 @@ fn has_fresh_runtime_update(record: &ProxyRecord) -> bool {
 /// runtime-derived fields. Provider-owned metadata such as country and
 /// availability still comes from the refreshed source record. Probe-position and
 /// cached-count metadata is collected only for performance diagnostics or tests.
+///
+/// # Arguments
+/// * `records` - Proxy records to merge or persist; endpoint identity is host and port.
+/// * `existing` - Previously cached records indexed by endpoint identity.
+/// * `now` - Reference wall-clock time used for age and cooldown comparisons.
+/// * `probe_ttl` - Maximum age for reusing measured runtime capabilities.
+///
 pub(super) fn prepare_provider_records(
     records: Vec<ProxyRecord>,
     existing: &HashMap<String, ProxyRecord>,
@@ -84,6 +99,11 @@ pub(super) fn prepare_provider_records(
     (prepared, probe_indices, duplicate_count, cached_count)
 }
 
+/// Copies cached runtime evidence into a refreshed provider record.
+///
+/// # Arguments
+/// * `record` - Proxy record whose endpoint and runtime evidence are inspected or updated.
+/// * `cached` - Cached record supplying runtime evidence that provider metadata must not overwrite.
 fn retain_cached_runtime(record: &mut ProxyRecord, cached: &ProxyRecord) {
     record.protocol = cached.protocol.clone();
     record.status = cached.status.clone();
@@ -102,6 +122,11 @@ fn retain_cached_runtime(record: &mut ProxyRecord, cached: &ProxyRecord) {
     record.cooldown_until = cached.cooldown_until;
 }
 
+/// Combines provider claims for one endpoint without discarding distinct declarations.
+///
+/// # Arguments
+/// * `target` - Existing endpoint record updated with the incoming source declaration.
+/// * `incoming` - Provider declaration merged into the existing endpoint record.
 fn merge_provider_declaration(target: &mut ProxyRecord, incoming: ProxyRecord) {
     for declaration in declarations_from_record(&incoming) {
         if !target.declarations.contains(&declaration) {
@@ -119,6 +144,10 @@ fn merge_provider_declaration(target: &mut ProxyRecord, incoming: ProxyRecord) {
         .or(incoming.protocol);
 }
 
+/// Returns source declarations, synthesizing a legacy declaration when none was recorded.
+///
+/// # Arguments
+/// * `record` - Proxy record whose endpoint and runtime evidence are inspected or updated.
 fn declarations_from_record(record: &ProxyRecord) -> Vec<ProxyDeclaration> {
     if record.declarations.is_empty() {
         vec![ProxyDeclaration {
@@ -131,6 +160,10 @@ fn declarations_from_record(record: &ProxyRecord) -> Vec<ProxyDeclaration> {
     }
 }
 
+/// Selects the highest-priority protocol present in the provider declarations.
+///
+/// # Arguments
+/// * `declarations` - Provider protocol declarations considered in configured priority order.
 fn preferred_declared_protocol(declarations: &[ProxyDeclaration]) -> Option<ProxyProtocol> {
     PROXY_PROTOCOL_PRIORITY.iter().find_map(|preferred| {
         declarations
@@ -140,6 +173,11 @@ fn preferred_declared_protocol(declarations: &[ProxyDeclaration]) -> Option<Prox
     })
 }
 
+/// Combines HTTPS hints, preferring positive evidence over negative or absent claims.
+///
+/// # Arguments
+/// * `left` - First provider hint to merge.
+/// * `right` - Second provider hint to merge.
 fn merge_https_hint(left: Option<bool>, right: Option<bool>) -> Option<bool> {
     match (left, right) {
         (Some(true), _) | (_, Some(true)) => Some(true),
@@ -148,6 +186,11 @@ fn merge_https_hint(left: Option<bool>, right: Option<bool>) -> Option<bool> {
     }
 }
 
+/// Returns the stronger of two provider availability hints.
+///
+/// # Arguments
+/// * `left` - First provider hint to merge.
+/// * `right` - Second provider hint to merge.
 fn preferred_availability(
     left: &crate::core::ProxyAvailabilityHint,
     right: &crate::core::ProxyAvailabilityHint,
@@ -186,6 +229,9 @@ impl ProxyInventory {
     /// `None` and whose `host` is a valid IP address are resolved through the
     /// resolver before insertion. The resolution is bounded by the resolver's
     /// timeout.
+    ///
+    /// # Arguments
+    /// * `records` - Proxy records to merge or persist; endpoint identity is host and port.
     ///
     /// # Returns
     ///
@@ -348,6 +394,10 @@ impl ProxyInventory {
     /// This is a bounded synchronous resolution: it waits for the resolver's
     /// response with a configurable timeout and deduplicates concurrent
     /// lookups for the same IP.
+    ///
+    /// # Arguments
+    /// * `records` - Proxy records to merge or persist; endpoint identity is host and port.
+    ///
     async fn resolve_ip_countries(&self, mut records: Vec<ProxyRecord>) -> Vec<ProxyRecord> {
         let Some(resolver) = &self.ip_country_resolver else {
             return records;
@@ -411,6 +461,10 @@ impl ProxyInventory {
     ///
     /// The persisted record, when a persistence store is configured, is deleted
     /// as well.
+    ///
+    /// # Arguments
+    /// * `authority` - Proxy endpoint identity in host:port form, with IPv6 brackets where needed.
+    ///
     pub async fn remove(&self, authority: &str) {
         let _commit = self.persistence_commits.lock().await;
         let removed_key = {
@@ -452,6 +506,10 @@ impl ProxyInventory {
     }
 
     /// Returns records for a specific country.
+    ///
+    /// # Arguments
+    /// * `country` - ISO alpha-2 country code associated with the requested inventory partition.
+    ///
     pub async fn records_for_country(&self, country: &str) -> Vec<ProxyRecord> {
         let inner = self.inner.read().await;
         inner

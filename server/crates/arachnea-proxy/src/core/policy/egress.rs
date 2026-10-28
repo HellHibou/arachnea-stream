@@ -64,10 +64,12 @@ pub struct EgressPool {
 impl EgressPool {
     /// Creates a first-available egress pool.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `name`: Stable pool name.
     /// - `proxy_nodes`: Proxy nodes that belong to the pool.
+    /// - `test_batch_size`: Maximum parallel prechecks; `None` uses the crate default.
+    ///   Pool use clamps zero to at least one concurrent check.
     ///
     /// # Returns
     ///
@@ -88,7 +90,7 @@ impl EgressPool {
 
     /// Assigns a country or region label to this pool.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `country`: Country code or provider-specific region label.
     ///
@@ -102,7 +104,7 @@ impl EgressPool {
 
     /// Builds a proxy configuration that routes through this pool by default.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `chain_name`: Name assigned to the generated default chain.
     ///
@@ -154,6 +156,14 @@ fn default_proxy_pool_test_batch_size() -> usize {
 #[async_trait]
 pub trait EgressSelector: Send + Sync {
     /// Selects an egress decision from a request, context and candidate nodes.
+    ///
+    /// # Arguments
+    /// * `request` - Outbound request, including its destination and routing options.
+    /// * `candidates` - Candidate proxy nodes available to the egress selector.
+    ///
+    /// # Errors
+    ///
+    /// Implementations return an error when no applicable egress route can be selected.
     async fn select_egress(
         &self,
         request: &ConnectRequest,
@@ -168,7 +178,7 @@ pub struct NoopEgressSelector;
 impl EgressSelector for NoopEgressSelector {
     /// Declines to select an egress route.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `_request`: Connect request that would need egress selection.
     /// - `_candidates`: Candidate egress nodes.

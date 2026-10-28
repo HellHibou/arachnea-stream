@@ -1,4 +1,9 @@
 /// Parses each current value as JSON and extracts one scalar by JSON Pointer.
+///
+/// # Arguments
+///
+/// * `texts` - Values produced by earlier actions in the pipeline.
+/// * `path` - JSON pointer selecting the value extracted from each JSON input.
 pub(super) fn apply(texts: Vec<String>, path: &str) -> Vec<String> {
     texts
         .into_iter()

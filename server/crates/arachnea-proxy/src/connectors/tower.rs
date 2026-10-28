@@ -17,7 +17,7 @@ pub struct ArachneaTowerService {
 impl ArachneaTowerService {
     /// Creates a new tower connector service.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `core`: Proxy core used to open outbound streams.
     ///
@@ -39,7 +39,7 @@ impl Service<Uri> for ArachneaTowerService {
 
     /// Reports connector readiness.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `_cx`: Task context supplied by the caller.
     ///
@@ -52,7 +52,7 @@ impl Service<Uri> for ArachneaTowerService {
 
     /// Opens a proxied connection for a URI.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `uri`: HTTP URI whose host, port, and scheme define the destination.
     ///
@@ -76,7 +76,7 @@ impl Service<Uri> for ArachneaTowerService {
 
 /// Converts an HTTP URI to a proxy destination.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `uri`: URI supplied by an HTTP client connector.
 ///

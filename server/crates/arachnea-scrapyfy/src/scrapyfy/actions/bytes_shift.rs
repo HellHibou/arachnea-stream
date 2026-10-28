@@ -3,6 +3,11 @@
 /// The action preserves the original value when the shifted bytes are not valid
 /// UTF-8. This keeps the current string-based action pipeline lossless for
 /// unsupported binary values.
+///
+/// # Arguments
+///
+/// * `texts` - Values produced by earlier actions in the pipeline.
+/// * `value` - Signed byte shift applied with wrapping arithmetic.
 pub(super) fn apply(texts: Vec<String>, value: i8) -> Vec<String> {
     texts
         .into_iter()

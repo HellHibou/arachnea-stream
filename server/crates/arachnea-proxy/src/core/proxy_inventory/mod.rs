@@ -49,7 +49,7 @@ struct InventoryInner {
     /// Opaque request affinity keys mapped to one eligible proxy authority.
     affinity_bindings: HashMap<String, ProxyAffinityBinding>,
 }
-
+/// Endpoint bound to an opaque affinity key until its monotonic expiry.
 struct ProxyAffinityBinding {
     authority: String,
     expires_at: Instant,
@@ -101,6 +101,7 @@ pub struct ProxyInventory {
 }
 
 impl ProxyInventory {
+    /// Returns the configured probe mode, defaulting to relaxed eligibility when no probe exists.
     fn probe_mode(&self) -> ProbeMode {
         self.probe
             .as_ref()
@@ -109,7 +110,7 @@ impl ProxyInventory {
 
     /// Creates a new proxy inventory.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `config`: Inventory configuration (TTLs, cooldowns, thresholds).
     /// - `provider`: Optional data provider for lazy loading per country.
@@ -165,6 +166,10 @@ impl ProxyInventory {
     /// before triggering a provider load, and mutations are written back
     /// through namespace-bound transactions committed at the end of each
     /// processing batch.
+    ///
+    /// # Arguments
+    /// * `persistence` - Repository used to load and persist dynamic proxy records.
+    ///
     #[cfg(feature = "persistence")]
     pub fn with_proxy_repository(mut self, persistence: Arc<dyn ProxyRepository>) -> Self {
         self.persistence = Some(persistence);
@@ -194,7 +199,7 @@ impl ProxyInventory {
     /// it attempts a synchronous bounded resolution via the resolver before
     /// excluding the record from selection.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `resolver`: IP-country resolver.
     ///
@@ -207,6 +212,10 @@ impl ProxyInventory {
     }
 
     /// Shares an Arachnea DNS core with the configured proxy probe.
+    ///
+    /// # Arguments
+    /// * `dns_core` - Shared DNS core used for local hostname resolution.
+    ///
     #[cfg(feature = "arachnea-dns")]
     pub(crate) fn with_arachnea_dns(
         mut self,
@@ -239,6 +248,7 @@ impl ProxyInventory {
         self.preference_persistence_failures.load(Ordering::Relaxed)
     }
 
+    /// Advances the discovery revision to wake subscribers after an accepted origin response.
     pub(crate) fn notify_destination_success(&self) {
         self.discovery_revision
             .send_modify(|revision| *revision = revision.wrapping_add(1));

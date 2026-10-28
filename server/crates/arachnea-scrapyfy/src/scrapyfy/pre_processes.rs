@@ -20,6 +20,10 @@ pub enum PreProcessAction {
 impl PreProcessAction {
     /// Validates the action configuration for a query.
     ///
+    /// # Arguments
+    ///
+    /// * `query_name` - Query identifier used for lookup and contextual error messages.
+    ///
     /// # Errors
     ///
     /// Returns an error when a delimiter is empty.
@@ -36,6 +40,18 @@ impl PreProcessAction {
         Ok(())
     }
 
+    /// Resolves block delimiters and transforms the response before parsing.
+    ///
+    /// # Arguments
+    ///
+    /// * `body` - Response text transformed before parsing, or the payload supplied to the HTTP request.
+    /// * `query_name` - Query identifier used for lookup and contextual error messages.
+    /// * `base_url` - Source base URL exposed to templates and relative URL resolution.
+    /// * `params` - Runtime parameters available to query templates and action pipelines.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an empty resolved delimiter or an unmatched start marker.
     fn apply(
         &self,
         body: String,
@@ -89,6 +105,12 @@ pub fn apply_pre_processes(
 
 /// Resolves the supported `{base_url}` placeholder without interpreting other
 /// literal brace-delimited text in block markers as templates.
+///
+/// # Arguments
+///
+/// * `value` - Input value interpreted by this operation.
+/// * `base_url` - Source base URL exposed to templates and relative URL resolution.
+/// * `params` - Runtime parameters available to query templates and action pipelines.
 fn resolve_base_url(value: &str, base_url: &str, params: &HashMap<String, String>) -> String {
     let base_url = params
         .get("base_url")
@@ -97,6 +119,18 @@ fn resolve_base_url(value: &str, base_url: &str, params: &HashMap<String, String
     value.replace("{base_url}", base_url)
 }
 
+/// Removes literal delimited blocks, returning an error when a start marker has no matching end.
+///
+/// # Arguments
+///
+/// * `body` - Response text transformed before parsing, or the payload supplied to the HTTP request.
+/// * `start` - Literal start marker of a block removed from the response.
+/// * `end` - Literal end marker searched after each start marker.
+/// * `query_name` - Query identifier used for lookup and contextual error messages.
+///
+/// # Errors
+///
+/// Returns an error when a start marker has no subsequent end marker.
 fn remove_text_blocks(body: String, start: &str, end: &str, query_name: &str) -> Result<String> {
     let mut result = String::with_capacity(body.len());
     let mut remaining = body.as_str();

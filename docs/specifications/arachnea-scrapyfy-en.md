@@ -977,7 +977,7 @@ Extracts dynamic variables from the current values and adds them to the request 
 | `value` | string | Variable value template, with captures `{1}`, `{2}`, etc. |
 | `on_duplicate` | string | Duplicate policy: `error` by default or `replace` |
 
-Extracted variables are available as dynamic placeholders `{@name}` for actions that explicitly resolve dynamic variables. A duplicate `@...` variable is a runtime error.
+Extracted variables are available as dynamic placeholders `{@name}` for actions that explicitly resolve dynamic variables. A duplicate `@...` variable is a runtime error under `on_duplicate: error`; `replace` updates the existing dynamic value while still protecting standard parameters. Earlier matches are not rolled back if a later match fails.
 
 ```yaml
 - type: extract_variables
@@ -1737,6 +1737,9 @@ before it.
 | `number[]` | Array of numbers |
 | `boolean[]` | Array of booleans |
 | `object[]` | Array of objects |
+
+A leaf with no extracted values serializes as `null`, including array-typed leaves. Scalar `string`, `number` and `boolean` declarations reject multiple extracted values. A blank scalar number renders as `null`; nonblank numbers must parse as an integer or finite float. Boolean parsing trims whitespace and ignores ASCII case, accepting `true`/`false`, `1`/`0`, `yes`/`no` and `y`/`n`; other spellings are errors. A declared `object` rejects multiple explicit object items. Conversion errors identify the affected output path. These rules describe serialization of the result tree, not extra YAML fields.
+
 
 ---
 

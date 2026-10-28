@@ -100,6 +100,7 @@ impl TextScraperEntry {
     /// * `root` - Output data node where extracted values are appended.
     /// * `fields` - The fields of the current text row (after split by field_delimiter).
     /// * `params` - Runtime template parameters forwarded to actions.
+    /// * `dynamic_variables` - Shared dynamic variables in the reserved `@` namespace, scoped to this execution.
     /// * `request_url` - Fully resolved request URL forwarded to actions.
     pub fn apply_to(
         &self,
@@ -195,6 +196,10 @@ impl TryFrom<TextScraperEntryRaw> for TextScraperEntry {
     type Error = anyhow::Error;
 
     /// Converts a raw YAML entry definition into a validated runtime entry.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - Cache sizing and directory configuration used to construct the server-side cache.
     ///
     /// # Errors
     ///
@@ -307,6 +312,10 @@ impl ScraperEntrySpec for TextScraperEntry {
 
 impl From<&TextScraperEntry> for TextScraperEntryRaw {
     /// Converts a runtime entry back into its raw YAML-compatible representation.
+    ///
+    /// # Arguments
+    ///
+    /// * `entry` - Source result row converted into a proxy record.
     fn from(entry: &TextScraperEntry) -> Self {
         match entry {
             TextScraperEntry::Field {

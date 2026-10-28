@@ -28,6 +28,12 @@ pub(super) trait AsyncProbeStream: AsyncRead + AsyncWrite + Unpin + Send {}
 impl<T: AsyncRead + AsyncWrite + Unpin + Send> AsyncProbeStream for T {}
 
 /// Opens a TCP connection to the proxy and measures its latency.
+///
+/// # Arguments
+/// * `host` - Hostname or IP address to resolve or connect to, without a port.
+/// * `port` - TCP port of the proxy endpoint.
+/// * `timeout` - Maximum duration allowed for this network phase.
+///
 pub(super) async fn tcp_connect(
     host: &str,
     port: u16,
@@ -43,6 +49,12 @@ pub(super) async fn tcp_connect(
 }
 
 impl ProxyProbe {
+    /// Measures TCP and proxy-transport reachability within the configured attempt timeout.
+    ///
+    /// # Arguments
+    /// * `host` - Hostname or IP address to resolve or connect to, without a port.
+    /// * `port` - TCP port of the proxy endpoint.
+    /// * `protocol` - Proxy transport protocol used for the endpoint handshake.
     pub(super) async fn probe_endpoint(
         &self,
         host: &str,
@@ -60,6 +72,12 @@ impl ProxyProbe {
         }
     }
 
+    /// Measures endpoint reachability and HTTPS-proxy TLS without issuing a business request.
+    ///
+    /// # Arguments
+    /// * `host` - Hostname or IP address to resolve or connect to, without a port.
+    /// * `port` - TCP port of the proxy endpoint.
+    /// * `protocol` - Proxy transport protocol used for the endpoint handshake.
     async fn probe_endpoint_inner(
         &self,
         host: &str,
@@ -135,6 +153,13 @@ impl ProxyProbe {
         }
     }
 
+    /// Runs one complementary capability probe within search and target-availability limits.
+    ///
+    /// # Arguments
+    /// * `host` - Hostname or IP address to resolve or connect to, without a port.
+    /// * `port` - TCP port of the proxy endpoint.
+    /// * `protocol` - Proxy transport protocol used for the endpoint handshake.
+    /// * `target` - Complementary HTTP or HTTPS target and its acceptance policy.
     pub(super) async fn probe_capability(
         &self,
         host: &str,
@@ -229,6 +254,13 @@ impl ProxyProbe {
         first
     }
 
+    /// Measures a configured capability and records its transport and target outcomes.
+    ///
+    /// # Arguments
+    /// * `host` - Hostname or IP address to resolve or connect to, without a port.
+    /// * `port` - TCP port of the proxy endpoint.
+    /// * `protocol` - Proxy transport protocol used for the endpoint handshake.
+    /// * `target` - Complementary HTTP or HTTPS target and its acceptance policy.
     pub(super) async fn probe_capability_inner(
         &self,
         host: &str,

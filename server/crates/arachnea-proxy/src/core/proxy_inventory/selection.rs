@@ -21,7 +21,7 @@ use super::eligibility::{
     epoch_millis, is_eligible, is_selection_candidate, needs_capability_probe, probe_is_expired,
     recent_probe_attempt,
 };
-
+/// Cancels retained discovery unless a business candidate has been selected.
 struct DiscoveryReservation {
     search: ProxySearchContext,
     selected: bool,
@@ -43,14 +43,14 @@ impl ProxyInventory {
 
     /// Selects the best available proxy for a country.
     ///
-    /// When no candidate is available and a provider is configured, triggers a
-    /// lazy load and retries once.
+    /// Selection imports persistent country records and validates candidates lazily.
+    /// Provider refresh follows shared cooldowns and the current search budget.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `country`: ISO country code.
-    /// - `require_https`: If `true`, only proxies with confirmed HTTPS support
-    ///   are eligible.
+    /// - `require_https`: If `true`, requires HTTPS tunnel and destination TLS
+    ///   capability under the configured strict or relaxed probe policy.
     ///
     /// # Returns
     ///
@@ -66,6 +66,14 @@ impl ProxyInventory {
 
     /// Selects the best cached candidate across the allowed countries,
     /// independently of their input order, before consulting providers.
+    ///
+    /// # Arguments
+    /// * `countries` - Allowed ISO alpha-2 country codes.
+    /// * `require_https` - Whether selection requires an HTTPS tunnel and destination TLS capability.
+    ///
+    /// # Errors
+    ///
+    /// Returns a route-unavailable error for an empty country set or exhausted candidates, or a search-budget error.
     pub async fn select_any(
         &self,
         countries: &[String],
@@ -78,8 +86,8 @@ impl ProxyInventory {
     /// Selects the best available proxy for a country and destination.
     ///
     /// Destination-specific cooldowns are applied when `destination` is
-    /// supplied. When no candidate is available and a provider is configured,
-    /// this triggers a lazy load and retries once.
+    /// supplied. Missing candidates can trigger persistent imports, lazy capability
+    /// validation and provider refresh under the shared cooldown and search budget.
     ///
     /// # Arguments
     ///
@@ -108,6 +116,15 @@ impl ProxyInventory {
     /// follow exact redirect evidence and explicit affinity, before country imports.
     /// Cold business discovery is exclusive per origin/country set until its outcome;
     /// accepted endpoints remain available for parallel requests.
+    ///
+    /// # Arguments
+    /// * `countries` - Allowed ISO alpha-2 country codes.
+    /// * `require_https` - Whether selection requires an HTTPS tunnel and destination TLS capability.
+    /// * `destination` - Final origin used for capability checks and destination-specific exclusions.
+    ///
+    /// # Errors
+    ///
+    /// Returns a route-unavailable error when no eligible endpoint remains, or a search-budget error.
     pub async fn select_any_for_destination(
         &self,
         countries: &[String],
@@ -120,6 +137,16 @@ impl ProxyInventory {
 
     /// Selects a proxy for a destination while reusing an eligible proxy bound
     /// to the supplied opaque affinity key.
+    ///
+    /// # Arguments
+    /// * `countries` - Allowed ISO alpha-2 country codes.
+    /// * `require_https` - Whether selection requires an HTTPS tunnel and destination TLS capability.
+    /// * `destination` - Final origin used for capability checks and destination-specific exclusions.
+    /// * `affinity` - Optional opaque affinity key; absent or blank keys disable affinity reuse.
+    ///
+    /// # Errors
+    ///
+    /// Returns a route-unavailable error when no eligible endpoint remains, or a search-budget error.
     pub async fn select_any_for_destination_with_affinity(
         &self,
         countries: &[String],
@@ -202,6 +229,14 @@ impl ProxyInventory {
         result
     }
 
+    /// Selects an eligible endpoint through history, affinity, cached countries and bounded discovery.
+    ///
+    /// # Arguments
+    /// * `countries` - Allowed ISO alpha-2 country codes.
+    /// * `require_https` - Whether selection requires an HTTPS tunnel and destination TLS capability.
+    /// * `destination` - Final origin used for capability checks and destination-specific exclusions.
+    /// * `affinity` - Optional opaque affinity key; absent or blank keys disable affinity reuse.
+    /// * `domain_group` - Explicit related-domain hints; they never override exact-origin eligibility.
     async fn select_any_with_search(
         &self,
         countries: &[String],
@@ -481,6 +516,12 @@ impl ProxyInventory {
     }
 
     /// Ranks cached candidates across all allowed countries before any probes.
+    ///
+    /// # Arguments
+    /// * `countries` - Allowed ISO alpha-2 country codes.
+    /// * `require_https` - Whether selection requires an HTTPS tunnel and destination TLS capability.
+    /// * `destination` - Final origin used for capability checks and destination-specific exclusions.
+    ///
     pub(super) async fn select_cached_any(
         &self,
         countries: &[String],

@@ -5,7 +5,7 @@ use super::*;
 impl ArachneaHttpClient {
     /// Executes a prepared request with the configured engine policy.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `options`: Prepared request options.
     ///
@@ -36,6 +36,22 @@ impl ArachneaHttpClient {
         Box::pin(self.execute_scoped(options)).await
     }
 
+    /// Executes one request inside an existing proxy-search scope.
+    ///
+    /// The per-request mode overrides the configured default mode.
+    ///
+    /// # Arguments
+    ///
+    /// - `options`: Prepared request options.
+    ///
+    /// # Returns
+    ///
+    /// A materialized response.
+    ///
+    /// # Errors
+    ///
+    /// Returns engine, URL, cookie, or Cloudflare failures from the selected
+    /// execution path.
     pub(super) async fn execute_scoped(
         &self,
         options: RequestOptions,
@@ -57,11 +73,13 @@ impl ArachneaHttpClient {
 
     /// Executes one request with the automatic fallback chain.
     ///
-    /// The automatic chain starts with the configured fast path, refreshes with
-    /// the smart solver when available, then falls back to the browser solver
-    /// when it is configured and the Cloudflare block remains.
+    /// When a direct engine is configured, this method delegates to it without
+    /// Cloudflare fallback. Otherwise the automatic chain starts with
+    /// `rquest`, refreshes with the smart solver when available, then falls
+    /// back to the browser solver when it is configured and the Cloudflare
+    /// block remains.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `options`: Prepared request options.
     ///
@@ -187,7 +205,7 @@ impl ArachneaHttpClient {
 
     /// Executes one request with cookie-aware Cloudflare refresh behavior.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `options`: Prepared request options.
     /// - `strategy`: Cloudflare refresh strategy used when cookies are stale or
@@ -232,7 +250,7 @@ impl ArachneaHttpClient {
 
     /// Executes one request through rquest and optionally retries after Cloudflare refresh.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `options`: Prepared request options.
     /// - `origin`: Origin used for Cloudflare refresh and errors.
@@ -305,7 +323,7 @@ impl ArachneaHttpClient {
 
     /// Executes one request through rquest.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `options`: Prepared request options.
     ///
@@ -409,6 +427,19 @@ impl ArachneaHttpClient {
         Ok(response)
     }
 
+    /// Executes one logical request through `rquest`, following configured redirects.
+    ///
+    /// # Arguments
+    ///
+    /// - `options`: Prepared request options.
+    ///
+    /// # Returns
+    ///
+    /// The final materialized response.
+    ///
+    /// # Errors
+    ///
+    /// Returns request, redirect, cookie, or proxy failures.
     pub(super) async fn execute_with_rquest_once(
         &self,
         options: RequestOptions,
@@ -426,9 +457,11 @@ impl ArachneaHttpClient {
 
     /// Executes one request through rquest without following redirects.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `options`: Prepared request options.
+    /// - `requested_url`: Original URL before the redirect chain.
+    /// - `redirect_urls`: Redirect targets already followed.
     ///
     /// # Returns
     ///
@@ -458,6 +491,24 @@ impl ArachneaHttpClient {
             .await
     }
 
+    /// Executes one `rquest` hop with an already established proxy-search scope.
+    ///
+    /// When the `arachnea-proxy` feature is disabled, the redirect context is
+    /// ignored. This method does not follow redirects.
+    ///
+    /// # Arguments
+    ///
+    /// - `options`: Prepared options for this hop.
+    /// - `requested_url`: Original URL before the redirect chain.
+    /// - `redirect_urls`: Redirect targets already followed.
+    ///
+    /// # Returns
+    ///
+    /// One response step, including any transport retained for a followed redirect.
+    ///
+    /// # Errors
+    ///
+    /// Returns request, cookie, or proxy failures.
     pub(super) async fn execute_one_with_rquest_scoped(
         &self,
         options: RequestOptions,
@@ -672,7 +723,7 @@ impl ArachneaHttpClient {
 
     /// Executes one request through the configured direct engine.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `options`: Prepared request options.
     ///
@@ -697,7 +748,7 @@ impl ArachneaHttpClient {
 
     /// Executes one request through the configured direct engine without following redirects.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `options`: Prepared request options.
     ///

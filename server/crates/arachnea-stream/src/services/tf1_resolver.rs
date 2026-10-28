@@ -63,20 +63,26 @@ const TF1_SESSION_TTL: std::time::Duration = std::time::Duration::from_secs(15 *
 /// Lifetime of cached TF1 license proxy tokens.
 const TF1_LICENSE_TTL: std::time::Duration = std::time::Duration::from_secs(15 * 60);
 
+/// Process-wide cache of authenticated TF1 sessions keyed by login.
 static TF1_SESSION_CACHE: OnceLock<Mutex<HashMap<String, CachedTf1Session>>> = OnceLock::new();
+/// Process-wide cache of license proxy tokens and their upstream requests.
 static TF1_LICENSE_CACHE: OnceLock<Mutex<HashMap<String, CachedTf1License>>> = OnceLock::new();
+/// Serializes cache misses during the TF1 login flow.
 static TF1_LOGIN_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
 
+/// Authenticated TF1 web token used for mediainfo requests.
 #[derive(Clone)]
 struct Tf1Session {
     token: String,
 }
 
+/// Cached TF1 session with its expiry instant.
 struct CachedTf1Session {
     session: Tf1Session,
     expires_at: Instant,
 }
 
+/// Cached license proxy request with its routing metadata and expiry.
 #[derive(Clone)]
 struct CachedTf1License {
     license_url: String,
@@ -150,6 +156,22 @@ impl PlayerStreamResolver for Tf1Resolver {
     }
 }
 
+/// Resolves a TF1 replay video into a protected player stream.
+///
+/// # Arguments
+/// * `scraper_agregator` - Aggregator used to create the HTTP clients.
+/// * `credentials_store` - Store providing the TF1 credentials.
+/// * `video_id` - TF1 video identifier; surrounding whitespace is ignored.
+/// * `stream_kind` - Optional caller-selected stream kind.
+/// * `proxy_countries` - Countries initially selected for outbound routing.
+/// * `endpoints` - Public endpoint settings used to build proxy URLs.
+///
+/// # Errors
+/// Returns an error when the identifier is empty or the replay negotiation
+/// fails.
+///
+/// # Returns
+/// The resolved replay stream.
 async fn resolve_replay_stream(
     scraper_agregator: &ScraperAgregator,
     credentials_store: &dyn CredentialsStore,
@@ -175,6 +197,27 @@ async fn resolve_replay_stream(
     .await
 }
 
+/// Negotiates TF1 replay playback with a prepared HTTP configuration.
+///
+/// When mediainfo reports a different non-empty set of allowed countries, a
+/// second client is created for those countries and mediainfo is retried only
+/// if the first delivery was rejected.
+///
+/// # Arguments
+/// * `scraper_agregator` - Aggregator used to create HTTP clients.
+/// * `credentials_store` - Store providing the TF1 credentials.
+/// * `normalized_video_id` - Trimmed TF1 video identifier.
+/// * `stream_kind` - Optional caller-selected stream kind.
+/// * `http_config` - Initial HTTP configuration.
+/// * `proxy_countries` - Countries represented by `http_config`.
+/// * `endpoints` - Public endpoint settings used to build proxy URLs.
+///
+/// # Errors
+/// Returns an error when login, mediainfo retrieval or stream construction
+/// fails.
+///
+/// # Returns
+/// The resolved replay stream.
 async fn resolve_replay_stream_with_config(
     scraper_agregator: &ScraperAgregator,
     credentials_store: &dyn CredentialsStore,
@@ -237,6 +280,22 @@ async fn resolve_replay_stream_with_config(
     .await
 }
 
+/// Resolves a TF1 live channel into a protected player stream.
+///
+/// # Arguments
+/// * `scraper_agregator` - Aggregator used to create the HTTP clients.
+/// * `credentials_store` - Store providing the TF1 credentials.
+/// * `channel_id` - TF1 live channel identifier; surrounding whitespace is ignored.
+/// * `stream_kind` - Optional caller-selected stream kind.
+/// * `proxy_countries` - Countries initially selected for outbound routing.
+/// * `endpoints` - Public endpoint settings used to build proxy URLs.
+///
+/// # Errors
+/// Returns an error when the channel identifier is empty or the live
+/// negotiation fails.
+///
+/// # Returns
+/// The resolved live stream.
 async fn resolve_live_stream(
     scraper_agregator: &ScraperAgregator,
     credentials_store: &dyn CredentialsStore,
@@ -262,6 +321,27 @@ async fn resolve_live_stream(
     .await
 }
 
+/// Negotiates TF1 live playback with a prepared HTTP configuration.
+///
+/// The live media identifier is derived as `L_` followed by the uppercase
+/// channel identifier. Country switching follows the same retry policy as
+/// replay negotiation.
+///
+/// # Arguments
+/// * `scraper_agregator` - Aggregator used to create HTTP clients.
+/// * `credentials_store` - Store providing the TF1 credentials.
+/// * `normalized_channel_id` - Trimmed TF1 live channel identifier.
+/// * `stream_kind` - Optional caller-selected stream kind.
+/// * `http_config` - Initial HTTP configuration.
+/// * `proxy_countries` - Countries represented by `http_config`.
+/// * `endpoints` - Public endpoint settings used to build proxy URLs.
+///
+/// # Errors
+/// Returns an error when login, mediainfo retrieval or stream construction
+/// fails.
+///
+/// # Returns
+/// The resolved live stream.
 async fn resolve_live_stream_with_config(
     scraper_agregator: &ScraperAgregator,
     credentials_store: &dyn CredentialsStore,
@@ -325,6 +405,13 @@ async fn resolve_live_stream_with_config(
     .await
 }
 
+/// Builds the HTTP configuration used for TF1 requests.
+///
+/// # Arguments
+/// * `proxy_countries` - Countries to use for outbound proxy routing.
+///
+/// # Returns
+/// A configuration that treats HTTP 403 as a destination rejection.
 fn tf1_http_config(proxy_countries: &[String]) -> ScraperHttpConfig {
     ScraperHttpConfig {
         proxy_rejection_statuses: vec![TF1_PROXY_REJECTION_STATUS],
@@ -332,6 +419,14 @@ fn tf1_http_config(proxy_countries: &[String]) -> ScraperHttpConfig {
     }
 }
 
+/// Creates an HTTP client with the TF1 mediainfo response classifier.
+///
+/// # Arguments
+/// * `scraper_agregator` - Aggregator used to create the client.
+/// * `http_config` - HTTP configuration for the client.
+///
+/// # Returns
+/// A client that can detect TF1 geo restrictions embedded in response bodies.
 fn tf1_http_client(
     scraper_agregator: &ScraperAgregator,
     http_config: ScraperHttpConfig,
@@ -343,6 +438,23 @@ fn tf1_http_client(
         )))
 }
 
+/// Builds a resolved player stream from a TF1 mediainfo payload.
+///
+/// # Arguments
+/// * `http_client` - Client used to resolve the final manifest URL.
+/// * `video_id` - TF1 video or live content identifier.
+/// * `media_info` - Decoded TF1 mediainfo response.
+/// * `stream_kind` - Optional caller-selected stream kind.
+/// * `proxy_countries` - Countries used for storyboard and license routing.
+/// * `endpoints` - Public endpoint settings used to build proxy URLs.
+///
+/// # Errors
+/// Returns an error when the delivery payload is missing, playback was
+/// rejected, the manifest URL is absent, or manifest resolution fails with a
+/// proxy error.
+///
+/// # Returns
+/// The resolved stream with manifest, license proxy, artwork and chapters.
 async fn build_resolved_player_stream(
     http_client: &HttpClient,
     video_id: &str,
@@ -459,6 +571,13 @@ async fn build_resolved_player_stream(
     })
 }
 
+/// Extracts intro and outro chapters from a TF1 mediainfo payload.
+///
+/// # Arguments
+/// * `media_info` - Decoded TF1 mediainfo response.
+///
+/// # Returns
+/// The available chapters, or `None` when neither marker pair is valid.
 fn extract_chapters(media_info: &Value) -> Option<Vec<Chapter>> {
     let chapters = [
         extract_chapter(media_info, "inGD", "outGD", "intro"),
@@ -471,6 +590,19 @@ fn extract_chapters(media_info: &Value) -> Option<Vec<Chapter>> {
     (!chapters.is_empty()).then_some(chapters)
 }
 
+/// Extracts one chapter from a TF1 marker pair.
+///
+/// Marker values are converted from milliseconds to seconds.
+///
+/// # Arguments
+/// * `media_info` - Decoded TF1 mediainfo response.
+/// * `start_marker` - Name of the start marker under `/media/markers`.
+/// * `end_marker` - Name of the end marker under `/media/markers`.
+/// * `chapter_type` - Chapter type assigned to the result.
+///
+/// # Returns
+/// The chapter, or `None` when a marker is absent, non-positive or the end
+/// does not follow the start.
 fn extract_chapter(
     media_info: &Value,
     start_marker: &str,
@@ -496,6 +628,15 @@ fn extract_chapter(
     })
 }
 
+/// Builds a proxied storyboard VTT URL that rewrites relative sprite paths.
+///
+/// # Arguments
+/// * `endpoints` - Public endpoint settings used to build the proxy URL.
+/// * `vtt_url` - Absolute storyboard VTT URL.
+/// * `proxy_countries` - Countries to use for outbound proxy routing.
+///
+/// # Returns
+/// The public proxy URL for the storyboard.
 fn proxied_tf1_storyboard_vtt_url(
     endpoints: &PlayerResolverEndpoints,
     vtt_url: &str,
@@ -518,6 +659,15 @@ fn proxied_tf1_storyboard_vtt_url(
     )
 }
 
+/// Extracts normalized license headers from `drms[0].h`.
+///
+/// Header names are lowercased and default to `authorization` when absent.
+///
+/// # Arguments
+/// * `delivery` - TF1 delivery object containing the DRM metadata.
+///
+/// # Returns
+/// A header map, possibly empty when no valid headers are present.
 fn extract_license_headers(delivery: &Value) -> HashMap<String, String> {
     let Some(headers) = delivery.pointer("/drms/0/h").and_then(Value::as_array) else {
         return HashMap::new();
@@ -548,6 +698,13 @@ fn extract_license_headers(delivery: &Value) -> HashMap<String, String> {
     result
 }
 
+/// Determines the manifest type from its URL.
+///
+/// # Arguments
+/// * `url` - Manifest URL.
+///
+/// # Returns
+/// `m3u8` for URLs containing that extension, `mpd` otherwise.
 fn manifest_type_from_url(url: &str) -> String {
     if url.trim().to_ascii_lowercase().contains(".m3u8") {
         return "m3u8".to_string();
@@ -556,6 +713,19 @@ fn manifest_type_from_url(url: &str) -> String {
     "mpd".to_string()
 }
 
+/// Reads a non-empty string or integer from a nested JSON path.
+///
+/// # Arguments
+/// * `payload` - JSON value to traverse.
+/// * `path` - Object keys applied successively.
+/// * `error_message` - Message used when a key or valid scalar is missing.
+///
+/// # Errors
+/// Returns an error when traversal fails or the target is neither a non-empty
+/// string nor an integer.
+///
+/// # Returns
+/// The trimmed string representation of the scalar.
 fn read_json_string(payload: &Value, path: &[&str], error_message: &str) -> Result<String> {
     let mut current = payload;
 
@@ -583,6 +753,14 @@ fn read_json_string(payload: &Value, path: &[&str], error_message: &str) -> Resu
     bail!(error_message.to_string())
 }
 
+/// Produces a bounded preview of an HTTP error body.
+///
+/// # Arguments
+/// * `body` - Raw response body.
+///
+/// # Returns
+/// A trimmed preview capped by `PLAYER_ERROR_BODY_PREVIEW_LENGTH`, with an
+/// ellipsis when the original body is longer, or `<empty body>` when blank.
 fn preview_error_body(body: &str) -> String {
     let value = body.trim();
     if value.is_empty() {

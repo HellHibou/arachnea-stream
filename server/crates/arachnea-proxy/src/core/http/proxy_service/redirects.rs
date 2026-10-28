@@ -11,6 +11,13 @@ use crate::core::http::actions::{
 use super::options::{encode_proxy_opts, ProxyHttpOpts};
 use super::urls::{encode_proxy_path, entry_point_location_prefix};
 
+/// Re-encodes options after applying status-dependent header removal rules.
+///
+/// # Arguments
+/// * `status` - HTTP response status used to evaluate the redirect rule.
+/// * `current_opts_encoded` - Current encoded options, retained when no redirect rule changes them.
+/// * `current_opts` - Decoded current options, or `None` when no options were supplied.
+/// * `redirect_actions` - Redirect-specific rules that can remove option headers for this status.
 pub(super) fn redirect_opts_encoded(
     status: u16,
     current_opts_encoded: &str,
@@ -34,6 +41,11 @@ pub(super) fn redirect_opts_encoded(
 
 /// Recovers the absolute target URL from a potentially relative Location
 /// header and the current target URL.
+///
+/// # Arguments
+/// * `location` - Absolute or relative Location value returned by the upstream server.
+/// * `current_target_url` - Upstream URL used as the base for relative redirect locations.
+///
 fn resolve_location(location: &str, current_target_url: &str) -> Result<String, String> {
     let base = Url::parse(current_target_url)
         .map_err(|e| format!("Failed to parse current target URL: {}", e))?;
@@ -44,6 +56,13 @@ fn resolve_location(location: &str, current_target_url: &str) -> Result<String, 
 }
 
 /// Rewrites a `Location` header value to a proxied URL.
+///
+/// # Arguments
+/// * `headers` - HTTP headers inspected or updated by this operation.
+/// * `current_target_url` - Upstream URL used as the base for relative redirect locations.
+/// * `current_opts_encoded` - Current encoded options, retained when no redirect rule changes them.
+/// * `api_prefix` - Controller API prefix used to construct the local proxy route.
+///
 pub(super) fn rewrite_location_header(
     headers: &mut HashMap<String, String>,
     current_target_url: &str,

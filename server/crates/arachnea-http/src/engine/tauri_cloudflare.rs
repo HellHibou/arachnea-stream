@@ -185,7 +185,7 @@ impl Default for TauriCloudflareSolverEngine {
 impl TauriCloudflareSolverEngine {
     /// Creates an interactive Cloudflare solver.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `config`: Client timing and explicit network-proxy configuration.
     ///
@@ -242,7 +242,7 @@ impl TauriCloudflareSolverEngine {
 
     /// Creates an interactive Cloudflare solver with explicit timing values.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `timeout`: Maximum time the user can spend solving the challenge.
     /// - `user_agent`: User-agent override used by the WebView.
@@ -274,7 +274,7 @@ impl TauriCloudflareSolverEngine {
     /// can make browser fingerprint checks less coherent, so this should only
     /// be used when the caller knows the target accepts the configured profile.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `user_agent`: User-agent override used by the WebView.
     ///
@@ -288,7 +288,7 @@ impl TauriCloudflareSolverEngine {
 
     /// Sets whether the WebView devtools should open automatically.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `enabled`: Whether devtools should be opened for the solver WebView.
     ///
@@ -302,7 +302,7 @@ impl TauriCloudflareSolverEngine {
 
     /// Sets whether the WebView closes automatically after `cf_clearance`.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `enabled`: Whether the solver should close the WebView after the
     ///   stabilization delay.
@@ -317,7 +317,7 @@ impl TauriCloudflareSolverEngine {
 
     /// Sets the delay after `cf_clearance` appears before auto-close.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `duration`: Delay used before closing the WebView automatically.
     ///
@@ -336,7 +336,7 @@ impl TauriCloudflareSolverEngine {
     /// still reuse server-side trust signals, browser attestation, or network
     /// reputation after a successful challenge.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `enabled`: Whether the WebView should use incognito storage.
     ///
@@ -362,7 +362,7 @@ impl HttpEngine for TauriCloudflareSolverEngine {
 
     /// Sends a GET or HEAD request with the interactive WebView.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `request`: Normalized request to solve.
     ///
@@ -417,7 +417,7 @@ impl HttpEngine for TauriCloudflareSolverEngine {
     /// This method runs the Wry event loop on the calling thread. For portable
     /// behavior, call it from the process main thread.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `request`: Normalized refresh request.
     ///
@@ -441,7 +441,7 @@ impl HttpEngine for TauriCloudflareSolverEngine {
 
     /// Opens a WebView and bypasses recent interactive refresh caches.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `request`: Normalized refresh request.
     ///
@@ -466,7 +466,7 @@ impl HttpEngine for TauriCloudflareSolverEngine {
 impl TauriCloudflareSolverEngine {
     /// Refreshes Cloudflare cookies, optionally reusing recent WebView results.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `request`: Normalized refresh request.
     /// - `use_recent_cache`: Whether a recent WebView result can satisfy the
@@ -535,7 +535,7 @@ impl TauriCloudflareSolverEngine {
 
     /// Returns a recent refresh result for an origin.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `origin`: Origin cache key.
     ///
@@ -551,7 +551,7 @@ impl TauriCloudflareSolverEngine {
 
     /// Stores the latest interactive refresh result for an origin.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `origin`: Origin cache key.
     /// - `headers`: Headers synthesized from WebView cookies.
@@ -575,7 +575,7 @@ impl TauriCloudflareSolverEngine {
 
     /// Returns a recent refresh result for the exact origin.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `origin`: Origin cache key.
     ///
@@ -602,7 +602,7 @@ impl TauriCloudflareSolverEngine {
 
 /// Runs the blocking Wry event loop until a Cloudflare clearance cookie exists.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `url`: Absolute URL to load in the WebView.
 /// - `user_agent`: Optional user-agent override applied to the WebView.
@@ -617,6 +617,7 @@ impl TauriCloudflareSolverEngine {
 ///   automatically after the stabilization delay.
 /// - `incognito`: Whether the WebView should use a non-persistent data store.
 /// - `collect_page_source`: Whether the final page HTML should be collected.
+/// - `proxy`: Optional native webview proxy configuration.
 ///
 /// # Returns
 ///
@@ -709,7 +710,7 @@ async fn solve_cloudflare_interactive(
 
 /// Builds response headers containing cookies extracted from the WebView.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `cookies`: Cookies extracted from the WebView session.
 /// - `user_agent`: Optional user-agent observed in the WebView.
@@ -748,6 +749,17 @@ fn response_headers(
     Ok(headers)
 }
 
+/// Inserts the solver user-agent into response metadata.
+///
+/// # Arguments
+///
+/// - `headers`: Header map to update.
+/// - `user_agent`: Browser user-agent value.
+///
+/// # Errors
+///
+/// Returns `InvalidHeader` when the user-agent cannot be represented as a header
+/// value.
 fn insert_solver_user_agent_header(
     headers: &mut HeaderMap,
     user_agent: &str,
@@ -762,7 +774,7 @@ fn insert_solver_user_agent_header(
 
 /// Builds an origin cache key for refresh debouncing.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `value`: Absolute URL being refreshed.
 ///

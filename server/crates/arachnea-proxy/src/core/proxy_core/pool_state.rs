@@ -17,7 +17,7 @@ impl ArachneaProxyCore {
     /// instance. Once a pool has selected a working member, that selection is
     /// cached and reported through the `selected` flag.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `pool_name`: Egress pool to inspect.
     ///
@@ -56,7 +56,7 @@ impl ArachneaProxyCore {
 
     /// Returns the first working pool member in configured order.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `pool`: Egress pool to inspect.
     ///
@@ -85,6 +85,10 @@ impl ArachneaProxyCore {
     }
 
     /// Returns the selected or first non-failed pool member in configured order.
+    ///
+    /// # Arguments
+    /// * `pool` - Configured egress pool whose members and runtime state are inspected.
+    ///
     pub(super) fn first_available_proxy_pool_member(
         &self,
         pool: &crate::core::EgressPool,
@@ -108,7 +112,7 @@ impl ArachneaProxyCore {
 
     /// Returns the next untested pool member batch.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `pool`: Egress pool whose untested members should be selected.
     ///
@@ -144,7 +148,7 @@ impl ArachneaProxyCore {
 
     /// Initializes untested status entries for a proxy pool.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `pool`: Egress pool being prepared.
     pub(super) fn mark_proxy_pool_members_untested(&self, pool: &crate::core::EgressPool) {
@@ -160,6 +164,10 @@ impl ArachneaProxyCore {
     }
 
     /// Resets failed pool members so transient upstream failures can be retried.
+    ///
+    /// # Arguments
+    /// * `pool` - Configured egress pool whose members and runtime state are inspected.
+    ///
     pub(super) fn reset_proxy_pool_ko_members(&self, pool: &crate::core::EgressPool) -> bool {
         let Ok(mut states) = self.proxy_pool_states.write() else {
             return false;
@@ -182,7 +190,7 @@ impl ArachneaProxyCore {
 
     /// Stores the selected proxy pool member.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `pool_name`: Egress pool name that selected a member.
     /// - `selected`: Upstream node selected for future requests from this pool.
@@ -194,7 +202,7 @@ impl ArachneaProxyCore {
 
     /// Merges status updates into one proxy pool runtime state.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `pool_name`: Egress pool name that received updates.
     /// - `statuses`: Status updates keyed by upstream node name.
@@ -224,10 +232,11 @@ impl ArachneaProxyCore {
     /// Only explicitly attributed endpoint connection failures affect global
     /// inventory health. Tunnel and opaque transport failures remain contextual.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `selections`: Pool selections used by the failed connection attempt.
     /// - `destination`: Destination associated with the failed attempt.
+    /// - `error`: Failure evidence distinguishing global endpoint failure from destination-specific errors.
     pub(super) async fn mark_proxy_pool_selections_ko(
         &self,
         selections: &[ProxyPoolSelection],
@@ -304,7 +313,7 @@ impl ArachneaProxyCore {
     /// country pools, a fixed budget is used since the exact eligible count
     /// requires an async call to the inventory.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `chain`: Chain that may contain proxy pool markers.
     ///

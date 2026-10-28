@@ -8,8 +8,8 @@
 //! window and shut the server down.
 //!
 //! The Tauri runtime is supplied entirely by the caller through the context
-//! argument of [`spawn_tauri_server_tray`] (or through the concrete
-//! [`ServerTrayIconService`], whose context is generated at the
+//! argument of [`spawn_tauri_server_tray`](crate::controler::rest::tray::spawn_tauri_server_tray) (or through the concrete
+//! [`ServerTrayIconService`](crate::controler::rest::tray::ServerTrayIconService), whose context is generated at the
 //! `create_application_controler!` call site); this crate never runs
 //! `tauri-build` nor embeds frontend assets, because the `tauri::Context` can
 //! only be produced by the crate that owns `tauri.conf.json` and the app icon.
@@ -100,6 +100,9 @@ pub trait ServerTrayHandle: Send + Sync + 'static {
     /// Called after a hot application of the server settings so the tray keeps
     /// reflecting the configuration actually active. The default
     /// implementation does nothing.
+    ///
+    /// # Arguments
+    /// * `_update` - New server URLs and display information.
     fn update_configuration(&self, _update: &ServerTrayUpdate) {}
 }
 
@@ -291,6 +294,10 @@ impl ServerTrayHandleImpl {
     }
 
     /// Stores the handles of the information menu items for in-place updates.
+    ///
+    /// # Arguments
+    /// * `server_info` - Menu item displaying the server URL or state.
+    /// * `network_info` - Menu item displaying the active network mode.
     fn set_info_items(
         &self,
         server_info: tauri::menu::MenuItem<Wry>,
@@ -714,6 +721,12 @@ impl ServerTrayFactory for ServerTrayIconService {
 
     /// macOS requires the Tauri event loop on the process main thread, so the
     /// tray is run (blocking) on the calling thread instead of a background one.
+    ///
+    /// # Arguments
+    /// * `configuration` - Menu and URL state used to build the tray.
+    ///
+    /// # Returns
+    /// The live tray handle, or `None` when the context was already consumed.
     #[cfg(target_os = "macos")]
     fn run_on_main_thread(
         &self,

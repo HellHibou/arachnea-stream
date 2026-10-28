@@ -16,7 +16,12 @@ use arachnea_proxy::http::proxy_service::proxied_url_with_countries_and_options;
 ///
 /// * `texts` - Values produced by previous actions in the pipeline.
 /// * `request_url` - Final URL used to fetch the current page; used as the
-///   resolution base for relative paths.
+/// resolution base for relative paths.
+/// * `params` - Runtime parameters available to query templates and action pipelines.
+/// * `proxy` - Whether HTTP(S) results should use the configured public proxy route.
+/// * `proxy_headers` - Extra proxy-request headers resolved from runtime parameters and the request origin.
+/// * `proxy_replace_all` - Post-response replacement rules attached to the generated proxy URL.
+/// * `proxy_follow_redirects` - Optional redirect-following policy attached to the generated proxy URL.
 ///
 /// # Returns
 ///
@@ -74,8 +79,13 @@ pub(super) fn apply(
 ///
 /// * `texts` - Values produced by previous actions in the pipeline.
 /// * `request_url` - Final URL used to fetch the current page.
+/// * `params` - Runtime parameters available to query templates and action pipelines.
 /// * `levels` - Number of trailing path segments to remove from
-///   `request_url` before joining the relative value.
+/// `request_url` before joining the relative value.
+/// * `proxy` - Whether HTTP(S) results should use the configured public proxy route.
+/// * `proxy_headers` - Extra proxy-request headers resolved from runtime parameters and the request origin.
+/// * `proxy_replace_all` - Post-response replacement rules attached to the generated proxy URL.
+/// * `proxy_follow_redirects` - Optional redirect-following policy attached to the generated proxy URL.
 ///
 /// # Returns
 ///
@@ -130,6 +140,13 @@ pub(super) fn apply_from_parent(
         .collect()
 }
 
+/// Resolves extra proxy header templates from runtime parameters and the current request origin.
+///
+/// # Arguments
+///
+/// * `params` - Runtime parameters available to query templates and action pipelines.
+/// * `request_url` - URL of the current response, used as the base for URL and header templates.
+/// * `configured_headers` - Header templates to resolve before encoding a proxied media URL.
 fn resolve_proxy_headers<'a>(
     params: &HashMap<String, String>,
     request_url: &str,
@@ -156,6 +173,11 @@ fn resolve_proxy_headers<'a>(
         .collect()
 }
 
+/// Returns the non-empty configured public proxy path from runtime parameters.
+///
+/// # Arguments
+///
+/// * `params` - Runtime parameters available to query templates and action pipelines.
 fn proxy_path(params: &HashMap<String, String>) -> Option<&str> {
     params
         .get(HTTP_PROXY_PUBLIC_PATH_PARAM)
@@ -164,6 +186,15 @@ fn proxy_path(params: &HashMap<String, String>) -> Option<&str> {
         .filter(|value| !value.is_empty())
 }
 
+/// Formats a resolved URL, optionally wrapping HTTP(S) targets in the controller proxy route.
+///
+/// # Arguments
+///
+/// * `url` - Resolved URL to format, wrapping only HTTP(S) schemes when a proxy route is available.
+/// * `proxy_path` - Optional public controller proxy path; absent or blank paths disable wrapping.
+/// * `proxy_headers` - Extra proxy-request headers resolved from runtime parameters and the request origin.
+/// * `proxy_replace_all` - Post-response replacement rules attached to the generated proxy URL.
+/// * `proxy_follow_redirects` - Optional redirect-following policy attached to the generated proxy URL.
 fn resolved_url_string(
     url: Url,
     proxy_path: Option<&str>,
@@ -271,6 +302,10 @@ fn should_resolve_against_directory(base_url: &Url, value: &str) -> bool {
 
 /// Returns a copy of `base_url` whose path always ends with a `/` so
 /// `Url::join` resolves sibling references as expected.
+///
+/// # Arguments
+///
+/// * `base_url` - Source base URL exposed to templates and relative URL resolution.
 fn directory_base_url(base_url: &Url) -> Option<Url> {
     let mut directory_base_url = base_url.clone();
     let path = directory_base_url.path().to_string();
@@ -280,6 +315,11 @@ fn directory_base_url(base_url: &Url) -> Option<Url> {
 
 /// Returns a copy of `base_url` whose path points to the ancestor reached by
 /// popping `levels` trailing path segments.
+///
+/// # Arguments
+///
+/// * `base_url` - Source base URL exposed to templates and relative URL resolution.
+/// * `levels` - Number of trailing path components removed before joining the relative URL.
 fn ancestor_base_url(base_url: &Url, levels: usize) -> Option<Url> {
     let mut ancestor_base_url = base_url.clone();
     let mut segments = ancestor_base_url

@@ -369,6 +369,10 @@ impl ScraperDataNode {
 
     /// Recursively merges child nodes using `merge_first` semantics (scalar
     /// values from the first occurrence are kept).
+    ///
+    /// # Arguments
+    ///
+    /// * `other` - Incoming node whose children are merged while preserving existing children.
     fn merge_children_first(&mut self, other: &ScraperDataNode) {
         for (name, child) in &other.children {
             let entry = self.children.entry(name.clone()).or_default();
@@ -401,6 +405,10 @@ impl ScraperDataNode {
     }
 
     /// Returns the scalar value at the given index in this node.
+    ///
+    /// # Arguments
+    ///
+    /// * `index` - Zero-based item or scalar position to read.
     fn scalar_at(&self, index: usize) -> Option<&str> {
         self.values.get(index).map(String::as_str)
     }
@@ -449,6 +457,11 @@ impl ScraperDataNode {
         self.to_json_value_at("$")
     }
 
+    /// Renders the declared node type as JSON, using the path to contextualize shape or value errors.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Diagnostic JSON path identifying this node in conversion errors.
     fn to_json_value_at(&self, path: &str) -> std::result::Result<Value, String> {
         match self.output_type {
             Some(ScraperOutputType::String) => self.render_single_string(path),
@@ -463,6 +476,11 @@ impl ScraperDataNode {
         }
     }
 
+    /// Renders an untyped object/container or null; untyped scalar values return an error.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Diagnostic JSON path identifying this node in conversion errors.
     fn render_untyped_container(&self, path: &str) -> std::result::Result<Value, String> {
         if !self.items.is_empty() {
             return self.render_object_array(path);
@@ -486,6 +504,11 @@ impl ScraperDataNode {
         ))
     }
 
+    /// Renders one string or null; multiple scalar values return a cardinality error.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Diagnostic JSON path identifying this node in conversion errors.
     fn render_single_string(&self, path: &str) -> std::result::Result<Value, String> {
         let Some(value) = self.single_value(path, ScraperOutputType::String)? else {
             return Ok(Value::Null);
@@ -494,6 +517,11 @@ impl ScraperDataNode {
         Ok(Value::String(value.to_string()))
     }
 
+    /// Renders one finite JSON number, or null for an absent or blank value.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Diagnostic JSON path identifying this node in conversion errors.
     fn render_single_number(&self, path: &str) -> std::result::Result<Value, String> {
         let Some(value) = self.single_value(path, ScraperOutputType::Number)? else {
             return Ok(Value::Null);
@@ -510,6 +538,11 @@ impl ScraperDataNode {
         )?))
     }
 
+    /// Renders one accepted boolean spelling, or null when the scalar is absent.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Diagnostic JSON path identifying this node in conversion errors.
     fn render_single_boolean(&self, path: &str) -> std::result::Result<Value, String> {
         let Some(value) = self.single_value(path, ScraperOutputType::Boolean)? else {
             return Ok(Value::Null);
@@ -522,6 +555,7 @@ impl ScraperDataNode {
         )?))
     }
 
+    /// Renders the scalar strings as a JSON array, or null when no values exist.
     fn render_string_array(&self) -> std::result::Result<Value, String> {
         if self.values.is_empty() {
             return Ok(Value::Null);
@@ -532,6 +566,11 @@ impl ScraperDataNode {
         ))
     }
 
+    /// Parses scalar values into a finite-number array, preserving null for an empty node.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Diagnostic JSON path identifying this node in conversion errors.
     fn render_number_array(&self, path: &str) -> std::result::Result<Value, String> {
         if self.values.is_empty() {
             return Ok(Value::Null);
@@ -546,6 +585,11 @@ impl ScraperDataNode {
             .map(Value::Array)
     }
 
+    /// Parses scalar values into a boolean array, preserving null for an empty node.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Diagnostic JSON path identifying this node in conversion errors.
     fn render_boolean_array(&self, path: &str) -> std::result::Result<Value, String> {
         if self.values.is_empty() {
             return Ok(Value::Null);
@@ -560,6 +604,11 @@ impl ScraperDataNode {
             .map(Value::Array)
     }
 
+    /// Renders one object or null, rejecting more than one explicit object item.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Diagnostic JSON path identifying this node in conversion errors.
     fn render_object(&self, path: &str) -> std::result::Result<Value, String> {
         if self.children.is_empty() && self.items.is_empty() && self.values.is_empty() {
             return Ok(Value::Null);
@@ -581,6 +630,11 @@ impl ScraperDataNode {
         self.render_object_from_children(path)
     }
 
+    /// Renders explicit items or aligned child values as an object array, or null for an empty node.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Diagnostic JSON path identifying this node in conversion errors.
     fn render_object_array(&self, path: &str) -> std::result::Result<Value, String> {
         if self.items.is_empty() && self.children.is_empty() {
             return Ok(Value::Null);
@@ -617,6 +671,11 @@ impl ScraperDataNode {
             .map(|value| Value::Array(vec![value]))
     }
 
+    /// Renders children recursively into an object, retaining container values under the `_` key.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Diagnostic JSON path identifying this node in conversion errors.
     fn render_object_from_children(&self, path: &str) -> std::result::Result<Value, String> {
         if self.children.is_empty() && self.values.is_empty() {
             return Ok(Value::Object(Map::new()));
@@ -640,6 +699,12 @@ impl ScraperDataNode {
         Ok(Value::Object(object))
     }
 
+    /// Renders a child at an aligned object-array index with path-aware conversion errors.
+    ///
+    /// # Arguments
+    ///
+    /// * `index` - Zero-based item or scalar position to read.
+    /// * `path` - Diagnostic JSON path identifying this node in conversion errors.
     fn render_indexed_value(&self, index: usize, path: &str) -> std::result::Result<Value, String> {
         if self.values.is_empty() {
             if !self.children.is_empty() && self.items.is_empty() {
@@ -679,6 +744,12 @@ impl ScraperDataNode {
         }
     }
 
+    /// Returns at most one scalar; empty nodes yield `None` and multiple values return an error.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Diagnostic JSON path identifying this node in conversion errors.
+    /// * `output_type` - Expected output type included in cardinality or value-conversion diagnostics.
     fn single_value(
         &self,
         path: &str,
@@ -703,6 +774,10 @@ impl ScraperDataNode {
 
 impl Serialize for ScraperDataNode {
     /// Serializes the node to its typed JSON representation.
+    ///
+    /// # Arguments
+    ///
+    /// * `serializer` - Serde serializer receiving the raw or typed representation.
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -713,6 +788,12 @@ impl Serialize for ScraperDataNode {
     }
 }
 
+/// Appends a child name to a dotted diagnostic JSON path.
+///
+/// # Arguments
+///
+/// * `parent` - Parent diagnostic path used when formatting a child path.
+/// * `child` - Child HTTP options whose explicit values override inherited parent settings.
 fn join_path(parent: &str, child: &str) -> String {
     if parent == "$" {
         format!("$.{}", child)
@@ -721,6 +802,13 @@ fn join_path(parent: &str, child: &str) -> String {
     }
 }
 
+/// Parses a trimmed signed/unsigned integer or finite float, rejecting blank and non-finite values.
+///
+/// # Arguments
+///
+/// * `value` - Input value interpreted by this operation.
+/// * `path` - Diagnostic JSON path identifying this node in conversion errors.
+/// * `output_type` - Expected output type included in cardinality or value-conversion diagnostics.
 fn parse_json_number(
     value: &str,
     path: &str,
@@ -763,6 +851,13 @@ fn parse_json_number(
     })
 }
 
+/// Parses case-insensitive true/false, 1/0, yes/no or y/n, rejecting other values.
+///
+/// # Arguments
+///
+/// * `value` - Input value interpreted by this operation.
+/// * `path` - Diagnostic JSON path identifying this node in conversion errors.
+/// * `output_type` - Expected output type included in cardinality or value-conversion diagnostics.
 fn parse_json_bool(
     value: &str,
     path: &str,
@@ -798,6 +893,10 @@ impl From<&ScraperDataNode> for ScraperDataNodeRaw {
     /// Converts a runtime node into its raw JSON shape, selecting the most
     /// compact representation (null, values array, flat array of objects,
     /// nested array, or plain object).
+    ///
+    /// # Arguments
+    ///
+    /// * `node` - Scraper node inspected or updated by this operation.
     fn from(node: &ScraperDataNode) -> Self {
         if !node.items.is_empty() {
             // When all items are simple scalars (no children, no nested
@@ -864,6 +963,10 @@ impl From<&ScraperDataNode> for ScraperDataNodeRaw {
 
 impl From<ScraperDataNode> for ScraperDataNodeRaw {
     /// Converts an owned node into its raw JSON shape.
+    ///
+    /// # Arguments
+    ///
+    /// * `node` - Scraper node inspected or updated by this operation.
     fn from(node: ScraperDataNode) -> Self {
         ScraperDataNodeRaw::from(&node)
     }
@@ -873,6 +976,10 @@ impl TryFrom<ScraperDataNodeRaw> for ScraperDataNode {
     type Error = String;
 
     /// Converts a raw JSON representation back into a runtime [`ScraperDataNode`].
+    ///
+    /// # Arguments
+    ///
+    /// * `raw` - Encoded component to decode, preserving the original text if decoding fails.
     ///
     /// # Errors
     ///

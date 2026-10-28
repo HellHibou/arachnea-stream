@@ -157,6 +157,10 @@ impl RestControlerService {
     ///
     /// Rebuilt instances reuse the shared main-thread dispatcher and do not
     /// record replay steps (the supervisor replays the recorded ones).
+    ///
+    /// # Arguments
+    /// * `snapshot` - Frozen REST service configuration to rebuild from.
+    /// * `dispatcher` - Shared main-thread dispatcher used by rebuilt routes.
     pub(crate) fn from_snapshot(
         snapshot: RestServiceSnapshot,
         dispatcher: Arc<QueuedMainThreadDispatcher>,
@@ -193,6 +197,9 @@ impl RestControlerService {
     }
 
     /// Records a registration step so the supervisor can replay it.
+    ///
+    /// # Arguments
+    /// * `step` - Router registration callback replayed on rebuild.
     fn record_step(&mut self, step: ReplayStep) {
         if self.recording {
             if let Some(supervisor) = &self.supervisor {
@@ -250,6 +257,11 @@ impl RestControlerService {
         self.register_web_assets(WebAssetSource::embedded(assets), path);
     }
 
+    /// Mounts a web asset source and records the registration for replay.
+    ///
+    /// # Arguments
+    /// * `source` - Directory or embedded asset provider to serve.
+    /// * `path` - Relative mount path under the entrypoint root; empty mounts at the root.
     fn register_web_assets(&mut self, source: WebAssetSource, path: &str) {
         let mount_path = normalize_mount_path(path);
         let reserved_api = if mount_path.is_empty() {
@@ -429,6 +441,11 @@ impl RestControlerService {
         self.add_route(redirect_filter);
     }
 
+    /// Builds the entrypoint prefix filter shared by registered routes.
+    ///
+    /// # Arguments
+    /// * `use_api` - Whether to append the configured API entrypoint prefix.
+    /// * `last_path` - Optional slash-separated suffix appended after the base path.
     fn make_base_filter(&self, use_api: bool, last_path: &str) -> BoxedFilter<()> {
         let mut path = self.entrypoint_root.clone();
 
@@ -873,6 +890,9 @@ impl ControlerService for RestControlerService {
 /// runs on its own thread, and this keeps the process main thread alive until
 /// the server shuts down (mirroring `MainThreadDispatchLoop::run_until`'s
 /// blocking behaviour on the other platforms).
+///
+/// # Arguments
+/// * `shutdown` - Signal polled until shutdown is requested.
 #[cfg(target_os = "macos")]
 fn wait_for_shutdown(shutdown: &ShutdownSignal) {
     use crate::REST_SHUTDOWN_POLL_INTERVAL as POLL_INTERVAL;

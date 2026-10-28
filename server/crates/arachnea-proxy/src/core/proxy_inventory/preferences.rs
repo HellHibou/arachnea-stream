@@ -16,6 +16,10 @@ use super::eligibility::{
 };
 
 impl ProxyInventory {
+    /// Returns a shared per-destination lock, pruning unused lock entries.
+    ///
+    /// # Arguments
+    /// * `key` - Exact-destination history key identifying the shared commit/selection lock.
     pub(super) async fn destination_lock(&self, key: &str) -> Arc<Mutex<()>> {
         let mut locks = self.destination_locks.lock().await;
         locks.retain(|_, lock| Arc::strong_count(lock) > 1);
@@ -27,6 +31,12 @@ impl ProxyInventory {
 
     /// Reuses the proxy accepted by this exact origin before any new endpoint
     /// prechecks. Probe age alone does not invalidate a successful origin binding.
+    ///
+    /// # Arguments
+    /// * `countries` - Allowed ISO alpha-2 country codes.
+    /// * `require_https` - Whether selection requires an HTTPS tunnel and destination TLS capability.
+    /// * `destination` - Final origin used for capability checks and destination-specific exclusions.
+    ///
     pub(super) async fn select_preferred_destination(
         &self,
         countries: &[String],
@@ -175,6 +185,12 @@ impl ProxyInventory {
         None
     }
 
+    /// Reuses eligible accepted history recorded along the current redirect chain.
+    ///
+    /// # Arguments
+    /// * `countries` - Allowed ISO alpha-2 country codes.
+    /// * `require_https` - Whether selection requires an HTTPS tunnel and destination TLS capability.
+    /// * `destination` - Final origin used for capability checks and destination-specific exclusions.
     pub(super) async fn select_redirect_destination(
         &self,
         countries: &[String],
@@ -234,6 +250,13 @@ impl ProxyInventory {
         Some(record.clone())
     }
 
+    /// Reuses an unexpired affinity binding only while its endpoint remains eligible.
+    ///
+    /// # Arguments
+    /// * `countries` - Allowed ISO alpha-2 country codes.
+    /// * `require_https` - Whether selection requires an HTTPS tunnel and destination TLS capability.
+    /// * `destination` - Final origin used for capability checks and destination-specific exclusions.
+    /// * `affinity` - Optional opaque affinity key; absent or blank keys disable affinity reuse.
     pub(super) async fn select_affinity_binding(
         &self,
         countries: &[String],
@@ -287,6 +310,11 @@ impl ProxyInventory {
         None
     }
 
+    /// Binds a supplied affinity key to the selected endpoint with a fresh expiry.
+    ///
+    /// # Arguments
+    /// * `affinity` - Optional opaque key; `None` skips binding. Callers normalize blank keys.
+    /// * `record` - Proxy record whose endpoint and runtime evidence are inspected or updated.
     pub(super) async fn bind_affinity(&self, affinity: Option<&str>, record: &ProxyRecord) {
         let Some(affinity) = affinity else {
             return;
@@ -301,6 +329,11 @@ impl ProxyInventory {
     }
 
     /// Removes an affinity binding when its selected proxy is rejected.
+    ///
+    /// # Arguments
+    /// * `affinity` - Affinity key whose binding is removed only if it still names this endpoint.
+    /// * `authority` - Proxy endpoint identity in host:port form, with IPv6 brackets where needed.
+    ///
     pub async fn clear_affinity(&self, affinity: &str, authority: &str) {
         let mut inner = self.inner.write().await;
         if inner
@@ -313,6 +346,11 @@ impl ProxyInventory {
     }
 
     /// Renews an affinity binding after an accepted origin response.
+    ///
+    /// # Arguments
+    /// * `affinity` - Affinity key assigned to this endpoint, replacing any prior binding and resetting its TTL.
+    /// * `authority` - Proxy endpoint identity in host:port form, with IPv6 brackets where needed.
+    ///
     pub async fn renew_affinity(&self, affinity: &str, authority: &str) {
         self.inner.write().await.affinity_bindings.insert(
             affinity.to_string(),

@@ -47,6 +47,7 @@ impl ScraperQueryCollection {
     /// * `query_media_type_filter` - Filter on media_type query.
     /// * `fields_filters` - Root fields filter list or None.
     /// * `client_fragment` - Client-provided validator fragment for this source.
+    /// * `yaml_hash` - Hash of the owning YAML configuration included in the source validator identity.
     ///
     /// # Returns
     ///

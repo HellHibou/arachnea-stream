@@ -12,7 +12,7 @@ use super::ArachneaProxyCore;
 
 /// Logs a connect_chain iteration at DEBUG level.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `chain`: Chain being traversed.
 /// - `destination`: Final destination.
@@ -35,7 +35,7 @@ fn log_connect_chain_iteration(chain: &ProxyChain, destination: &Destination, at
 
 /// Loads credentials for the final HTTP proxy in a chain.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `chain`: Chain selected for an HTTP request.
 ///
@@ -66,7 +66,7 @@ fn selected_http_proxy_credentials(
 impl ArachneaProxyCore {
     /// Opens a stream to a destination using route policy.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `destination`: Target destination requested by the caller.
     ///
@@ -84,7 +84,7 @@ impl ArachneaProxyCore {
 
     /// Opens a stream using a full connect request.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `request`: Destination and client context for route selection.
     ///
@@ -120,6 +120,10 @@ impl ArachneaProxyCore {
         })
     }
 
+    /// Applies security and routing policy before opening the requested TCP transport.
+    ///
+    /// # Arguments
+    /// * `request` - Outbound request, including its destination and routing options.
     fn connect_request_inner(
         &self,
         request: ConnectRequest,
@@ -204,7 +208,7 @@ impl ArachneaProxyCore {
     /// caller to send an absolute-form request target. Other routes connect to
     /// the final destination and expect origin-form request targets.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `request`: HTTP destination and client context for route selection.
     ///
@@ -241,6 +245,10 @@ impl ArachneaProxyCore {
         })
     }
 
+    /// Applies security and routing policy before opening an HTTP-capable transport.
+    ///
+    /// # Arguments
+    /// * `request` - Outbound request, including its destination and routing options.
     fn connect_http_request_inner(
         &self,
         request: ConnectRequest,
@@ -357,7 +365,7 @@ impl ArachneaProxyCore {
 
     /// Connects a request through a selected proxy chain.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `chain`: Resolved proxy chain selected by routing.
     /// - `request`: Original connect request and client context.
@@ -418,7 +426,7 @@ impl ArachneaProxyCore {
 
     /// Opens a stream through a selected proxy chain once.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `chain`: Resolved proxy chain selected by routing.
     /// - `request`: Original connect request and client context.
@@ -555,7 +563,7 @@ impl ArachneaProxyCore {
 
     /// Connects through a chain up to its final HTTP proxy hop.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `chain`: Chain whose last non-direct hop must be an HTTP or HTTPS proxy.
     ///

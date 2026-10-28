@@ -1,6 +1,6 @@
 //! DNS server adapter for Arachnea DNS.
 //!
-//! This crate owns TOML configuration loading, UDP/TCP listeners and DNS
+//! This module owns TOML configuration loading, UDP/TCP listeners and DNS
 //! packet adaptation. All resolution decisions are delegated to
 //! the `core` module.
 

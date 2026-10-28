@@ -253,6 +253,8 @@ Loopback CONNECT uses the caller's remaining deadline when supplied.
 
 ## Known Gaps
 
+`NetworkConfig::rate_limit_per_client_per_second` is advisory and is not enforced by the listeners. `max_connections` is enforced independently by each listener; `None` uses a limit of 1024 connections rather than disabling the limit.
+
 The durable remaining work from the retired specification is tracked in the root `docs/TODO.md`. Important proxy gaps include MASQUE CONNECT-UDP, ExternalTunnel orchestration, richer Tor integration, concrete `hyper-util` support, stronger auth tests and secret handling, true per-IP rate limiting, benchmarks, a possible `rquest` in-process connector, and the reserved `censorship_resistance` profile.
 
 ## Common Commands

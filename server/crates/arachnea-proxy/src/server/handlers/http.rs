@@ -12,6 +12,16 @@ use crate::server::handlers::connect::destination_from_connect_authority;
 use crate::server::{validate_http_basic_header, ProxyCredentials, ServerConfig};
 
 /// Handles one HTTP proxy connection.
+///
+/// # Arguments
+/// * `client` - Accepted client stream positioned before its proxy protocol exchange.
+/// * `peer` - Client socket address passed to the connection handler.
+/// * `config` - Shared server configuration controlling limits, ACLs and authentication.
+/// * `core` - Proxy core used to route and establish outbound connections.
+///
+/// # Errors
+///
+/// Propagates HTTP parsing, authentication, routing, transport and relay errors from the connection handler.
 pub async fn handle<S>(
     client: S,
     peer: SocketAddr,
@@ -29,6 +39,17 @@ where
 /// Request parameter headers override matching values in `client_context`.
 /// This allows loopback clients that cannot inject HTTP CONNECT headers, such
 /// as Chrome, to use the same parameterized route as other clients.
+///
+/// # Arguments
+/// * `client` - Accepted client stream positioned before its proxy protocol exchange.
+/// * `_peer` - Client socket address, currently unused by this handler.
+/// * `config` - Shared server configuration controlling limits, ACLs and authentication.
+/// * `core` - Proxy core used to route and establish outbound connections.
+/// * `client_context` - Routing parameters attached to requests handled by this client route.
+///
+/// # Errors
+///
+/// Returns an error for invalid requests or authentication configuration, denied authentication, failed routing or connection I/O.
 pub async fn handle_with_client_context<S>(
     mut client: S,
     _peer: SocketAddr,
@@ -63,6 +84,16 @@ where
 ///
 /// Internal credentials select a weakly registered lease. External credentials
 /// carry routing parameters and are challenged before any destination is opened.
+///
+/// # Arguments
+/// * `client` - Accepted client stream positioned before its proxy protocol exchange.
+/// * `config` - Shared server configuration controlling limits, ACLs and authentication.
+/// * `routes` - Registered loopback routes indexed by their opaque route identifier.
+/// * `default_route` - Route used when no explicit route identifier is supplied.
+///
+/// # Errors
+///
+/// Returns an error for expired or invalid route credentials, invalid parameter values, request timeout or upstream connection failure.
 pub(crate) async fn handle_loopback<S>(
     mut client: S,
     config: Arc<ServerConfig>,
@@ -212,6 +243,16 @@ where
     }
 }
 
+/// Validates routing parameter values before inserting normalized strings into the client context.
+///
+/// # Arguments
+/// * `context` - Client routing context updated after successful validation.
+/// * `name` - Declared routing parameter name; countries and fallback-direct receive additional validation.
+/// * `value` - Header value to validate, normalize and store.
+///
+/// # Errors
+///
+/// Rejects invalid country arrays or non-boolean fallback-direct values before modifying the context.
 fn insert_loopback_parameter(context: &mut ClientContext, name: &str, value: &str) -> Result<()> {
     if name == crate::PROXY_PARAMETER_COUNTRIES {
         let countries = serde_json::from_str::<Vec<String>>(value)
@@ -242,7 +283,7 @@ fn insert_loopback_parameter(context: &mut ClientContext, name: &str, value: &st
 
 /// Returns whether a request contains valid proxy credentials.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `request`: Parsed HTTP request head.
 /// - `credentials`: Expected proxy credentials.
@@ -259,11 +300,12 @@ fn request_has_valid_proxy_auth(request: &HttpRequestHead, credentials: &ProxyCr
 
 /// Handles an HTTP `CONNECT` request by establishing a TCP tunnel.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `client`: Client stream that issued the `CONNECT` request.
 /// - `request`: Parsed HTTP request head.
 /// - `core`: Proxy core used to open the outbound tunnel.
+/// - `client_context`: Listener defaults overridden by recognized request parameter headers.
 ///
 /// # Errors
 ///
@@ -402,11 +444,12 @@ where
 
 /// Handles an absolute-form HTTP proxy request.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `client`: Client stream that issued the HTTP proxy request.
 /// - `request`: Parsed HTTP request head.
 /// - `core`: Proxy core used to select the outbound route.
+/// - `client_context`: Listener defaults overridden by recognized request parameter headers.
 ///
 /// # Errors
 ///
@@ -499,7 +542,7 @@ where
 
 /// Writes a small HTTP error response to a client stream.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `client`: Client stream that receives the response.
 /// - `status`: Numeric HTTP status code.
@@ -522,7 +565,7 @@ where
 
 /// Writes an HTTP proxy authentication challenge.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `client`: Client stream that receives the response.
 /// - `realm`: HTTP Basic realm to advertise.
@@ -545,7 +588,7 @@ where
 
 /// Reads one HTTP request head from a stream.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `client`: Client stream to read from.
 /// - `max_bytes`: Maximum number of header bytes accepted before failing.
@@ -583,7 +626,7 @@ where
 
 /// Parses raw HTTP/1.x request headers.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `data`: Header bytes ending with the HTTP header terminator.
 ///
@@ -636,10 +679,11 @@ fn parse_http_request(data: &[u8]) -> Result<HttpRequestHead> {
 
 /// Builds a client context from registered proxy parameter headers.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `headers`: Parsed HTTP request headers.
 /// - `definitions`: Registered parameter definitions.
+/// - `context`: Existing listener context updated by recognized headers; matching request values take precedence.
 ///
 /// # Returns
 ///
@@ -668,7 +712,7 @@ fn context_from_headers(
 
 /// Returns whether an HTTP header must be removed before forwarding.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `lowercase_name`: Lower-case HTTP header name.
 /// - `definitions`: Registered parameter definitions.
@@ -693,18 +737,16 @@ fn should_strip_header(lowercase_name: &str, definitions: &[ParameterDefinition]
         !definition.forward_header && lowercase_name.eq_ignore_ascii_case(&definition.http_header)
     })
 }
-
-#[derive(Debug)]
 /// Parsed HTTP request head without a body.
+#[derive(Debug)]
 struct HttpRequestHead {
     method: String,
     target: String,
     version: String,
     headers: Vec<Header>,
 }
-
-#[derive(Debug)]
 /// Parsed HTTP header name and value.
+#[derive(Debug)]
 struct Header {
     name: String,
     value: String,

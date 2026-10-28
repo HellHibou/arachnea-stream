@@ -11,6 +11,7 @@ use super::{
     ProxyObservation, ProxyObservationOutcome, ProxyObservationPhase, ProxyProbeContext,
 };
 
+/// Process-local monotonically allocated correlation identifier for selection tokens.
 static NEXT_SELECTION: AtomicU64 = AtomicU64::new(1);
 
 /// Evidence used to select this exact endpoint and destination.
@@ -59,6 +60,12 @@ impl PartialEq for ProxySelectionToken {
 impl Eq for ProxySelectionToken {}
 
 impl ProxySelectionToken {
+    /// Creates an exact-origin selection token retaining its inventory and current search provenance.
+    ///
+    /// # Arguments
+    /// * `inventory` - Inventory owning the selected endpoint and its runtime observations.
+    /// * `endpoint` - Concrete proxy endpoint excluded or tracked by this operation.
+    /// * `destination` - Exact origin pinned by this selection so subsequent observations target the same route.
     pub(crate) fn new(
         inventory: Arc<ProxyInventory>,
         endpoint: String,

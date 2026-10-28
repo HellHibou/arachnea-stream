@@ -12,13 +12,13 @@ use crate::core::Result;
 
 pub use remove_header::{ProxyHttpRemoveHeaderConfig, RemoveHeader, REMOVE_HEADER_ACTION_HEADER};
 pub use replace_all::ReplaceAll;
-
+/// Parsed response and redirect actions kept in separate execution collections.
 #[cfg(feature = "controller-service")]
 pub(crate) struct ParsedProxyActionHeaders {
     pub post_actions: Vec<ProxyHttpPostActionConfig>,
     pub redirect_actions: Vec<ProxyHttpRedirectActionConfig>,
 }
-
+/// Controller redirect rule interpreted while rewriting encoded proxy options.
 #[cfg(feature = "controller-service")]
 pub(crate) enum ProxyHttpRedirectActionConfig {
     RemoveHeader(ProxyHttpRemoveHeaderConfig),
@@ -26,6 +26,7 @@ pub(crate) enum ProxyHttpRedirectActionConfig {
 
 #[cfg(feature = "controller-service")]
 impl ParsedProxyActionHeaders {
+    /// Creates empty action collections for response and redirect processing.
     fn new() -> Self {
         Self {
             post_actions: Vec::new(),
@@ -33,6 +34,10 @@ impl ParsedProxyActionHeaders {
         }
     }
 
+    /// Appends a parsed action to its response or redirect collection.
+    ///
+    /// # Arguments
+    /// * `action` - Action configuration to inspect or encode.
     fn push(&mut self, action: ParsedProxyActionHeader) {
         match action {
             ParsedProxyActionHeader::PostAction(action) => self.post_actions.push(action),
@@ -40,7 +45,7 @@ impl ParsedProxyActionHeaders {
         }
     }
 }
-
+/// One decoded action, classified as a body transformation or redirect rule.
 #[cfg(feature = "controller-service")]
 pub(crate) enum ParsedProxyActionHeader {
     PostAction(ProxyHttpPostActionConfig),
@@ -72,12 +77,22 @@ pub struct ProxyHttpPostActionConfig {
 /// Post-actions are conservatively treated as body transformations until a
 /// future action explicitly supports streaming. This also implies identity
 /// response encoding so an action never receives a compressed body.
+///
+/// # Arguments
+/// * `actions` - Configured response and redirect actions to inspect or encode.
+///
 #[cfg(feature = "controller-service")]
 pub(crate) fn post_actions_require_body_buffering(actions: &[ProxyHttpPostActionConfig]) -> bool {
     !actions.is_empty()
 }
 
 /// Returns true when redirect actions should remove an encoded opts header.
+///
+/// # Arguments
+/// * `actions` - Configured response and redirect actions to inspect or encode.
+/// * `status` - HTTP response status used to evaluate the redirect rule.
+/// * `header` - Header name matched without regard to ASCII case.
+///
 #[cfg(feature = "controller-service")]
 pub(crate) fn should_remove_opts_header_on_redirect(
     actions: &[ProxyHttpRedirectActionConfig],
@@ -92,6 +107,10 @@ pub(crate) fn should_remove_opts_header_on_redirect(
 }
 
 /// Serializes a proxy action to the action header carried in `opts.headers`.
+///
+/// # Arguments
+/// * `action` - Action configuration to inspect or encode.
+///
 #[cfg(feature = "controller-service")]
 pub(crate) fn proxy_action_header(
     action: &ProxyHttpActionConfig,
@@ -100,6 +119,14 @@ pub(crate) fn proxy_action_header(
 }
 
 /// Parses and removes proxy action headers from a mutable request header map.
+///
+/// # Arguments
+/// * `headers` - HTTP headers inspected or updated by this operation.
+///
+///
+/// # Errors
+///
+/// Returns an HTTP 502 error when a recognized action header is malformed.
 #[cfg(feature = "controller-service")]
 pub(crate) fn parse_proxy_action_headers(
     headers: &mut HashMap<String, String>,
@@ -121,6 +148,16 @@ pub(crate) fn parse_proxy_action_headers(
 }
 
 /// Parses one proxy action header and appends it to the parsed action buckets.
+///
+/// # Arguments
+/// * `actions` - Configured response and redirect actions to inspect or encode.
+/// * `name` - Original HTTP action header name.
+/// * `value` - Header value to decode and validate.
+///
+///
+/// # Errors
+///
+/// Returns an HTTP 502 error when a recognized action header cannot be decoded.
 #[cfg(feature = "controller-service")]
 pub(crate) fn parse_proxy_action_header_into(
     actions: &mut ParsedProxyActionHeaders,
@@ -136,6 +173,15 @@ pub(crate) fn parse_proxy_action_header_into(
 }
 
 /// Parses one proxy action header value, if the header name is known.
+///
+/// # Arguments
+/// * `name` - Original HTTP action header name.
+/// * `value` - Header value to decode and validate.
+///
+///
+/// # Errors
+///
+/// Returns an HTTP 502 error for an invalid supported action; unknown headers return `None`.
 #[cfg(feature = "controller-service")]
 pub(crate) fn parse_proxy_action_header_value(
     name: &str,
@@ -164,7 +210,7 @@ pub(crate) fn parse_proxy_action_header_value(
 pub struct PostActionContext {
     /// Entry point / proxy base path, e.g. "http://127.0.0.1:8080/api/proxy".
     pub entry_point: String,
-    /// Full target URL string, e.g. "https://host.com:8080/mon/chemin.jpg".
+    /// Full target URL string, e.g. `https://host.com:8080/mon/chemin.jpg`.
     pub target_url: String,
     /// Base64URL-encoded proxy options inherited from the current request URL,
     /// e.g. "opts_ABCD". Empty when no options are present.

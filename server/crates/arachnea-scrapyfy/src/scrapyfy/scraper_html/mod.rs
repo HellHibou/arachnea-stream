@@ -5,11 +5,11 @@
 //!
 //! This module provides the complete implementation for HTML scraping:
 //!
-//! - [`config`] — Raw YAML configuration types and validated runtime conversions
+//! - [`crate::scrapyfy::scraper_html::config`] — Raw YAML configuration types and validated runtime conversions
 //!   for HTML queries and sub-queries.
-//! - [`entry`] — Runtime and raw configuration types of [`HtmlScraperEntry`],
+//! - [`crate::scrapyfy::scraper_html::entry`] — Runtime and raw configuration types of [`HtmlScraperEntry`],
 //!   including field and group entries with CSS selector support.
-//! - [`query`] — Runtime query type and [`ScraperQuery`] trait implementation
+//! - [`crate::scrapyfy::scraper_html::query`] — Runtime query type and `crate::scrapyfy::scraper::ScraperQuery` trait implementation
 //!   for executing HTML scraping operations.
 
 pub mod config;

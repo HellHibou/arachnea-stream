@@ -24,6 +24,7 @@ const DRM_TODAY_TOKEN_TTL: std::time::Duration = std::time::Duration::from_secs(
 /// Timeout for generic forwarded DRM license requests.
 const PLAYER_LICENSE_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(25);
 
+/// Process-wide cache of generic DRM Today license tokens.
 static DRM_TODAY_TOKEN_CACHE: OnceLock<Mutex<HashMap<String, CachedDrmTodayLicenseToken>>> =
     OnceLock::new();
 
@@ -154,6 +155,14 @@ impl Default for PlayerResolverEndpoints {
 
 impl PlayerResolverEndpoints {
     /// Builds the public URL for one source-owned DRM license token.
+    ///
+    /// # Arguments
+    /// * `service_id` - Source identifier inserted as a path segment.
+    /// * `token_id` - License token inserted as the final path segment.
+    ///
+    /// # Returns
+    /// The public license proxy URL with surrounding slashes trimmed from both
+    /// identifiers.
     pub fn drm_license_url(&self, service_id: &str, token_id: &str) -> String {
         format!(
             "{}/{}/{}",
@@ -174,6 +183,22 @@ pub(crate) trait PlayerStreamResolver: Send + Sync {
     fn resolver_ids(&self) -> &'static [&'static str];
 
     /// Resolves one YAML player descriptor into a playable stream.
+    ///
+    /// # Arguments
+    /// * `scraper_agregator` - Aggregator used to create HTTP clients.
+    /// * `credentials_store` - Store providing source-specific credentials.
+    /// * `resolver` - Resolver identifier selected by the YAML descriptor.
+    /// * `target` - Source-specific video, channel or content identifier.
+    /// * `service_parameters` - Collection parameters defined by the descriptor.
+    /// * `proxy_countries` - Countries selected for outbound routing.
+    /// * `endpoints` - Public endpoint settings used to build proxy URLs.
+    ///
+    /// # Errors
+    /// Returns an error when the resolver is unsupported or playback
+    /// negotiation fails.
+    ///
+    /// # Returns
+    /// The resolved player stream.
     async fn get_stream(
         &self,
         scraper_agregator: &ScraperAgregator,
@@ -186,6 +211,19 @@ pub(crate) trait PlayerStreamResolver: Send + Sync {
     ) -> Result<ResolvedPlayerStream>;
 
     /// Handles a follow-up binary stream request owned by this resolver.
+    ///
+    /// # Arguments
+    /// * `scraper_agregator` - Aggregator available to resolver-specific proxy
+    ///   implementations.
+    /// * `stream_token` - Public token identifying the cached stream request.
+    /// * `body` - Raw request body forwarded to the upstream service.
+    ///
+    /// # Errors
+    /// Returns an error when the token is missing, expired or unsupported, or
+    /// when the upstream request fails.
+    ///
+    /// # Returns
+    /// The framed response returned to the player.
     async fn get_drm_license(
         &self,
         scraper_agregator: &ScraperAgregator,
@@ -194,12 +232,14 @@ pub(crate) trait PlayerStreamResolver: Send + Sync {
     ) -> Result<ProxiedStreamResponse>;
 }
 
+/// Cached generic DRM Today license token with its expiry instant.
 #[derive(Clone)]
 struct CachedDrmTodayLicenseToken {
     token: DrmTodayLicenseToken,
     expires_at: Instant,
 }
 
+/// Generic DRM Today license request data stored behind a public token.
 #[derive(Clone)]
 struct DrmTodayLicenseToken {
     auth_token: String,
@@ -209,6 +249,13 @@ struct DrmTodayLicenseToken {
 }
 
 /// Normalizes a resolver stream kind to the default supported DRM proxy kind.
+///
+/// # Arguments
+/// * `stream_kind` - Optional caller-selected stream kind.
+///
+/// # Returns
+/// The trimmed non-empty stream kind, or `DEFAULT_STREAM_KIND` when absent or
+/// blank.
 pub(crate) fn normalize_stream_kind(stream_kind: Option<String>) -> String {
     stream_kind
         .map(|value| value.trim().to_string())
@@ -217,6 +264,17 @@ pub(crate) fn normalize_stream_kind(stream_kind: Option<String>) -> String {
 }
 
 /// Stores a DRM Today token and returns the same-origin proxy URL exposed to the frontend.
+///
+/// # Arguments
+/// * `endpoints` - Public endpoint settings used to build the proxy URL.
+/// * `service_id` - Source identifier inserted into the proxy URL.
+/// * `auth_token` - DRM Today authentication token.
+/// * `stream_kind` - Stream kind validated when the token is used.
+/// * `license_url` - Upstream Widevine license URL.
+/// * `customer_name` - Optional DRM Today customer identifier.
+///
+/// # Returns
+/// The public license proxy URL containing the generated token.
 pub(crate) fn save_drm_today_license_proxy_url(
     endpoints: &PlayerResolverEndpoints,
     service_id: &str,
@@ -236,6 +294,17 @@ pub(crate) fn save_drm_today_license_proxy_url(
 }
 
 /// Proxies one Widevine challenge to DRM Today using the cached source token.
+///
+/// # Arguments
+/// * `token_id` - Public token identifying the cached license request.
+/// * `challenge_body` - Raw Widevine challenge bytes.
+///
+/// # Errors
+/// Returns an error when the token is empty, expired or unsupported, or when
+/// the upstream license request fails.
+///
+/// # Returns
+/// The normalized upstream license response.
 pub(crate) async fn proxy_drm_today_license_request(
     token_id: &str,
     challenge_body: &[u8],
@@ -254,6 +323,17 @@ pub(crate) async fn proxy_drm_today_license_request(
     }
 }
 
+/// Stores a DRM Today license request under a newly generated public token.
+///
+/// # Arguments
+/// * `auth_token` - DRM Today authentication token.
+/// * `stream_kind` - Stream kind validated when the token is used.
+/// * `license_url` - Upstream Widevine license URL.
+/// * `customer_name` - Optional DRM Today customer identifier.
+///
+/// # Returns
+/// The generated token. The entry is not stored when the cache mutex is
+/// poisoned.
 fn save_drm_today_license_token(
     auth_token: &str,
     stream_kind: &str,
@@ -289,6 +369,14 @@ fn save_drm_today_license_token(
     token_id
 }
 
+/// Loads a non-expired DRM Today token, pruning expired entries.
+///
+/// # Arguments
+/// * `token_id` - Public token used as the cache key.
+///
+/// # Returns
+/// The cached license request, or `None` when absent, expired, or the cache
+/// mutex is poisoned.
 fn load_cached_drm_today_license_token(token_id: &str) -> Option<DrmTodayLicenseToken> {
     let cache = DRM_TODAY_TOKEN_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     let Ok(mut cache_guard) = cache.lock() else {
@@ -300,6 +388,20 @@ fn load_cached_drm_today_license_token(token_id: &str) -> Option<DrmTodayLicense
     cache_guard.get(token_id).map(|entry| entry.token.clone())
 }
 
+/// Sends a Widevine challenge to the cached DRM Today license endpoint.
+///
+/// # Arguments
+/// * `token` - Cached authentication and routing data.
+/// * `challenge_body` - Raw Widevine challenge bytes.
+///
+/// # Errors
+/// Returns an error when the token data is incomplete, the client cannot be
+/// built, the upstream request fails, or the response is unsuccessful or
+/// invalid.
+///
+/// # Returns
+/// The normalized license bytes with a binary content type and `no-store`
+/// cache policy.
 async fn proxy_license_request(
     token: &DrmTodayLicenseToken,
     challenge_body: &[u8],
@@ -373,6 +475,18 @@ async fn proxy_license_request(
     })
 }
 
+/// Normalizes a DRM Today response into raw license bytes.
+///
+/// # Arguments
+/// * `body` - Raw upstream response body.
+/// * `content_type` - Upstream response content type.
+///
+/// # Errors
+/// Returns an error when a JSON-wrapped license is invalid.
+///
+/// # Returns
+/// The decoded license when the response wraps one in JSON, otherwise the
+/// original body.
 fn normalize_license_response(body: Vec<u8>, content_type: &str) -> Result<Vec<u8>> {
     if let Some(decoded_license) = try_extract_wrapped_license(&body, content_type)? {
         return Ok(decoded_license);
@@ -381,6 +495,19 @@ fn normalize_license_response(body: Vec<u8>, content_type: &str) -> Result<Vec<u
     Ok(body)
 }
 
+/// Extracts and base64-decodes a license wrapped in a JSON response.
+///
+/// # Arguments
+/// * `body` - Raw upstream response body.
+/// * `content_type` - Upstream response content type.
+///
+/// # Errors
+/// Returns an error when the body looks like JSON but is invalid, lacks a
+/// usable `license` field, or contains invalid base64.
+///
+/// # Returns
+/// The decoded license for a wrapped response, or `None` when the body is not
+/// UTF-8, is blank, or is not JSON-shaped.
 fn try_extract_wrapped_license(body: &[u8], content_type: &str) -> Result<Option<Vec<u8>>> {
     let body_as_text = match std::str::from_utf8(body) {
         Ok(value) => value.trim(),

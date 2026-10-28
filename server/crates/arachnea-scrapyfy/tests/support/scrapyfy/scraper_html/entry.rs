@@ -29,7 +29,7 @@ impl HtmlScraperEntry {
     /// Recursively collects leaf field names into `names`, prefixing each with the
     /// group hierarchy separated by ` > `.
     ///
-    /// This is a helper method for [`field_names`] that builds the hierarchical paths.
+    /// This is a helper method for [`Self::field_names`] that builds the hierarchical paths.
     ///
     /// # Arguments
     ///

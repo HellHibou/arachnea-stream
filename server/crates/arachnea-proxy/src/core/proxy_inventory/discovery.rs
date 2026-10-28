@@ -14,7 +14,7 @@ use super::eligibility::is_selection_candidate;
 #[cfg(feature = "performance-diagnostics")]
 use super::performance_diagnostics::{ProviderLoadObservation, ProviderLoadProgress};
 use super::records::prepare_provider_records;
-
+/// Provider callback that incrementally merges arriving records into the shared inventory.
 struct InventoryBatchSink {
     inventory: ProxyInventory,
     #[cfg(feature = "performance-diagnostics")]
@@ -45,6 +45,12 @@ impl crate::core::proxy_record::ProxyBatchSink for InventoryBatchSink {
 }
 
 impl ProxyInventory {
+    /// Ranks countries by cached candidate availability before provider discovery.
+    ///
+    /// # Arguments
+    /// * `countries` - Allowed ISO alpha-2 country codes.
+    /// * `require_https` - Whether selection requires an HTTPS tunnel and destination TLS capability.
+    /// * `destination` - Final origin used for capability checks and destination-specific exclusions.
     pub(super) async fn discovery_order(
         &self,
         countries: &[String],
@@ -102,6 +108,10 @@ impl ProxyInventory {
     /// Selection runs prechecks and full validations progressively within the shared deadline.
     /// The shared refresh owns a child task to avoid extending the caller's HTTP
     /// polling stack; dropping its last subscriber aborts that task.
+    ///
+    /// # Arguments
+    /// * `country` - ISO alpha-2 country code associated with the requested inventory partition.
+    ///
     pub(super) async fn load_if_needed(&self, country: &str) {
         let search = ProxySearchContext::current();
         let search_id = search.as_ref().map(ProxySearchContext::id);
@@ -170,6 +180,10 @@ impl ProxyInventory {
         }
     }
 
+    /// Refreshes one country through its provider under a single-flight lock and refresh cooldown.
+    ///
+    /// # Arguments
+    /// * `country` - ISO alpha-2 country code associated with the requested inventory partition.
     async fn load_country(&self, country: &str) {
         let provider = match &self.provider {
             Some(p) => p,
@@ -260,6 +274,12 @@ impl ProxyInventory {
         }
     }
 
+    /// Deduplicates a provider batch and merges it while retaining valid cached runtime evidence.
+    ///
+    /// # Arguments
+    /// * `country` - ISO alpha-2 country code associated with the requested inventory partition.
+    /// * `records` - Proxy records to merge or persist; endpoint identity is host and port.
+    /// * `progress` - Diagnostics-only counters updated as provider records arrive.
     async fn merge_provider_batch(
         &self,
         #[cfg(feature = "performance-diagnostics")] country: &str,

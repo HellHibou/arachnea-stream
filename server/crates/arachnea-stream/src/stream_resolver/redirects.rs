@@ -8,6 +8,12 @@ use super::*;
 /// values computed at runtime (e.g. `window.location.href = currentUrl.toString();`) are skipped
 /// in favor of the next literal assignment. Returns the first non-empty literal target found, or
 /// `None` when the document contains no eligible simple redirect.
+///
+/// # Arguments
+/// * `html` - HTML document to scan.
+///
+/// # Returns
+/// The first eligible literal redirect target.
 pub(super) fn extract_simple_js_redirect_target(html: &str) -> Option<String> {
     let mut search_from = 0;
     while let Some(start) = html[search_from..].find("window.location.href") {

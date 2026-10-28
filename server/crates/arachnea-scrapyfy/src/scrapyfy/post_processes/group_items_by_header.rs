@@ -123,6 +123,13 @@ pub(super) fn apply(
 
 /// Closes the currently open section: when it carries a label and at least one
 /// entry, a section item is pushed into `sections`. Resets the open section.
+///
+/// # Arguments
+///
+/// * `sections` - Output sections receiving a labeled non-empty section.
+/// * `current_label` - Open section label, consumed when the section is flushed.
+/// * `current_entries` - Entries accumulated in the open section; moved or cleared on flush.
+/// * `entries_field` - Path under which a section stores its collected entries.
 fn flush_section(
     sections: &mut Vec<ScraperDataNode>,
     current_label: &mut Option<String>,

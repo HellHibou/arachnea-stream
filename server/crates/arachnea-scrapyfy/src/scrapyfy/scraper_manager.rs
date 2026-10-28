@@ -12,6 +12,10 @@ pub trait ScraperManager {
     ///
     /// The default implementation creates a standalone client without proxy core.
     /// Concrete implementations that own a proxy core should override this method.
+    ///
+    /// # Arguments
+    ///
+    /// * `http_config` - Effective scraper HTTP options used for client construction or configuration.
     fn create_http_client(&self, http_config: ScraperHttpConfig) -> HttpClient {
         HttpClient::with_http_config(http_config)
     }
@@ -25,7 +29,7 @@ pub trait ScraperManager {
     where
         Self: Sized;
 
-    /// Sets default log levels for carte dependencies.
+    /// Sets default log levels for crate dependencies.
     /// Must be called before `init_logger()` to take effect.
     fn init_sub_logger_levels() {
         for logger in LOGGERS {
@@ -40,19 +44,17 @@ pub trait ScraperManager {
         }
     }
 
-    /// Sets the log levels for carte dependencies.
+    /// Sets the log levels for crate dependencies.
     /// Must be called before `init_logger()` to take effect.
     ///
     /// # Arguments
-    /// * `target` - The logger target name
+    ///
     /// * `level` - Level to use
     ///
     /// # Examples
     ///
-    /// ScraperManager::init_sub_logger_level(
-    ///     "my_crate",
-    ///     Level::INFO
-    /// );
+    /// ```text
+    /// ScraperManager::init_sub_logger_level(Level::INFO);
     /// ```
     fn init_sub_logger_level(level: Level) {
         for logger in LOGGERS {

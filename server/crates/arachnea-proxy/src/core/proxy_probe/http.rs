@@ -16,17 +16,24 @@ use tokio::time;
 
 use super::results::{CapabilityProbeAttempt, CapabilityProbeTarget};
 use super::ProxyProbe;
-
+/// Parsed HTTP complementary target for absolute-form forwarding requests.
 pub(super) struct HttpProbeTarget {
+    /// Final destination address used by the probe connection.
     pub(super) destination: Destination,
+    /// Serialized HTTP request-target, absolute-form for forwarding or origin-form after CONNECT.
     pub(super) request_target: String,
+    /// Host header value, including a non-default port when present.
     pub(super) host_header: String,
 }
-
+/// Parsed HTTPS complementary target for CONNECT, TLS and origin-form HTTP requests.
 pub(super) struct HttpsProbeTarget {
+    /// Final destination address used by the probe connection.
     pub(super) destination: Destination,
+    /// Destination hostname used for the TLS server name and certificate validation.
     pub(super) server_name: String,
+    /// Serialized HTTP request-target, absolute-form for forwarding or origin-form after CONNECT.
     pub(super) request_target: String,
+    /// Host header value, including a non-default port when present.
     pub(super) host_header: String,
 }
 
@@ -34,6 +41,16 @@ pub(super) struct HttpsProbeTarget {
 ///
 /// Returns `Ok(())` on a 2xx response. Returns an error carrying the status
 /// code on 407 or other failures.
+///
+/// # Arguments
+/// * `stream` - Connected stream from which HTTP or proxy-protocol bytes are read or written.
+/// * `destination` - Final origin used for capability checks and destination-specific exclusions.
+/// * `timeout` - Maximum duration allowed for this network phase.
+/// * `_credentials` - Reserved credentials; authentication is not sent by this probe implementation.
+///
+/// # Errors
+///
+/// Returns timeout or I/O errors, malformed-response errors, or upstream rejection for a non-2xx CONNECT status.
 pub(super) async fn send_http_connect<S>(
     stream: &mut S,
     destination: &Destination,
@@ -66,6 +83,14 @@ where
     .map_err(|_| ProxyError::Timeout("http connect handshake"))?
 }
 
+/// Reads the HTTP status line and consumes the remaining response headers.
+///
+/// # Arguments
+/// * `stream` - Connected stream from which HTTP or proxy-protocol bytes are read or written.
+///
+/// # Errors
+///
+/// Returns I/O or protocol errors on incomplete, oversized or invalid response headers or status lines.
 async fn read_http_response_status<S>(stream: &mut S) -> Result<u16>
 where
     S: AsyncRead + Unpin + ?Sized,
@@ -104,6 +129,10 @@ where
         .ok_or_else(|| ProxyError::Protocol("invalid http status line".to_string()))
 }
 
+/// Formats a probe target for observations without exposing user information or query data.
+///
+/// # Arguments
+/// * `value` - Absolute probe URL whose credentials, query and fragment are removed.
 fn sanitized_probe_target(value: &str) -> Option<String> {
     url::Url::parse(value).ok().map(|mut url| {
         let _ = url.set_username("");
@@ -114,6 +143,10 @@ fn sanitized_probe_target(value: &str) -> Option<String> {
     })
 }
 
+/// Returns the URL path and query for an origin-form request, or `/` if parsing fails.
+///
+/// # Arguments
+/// * `value` - Absolute probe URL from which the path and query are extracted.
 pub(super) fn probe_origin_target(value: &str) -> String {
     url::Url::parse(value)
         .map(|url| match url.query() {
@@ -123,6 +156,14 @@ pub(super) fn probe_origin_target(value: &str) -> String {
         .unwrap_or_else(|_| "/".to_string())
 }
 
+/// Reads headers with a 64 KiB block limit and an eight-response parsing budget.
+///
+/// # Arguments
+/// * `stream` - Connected stream from which HTTP or proxy-protocol bytes are read or written.
+///
+/// # Errors
+///
+/// Returns I/O or protocol errors on incomplete or invalid headers, oversized blocks or too many interim responses.
 async fn read_probe_headers<S: AsyncRead + Unpin + ?Sized>(
     stream: &mut S,
 ) -> Result<(u16, http::HeaderMap)> {
@@ -165,6 +206,15 @@ async fn read_probe_headers<S: AsyncRead + Unpin + ?Sized>(
     ))
 }
 
+/// Parses an HTTP probe target into an absolute request-target and Host value.
+///
+/// # Arguments
+/// * `url` - Complementary probe URL used for this measurement or observation.
+/// * `default_port` - Port hint selecting the inferred scheme: 443 for HTTPS, otherwise HTTP.
+///
+/// # Errors
+///
+/// Returns a configuration error for an invalid URL, non-HTTP scheme or absent host.
 pub(super) fn parse_http_probe_url(url: &str, default_port: u16) -> Result<HttpProbeTarget> {
     let parsed = parse_probe_url_value(url, default_port)?;
     let host = parsed
@@ -188,6 +238,14 @@ pub(super) fn parse_http_probe_url(url: &str, default_port: u16) -> Result<HttpP
     })
 }
 
+/// Parses an HTTPS probe target into tunnel, TLS and origin-form HTTP metadata.
+///
+/// # Arguments
+/// * `url` - Complementary probe URL used for this measurement or observation.
+///
+/// # Errors
+///
+/// Returns a configuration error for an invalid URL, non-HTTPS scheme or absent host.
 pub(super) fn parse_https_probe_url(url: &str) -> Result<HttpsProbeTarget> {
     let parsed = parse_probe_url_value(url, 443)?;
     if parsed.scheme() != "https" {
@@ -221,6 +279,15 @@ pub(super) fn parse_https_probe_url(url: &str) -> Result<HttpsProbeTarget> {
     })
 }
 
+/// Parses a probe URL, inferring a missing scheme from the default-port hint.
+///
+/// # Arguments
+/// * `url` - Complementary probe URL used for this measurement or observation.
+/// * `default_port` - Port hint selecting the inferred scheme: 443 for HTTPS, otherwise HTTP.
+///
+/// # Errors
+///
+/// Returns a configuration error for blank or syntactically invalid URL input.
 fn parse_probe_url_value(url: &str, default_port: u16) -> Result<url::Url> {
     let trimmed = url.trim();
     if trimmed.is_empty() {
@@ -239,6 +306,10 @@ fn parse_probe_url_value(url: &str, default_port: u16) -> Result<url::Url> {
 }
 
 impl ProxyProbe {
+    /// Checks the newest acceptance observation matching the target and current probe configuration.
+    ///
+    /// # Arguments
+    /// * `url` - Complementary probe URL used for this measurement or observation.
     pub(super) fn target_accepted(&self, url: &str) -> bool {
         let target = sanitized_probe_target(url);
         self.observations
@@ -257,6 +328,14 @@ impl ProxyProbe {
             })
     }
 
+    /// Runs a single HTTP exchange against a configured complementary target through the endpoint.
+    ///
+    /// # Arguments
+    /// * `host` - Hostname or IP address to resolve or connect to, without a port.
+    /// * `port` - TCP port of the proxy endpoint.
+    /// * `protocol` - Proxy transport protocol used for the endpoint handshake.
+    /// * `target` - Destination or complementary target used by the probe.
+    /// * `url` - Complementary probe URL used for this measurement or observation.
     pub(super) async fn probe_target_once(
         &self,
         host: &str,
@@ -307,6 +386,20 @@ impl ProxyProbe {
         attempt
     }
 
+    /// Sends the configured probe method and classifies the target response without following redirects.
+    ///
+    /// # Arguments
+    /// * `stream` - Connected stream from which HTTP or proxy-protocol bytes are read or written.
+    /// * `request_target` - HTTP request-target sent through the tested connection.
+    /// * `host` - Host header value for the complementary target, including a non-default port.
+    /// * `url` - Complementary probe URL used for this measurement or observation.
+    /// * `policy` - Acceptance and suspension policy for the complementary target.
+    /// * `protocol` - Proxy transport protocol used for the endpoint handshake.
+    ///
+    /// # Errors
+    ///
+    /// Returns timeout, I/O or protocol errors, or HTTP-proxy authentication rejection.
+    /// Target-policy rejection and classifier errors are recorded as observations, not returned as errors.
     pub(super) async fn exchange_probe<S: AsyncRead + AsyncWrite + Unpin + Send + ?Sized>(
         &self,
         stream: &mut S,

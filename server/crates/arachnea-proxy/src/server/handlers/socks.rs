@@ -88,6 +88,16 @@ pub(crate) async fn handle_loopback(
 }
 
 /// Handles one SOCKS TCP connection.
+///
+/// # Arguments
+/// * `client` - Accepted client stream positioned before its proxy protocol exchange.
+/// * `_peer` - Client socket address, currently unused by this handler.
+/// * `config` - Shared server configuration controlling limits, ACLs and authentication.
+/// * `core` - Proxy core used to route and establish outbound connections.
+///
+/// # Errors
+///
+/// Returns errors for malformed or unsupported SOCKS exchanges, failed authentication, denied routes or network I/O.
 pub async fn handle(
     mut client: TcpStream,
     _peer: SocketAddr,
@@ -161,7 +171,7 @@ pub async fn handle(
 
 /// Negotiates the configured SOCKS5 authentication mode with a client.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `client`: TCP stream positioned after the SOCKS5 version byte.
 /// - `credentials`: Optional expected username and password.
@@ -214,7 +224,7 @@ async fn negotiate_auth(
 
 /// Reads SOCKS5 username/password data as optional request parameters.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `client`: TCP stream positioned after method selection.
 /// - `definitions`: Registered parameter definitions used as an allow-list.
@@ -250,7 +260,7 @@ async fn read_parameter_username_password(
 /// as separators outside JSON arrays/quoted strings, for clients that make
 /// semicolons awkward to configure.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `username`: SOCKS5 username string.
 /// - `definitions`: Registered parameter definitions used as an allow-list.
@@ -302,7 +312,7 @@ fn context_from_socks_username(
 
 /// Authenticates a SOCKS5 username/password sub-negotiation.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `client`: TCP stream positioned after method selection.
 /// - `credentials`: Expected proxy credentials.
@@ -339,7 +349,7 @@ async fn authenticate_username_password(
 
 /// Reads one length-prefixed SOCKS5 authentication string.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `client`: TCP stream positioned at the length byte.
 ///
@@ -361,7 +371,7 @@ async fn read_socks_auth_string(client: &mut TcpStream) -> Result<String> {
 
 /// Handles a SOCKS5 `CONNECT` request by opening a proxied TCP stream.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `client`: TCP stream connected to the SOCKS5 client.
 /// - `destination`: Target requested by the SOCKS5 client.
@@ -397,7 +407,7 @@ async fn handle_connect(
 
 /// Handles a SOCKS4 `CONNECT` request by opening a proxied TCP stream.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `client`: TCP stream connected to the SOCKS4 client.
 /// - `destination`: Target requested by the SOCKS4 client.
@@ -430,10 +440,11 @@ async fn handle_socks4_connect(
 
 /// Handles a SOCKS5 `UDP ASSOCIATE` request.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `client`: TCP control stream connected to the SOCKS5 client.
 /// - `destination`: Client-supplied association destination.
+/// - `context`: Client routing context reused when opening UDP associations.
 /// - `core`: Proxy core used to select a UDP-capable route.
 ///
 /// # Errors
@@ -471,7 +482,7 @@ async fn handle_udp_associate(
 
 /// Relays SOCKS5 UDP datagrams directly to their destinations.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `client`: TCP control stream whose lifetime owns the UDP association.
 /// - `socket`: UDP relay socket advertised to the SOCKS5 client.
@@ -522,7 +533,7 @@ async fn relay_udp_direct(mut client: TcpStream, socket: UdpSocket) -> Result<()
 
 /// Relays SOCKS5 UDP datagrams through an upstream SOCKS5 association.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `client`: TCP control stream whose lifetime owns the UDP association.
 /// - `client_socket`: UDP relay socket advertised to the downstream client.
@@ -576,7 +587,7 @@ async fn relay_udp_via_socks(
 
 /// Resolves a UDP destination into a socket address for direct relay.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `destination`: Destination extracted from a SOCKS5 UDP datagram.
 ///
@@ -601,7 +612,7 @@ async fn resolve_udp_destination(destination: &Destination) -> Result<SocketAddr
 
 /// Reads a SOCKS4 or SOCKS4a command request from the TCP control stream.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `client`: TCP stream positioned after the SOCKS4 version byte.
 ///
@@ -638,7 +649,7 @@ async fn read_socks4_request(client: &mut TcpStream) -> Result<SocksRequest> {
 
 /// Reads a NUL-terminated SOCKS4 text field.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `client`: TCP stream positioned at the start of the text field.
 /// - `limit`: Maximum number of bytes accepted before the terminator.
@@ -676,7 +687,7 @@ async fn read_nul_terminated_field(
 
 /// Reads a SOCKS5 command request from the TCP control stream.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `client`: TCP stream positioned after method negotiation.
 ///
@@ -736,7 +747,7 @@ async fn read_request(client: &mut TcpStream) -> Result<SocksRequest> {
 
 /// Writes a SOCKS5 reply with an unspecified bind address.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `client`: TCP control stream that receives the reply.
 /// - `code`: SOCKS5 reply status code.
@@ -750,7 +761,7 @@ async fn write_reply(client: &mut TcpStream, code: u8) -> Result<()> {
 
 /// Writes a SOCKS5 reply with a concrete bind address.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `client`: TCP control stream that receives the reply.
 /// - `code`: SOCKS5 reply status code.
@@ -778,7 +789,7 @@ async fn write_reply_addr(client: &mut TcpStream, code: u8, addr: SocketAddr) ->
 
 /// Writes a SOCKS4 reply with an unspecified bind address.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `client`: TCP control stream that receives the reply.
 /// - `code`: SOCKS4 reply status code.
@@ -795,7 +806,7 @@ async fn write_socks4_reply(client: &mut TcpStream, code: u8) -> Result<()> {
 
 /// Parses a downstream SOCKS5 UDP datagram.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `packet`: Raw UDP payload received from the SOCKS5 client.
 ///
@@ -882,7 +893,7 @@ fn parse_udp_request(packet: &[u8]) -> Result<UdpDatagram<'_>> {
 
 /// Encodes a direct UDP response for a SOCKS5 client.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `source`: Remote source address that produced `payload`.
 /// - `payload`: UDP payload to return to the client.
@@ -904,7 +915,7 @@ fn encode_udp_response(source: SocketAddr, payload: &[u8]) -> Vec<u8> {
 
 /// Encodes a UDP response from a destination that may be a hostname.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `destination`: Source destination to encode in the SOCKS5 response header.
 /// - `payload`: UDP payload to return to the client.

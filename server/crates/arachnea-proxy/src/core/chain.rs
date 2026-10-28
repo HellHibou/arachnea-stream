@@ -12,7 +12,7 @@ pub enum TransportKind {
     HttpProxy,
     /// Use an HTTP proxy over TLS.
     HttpsProxy,
-    /// Use SOCKS5.
+    /// Use SOCKS5 for TCP connections or UDP associations when supported by the route.
     Socks5,
     /// Use SOCKS4 or SOCKS4a for TCP CONNECT.
     Socks4,
@@ -79,7 +79,7 @@ pub struct ProxyNode {
 impl ProxyNode {
     /// Creates a direct node.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `name`: Stable node name.
     ///
@@ -105,7 +105,7 @@ impl ProxyNode {
     /// Runtime connection code replaces this marker with the pool's cached
     /// working upstream before executing the chain.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `name`: Egress pool name.
     ///
@@ -127,7 +127,7 @@ impl ProxyNode {
 
     /// Creates a cleartext HTTP proxy node.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `name`: Stable node name.
     /// - `endpoint`: Upstream endpoint formatted as `host:port`.
@@ -141,7 +141,7 @@ impl ProxyNode {
 
     /// Creates an HTTPS proxy node.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `name`: Stable node name.
     /// - `endpoint`: Upstream endpoint formatted as `host:port`.
@@ -155,7 +155,7 @@ impl ProxyNode {
 
     /// Creates a SOCKS5 node.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `name`: Stable node name.
     /// - `endpoint`: Upstream endpoint formatted as `host:port`.
@@ -173,7 +173,7 @@ impl ProxyNode {
     /// IPv4 addresses. Set `ProxyNameResolutionMode::ProxyOnly` to use the
     /// SOCKS4a hostname extension.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `name`: Stable node name.
     /// - `endpoint`: Upstream endpoint formatted as `host:port`.
@@ -187,7 +187,7 @@ impl ProxyNode {
 
     /// Creates a Tor-over-SOCKS node.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `name`: Stable node name.
     /// - `endpoint`: Tor SOCKS endpoint formatted as `host:port`.
@@ -219,7 +219,7 @@ impl ProxyNode {
     /// `socks5`, and `socks5h`. URLs without an explicit port receive the usual scheme
     /// default: 80 for HTTP, 443 for HTTPS, and 1080 for SOCKS.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `name`: Stable node name.
     /// - `proxy_url`: Proxy URL such as `socks5://127.0.0.1:9050`.
@@ -266,7 +266,7 @@ impl ProxyNode {
     /// Supported schemes are `socks`, `socks5`, and `socks5h`. URLs without an
     /// explicit port receive the SOCKS default port `1080`.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `name`: Stable node name.
     /// - `proxy_url`: SOCKS5 proxy URL such as `socks5://127.0.0.1:9050`.
@@ -296,7 +296,7 @@ impl ProxyNode {
 
     /// Creates an externally managed tunnel node.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `name`: Stable node name.
     /// - `endpoint`: Local or remote tunnel endpoint formatted as `host:port`.
@@ -310,7 +310,7 @@ impl ProxyNode {
 
     /// Configures upstream credentials through an environment variable.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `username`: Username sent to the upstream proxy.
     /// - `password_env`: Environment variable containing the password.
@@ -330,7 +330,7 @@ impl ProxyNode {
 
     /// Sets whether hostnames are sent to capable upstream transports.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `send_hostname`: Whether the proxy should receive hostnames instead
     ///   of locally resolved IP addresses when the protocol supports it.
@@ -346,7 +346,7 @@ impl ProxyNode {
 
     /// Sets the DNS resolution behavior for this proxy node.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `mode`: DNS resolution behavior used for hostname targets.
     ///
@@ -381,7 +381,7 @@ impl ProxyNode {
 
     /// Sets TLS verification behavior for TLS-based upstream transports.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `verify_tls`: Whether TLS certificates must be verified.
     ///
@@ -399,7 +399,7 @@ impl ProxyNode {
     /// an extra request-local proxy without defining a new serializable
     /// configuration shape.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `parameters`: Client context extracted from the inbound proxy request.
     /// - `resolver`: Custom resolver that may return an extra proxy node.
@@ -423,7 +423,7 @@ impl ProxyNode {
 
     /// Creates a proxy node for transports that require an endpoint.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `name`: Stable node name.
     /// - `kind`: Proxy transport kind.
@@ -478,7 +478,7 @@ impl ProxyNode {
 
 /// Splits a proxy URL into a lower-case scheme and the remaining URL text.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `proxy_url`: Proxy URL supplied by an API caller or environment variable.
 ///
@@ -495,7 +495,7 @@ fn split_proxy_scheme(proxy_url: &str) -> (String, &str) {
 
 /// Extracts an endpoint authority from a proxy URL remainder.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `rest`: URL text after the scheme separator.
 /// - `scheme`: Lower-case proxy URL scheme.
@@ -533,7 +533,7 @@ fn proxy_endpoint_from_url_rest(rest: &str, scheme: &str) -> Result<String> {
 
 /// Returns whether an authority already contains an explicit port.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `authority`: Authority string from a proxy URL.
 ///
@@ -578,7 +578,7 @@ fn authority_has_port(authority: &str) -> Result<bool> {
 
 /// Returns the default port for a proxy URL scheme.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `scheme`: Lower-case proxy URL scheme.
 ///
@@ -620,7 +620,7 @@ fn default_true() -> bool {
 
 /// Returns the default DNS resolution mode for a transport kind.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `kind`: Proxy transport kind being initialized.
 ///
@@ -683,7 +683,7 @@ impl ProxyChain {
 
     /// Creates a fixed-order chain.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `name`: Stable chain name.
     /// - `nodes`: Ordered nodes in the chain.
@@ -701,7 +701,7 @@ impl ProxyChain {
 
     /// Creates a fixed-order chain containing one proxy node.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `name`: Stable chain name.
     /// - `node`: Proxy node used by the chain.
@@ -715,7 +715,7 @@ impl ProxyChain {
 
     /// Creates a fixed-order chain that selects from one proxy pool.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `name`: Stable chain name.
     /// - `pool`: Egress pool name selected by the chain.
@@ -729,7 +729,7 @@ impl ProxyChain {
 
     /// Appends one proxy node to this chain.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `node`: Additional proxy hop appended after the existing nodes.
     ///
@@ -743,7 +743,7 @@ impl ProxyChain {
 
     /// Appends an egress pool marker to this chain.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `pool`: Egress pool name appended as the next hop.
     ///

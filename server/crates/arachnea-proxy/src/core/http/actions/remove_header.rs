@@ -25,12 +25,20 @@ pub struct ProxyHttpRemoveHeaderConfig {
 
 impl ProxyHttpRemoveHeaderConfig {
     /// Returns true when this rule should run for the given HTTP status.
+    ///
+    /// # Arguments
+    /// * `status` - HTTP response status used to evaluate the redirect rule.
+    ///
     #[cfg(feature = "controller-service")]
     pub(crate) fn applies_to_status(&self, status: u16) -> bool {
         self.trigger.trim() == REMOVE_HEADER_TRIGGER_ON_HTTP_302 && status == 302
     }
 
     /// Returns true when this rule targets the provided header name.
+    ///
+    /// # Arguments
+    /// * `header` - Header name matched without regard to ASCII case.
+    ///
     #[cfg(feature = "controller-service")]
     pub(crate) fn targets_header(&self, header: &str) -> bool {
         self.headers
@@ -40,6 +48,12 @@ impl ProxyHttpRemoveHeaderConfig {
 }
 
 /// Returns true when this action should remove the provided opts header.
+///
+/// # Arguments
+/// * `action` - Action configuration to inspect or encode.
+/// * `status` - HTTP response status used to evaluate the redirect rule.
+/// * `header` - Header name matched without regard to ASCII case.
+///
 #[cfg(feature = "controller-service")]
 pub(crate) fn should_remove_opts_header_on_redirect(
     action: &ProxyHttpRemoveHeaderConfig,
@@ -54,6 +68,10 @@ pub struct RemoveHeader;
 
 impl RemoveHeader {
     /// Creates a RemoveHeader action that runs when a redirect response is HTTP 302.
+    ///
+    /// # Arguments
+    /// * `headers` - Header names to remove from encoded proxy options only for HTTP 302 redirects.
+    ///
     pub fn on_http302<I, S>(headers: I) -> ProxyHttpActionConfig
     where
         I: IntoIterator<Item = S>,
@@ -89,6 +107,10 @@ impl RemoveHeaderValue {
 }
 
 /// Serializes a RemoveHeader action to its proxy action header.
+///
+/// # Arguments
+/// * `action` - Action configuration to inspect or encode.
+///
 #[cfg(feature = "controller-service")]
 pub(crate) fn proxy_action_header(
     action: &ProxyHttpActionConfig,
@@ -108,6 +130,12 @@ pub(crate) fn proxy_action_header(
 }
 
 /// Parses the JSON value of a RemoveHeader proxy action header.
+///
+/// # Arguments
+/// * `name_lower` - ASCII-lowercase header name used to identify the supported action.
+/// * `name` - Original HTTP action header name.
+/// * `value` - Header value to decode and validate.
+///
 #[cfg(feature = "controller-service")]
 pub(crate) fn parse_proxy_action_header_value(
     name_lower: &str,

@@ -8,6 +8,7 @@ pub struct SharedLocalCountry {
 }
 
 #[derive(Clone, Default)]
+/// Versioned explicit and detected country values shared by derived clients.
 struct LocalCountryState {
     version: u64,
     explicit_country: Option<String>,
@@ -27,6 +28,10 @@ impl LocalCountrySnapshot {
     /// Returns whether a requested proxy country should be bypassed for this snapshot.
     ///
     /// Empty requested countries or unknown local country never trigger a bypass.
+    ///
+    /// # Arguments
+    ///
+    /// * `requested_country` - Requested proxy country compared with the shared current-country state.
     pub fn should_bypass_requested_proxy_country(
         &self,
         requested_country: impl AsRef<str>,
@@ -53,6 +58,10 @@ impl SharedLocalCountry {
     ///
     /// Empty values clear the explicit country. Stored values are normalized to
     /// uppercase ASCII after trimming whitespace.
+    ///
+    /// # Arguments
+    ///
+    /// * `country` - Country-code text, trimmed and converted to uppercase ASCII.
     pub fn set_explicit_country(&self, country: impl AsRef<str>) {
         let country = normalize_country(country.as_ref());
         if let Ok(mut guard) = self.inner.write() {
@@ -73,6 +82,10 @@ impl SharedLocalCountry {
     ///
     /// Empty values clear the detected country. Stored values are normalized to
     /// uppercase ASCII after trimming whitespace.
+    ///
+    /// # Arguments
+    ///
+    /// * `country` - Country-code text, trimmed and converted to uppercase ASCII.
     pub fn set_detected_country(&self, country: impl AsRef<str>) {
         let country = normalize_country(country.as_ref());
         if let Ok(mut guard) = self.inner.write() {
@@ -129,6 +142,10 @@ impl SharedLocalCountry {
     ///
     /// The decision is conservative: empty requested countries or unknown local
     /// country never trigger a bypass.
+    ///
+    /// # Arguments
+    ///
+    /// * `requested_country` - Requested proxy country compared with the shared current-country state.
     pub fn should_bypass_requested_proxy_country(
         &self,
         requested_country: impl AsRef<str>,
@@ -143,6 +160,11 @@ impl SharedLocalCountry {
     }
 }
 
+/// Trims country text and uppercases ASCII without validating the country code.
+///
+/// # Arguments
+///
+/// * `country` - Country-code text, trimmed and converted to uppercase ASCII.
 fn normalize_country(country: &str) -> String {
     country.trim().to_ascii_uppercase()
 }

@@ -102,6 +102,7 @@ fn parse_duration_seconds(value: &str) -> Option<u64> {
 /// Returns the cached regex used to detect `<amount> <unit>` pairs in
 /// human-readable duration strings.
 fn duration_regex() -> &'static Regex {
+    /// Cached matcher for human-readable duration amounts and units.
     static REGEX: OnceLock<Regex> = OnceLock::new();
     REGEX.get_or_init(|| {
         Regex::new(r"(?i)(\d+)\s*(h|min|m|sec|s)?").expect("Invalid duration regex")

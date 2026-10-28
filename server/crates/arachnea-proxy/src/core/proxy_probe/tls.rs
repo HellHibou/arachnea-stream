@@ -63,6 +63,16 @@ impl ServerCertVerifier for NoCertificateVerification {
 }
 
 /// Wraps a TCP stream in TLS using WebPKI roots.
+///
+/// # Arguments
+/// * `stream` - Connected stream from which HTTP or proxy-protocol bytes are read or written.
+/// * `host` - Hostname or IP address to resolve or connect to, without a port.
+/// * `handshake_timeout` - Maximum duration allowed for the TLS handshake.
+/// * `verify` - Whether to validate the peer certificate and hostname against trusted roots.
+///
+/// # Errors
+///
+/// Returns a TLS error for an invalid server name, failed TLS exchange or certificate rejection, or a handshake timeout.
 pub(super) async fn wrap_tls<S>(
     stream: S,
     host: &str,

@@ -5,6 +5,16 @@ use super::*;
 /// Converts one YAML resolver response entry into a `ResolvedPlayerStream`.
 ///
 /// Reads stream URLs, headers, player metadata, and optional playback extras from scraper data nodes.
+///
+/// # Arguments
+/// * `entry` - Resolver response fields keyed by their scraper field name.
+/// * `source_url` - Source page URL used as the default `Referer` header.
+///
+/// # Errors
+/// Returns an error when the entry has no non-empty `stream_url`.
+///
+/// # Returns
+/// The resolved stream with metadata and optional playback extras.
 pub(super) fn convert_resolver_entry_to_stream(
     entry: &HashMap<String, ScraperDataNode>,
     source_url: &str,
@@ -62,6 +72,12 @@ pub(super) fn convert_resolver_entry_to_stream(
 }
 
 /// Extracts optional `image/title > link` metadata from a resolver entry.
+///
+/// # Arguments
+/// * `entry` - Resolver response fields.
+///
+/// # Returns
+/// The image title link, or `None` when absent or blank.
 pub(super) fn extract_image_title(
     entry: &HashMap<String, ScraperDataNode>,
 ) -> Option<ResolvedPlayerImageTitle> {
@@ -78,6 +94,13 @@ pub(super) fn extract_image_title(
 }
 
 /// Returns one named child value, including a group represented by one internal item.
+///
+/// # Arguments
+/// * `node` - Scraper data node to inspect.
+/// * `name` - Child field name.
+///
+/// # Returns
+/// The first resolvable child value, or `None` when absent.
 pub(super) fn first_child_value<'a>(node: &'a ScraperDataNode, name: &str) -> Option<&'a str> {
     node.children
         .get(name)
@@ -87,6 +110,13 @@ pub(super) fn first_child_value<'a>(node: &'a ScraperDataNode, name: &str) -> Op
 
 /// Extracts an ordered list of strings from a scraper data entry field.
 /// Uses the `values` vector which contains all scalar values for a node.
+///
+/// # Arguments
+/// * `entry` - Resolver response fields.
+/// * `key` - Field name to read.
+///
+/// # Returns
+/// The trimmed non-empty values, or `None` when none are present.
 pub(super) fn extract_string_list(
     entry: &HashMap<String, ScraperDataNode>,
     key: &str,
@@ -108,6 +138,13 @@ pub(super) fn extract_string_list(
 
 /// Extracts the first string value from a scraper data entry field.
 /// Uses `value_as_string()` which returns the first value.
+///
+/// # Arguments
+/// * `entry` - Resolver response fields.
+/// * `key` - Field name to read.
+///
+/// # Returns
+/// The trimmed non-empty first value, or `None`.
 pub(super) fn extract_first_string(
     entry: &HashMap<String, ScraperDataNode>,
     key: &str,
@@ -123,12 +160,25 @@ pub(super) fn extract_first_string(
 ///
 /// Reuses `extract_first_string` so surrounding whitespace is trimmed and blank
 /// values are ignored. `None` means the entry carries no business error.
+///
+/// # Arguments
+/// * `entry` - Resolver response fields.
+///
+/// # Returns
+/// The normalized error message, or `None`.
 pub(super) fn extract_error_message(entry: &HashMap<String, ScraperDataNode>) -> Option<String> {
     extract_first_string(entry, "error_message")
 }
 
 /// Extracts a string-to-string map from a scraper data entry field.
 /// Iterates over child nodes of the named field.
+///
+/// # Arguments
+/// * `entry` - Resolver response fields.
+/// * `key` - Field name containing the map.
+///
+/// # Returns
+/// The non-empty trimmed child values keyed by child name.
 pub(super) fn extract_string_map(
     entry: &HashMap<String, ScraperDataNode>,
     key: &str,
@@ -149,6 +199,12 @@ pub(super) fn extract_string_map(
 
 /// Extracts an optional `SpriteThumbnail` from a scraper data entry field.
 /// Reads `url`/`link`, optional dimensions, grid metadata, and interval from child nodes.
+///
+/// # Arguments
+/// * `entry` - Resolver response fields.
+///
+/// # Returns
+/// The storyboard when its URL and required grid values are valid.
 pub(super) fn extract_storyboard(
     entry: &HashMap<String, ScraperDataNode>,
 ) -> Option<SpriteThumbnail> {
@@ -198,6 +254,12 @@ pub(super) fn extract_storyboard(
 /// `lang` and `label` stay optional; blank values normalize to `None`.
 /// Order follows the resolver output and exact `(lang, label, link)`
 /// duplicates are dropped.
+///
+/// # Arguments
+/// * `entry` - Resolver response fields.
+///
+/// # Returns
+/// The accepted subtitle tracks in resolver order.
 pub(super) fn extract_subtitles(
     entry: &HashMap<String, ScraperDataNode>,
 ) -> Vec<ResolvedPlayerSubtitle> {
@@ -232,6 +294,12 @@ pub(super) fn extract_subtitles(
 
 /// Builds one subtitle track from a `subtitles` item node.
 /// Returns `None` when `link` is missing or not browser-consumable.
+///
+/// # Arguments
+/// * `item` - Subtitle item node.
+///
+/// # Returns
+/// The normalized subtitle track, or `None` when unusable.
 pub(super) fn build_subtitle(item: &ScraperDataNode) -> Option<ResolvedPlayerSubtitle> {
     let link = first_child_value(item, "link")?.trim().to_string();
     if !is_browser_consumable_subtitle_link(&link) {
@@ -246,6 +314,13 @@ pub(super) fn build_subtitle(item: &ScraperDataNode) -> Option<ResolvedPlayerSub
 }
 
 /// Returns the trimmed child value, normalizing blank values to `None`.
+///
+/// # Arguments
+/// * `node` - Parent scraper data node.
+/// * `name` - Child field name.
+///
+/// # Returns
+/// The trimmed non-empty value, or `None`.
 pub(super) fn normalize_optional_child_value(node: &ScraperDataNode, name: &str) -> Option<String> {
     first_child_value(node, name)
         .map(|value| value.trim().to_string())
@@ -257,6 +332,12 @@ pub(super) fn normalize_optional_child_value(node: &ScraperDataNode, name: &str)
 /// Accepts absolute HTTP(S) URLs and root-relative application paths such as
 /// the backend HTTP proxy. Anything else is ignored so resolver payloads can
 /// never smuggle headers, tokens, or non-web schemes into the public JSON.
+///
+/// # Arguments
+/// * `link` - Candidate subtitle URL.
+///
+/// # Returns
+/// `true` for HTTP(S) URLs and root-relative paths.
 pub(super) fn is_browser_consumable_subtitle_link(link: &str) -> bool {
     link.starts_with("http://")
         || link.starts_with("https://")

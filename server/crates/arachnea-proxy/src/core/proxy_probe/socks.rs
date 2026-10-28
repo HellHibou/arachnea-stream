@@ -15,6 +15,15 @@ use super::ProxyProbe;
 
 /// Connects through SOCKS5, retrying with local DNS only after a likely remote
 /// hostname-resolution failure.
+///
+/// # Arguments
+/// * `stream` - Connected stream from which HTTP or proxy-protocol bytes are read or written.
+/// * `proxy_host` - Proxy endpoint hostname used when reconnecting after a remote DNS failure.
+/// * `proxy_port` - Proxy endpoint TCP port used for the fallback connection.
+/// * `destination` - Final origin used for capability checks and destination-specific exclusions.
+/// * `timeouts` - Per-phase and overall limits applied to connection and protocol exchanges.
+/// * `dns_resolver` - Resolver used only when the proxy protocol requires local address resolution.
+///
 pub(super) async fn connect_socks5_with_local_dns_fallback(
     stream: &mut Box<dyn AsyncProbeStream>,
     proxy_host: &str,
@@ -50,6 +59,13 @@ pub(super) async fn connect_socks5_with_local_dns_fallback(
 }
 
 /// Prepares the target according to the declared SOCKS4 protocol variant.
+///
+/// # Arguments
+/// * `protocol` - SOCKS4 or SOCKS4a variant deciding whether local IPv4 resolution is required.
+/// * `destination` - Final origin used for capability checks and destination-specific exclusions.
+/// * `timeout` - Maximum duration allowed for this network phase.
+/// * `dns_resolver` - Resolver used only when the proxy protocol requires local address resolution.
+///
 pub(super) async fn prepare_socks4_destination(
     protocol: &ProxyProtocol,
     destination: &Destination,
@@ -68,6 +84,12 @@ pub(super) async fn prepare_socks4_destination(
 }
 
 /// Resolves a hostname destination into the first available IP address.
+///
+/// # Arguments
+/// * `destination` - Final origin used for capability checks and destination-specific exclusions.
+/// * `timeout` - Maximum duration allowed for this network phase.
+/// * `dns_resolver` - Resolver used only when the proxy protocol requires local address resolution.
+///
 async fn resolve_destination_to_ip(
     destination: &Destination,
     timeout: Duration,
@@ -87,6 +109,12 @@ async fn resolve_destination_to_ip(
 }
 
 /// Resolves a hostname destination into the first available IPv4 address.
+///
+/// # Arguments
+/// * `destination` - Final origin used for capability checks and destination-specific exclusions.
+/// * `timeout` - Maximum duration allowed for this network phase.
+/// * `dns_resolver` - Resolver used only when the proxy protocol requires local address resolution.
+///
 async fn resolve_destination_to_ipv4(
     destination: &Destination,
     timeout: Duration,
@@ -117,6 +145,13 @@ async fn resolve_destination_to_ipv4(
 }
 
 /// Performs a SOCKS5 CONNECT handshake over an existing stream.
+///
+/// # Arguments
+/// * `stream` - Connected stream from which HTTP or proxy-protocol bytes are read or written.
+/// * `destination` - Final origin used for capability checks and destination-specific exclusions.
+/// * `timeout` - Maximum duration allowed for this network phase.
+/// * `_credentials` - Reserved credentials; authentication is not sent by this probe implementation.
+///
 async fn send_socks5_connect<S>(
     stream: &mut S,
     destination: &Destination,
@@ -186,6 +221,13 @@ where
 }
 
 /// Performs a SOCKS4 or SOCKS4a CONNECT handshake over an existing stream.
+///
+/// # Arguments
+/// * `stream` - Connected stream from which HTTP or proxy-protocol bytes are read or written.
+/// * `destination` - Final origin used for capability checks and destination-specific exclusions.
+/// * `timeout` - Maximum duration allowed for this network phase.
+/// * `_user_id` - Reserved SOCKS4 user ID; the probe sends an empty user ID.
+///
 pub(super) async fn send_socks4_connect<S>(
     stream: &mut S,
     destination: &Destination,
@@ -246,6 +288,10 @@ where
 }
 
 /// Encodes a SOCKS5 CONNECT request.
+///
+/// # Arguments
+/// * `destination` - Final origin used for capability checks and destination-specific exclusions.
+///
 fn encode_socks5_request(destination: &Destination) -> Result<Vec<u8>> {
     let mut buf = Vec::with_capacity(22);
     buf.push(0x05); // version
@@ -279,6 +325,10 @@ fn encode_socks5_request(destination: &Destination) -> Result<Vec<u8>> {
 }
 
 /// Returns `true` when the SOCKS5 error indicates auth is required.
+///
+/// # Arguments
+/// * `error` - Observed error to classify without changing its cause.
+///
 pub(super) fn is_socks5_auth_required(error: &ProxyError) -> bool {
     if let ProxyError::UpstreamRejected(msg) = error {
         msg.contains("0xFF")
@@ -288,6 +338,10 @@ pub(super) fn is_socks5_auth_required(error: &ProxyError) -> bool {
 }
 
 /// Returns true when a SOCKS5 rejection likely represents remote DNS failure.
+///
+/// # Arguments
+/// * `error` - Observed error to classify without changing its cause.
+///
 fn is_socks5_remote_dns_failure(error: &ProxyError) -> bool {
     let ProxyError::UpstreamRejected(message) = error else {
         return false;

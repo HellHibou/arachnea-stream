@@ -22,6 +22,7 @@ pub(super) struct PreparedProxyRuntime {
 #[cfg(feature = "arachnea-proxy")]
 #[derive(Default)]
 pub struct ProxyTransportPool {
+    /// Idle transports grouped by their exact routing and destination key.
     pub(super) idle: tokio::sync::Mutex<HashMap<String, Vec<IdleProxyTransport>>>,
 }
 
@@ -35,9 +36,13 @@ impl std::fmt::Debug for ProxyTransportPool {
 }
 
 #[cfg(feature = "arachnea-proxy")]
+/// One pooled proxy transport together with its idle timestamp.
 pub(super) struct IdleProxyTransport {
+    /// Loopback connector that owns the selected route.
     pub(super) loopback: ArachneaRquestLoopback,
+    /// Engine configured for the loopback connector.
     pub(super) engine: RquestEngine,
+    /// Time of the last completed use, used for TTL and oldest-entry eviction.
     pub(super) idle_since: std::time::Instant,
 }
 
@@ -57,6 +62,15 @@ pub(super) struct StepResponse {
 }
 
 impl StepResponse {
+    /// Wraps one response step without a retained proxy transport.
+    ///
+    /// # Arguments
+    ///
+    /// - `response`: Materialized response for this hop.
+    ///
+    /// # Returns
+    ///
+    /// A step response with no redirect transport.
     pub(super) fn new(response: ArachneaResponse) -> Self {
         Self {
             response,
@@ -68,6 +82,16 @@ impl StepResponse {
 
 #[cfg(feature = "arachnea-proxy")]
 impl ProxyTransportPool {
+    /// Returns one transport to the idle pool.
+    ///
+    /// Expired transports are dropped. The pool keeps at most the configured
+    /// per-route and global limits, evicting the oldest transport when a limit
+    /// is exceeded.
+    ///
+    /// # Arguments
+    ///
+    /// - `key`: Exact routing and destination key.
+    /// - `transport`: Transport that completed its request successfully.
     pub(super) async fn retain(&self, key: String, transport: IdleProxyTransport) {
         if transport.idle_since.elapsed() >= crate::HTTP_PROXY_TRANSPORT_IDLE_TTL {
             return;
@@ -105,6 +129,18 @@ impl ProxyTransportPool {
     }
 
     /// Checks out the newest compatible transport without waiting for active borrowers.
+    ///
+    /// Expired entries are removed before lookup. Checkout removes the selected
+    /// transport from the pool, so it cannot be borrowed concurrently.
+    ///
+    /// # Arguments
+    ///
+    /// - `key`: Exact routing and destination key.
+    ///
+    /// # Returns
+    ///
+    /// The selected transport, the number of expired entries removed, and the
+    /// number of idle entries remaining in the pool.
     pub(super) async fn checkout(&self, key: &str) -> (Option<IdleProxyTransport>, usize, usize) {
         let mut cache = self.idle.lock().await;
         let before = cache.values().map(Vec::len).sum::<usize>();
@@ -133,7 +169,7 @@ impl ProxyTransportPool {
 impl PreparedProxyRuntime {
     /// Prepares runtime state required by the configured proxy transport.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `config`: Client configuration containing proxy settings
     ///
@@ -192,14 +228,15 @@ impl PreparedProxyRuntime {
 
     /// Returns the proxy URL that built-in engines should use, when one is available.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
-    /// - `config`: Client configuration to inspect
+    /// - `config`: Client configuration to inspect.
     ///
     /// # Returns
     ///
     /// The proxy URL string when a network proxy is configured, or the loopback
-    /// proxy URL when `arachnea-proxy` is enabled and initialized
+    /// proxy URL when `arachnea-proxy` is enabled and initialized. Returns
+    /// `None` when proxying is disabled or the loopback is unavailable.
     pub(super) fn proxy_url<'a>(&'a self, config: &'a ArachneaHttpConfig) -> Option<&'a str> {
         match &config.proxy {
             HttpProxyConfig::Network(url) => Some(url.as_str()),
@@ -214,6 +251,15 @@ impl PreparedProxyRuntime {
 
     /// Returns the proxy URL for chaser-cf, binding configured proxy parameters
     /// into its routing lease when Chrome cannot send them.
+    ///
+    /// # Arguments
+    ///
+    /// - `config`: Client configuration to inspect.
+    ///
+    /// # Returns
+    ///
+    /// The explicit network proxy URL, or the prepared loopback URL when one is
+    /// available. Returns `None` when no proxy is configured.
     pub(super) fn chaser_cf_proxy_url<'a>(
         &'a self,
         config: &'a ArachneaHttpConfig,
@@ -231,7 +277,7 @@ impl PreparedProxyRuntime {
 
     /// Builds a rquest client configured with proxy transport and parameters.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `config`: Client configuration containing proxy settings
     ///
@@ -269,6 +315,21 @@ impl PreparedProxyRuntime {
     }
 
     /// Builds a rquest client configured with proxy transport and parameters.
+    ///
+    /// Without the `arachnea-proxy` feature, no loopback transport exists and
+    /// this method always returns `None`.
+    ///
+    /// # Arguments
+    ///
+    /// - `_config`: Client configuration; unused in this feature set.
+    ///
+    /// # Returns
+    ///
+    /// Always `None` without the `arachnea-proxy` feature.
+    ///
+    /// # Errors
+    ///
+    /// Never returns an error in this feature set.
     #[cfg(not(feature = "arachnea-proxy"))]
     pub(super) fn rquest_client(
         &self,

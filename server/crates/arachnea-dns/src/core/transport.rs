@@ -22,7 +22,7 @@ use tokio::{net::UdpSocket, time::timeout};
 
 /// Resolves a query through a classic UDP upstream.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `query`: DNS query to resolve.
 /// - `upstream`: Upstream DNS server configuration.
@@ -74,7 +74,7 @@ pub(crate) async fn resolve_udp(
 
 /// Resolves a query through classic DNS-over-TCP.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `query`: DNS query to resolve.
 /// - `upstream`: Upstream DNS server configuration.
@@ -122,7 +122,7 @@ pub(crate) async fn resolve_tcp(
 
 /// Resolves a query through DNS-over-TLS.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `query`: DNS query to resolve.
 /// - `upstream`: Upstream DNS server configuration.
@@ -199,7 +199,7 @@ pub(crate) async fn resolve_dot(
 
 /// Resolves a query through DNS-over-HTTPS using RFC 8484 wire-format POST.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `query`: DNS query to resolve.
 /// - `upstream`: Upstream DNS server configuration.
@@ -260,7 +260,7 @@ pub(crate) async fn resolve_doh(
 
 /// Encodes a DNS query into wire-format bytes.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `query`: Query request to encode.
 ///
@@ -291,7 +291,7 @@ fn encode_query(query: &QueryRequest) -> Result<Vec<u8>> {
 
 /// Decodes a DNS response from wire-format bytes.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `query`: Original query used to validate the response.
 /// - `upstream`: Upstream that produced the response.
@@ -313,7 +313,7 @@ fn decode_response(query: &QueryRequest, upstream: &Upstream, bytes: &[u8]) -> R
 
 /// Decodes a parsed DNS message into an answer.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `query`: Original query used to validate the response.
 /// - `upstream`: Upstream that produced the response.
@@ -378,6 +378,7 @@ fn decode_message(query: &QueryRequest, upstream: &Upstream, response: Message) 
 ///
 /// A best-effort non-cryptographic DNS transaction identifier.
 fn rand_id() -> u16 {
+    /// Monotonic transaction identifier counter; wraps on overflow.
     static NEXT_ID: AtomicU16 = AtomicU16::new(1);
     NEXT_ID.fetch_add(1, Ordering::Relaxed)
 }

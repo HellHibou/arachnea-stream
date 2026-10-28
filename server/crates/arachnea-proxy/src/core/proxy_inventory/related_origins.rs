@@ -18,10 +18,15 @@ struct Origin {
 }
 
 impl Origin {
+    /// Builds a related-origin grouping key from scheme, hostname suffix and port.
+    ///
+    /// # Arguments
+    /// * `suffix` - Hostname suffix used to group related origins with the same scheme and port.
     fn key(&self, suffix: &str) -> String {
         format!("{}|{suffix}|{}", self.scheme, self.port)
     }
 
+    /// Formats the origin scheme, host and port for diagnostic output.
     fn name(&self) -> String {
         format!("{}://{}:{}", self.scheme, self.host, self.port)
     }
@@ -32,6 +37,11 @@ impl Origin {
 /// # Arguments
 /// - `key`: Exact-destination history key, preserving the persisted format.
 fn origin_from_key(key: &str) -> Option<Origin> {
+    /// Consumes one length-prefixed history-key component and returns the remaining suffix.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - Encoded component beginning with its UTF-8 byte length and a colon.
     fn component(value: &str) -> Option<(&str, &str)> {
         let (length, rest) = value.split_once(':')?;
         let length: usize = length.parse().ok()?;

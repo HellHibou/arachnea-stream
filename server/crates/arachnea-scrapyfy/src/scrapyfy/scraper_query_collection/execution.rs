@@ -6,9 +6,14 @@ impl ScraperQueryDefinition {
     /// Executes the query and returns the extracted rows.
     ///
     /// All query types (HTML, JSON, Static) are dispatched through the
-    /// unified polymorphic executor [`scraper::query_executor::execute_query_items`].
+    /// unified polymorphic executor `scraper::query_executor::execute_query_items`.
     /// When `result_item_field` is set, the returned rows are flattened by
     /// promoting the group's items to top-level entries.
+    ///
+    /// # Arguments
+    ///
+    /// * `params` - Runtime parameters available to query templates and action pipelines.
+    /// * `fields_filters` - Field filters applied to produced rows and included in their cache identity.
     pub async fn execute_query(
         &self,
         params: &HashMap<String, String>,

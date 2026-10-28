@@ -93,7 +93,7 @@ pub struct SimpleHttpClient {
 impl SimpleHttpClient {
     /// Creates a client backed by the supplied core.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `core`: Proxy core used for outbound HTTP connections.
     ///
@@ -113,6 +113,10 @@ impl SimpleHttpClient {
     /// When enabled (the default), buffered responses fall back to their raw
     /// body when the first line is not a chunk size. Once framing is detected,
     /// truncated or malformed chunks remain errors. Streaming responses remain strict.
+    ///
+    /// # Arguments
+    /// * `enabled` - Whether to tolerate an already-dechunked body despite a chunked transfer header.
+    ///
     pub fn with_dechunked_body_tolerance(mut self, enabled: bool) -> Self {
         self.tolerate_dechunked_bodies = enabled;
         self
@@ -120,7 +124,7 @@ impl SimpleHttpClient {
 
     /// Performs a simple HTTP/1.1 GET request.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `host`: Target hostname.
     /// - `port`: Target port.
@@ -159,7 +163,7 @@ impl SimpleHttpClient {
     /// redirects usable by custom-scheme desktop clients without preloading the
     /// final response body.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `request`: Full proxied HTTP request specification.
     ///
@@ -188,6 +192,10 @@ impl SimpleHttpClient {
         self.request_proxied_scoped(request).await
     }
 
+    /// Executes an outbound request and follows its configured redirect budget.
+    ///
+    /// # Arguments
+    /// * `request` - Outbound request, including its destination and routing options.
     async fn request_proxied_scoped(
         &self,
         mut request: ProxiedHttpRequest,
@@ -238,6 +246,12 @@ impl SimpleHttpClient {
             .await
     }
 
+    /// Executes one redirect hop under the current exact-origin search scope.
+    ///
+    /// # Arguments
+    /// * `request` - Outbound request, including its destination and routing options.
+    /// * `requested_url` - Original URL retained in response metadata across redirect hops.
+    /// * `redirect_urls` - Redirect targets already followed for this logical request.
     async fn request_proxied_once(
         &self,
         request: ProxiedHttpRequest,
@@ -257,6 +271,12 @@ impl SimpleHttpClient {
         Box::pin(self.request_proxied_once_inner(request, requested_url, redirect_urls)).await
     }
 
+    /// Routes one HTTP attempt, classifies its response and applies configured body transformations.
+    ///
+    /// # Arguments
+    /// * `request` - Outbound request, including its destination and routing options.
+    /// * `requested_url` - Original URL retained in response metadata across redirect hops.
+    /// * `redirect_urls` - Redirect targets already followed for this logical request.
     async fn request_proxied_once_inner(
         &self,
         request: ProxiedHttpRequest,
@@ -668,6 +688,13 @@ impl SimpleHttpClient {
 }
 
 /// Reads a response body that must be buffered for post-response processing.
+///
+/// # Arguments
+/// * `stream` - Connected stream from which HTTP or proxy-protocol bytes are read or written.
+/// * `headers` - HTTP headers inspected or updated by this operation.
+/// * `is_chunked` - Whether the response declares chunked transfer encoding.
+/// * `tolerate_dechunked_bodies` - Whether to retry raw-body interpretation when chunk framing is already removed.
+///
 async fn read_buffered_response_body<S>(
     stream: S,
     headers: &HashMap<String, String>,
@@ -726,6 +753,13 @@ where
 }
 
 /// Writes the HTTP request and reads only the response headers.
+///
+/// # Arguments
+/// * `stream` - Connected stream from which HTTP or proxy-protocol bytes are read or written.
+/// * `request_head` - Serialized request line and headers, including the terminating empty line.
+/// * `body` - HTTP body bytes to send or transform.
+/// * `send_body` - Whether this request method permits sending the supplied body.
+///
 async fn send_request_and_read_head<S>(
     stream: &mut S,
     request_head: &[u8],
@@ -746,6 +780,10 @@ where
 }
 
 /// Parses raw HTTP response header bytes into status code and headers.
+///
+/// # Arguments
+/// * `raw_header_bytes` - Response bytes containing the status line and header block.
+///
 fn parse_response_head(raw_header_bytes: &[u8]) -> Result<(u16, HashMap<String, String>)> {
     let header_end = raw_header_bytes
         .windows(4)
@@ -791,6 +829,14 @@ fn parse_response_head(raw_header_bytes: &[u8]) -> Result<(u16, HashMap<String, 
 }
 
 /// Applies post-response actions to a buffered body and updates invalidated headers.
+///
+/// # Arguments
+/// * `body` - HTTP body bytes to send or transform.
+/// * `headers` - HTTP headers inspected or updated by this operation.
+/// * `status_code` - HTTP status passed to post-response transformations.
+/// * `post_actions` - Post-response transformations to apply after body decoding.
+/// * `context` - Request metadata available when resolving replacement variables.
+///
 fn process_response_body(
     body: Vec<u8>,
     headers: &mut HashMap<String, String>,
@@ -812,6 +858,11 @@ fn process_response_body(
     Ok(new_body)
 }
 
+/// Returns one matching header value using ASCII-insensitive name comparison.
+///
+/// # Arguments
+/// * `headers` - HTTP headers inspected or updated by this operation.
+/// * `wanted` - Header name matched without regard to ASCII case.
 fn header_value_case_insensitive<'a>(
     headers: &'a HashMap<String, String>,
     wanted: &str,
@@ -822,6 +873,11 @@ fn header_value_case_insensitive<'a>(
         .map(|(_, value)| value)
 }
 
+/// Removes one matching header using ASCII-insensitive name comparison.
+///
+/// # Arguments
+/// * `headers` - HTTP headers inspected or updated by this operation.
+/// * `wanted` - Header name matched without regard to ASCII case.
 fn remove_header_case_insensitive(headers: &mut HashMap<String, String>, wanted: &str) {
     if let Some(name) = headers
         .keys()
@@ -834,7 +890,7 @@ fn remove_header_case_insensitive(headers: &mut HashMap<String, String>, wanted:
 
 /// Parses the status code from an HTTP response.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `bytes`: Raw HTTP response bytes starting with a status line.
 ///
@@ -863,6 +919,11 @@ fn parse_status(bytes: &[u8]) -> Result<u16> {
 }
 
 /// Selects an appropriate body reader based on response headers.
+///
+/// # Arguments
+/// * `stream` - Connected stream from which HTTP or proxy-protocol bytes are read or written.
+/// * `headers` - HTTP headers inspected or updated by this operation.
+///
 fn select_body_reader<S: AsyncRead + Send + Unpin + 'static>(
     stream: S,
     headers: &HashMap<String, String>,
@@ -884,6 +945,10 @@ fn select_body_reader<S: AsyncRead + Send + Unpin + 'static>(
 }
 
 /// Returns whether transfer encoding includes chunked coding.
+///
+/// # Arguments
+/// * `headers` - HTTP headers inspected or updated by this operation.
+///
 fn transfer_encoding_is_chunked(headers: &HashMap<String, String>) -> bool {
     header_value_case_insensitive(headers, "transfer-encoding").is_some_and(|value| {
         value
@@ -893,6 +958,10 @@ fn transfer_encoding_is_chunked(headers: &HashMap<String, String>) -> bool {
 }
 
 /// Reads only the response headers from the stream.
+///
+/// # Arguments
+/// * `stream` - Connected stream from which HTTP or proxy-protocol bytes are read or written.
+///
 async fn read_headers_only<S>(stream: &mut S) -> Result<Vec<u8>>
 where
     S: AsyncRead + AsyncWrite + Unpin,

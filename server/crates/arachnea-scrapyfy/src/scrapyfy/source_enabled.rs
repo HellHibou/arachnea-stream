@@ -49,6 +49,11 @@ pub struct SourceServiceKey {
 
 impl SourceServiceKey {
     /// Creates a composite source identity.
+    ///
+    /// # Arguments
+    ///
+    /// * `service_store_id` - Service-store namespace used to distinguish identical source IDs across groups.
+    /// * `source_id` - Source identifier within the selected service store.
     pub fn new(service_store_id: impl Into<String>, source_id: impl Into<String>) -> Self {
         Self {
             service_store_id: service_store_id.into(),
@@ -100,6 +105,10 @@ impl SqlKey for SourceServiceKey {
 #[async_trait]
 pub trait ScraperSourceEnabled: Send + Sync {
     /// Returns the effective enabled state for one source.
+    ///
+    /// # Arguments
+    ///
+    /// * `source` - Namespaced source declaration whose effective activation state is queried.
     async fn is_enabled(&self, source: &ScraperSourceDescriptor) -> Result<bool>;
 }
 
@@ -174,12 +183,44 @@ impl PersistentEntity for SourceServiceRecord {
 #[async_trait]
 pub trait SourceEnabledRepository: Send + Sync {
     /// Returns the stored record, if any.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - Composite service-store/source identity used to locate the activation record.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the typed store cannot read or decode the record.
     async fn get(&self, key: &SourceServiceKey) -> Result<Option<SourceServiceRecord>>;
     /// Writes a record.
+    ///
+    /// # Arguments
+    ///
+    /// * `record` - Source service record to persist, including its namespaced identity.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the record cannot be validated or persisted.
     async fn save(&self, record: &SourceServiceRecord) -> Result<()>;
-    /// Writes a batch of records atomically.
+    /// Writes a batch through the typed store; rollback guarantees depend on the backend.
+    ///
+    /// # Arguments
+    ///
+    /// * `records` - Source service records to persist as a batch.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if validation or a backend write fails; batch rollback depends on the typed-store implementation.
     async fn save_all(&self, records: &[SourceServiceRecord]) -> Result<()>;
     /// Removes a record.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - Composite service-store/source identity used to locate the activation record.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the stored record cannot be deleted.
     async fn delete(&self, key: &SourceServiceKey) -> Result<()>;
 }
 
@@ -190,6 +231,10 @@ pub struct TypedSourceEnabledRepository {
 
 impl TypedSourceEnabledRepository {
     /// Creates a repository over a typed entity store.
+    ///
+    /// # Arguments
+    ///
+    /// * `store` - Typed store backing source activation and credentials records.
     pub fn new(store: Arc<dyn TypedEntityStore<SourceServiceRecord>>) -> Self {
         Self { store }
     }
@@ -213,11 +258,19 @@ impl SourceEnabledRepository for TypedSourceEnabledRepository {
 
 impl PersistenceSourceEnabled {
     /// Creates a persistent activation policy over a typed entity store.
+    ///
+    /// # Arguments
+    ///
+    /// * `store` - Typed store backing source activation and credentials records.
     pub fn with_typed_store(store: Arc<dyn TypedEntityStore<SourceServiceRecord>>) -> Self {
         Self::with_repository(Arc::new(TypedSourceEnabledRepository::new(store)))
     }
 
     /// Creates a policy backed by a source-activation repository.
+    ///
+    /// # Arguments
+    ///
+    /// * `repository` - Source-record repository used to read and persist activation overrides.
     pub fn with_repository(repository: Arc<dyn SourceEnabledRepository>) -> Self {
         Self { repository }
     }
@@ -226,6 +279,11 @@ impl PersistenceSourceEnabled {
     ///
     /// Existing encrypted credentials recorded on the same service record are
     /// preserved; only the activation value is updated.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - Composite service-store/source identity used to locate the activation record.
+    /// * `enabled` - Explicit activation value written for this source.
     pub async fn set_enabled(&self, key: &SourceServiceKey, enabled: bool) -> Result<()> {
         let mut record = match self.repository.get(key).await? {
             Some(record) => record,
@@ -242,6 +300,10 @@ impl PersistenceSourceEnabled {
     }
 
     /// Creates missing source records while preserving existing administrator choices.
+    ///
+    /// # Arguments
+    ///
+    /// * `sources` - Declared source identities and their default activation states.
     pub async fn register_defaults(&self, sources: &[ScraperSourceDescriptor]) -> Result<()> {
         let mut missing = Vec::new();
         for source in sources {
@@ -273,6 +335,10 @@ impl PersistenceSourceEnabled {
     }
 
     /// Returns the persisted record of one namespaced source, if any.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - Composite service-store/source identity used to locate the activation record.
     ///
     /// # Errors
     /// Returns an error when the backing store cannot be read.

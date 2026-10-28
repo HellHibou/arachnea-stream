@@ -37,7 +37,7 @@ impl RoutePolicy {
     /// this hostname. A Smart DNS chain hint has priority over an egress-pool
     /// hint when both are present.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `config`: Resolved configuration containing available chains.
     /// - `request`: Connect request being routed.
@@ -110,7 +110,7 @@ pub struct RouteRule {
 impl RouteRule {
     /// Creates a route rule that selects a chain.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `chain`: Chain name selected by the rule.
     ///
@@ -130,7 +130,7 @@ impl RouteRule {
 
     /// Creates a route rule that selects a chain for one application protocol.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `protocol`: Application protocol that must match.
     /// - `chain`: Chain name selected by the rule.
@@ -151,7 +151,7 @@ impl RouteRule {
 
     /// Returns true when this rule matches a request.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `request`: Connect request to evaluate.
     ///

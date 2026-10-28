@@ -31,9 +31,11 @@ const TV5MONDEPLUS_ENTITLEMENT_URL_TEMPLATE: &str = "https://api.tv5mondeplus.co
 /// Lifetime of cached TV5MONDEplus license proxy tokens.
 const TV5MONDEPLUS_LICENSE_TTL: std::time::Duration = std::time::Duration::from_secs(15 * 60);
 
+/// Process-wide cache of TV5MONDE+ license proxy requests.
 static TV5MONDEPLUS_LICENSE_CACHE: OnceLock<Mutex<HashMap<String, CachedTv5mondeplusLicense>>> =
     OnceLock::new();
 
+/// Cached TV5MONDE+ license URL with routing countries and expiry.
 #[derive(Clone)]
 struct CachedTv5mondeplusLicense {
     license_url: String,
@@ -85,6 +87,23 @@ impl PlayerStreamResolver for Tv5mondeplusResolver {
     }
 }
 
+/// Resolves a TV5MONDE+ asset into a protected player stream.
+///
+/// An anonymous session is created first, then its entitlement determines the
+/// preferred DASH format, fallback HLS format, DRM license and geo-routing.
+///
+/// # Arguments
+/// * `scraper_agregator` - Aggregator used to create the HTTP client.
+/// * `asset_id` - TV5MONDE+ asset identifier; surrounding whitespace is ignored.
+/// * `proxy_countries` - Countries initially selected for outbound routing.
+/// * `endpoints` - Public endpoint settings used to build proxy URLs.
+///
+/// # Errors
+/// Returns an error when the asset identifier is empty, authentication or
+/// entitlement retrieval fails, or no playable format is available.
+///
+/// # Returns
+/// The resolved stream with proxied manifest, optional license and storyboard.
 async fn resolve_tv5mondeplus_stream(
     scraper_agregator: &ScraperAgregator,
     asset_id: &str,
@@ -141,6 +160,16 @@ async fn resolve_tv5mondeplus_stream(
     })
 }
 
+/// Extracts valid country codes from `materialProfile`.
+///
+/// The profile is a comma-separated list. Values are trimmed, uppercased,
+/// restricted to two ASCII letters and deduplicated in encounter order.
+///
+/// # Arguments
+/// * `entitlement` - Decoded TV5MONDE+ entitlement payload.
+///
+/// # Returns
+/// The valid routing countries, or an empty vector when no profile is present.
 fn extract_material_proxy_countries(entitlement: &Value) -> Vec<String> {
     entitlement
         .get("materialProfile")
@@ -160,6 +189,18 @@ fn extract_material_proxy_countries(entitlement: &Value) -> Vec<String> {
         })
 }
 
+/// Creates an anonymous TV5MONDE+ playback session.
+///
+/// # Arguments
+/// * `http_client` - HTTP client used for the authentication request.
+/// * `device_id` - Generated device identifier sent in the session payload.
+///
+/// # Errors
+/// Returns an error when the request fails or the response has no non-empty
+/// `sessionToken`.
+///
+/// # Returns
+/// The anonymous session token.
 async fn authenticate_anonymous(http_client: &HttpClient, device_id: &str) -> Result<String> {
     let body = json!({
         "device": {
@@ -189,6 +230,20 @@ async fn authenticate_anonymous(http_client: &HttpClient, device_id: &str) -> Re
     )
 }
 
+/// Fetches the playback entitlement for an asset.
+///
+/// # Arguments
+/// * `http_client` - HTTP client used for the entitlement request.
+/// * `asset_id` - TV5MONDE+ asset identifier.
+/// * `device_id` - Device identifier sent as `ifa`.
+/// * `session_token` - Anonymous session bearer token.
+///
+/// # Errors
+/// Returns an error when the URL is invalid, the request fails, or the
+/// entitlement reports HTTP 403.
+///
+/// # Returns
+/// The decoded entitlement payload.
 async fn fetch_entitlement(
     http_client: &HttpClient,
     asset_id: &str,
@@ -236,12 +291,21 @@ async fn fetch_entitlement(
     Ok(response)
 }
 
+/// Selected TV5MONDE+ playback format.
 struct SelectedTv5mondeplusFormat {
     media_locator: String,
     manifest_type: String,
     license_url: Option<String>,
 }
 
+/// Selects the preferred DASH format, falling back to HLS.
+///
+/// # Arguments
+/// * `entitlement` - Decoded TV5MONDE+ entitlement payload.
+///
+/// # Returns
+/// The first usable DASH format, otherwise the first usable HLS format, or
+/// `None` when neither is available.
 fn select_best_format(entitlement: &Value) -> Option<SelectedTv5mondeplusFormat> {
     let formats = entitlement.get("formats")?.as_array()?;
 
@@ -255,6 +319,16 @@ fn select_best_format(entitlement: &Value) -> Option<SelectedTv5mondeplusFormat>
         })
 }
 
+/// Converts one entitlement format into a selected playback format.
+///
+/// # Arguments
+/// * `format` - Entitlement format object.
+/// * `expected_format` - Required value of the `format` field.
+/// * `manifest_type` - Manifest type assigned to the result.
+///
+/// # Returns
+/// The selected format, or `None` when the type differs or the media locator
+/// is missing or empty.
 fn selected_format(
     format: &Value,
     expected_format: &str,
@@ -281,6 +355,14 @@ fn selected_format(
     })
 }
 
+/// Builds the user-facing entitlement error message.
+///
+/// # Arguments
+/// * `entitlement` - Decoded TV5MONDE+ entitlement payload.
+///
+/// # Returns
+/// The server `message` when non-empty, otherwise a default missing-format
+/// message.
 fn entitlement_error_message(entitlement: &Value) -> String {
     entitlement
         .get("message")
@@ -291,6 +373,15 @@ fn entitlement_error_message(entitlement: &Value) -> String {
         .to_string()
 }
 
+/// Builds a public proxy URL for a TV5MONDE+ media resource.
+///
+/// # Arguments
+/// * `media_locator` - Upstream manifest or storyboard URL.
+/// * `proxy_path` - Optional public HTTP proxy path.
+/// * `proxy_countries` - Countries to use for outbound routing.
+///
+/// # Returns
+/// The public proxy URL, or the original URL when no proxy path is configured.
 fn proxied_media_url(
     media_locator: &str,
     proxy_path: Option<&str>,
@@ -305,6 +396,15 @@ fn proxied_media_url(
     )
 }
 
+/// Caches a TV5MONDE+ license request and returns its public proxy URL.
+///
+/// # Arguments
+/// * `endpoints` - Public endpoint settings used to build the proxy URL.
+/// * `license_url` - Upstream Widevine license URL.
+/// * `proxy_countries` - Countries to reuse for the license request.
+///
+/// # Returns
+/// The public license proxy URL containing a generated token.
 fn save_tv5mondeplus_license_proxy_url(
     endpoints: &PlayerResolverEndpoints,
     license_url: &str,
@@ -327,6 +427,19 @@ fn save_tv5mondeplus_license_proxy_url(
     endpoints.drm_license_url(TV5MONDEPLUS_SERVICE_ID, &token_id)
 }
 
+/// Proxies a Widevine challenge using a cached TV5MONDE+ license request.
+///
+/// # Arguments
+/// * `scraper_agregator` - Aggregator used to create the HTTP client.
+/// * `token_id` - Public token identifying the cached license request.
+/// * `challenge_body` - Raw Widevine challenge bytes.
+///
+/// # Errors
+/// Returns an error when the token is expired or missing, the cache lock
+/// fails, or the upstream request fails or is rejected.
+///
+/// # Returns
+/// The upstream license response with a `no-store` cache policy.
 async fn proxy_tv5mondeplus_license_request(
     scraper_agregator: &ScraperAgregator,
     token_id: &str,
@@ -388,6 +501,10 @@ async fn proxy_tv5mondeplus_license_request(
     })
 }
 
+/// Builds the JSON headers used by TV5MONDE+ API requests.
+///
+/// # Returns
+/// Headers accepting and declaring JSON with the resolver user-agent.
 fn json_headers() -> HashMap<String, String> {
     HashMap::from([
         ("accept".to_string(), "application/json".to_string()),
@@ -402,6 +519,10 @@ fn json_headers() -> HashMap<String, String> {
     ])
 }
 
+/// Generates a random alphanumeric device or token identifier.
+///
+/// # Returns
+/// A string of `PLAYER_PROXY_TOKEN_LENGTH` random characters.
 fn random_device_id() -> String {
     rand::rng()
         .sample_iter(&Alphanumeric)
@@ -410,6 +531,19 @@ fn random_device_id() -> String {
         .collect()
 }
 
+/// Reads a non-empty string from a nested JSON path.
+///
+/// # Arguments
+/// * `payload` - JSON value to traverse.
+/// * `path` - Object keys applied successively.
+/// * `error_message` - Message used when a key or string is missing.
+///
+/// # Errors
+/// Returns an error when traversal fails or the target is missing, blank or
+/// not a string.
+///
+/// # Returns
+/// The trimmed string value.
 fn read_json_string(payload: &Value, path: &[&str], error_message: &str) -> Result<String> {
     let mut current = payload;
     for segment in path {

@@ -219,7 +219,7 @@ pub enum HtmlScraperEntry {
 impl HtmlScraperEntry {
     /// Creates a field entry and panics if the selector is invalid.
     ///
-    /// This is a convenience constructor that wraps [`try_new`] and panics on error.
+    /// This is a convenience constructor that wraps [`HtmlScraperEntry::try_new`] and panics on error.
     ///
     /// # Arguments
     ///
@@ -274,6 +274,7 @@ impl HtmlScraperEntry {
     /// * `root` - Output data node where extracted values are appended.
     /// * `card` - Parent HTML element to search within (a result row).
     /// * `params` - Runtime template parameters forwarded to actions.
+    /// * `dynamic_variables` - Shared dynamic variables in the reserved `@` namespace, scoped to this execution.
     /// * `request_url` - Fully resolved request URL forwarded to actions.
     /// * `response_body` - Optional raw response body available to actions.
     pub fn apply_to(
@@ -359,7 +360,7 @@ impl HtmlScraperEntry {
         }
     }
 
-    /// Parses an optional CSS selector string into a compiled [`Selector`](::scraper::Selector).
+    /// Parses an optional CSS selector string into a compiled [`::scraper::Selector`].
     ///
     /// Compiles the CSS selector string into a validated selector object that can be
     /// used for efficient HTML element matching.
@@ -414,6 +415,12 @@ impl HtmlScraperEntry {
 
     /// Validates and returns the output type for one field entry.
     ///
+    /// # Arguments
+    ///
+    /// * `name` - Identifier of the parameter or entry being processed.
+    /// * `output_type` - Declared scalar or container type governing the result shape.
+    /// * `has_sub_queries` - Whether the entry owns nested queries, affecting admissible output types.
+    ///
     /// # Errors
     ///
     /// Returns an error when the YAML entry omits `type` or uses an object
@@ -448,6 +455,12 @@ impl HtmlScraperEntry {
     /// `type: object` means an object family: `select: first` produces one
     /// object, while the default `select: all` produces an array of objects.
     /// `type: object[]` is accepted as an explicit array alias.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Identifier of the parameter or entry being processed.
+    /// * `output_type` - Declared scalar or container type governing the result shape.
+    /// * `select` - Whether to extract the first match or all matching elements.
     ///
     /// # Errors
     ///
@@ -536,9 +549,10 @@ impl HtmlScraperEntry {
     ///
     /// * `name` - Output field name used in the extracted metadata map.
     /// * `selector_template` - Original template string kept for serialization.
-    ///   This is the raw selector as it appeared in the YAML configuration.
+    /// This is the raw selector as it appeared in the YAML configuration.
     /// * `resolved_selector` - Resolved CSS selector compiled at construction time.
-    ///   This is the selector after any template placeholders have been resolved.
+    /// This is the selector after any template placeholders have been resolved.
+    /// * `output_type` - Declared scalar or container type governing the result shape.
     /// * `select` - Whether to use the first match or all matches.
     /// * `actions` - Ordered extraction steps executed on the selected node.
     ///
@@ -576,11 +590,13 @@ impl HtmlScraperEntry {
     ///
     /// * `name` - Group name used to build the output path.
     /// * `selector_template` - Original template string kept for serialization.
-    ///   This is the raw selector as it appeared in the YAML configuration.
+    /// This is the raw selector as it appeared in the YAML configuration.
     /// * `resolved_selector` - Resolved CSS selector compiled at construction time.
-    ///   This is the selector after any template placeholders have been resolved.
+    /// This is the selector after any template placeholders have been resolved.
+    /// * `output_type` - Declared scalar or container type governing the result shape.
     /// * `select` - Whether to use the first match or all matches.
     /// * `entries` - Child entries applied to each matched element.
+    /// * `post_build` - Transformations applied after the group node has been assembled.
     ///
     /// # Errors
     ///
@@ -612,16 +628,14 @@ impl HtmlScraperEntry {
     /// Applies the selector to the card element and invokes the callback for each match.
     /// When no selector is provided, the callback is invoked once on the card itself.
     ///
-    /// # Arguments
+    /// The `select` value controls whether only the first match or every match
+    /// is passed to the callback.
     ///
-    /// * `selector` - Compiled CSS selector applied to the card element.
-    ///   If `None`, the callback is invoked on the card itself.
-    /// * `select` - Whether to use the first match or all matches.
-    ///   - [`HtmlScraperSelectMode::First`]: Only the first match is passed to the callback.
-    ///   - [`HtmlScraperSelectMode::All`]: All matches are passed to the callback.
+    /// # Arguments
+    /// * `selector` - Compiled CSS selector applied to the card element; `None` targets the card itself.
+    /// * `select` - Whether to pass only the first match or every match to the callback.
     /// * `card` - Root HTML element to search within.
-    /// * `callback` - Function invoked for each selected element.
-    ///   Receives an [`ElementRef`] for each matched element.
+    /// * `callback` - Function invoked for each selected element with its [`ElementRef`].
     fn for_each_selected<F>(
         selector: &Option<::scraper::Selector>,
         select: HtmlScraperSelectMode,
@@ -828,7 +842,7 @@ impl ScraperEntrySpec for HtmlScraperEntry {
     ///
     /// # Returns
     ///
-    /// Always returns `None` for HTML scraper entries. Use [`name()`] for the entry name
+    /// Always returns `None` for HTML scraper entries. Use `ScraperEntrySpec::name` for the entry name
     /// or access the `selector_template` field directly for the CSS selector string.
     fn selector(&self) -> Option<&str> {
         None

@@ -33,7 +33,7 @@ pub(crate) enum RecursiveResult {
 
 /// Resolves a DNS query by iterating from root hints.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `query`: DNS query to resolve.
 /// - `timeout_ms`: Per-network-operation timeout in milliseconds.
@@ -58,7 +58,7 @@ pub(crate) async fn resolve_recursive(
 
 /// Performs the recursive lookup state machine.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `query`: DNS query to resolve recursively.
 /// - `roots`: Original root server IP addresses for the recursion.
@@ -170,7 +170,7 @@ fn recursive_lookup<'a>(
 
 /// Parses configured root hints into IP addresses.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `root_hints`: Raw root hint entries as strings (IP addresses).
 ///
@@ -180,8 +180,8 @@ fn recursive_lookup<'a>(
 ///
 /// # Errors
 ///
-/// Returns an error when no root IP address can be parsed or when
-/// any of the input strings are not valid IP addresses.
+/// Returns an error when any input string is not a valid IP address. An empty
+/// input is accepted here and fails later when no name server is available.
 fn parse_root_hints(root_hints: &[String]) -> Result<Vec<IpAddr>> {
     root_hints
         .iter()
@@ -195,7 +195,7 @@ fn parse_root_hints(root_hints: &[String]) -> Result<Vec<IpAddr>> {
 
 /// Queries one DNS server, preferring UDP and falling back to TCP when needed.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `query`: DNS query to send to the server.
 /// - `server`: Server IP address to contact.
@@ -240,7 +240,7 @@ async fn query_server(query: &QueryRequest, server: IpAddr, timeout_ms: u64) -> 
 
 /// Queries one DNS server over TCP.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `query`: DNS query to send to the server.
 /// - `socket_addr`: Server socket address to connect to.
@@ -289,7 +289,7 @@ async fn query_server_tcp(
 
 /// Encodes a recursive lookup query.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `query`: DNS query to encode for recursive resolution.
 ///
@@ -320,7 +320,7 @@ fn encode_iterative_query(query: &QueryRequest) -> Result<Vec<u8>> {
 
 /// Extracts a final answer from an authoritative response.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `query`: Original query request that this response should answer.
 /// - `response`: DNS response message from an authoritative server.
@@ -370,7 +370,7 @@ fn answer_from_message(query: &QueryRequest, response: &Message) -> Result<Optio
 
 /// Extracts referral glue addresses from a DNS response.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `response`: DNS response message containing authority and additional records.
 ///
@@ -398,7 +398,7 @@ fn referral_servers(response: &Message) -> Vec<IpAddr> {
 
 /// Extracts referral nameserver names from authority records.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `response`: DNS response message containing authority records.
 ///
@@ -419,7 +419,7 @@ fn referral_names(response: &Message) -> Vec<String> {
 
 /// Extracts DNSSEC NSEC proofs from a response.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `response`: DNS response message containing authority records.
 ///
@@ -458,7 +458,7 @@ fn nsec_proofs(response: &Message) -> Vec<NsecProof> {
 trait WithUpstream {
     /// Attaches upstream metadata to an answer.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `upstream`: Upstream label to record.
     ///
@@ -471,7 +471,7 @@ trait WithUpstream {
 impl WithUpstream for Answer {
     /// Attaches upstream metadata to an answer.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `upstream`: Upstream label to record.
     ///

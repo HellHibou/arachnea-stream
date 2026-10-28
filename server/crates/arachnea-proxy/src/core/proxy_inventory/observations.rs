@@ -9,6 +9,11 @@ use crate::core::{Destination, ProxyRecord, ProxyRuntimeStatus, PROXY_CACHE_TTL}
 
 use super::eligibility::destination_scheme;
 
+/// Checks the retention age of the last positive evidence or initial discovery time.
+///
+/// # Arguments
+/// * `record` - Proxy record whose endpoint and runtime evidence are inspected or updated.
+/// * `now` - Reference wall-clock time used for age and cooldown comparisons.
 fn proxy_validation_is_stale(record: &ProxyRecord, now: SystemTime) -> bool {
     let Some(last_validated_at) = record
         .health_evidence
@@ -24,6 +29,12 @@ fn proxy_validation_is_stale(record: &ProxyRecord, now: SystemTime) -> bool {
 }
 
 /// Removes ambiguous or timeout failures strictly older than same-origin acceptance.
+///
+/// # Arguments
+/// * `record` - Proxy record whose endpoint and runtime evidence are inspected or updated.
+/// * `destination` - Final origin used for capability checks and destination-specific exclusions.
+/// * `accepted_at` - Time of same-origin acceptance; only strictly older eligible failures are cleared.
+///
 pub(in crate::core) fn clear_superseded_destination_failures(
     record: &mut ProxyRecord,
     destination: &Destination,
@@ -215,6 +226,10 @@ impl ProxyInventory {
     }
 
     /// Records that a proxy requires authentication.
+    ///
+    /// # Arguments
+    /// * `authority` - Proxy endpoint identity in host:port form, with IPv6 brackets where needed.
+    ///
     pub async fn record_auth_required(&self, authority: &str) {
         let updated = {
             let mut inner = self.inner.write().await;
@@ -236,6 +251,10 @@ impl ProxyInventory {
     }
 
     /// Records a successful proxy use and renews its 24-hour validation age.
+    ///
+    /// # Arguments
+    /// * `authority` - Proxy endpoint identity in host:port form, with IPv6 brackets where needed.
+    ///
     pub async fn record_ok(&self, authority: &str) {
         let updated = {
             let mut inner = self.inner.write().await;
@@ -363,6 +382,10 @@ impl ProxyInventory {
     }
 
     /// Evicts only on an observed endpoint connection failure after the retention threshold.
+    ///
+    /// # Arguments
+    /// * `authority` - Proxy endpoint identity in host:port form, with IPv6 brackets where needed.
+    ///
     async fn remove_if_stale(&self, authority: &str) -> bool {
         let _commit = self.persistence_commits.lock().await;
         let removed_record = {

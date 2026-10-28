@@ -87,6 +87,7 @@ pub struct ScraperBrowserTokenConfig {
     pub rejection_body_markers: Vec<String>,
 }
 
+/// Returns the default browser-token retry policy.
 pub(super) fn default_browser_token_retry() -> ScraperBrowserTokenRetry {
     crate::BROWSER_DEFAULT_TOKEN_RETRY
 }
@@ -102,6 +103,10 @@ pub struct ScraperBrowserClickConfig {
 
 impl From<ScraperHttpMode> for HttpRequestMode {
     /// Converts the scraper-level mode into the [`HttpRequestMode`] expected by `arachnea-http`.
+    ///
+    /// # Arguments
+    ///
+    /// * `mode` - Scraper HTTP mode translated into the outbound HTTP facade mode.
     fn from(mode: ScraperHttpMode) -> Self {
         match mode {
             ScraperHttpMode::Auto => Self::Auto,
@@ -128,6 +133,10 @@ pub enum ScraperHttpUserAgentProfile {
 
 impl From<ScraperHttpUserAgentProfile> for BrowserProfile {
     /// Converts the scraper-level profile into the [`BrowserProfile`] expected by `arachnea-http`.
+    ///
+    /// # Arguments
+    ///
+    /// * `profile` - Scraper user-agent profile translated into the corresponding HTTP client fingerprint.
     fn from(profile: ScraperHttpUserAgentProfile) -> Self {
         match profile {
             ScraperHttpUserAgentProfile::Chrome | ScraperHttpUserAgentProfile::ChromeStable => {
@@ -152,7 +161,7 @@ pub struct ScraperHttpConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     /// Custom User-Agent string override.
     pub user_agent: Option<String>,
-    /// Ordered proxy country hints for geo-targeted requests.
+    /// Allowed proxy countries, canonicalized as an unordered set before selection.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub proxy_countries: Vec<String>,
     /// Optional domains sharing an eligible default proxy, including their subdomains.
@@ -219,6 +228,14 @@ impl ScraperHttpConfig {
     }
 
     /// Applies a child override on top of this config.
+    ///
+    /// Explicit optional values, including `Some(false)`, override their parent.
+    /// Empty country, domain-group, rejection-status and empty-response lists inherit
+    /// the parent list; an empty child list cannot clear a non-empty inherited list.
+    ///
+    /// # Arguments
+    ///
+    /// * `child` - Child HTTP options whose explicit values override inherited parent settings.
     pub fn merge(&self, child: &Self) -> Self {
         Self {
             proxy_retry_replayable: child.proxy_retry_replayable.or(self.proxy_retry_replayable),
@@ -278,6 +295,10 @@ impl ScraperHttpConfig {
     }
 
     /// Sets allowed proxy countries in canonical order after normalization and deduplication.
+    ///
+    /// # Arguments
+    ///
+    /// * `countries` - Country hints canonicalized by trimming, uppercasing, validating, sorting and deduplicating.
     pub fn proxy_countries(mut self, countries: impl IntoIterator<Item = String>) -> Self {
         self.proxy_countries = normalize_proxy_countries(countries);
         self
@@ -293,6 +314,10 @@ impl ScraperHttpConfig {
     }
 
     /// Sets an opaque proxy affinity key after trimming it.
+    ///
+    /// # Arguments
+    ///
+    /// * `affinity` - Opaque affinity key used to reuse an eligible proxy across related requests.
     pub fn proxy_affinity(mut self, affinity: impl Into<String>) -> Self {
         self.proxy_affinity = Some(affinity.into())
             .map(|value| value.trim().to_string())
@@ -318,11 +343,22 @@ impl ScraperHttpConfig {
             })
     }
 
+    /// Returns normalized, sorted and deduplicated valid country-code hints.
     pub(super) fn proxy_countries_hint(&self) -> Vec<String> {
         normalize_proxy_countries(self.proxy_countries.clone())
     }
 
     /// Resolves collection parameters in template-capable HTTP options.
+    ///
+    /// # Arguments
+    ///
+    /// * `context` - Owner label included in unresolved HTTP-template errors.
+    /// * `query_name` - Query identifier used for lookup and contextual error messages.
+    /// * `params` - Runtime parameters available to query templates and action pipelines.
+    ///
+    /// # Errors
+    ///
+    /// Returns a contextual error when an HTTP template requires an unavailable collection parameter.
     pub fn resolve_collection_params(
         &mut self,
         context: &str,
@@ -343,10 +379,20 @@ impl ScraperHttpConfig {
     }
 }
 
+/// Trims country text and uppercases ASCII without validating the country code.
+///
+/// # Arguments
+///
+/// * `country` - Country-code text, trimmed and converted to uppercase ASCII.
 pub(super) fn normalize_country_code(country: &str) -> String {
     country.trim().to_ascii_uppercase()
 }
 
+/// Keeps valid two-letter country codes, uppercases, sorts and deduplicates them.
+///
+/// # Arguments
+///
+/// * `countries` - Country-code inputs used for canonical country routing.
 pub(super) fn normalize_proxy_countries(
     countries: impl IntoIterator<Item = String>,
 ) -> Vec<String> {
@@ -367,6 +413,11 @@ pub(super) fn normalize_proxy_countries(
 /// A runtime parameter such as `proxy_countries` is supplied as a JSON array,
 /// so YAML queries can declare `proxy_countries: ["{proxy_countries}"]` while
 /// static country entries remain supported in the same list.
+///
+/// # Arguments
+///
+/// * `countries` - Country-code inputs used for canonical country routing.
+/// * `params` - Runtime parameters available to query templates and action pipelines.
 pub(super) fn resolve_proxy_countries_templates(
     countries: &[String],
     params: &HashMap<String, String>,

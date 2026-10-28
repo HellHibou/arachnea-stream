@@ -39,7 +39,7 @@ pub struct ConnectRequest {
 impl ConnectRequest {
     /// Creates a request for a destination with an empty client context.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `destination`: Target destination for the request.
     ///
@@ -56,7 +56,7 @@ impl ConnectRequest {
 
     /// Replaces the client context on this request.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `client_context`: Context to attach to the request.
     ///
@@ -78,7 +78,7 @@ pub struct ProxyStream {
 impl ProxyStream {
     /// Wraps an asynchronous stream and attaches metadata.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `stream`: Async stream to box.
     /// - `metadata`: Metadata describing the connection.
@@ -110,7 +110,7 @@ impl ProxyStream {
 impl AsyncRead for ProxyStream {
     /// Polls the inner stream for readable bytes.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `cx`: Task context used for wakeups.
     /// - `buf`: Read buffer that receives bytes from the stream.
@@ -130,7 +130,7 @@ impl AsyncRead for ProxyStream {
 impl AsyncWrite for ProxyStream {
     /// Polls the inner stream for writable capacity.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `cx`: Task context used for wakeups.
     /// - `buf`: Bytes to write to the stream.
@@ -148,7 +148,7 @@ impl AsyncWrite for ProxyStream {
 
     /// Polls the inner stream for flush completion.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `cx`: Task context used for wakeups.
     ///
@@ -161,7 +161,7 @@ impl AsyncWrite for ProxyStream {
 
     /// Polls the inner stream for shutdown completion.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `cx`: Task context used for wakeups.
     ///

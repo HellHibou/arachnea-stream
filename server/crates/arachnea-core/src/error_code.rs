@@ -21,6 +21,7 @@ impl std::fmt::Display for ArachneaErrorCode {
     }
 }
 
+/// Mutable generator state protected by the generator mutex.
 struct Inner {
     last_millis: i64,
     sequence: u8,

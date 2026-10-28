@@ -976,7 +976,7 @@ Extrait des variables dynamiques depuis les valeurs courantes et les ajoute au c
 | `value` | string | Template de la valeur, avec captures `{1}`, `{2}`, etc. |
 | `on_duplicate` | string | Politique de doublon : `error` par défaut ou `replace` |
 
-Les variables extraites sont disponibles comme placeholders dynamiques `{@nom}` pour les actions qui résolvent explicitement les variables dynamiques. Un doublon `@...` est une erreur d'exécution.
+Les variables extraites sont disponibles comme placeholders dynamiques `{@nom}` pour les actions qui résolvent explicitement les variables dynamiques. Un doublon `@...` est une erreur d'exécution avec `on_duplicate: error` ; `replace` met à jour la valeur dynamique existante tout en protégeant les paramètres standards. Les correspondances déjà traitées ne sont pas annulées si une correspondance suivante échoue.
 
 ```yaml
 - type: extract_variables
@@ -1739,6 +1739,9 @@ avant lui.
 | `number[]` | Tableau de nombres |
 | `boolean[]` | Tableau de booléens |
 | `object[]` | Tableau d'objets |
+
+Une feuille sans valeur extraite est sérialisée en `null`, y compris lorsque son type est un tableau. Les types scalaires `string`, `number` et `boolean` refusent plusieurs valeurs extraites. Un nombre scalaire vide ou composé d'espaces produit `null` ; les autres nombres doivent être des entiers ou des flottants finis. Les booléens ignorent les espaces périphériques et la casse ASCII : `true`/`false`, `1`/`0`, `yes`/`no` et `y`/`n` sont acceptés, les autres valeurs sont des erreurs. Un type `object` refuse plusieurs items objet explicites. Les erreurs de conversion identifient le chemin de sortie concerné. Ces règles décrivent la sérialisation des résultats, sans ajouter de champ YAML.
+
 
 ---
 

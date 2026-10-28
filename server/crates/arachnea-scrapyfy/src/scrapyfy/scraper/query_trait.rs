@@ -2,7 +2,7 @@
 //! sub-queries across every scraper type.
 //!
 //! Implemented by every query type (HTML, JSON, Static) and exposed to the
-//! unified [`execute_query`](super::query_executor::execute_query) executor
+//! unified [`super::query_executor::execute_query_items`] executor
 //! for polymorphic dispatch.
 
 use crate::scrapyfy::actions::ScraperAction;
@@ -23,13 +23,13 @@ use super::row_locator::RowLocator;
 /// in HTML, JSON, or Static form.
 ///
 /// The unified execution engine
-/// (see [`execute_query`](super::query_executor::execute_query))
+/// (see [`super::query_executor::execute_query_items`])
 /// consumes this trait to drive both root queries and recursive sub-queries
 /// (sibling sub-queries and entry-level sub-queries).
 ///
 /// # Migration to unified config
 ///
-/// The [`config()`] method returns a unified [`ScraperQueryConfig`] that
+/// The [`Self::config`] method returns a unified [`ScraperQueryConfig`] that
 /// will eventually replace the individual legacy getters.
 pub trait ScraperQuery: Send + Sync {
     // --- Unified config (migration target) ---
@@ -250,6 +250,7 @@ pub trait ScraperQuery: Send + Sync {
     /// to expose their `filters` field.
     fn filters(&self) -> &HashMap<String, Vec<String>> {
         use std::sync::OnceLock;
+        /// Shared empty collection returned by this default query trait accessor.
         static EMPTY: OnceLock<HashMap<String, Vec<String>>> = OnceLock::new();
         EMPTY.get_or_init(|| HashMap::new())
     }
@@ -269,7 +270,7 @@ pub trait ScraperQuery: Send + Sync {
     ///
     /// The template is resolved with runtime parameters (typically `{html}`).
     /// When the resolved string is non-empty, the query executor creates a
-    /// synthetic [`FetchedResponse::Html`] from it instead of making an HTTP
+    /// synthetic [`super::query_executor::FetchedResponse::Html`] from it instead of making an HTTP
     /// request. When the resolution produces an empty string or fails, the
     /// executor falls through to the normal HTTP fetch path.
     ///

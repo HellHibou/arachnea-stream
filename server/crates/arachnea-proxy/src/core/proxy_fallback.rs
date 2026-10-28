@@ -6,6 +6,7 @@ use std::{
 };
 
 tokio::task_local! {
+    /// Task-local fallback collector, inherited only through an explicit source scope.
     static DIAGNOSTICS: ProxyFallbackDiagnostics;
 }
 
@@ -28,6 +29,10 @@ impl ProxyFallbackDiagnostics {
         self.0.lock().unwrap().clone()
     }
 
+    /// Appends a message to the shared in-memory fallback diagnostic log.
+    ///
+    /// # Arguments
+    /// * `message` - Non-sensitive fallback diagnostic deduplicated within the current source scope.
     pub(crate) fn record(message: String) {
         let _ = DIAGNOSTICS.try_with(|diagnostics| {
             let mut messages = diagnostics.0.lock().unwrap();

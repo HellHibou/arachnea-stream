@@ -29,7 +29,7 @@ impl ClientContext {
 
     /// Inserts or replaces a parameter.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `key`: Parameter key.
     /// - `value`: Parameter value.
@@ -39,7 +39,7 @@ impl ClientContext {
 
     /// Returns a parameter by key.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `key`: Parameter key to look up.
     ///
@@ -52,7 +52,7 @@ impl ClientContext {
 
     /// Returns a string parameter by key.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `key`: Parameter key to look up.
     ///

@@ -11,6 +11,10 @@ use super::ArachneaProxyCore;
 ///
 /// Only a directly attributed endpoint connection failure establishes global
 /// unavailability. Opaque I/O, TLS and timeout errors are insufficient evidence.
+///
+/// # Arguments
+/// * `error` - Observed error to classify without changing its cause.
+///
 pub(super) fn is_dynamic_proxy_transport_failure(error: &ProxyError) -> bool {
     matches!(
         error,
@@ -34,6 +38,10 @@ impl ArachneaProxyCore {
         self
     }
 
+    /// Resolves the request override or configured default for direct fallback.
+    ///
+    /// # Arguments
+    /// * `request` - Outbound request, including its destination and routing options.
     pub(super) fn fallback_direct_for_request(&self, request: &ConnectRequest) -> Result<bool> {
         use crate::core::{ClientParameter, PROXY_PARAMETER_FALLBACK_DIRECT};
         let enabled = match request.client_context.get(PROXY_PARAMETER_FALLBACK_DIRECT) {
@@ -106,6 +114,10 @@ impl ArachneaProxyCore {
         })
     }
 
+    /// Selects a route and pins dynamic inventory choices to their destination.
+    ///
+    /// # Arguments
+    /// * `request` - Outbound request, including its destination and routing options.
     fn select_for_request_inner(
         &self,
         request: ConnectRequest,
@@ -186,6 +198,14 @@ impl ArachneaProxyCore {
         })
     }
 
+    /// Rejects a destination that differs from the origin pinned by the selection token.
+    ///
+    /// # Arguments
+    /// * `destination` - Final origin used for capability checks and destination-specific exclusions.
+    ///
+    /// # Errors
+    ///
+    /// Returns a route-unavailable error if the requested origin differs from the pinned selection.
     pub(super) fn validate_pinned_destination(&self, destination: &Destination) -> Result<()> {
         if self.pinned_route.as_ref().is_some_and(|route| {
             route.0.address != destination.address || route.0.port != destination.port
@@ -299,6 +319,10 @@ impl ArachneaProxyCore {
     /// HTTP clients call this after receiving any origin response that is not
     /// classified as a proxy rejection. The selection remains tracked so a later
     /// rejected response on the same pooled connection can still invalidate it.
+    ///
+    /// # Arguments
+    /// * `destination` - Final origin used for capability checks and destination-specific exclusions.
+    ///
     pub async fn mark_dynamic_proxy_validated(&self, destination: &Destination) -> bool {
         let selection = self
             .dynamic_proxy_selections
@@ -327,7 +351,7 @@ impl ArachneaProxyCore {
 
     /// Applies configured request parameter handlers to a selected chain.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `chain`: Chain selected by the route policy.
     /// - `request`: Request whose client context feeds parameter handlers.

@@ -15,7 +15,7 @@ pub struct ArachneaHyperConnector {
 impl ArachneaHyperConnector {
     /// Creates a hyper connector wrapper.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `core`: Proxy core used by the wrapped tower service.
     ///

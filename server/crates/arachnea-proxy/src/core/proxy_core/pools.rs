@@ -17,7 +17,7 @@ use crate::{PROXY_POOL_MEMBER_CHECK_ATTEMPTS, PROXY_POOL_SELECTION_PASSES};
 /// proxy that is reachable but does not allow `CONNECT` to port 80, because the
 /// actual request will be relayed in absolute-form.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `chain`: Chain containing the proxy pool marker.
 /// - `pool_index`: Index of the pool marker inside `chain.nodes`.
@@ -64,7 +64,7 @@ fn proxy_pool_check_target(
 impl ArachneaProxyCore {
     /// Replaces proxy pool markers in a chain with selected concrete upstreams.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `chain`: Chain that may contain `ProxyPool` marker nodes.
     /// - `request`: Request whose destination is used for first-use pool checks.
@@ -202,7 +202,7 @@ impl ArachneaProxyCore {
 
     /// Selects and caches one working upstream from a proxy pool.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `pool_name`: Egress pool name referenced by the chain.
     /// - `target`: Destination used to test candidates.
@@ -297,6 +297,10 @@ impl ArachneaProxyCore {
     }
 
     /// Selects a tunnel candidate without opening a destructive probe tunnel.
+    ///
+    /// # Arguments
+    /// * `pool` - Configured egress pool whose members and runtime state are inspected.
+    ///
     fn select_proxy_pool_member_without_preflight(
         &self,
         pool: &crate::core::EgressPool,
@@ -337,7 +341,7 @@ impl ArachneaProxyCore {
     /// successful stream is dropped immediately; later traffic opens its own
     /// stream through the cached member.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `pool_name`: Pool name used for diagnostic metadata.
     /// - `node`: Candidate proxy node to test.
@@ -391,6 +395,13 @@ impl ArachneaProxyCore {
     }
 
     /// Runs one compatibility check attempt for a pool member.
+    ///
+    /// # Arguments
+    /// * `pool_name` - Configured pool name or encoded dynamic-country pool marker.
+    /// * `node` - Concrete proxy node to test.
+    /// * `target` - Optional destination used when the configured mode requires a tunnel check.
+    /// * `check_mode` - Whether to test TCP connectivity only or the target tunnel.
+    ///
     async fn check_proxy_pool_member_once(
         &self,
         pool_name: &str,

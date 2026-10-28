@@ -2,6 +2,21 @@
 
 use super::*;
 
+/// Returns a cached TF1 session or performs Gigya and TF1 token login.
+///
+/// Cache misses are serialized by `TF1_LOGIN_LOCK` so concurrent calls do not
+/// submit duplicate credential requests.
+///
+/// # Arguments
+/// * `http_client` - HTTP client used for bootstrap, login and token calls.
+/// * `credentials_store` - Store providing the TF1 login and password.
+///
+/// # Errors
+/// Returns an error when credentials are missing, Gigya rejects the login,
+/// a required user field is absent, or token exchange fails.
+///
+/// # Returns
+/// A session containing the TF1 bearer token.
 pub(super) async fn get_or_login_session(
     http_client: &HttpClient,
     credentials_store: &dyn CredentialsStore,
@@ -120,6 +135,14 @@ pub(super) async fn get_or_login_session(
     Ok(session)
 }
 
+/// Initializes the Gigya web-sdk session before credential submission.
+///
+/// # Arguments
+/// * `http_client` - HTTP client whose cookie jar receives the bootstrap state.
+///
+/// # Errors
+/// Returns an error when the bootstrap query cannot be serialized or the
+/// request fails.
 pub(super) async fn bootstrap_gigya_session(http_client: &HttpClient) -> Result<()> {
     let query = serde_urlencoded::to_string([
         ("apiKey", TF1_GIGYA_API_KEY),
@@ -157,6 +180,15 @@ pub(super) async fn bootstrap_gigya_session(http_client: &HttpClient) -> Result<
     Ok(())
 }
 
+/// Fails when a Gigya response reports a non-zero error code.
+///
+/// # Arguments
+/// * `payload` - Decoded Gigya response.
+/// * `default_message` - Fallback message when no server detail is available.
+///
+/// # Errors
+/// Returns the server-provided error detail or `default_message` when
+/// `errorCode` is not zero.
 pub(super) fn bail_on_gigya_error(payload: &Value, default_message: &str) -> Result<()> {
     let error_code = payload
         .get("errorCode")
@@ -183,6 +215,16 @@ pub(super) fn bail_on_gigya_error(payload: &Value, default_message: &str) -> Res
     bail!(message.to_string())
 }
 
+/// Loads the configured TF1 login and password.
+///
+/// # Arguments
+/// * `credentials_store` - Store queried for the TF1 service credentials.
+///
+/// # Errors
+/// Returns an error when the store cannot be read or has no TF1 credentials.
+///
+/// # Returns
+/// The credential login and password.
 pub(super) fn load_credentials(
     credentials_store: &dyn CredentialsStore,
 ) -> Result<(String, String)> {
@@ -204,6 +246,14 @@ pub(super) fn load_credentials(
     Ok((credentials.login, credentials.password))
 }
 
+/// Returns a non-expired session for `login`, pruning expired entries.
+///
+/// # Arguments
+/// * `login` - TF1 account login used as the cache key.
+///
+/// # Returns
+/// The cached session, or `None` when it is absent, expired, or the cache
+/// mutex is poisoned.
 pub(super) fn load_cached_session(login: &str) -> Option<Tf1Session> {
     let cache = TF1_SESSION_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     let Ok(mut cache_guard) = cache.lock() else {
@@ -215,6 +265,13 @@ pub(super) fn load_cached_session(login: &str) -> Option<Tf1Session> {
     cache_guard.get(login).map(|entry| entry.session.clone())
 }
 
+/// Caches a session for `login` using `TF1_SESSION_TTL`.
+///
+/// # Arguments
+/// * `login` - TF1 account login used as the cache key.
+/// * `session` - Session to store.
+///
+/// The write is skipped when the cache mutex is poisoned.
 pub(super) fn save_cached_session(login: &str, session: &Tf1Session) {
     let cache = TF1_SESSION_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     let Ok(mut cache_guard) = cache.lock() else {

@@ -35,7 +35,7 @@ pub struct QueryRequest {
 impl QueryRequest {
     /// Creates a query for the IN class and normalizes the name.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `name`: DNS name to query.
     /// - `record_type`: DNS record type to request.
@@ -127,7 +127,7 @@ impl TryFrom<HickoryRecordType> for RecordType {
 
     /// Converts a Hickory record type into this crate's record type.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `value`: Hickory record type to convert.
     ///
@@ -159,7 +159,7 @@ impl FromStr for RecordType {
 
     /// Parses a DNS record type from text.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `value`: Record type text such as `A` or `AAAA`.
     ///
@@ -348,7 +348,7 @@ pub struct AnswerMetadata {
 
 /// Converts a core record into Hickory's protocol record.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `record`: Core record to convert.
 ///
@@ -396,7 +396,7 @@ pub fn record_to_hickory(record: &Record) -> Result<HickoryRecord> {
 
 /// Converts several core records into Hickory protocol records.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `records`: Core records to convert.
 ///
@@ -413,7 +413,7 @@ pub fn records_to_hickory(records: &[Record]) -> Result<Vec<HickoryRecord>> {
 
 /// Converts a Hickory record into this crate's record representation.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `record`: Hickory record to convert.
 ///
@@ -459,7 +459,7 @@ pub(crate) fn record_from_hickory(record: &HickoryRecord) -> Result<Option<Recor
 
 /// Normalizes a DNS name for comparisons and cache keys.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `value`: DNS name to normalize.
 ///

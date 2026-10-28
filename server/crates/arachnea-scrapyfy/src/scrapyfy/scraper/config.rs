@@ -186,6 +186,10 @@ impl TryFrom<ScraperRequestHeaderRaw> for ScraperRequestHeader {
 
     /// Converts a raw YAML header definition into a validated runtime header.
     ///
+    /// # Arguments
+    ///
+    /// * `config` - Cache sizing and directory configuration used to construct the server-side cache.
+    ///
     /// # Errors
     ///
     /// Returns an error if the header name is empty or actions fail validation.
@@ -214,6 +218,10 @@ impl TryFrom<ScraperRequestHeaderRaw> for ScraperRequestHeader {
 
 impl From<&ScraperRequestHeader> for ScraperRequestHeaderRaw {
     /// Converts a runtime header back into its raw YAML-compatible representation.
+    ///
+    /// # Arguments
+    ///
+    /// * `header` - Request-header definition converted between runtime and raw configuration representations.
     fn from(header: &ScraperRequestHeader) -> Self {
         Self {
             name: header.name.clone(),
@@ -226,6 +234,10 @@ impl From<&ScraperRequestHeader> for ScraperRequestHeaderRaw {
 
 impl Serialize for ScraperRequestHeader {
     /// Serializes the header through its raw YAML representation.
+    ///
+    /// # Arguments
+    ///
+    /// * `serializer` - Serde serializer receiving the raw or typed representation.
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
         S: Serializer,

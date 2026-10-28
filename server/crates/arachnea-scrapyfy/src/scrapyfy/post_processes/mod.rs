@@ -108,7 +108,7 @@ pub enum ScraperPostProcess {
     /// Removes specific fields from items in a group when a condition field
     /// matches (or does not match) a regex pattern.
     ///
-    /// Unlike [`FilterItems`] which removes entire items, this variant operates
+    /// Unlike [`ScraperPostProcess::FilterItems`] which removes entire items, this variant operates
     /// at the field level: each item stays, but the listed fields are deleted
     /// when the condition is satisfied.
     FilterFields {

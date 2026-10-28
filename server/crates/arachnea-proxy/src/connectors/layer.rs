@@ -14,7 +14,7 @@ pub struct ArachneaProxyLayer {
 impl ArachneaProxyLayer {
     /// Creates a layer from an Arachnea tower service.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `service`: Tower service that should replace an inner connector.
     ///
@@ -27,7 +27,7 @@ impl ArachneaProxyLayer {
 
     /// Returns a service backed by the proxy core.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `_inner`: Inner connector being replaced.
     ///
@@ -49,7 +49,7 @@ impl Service<Uri> for ArachneaProxyLayer {
 
     /// Delegates readiness checks to the backing connector service.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `cx`: Task context supplied by the caller.
     ///
@@ -62,7 +62,7 @@ impl Service<Uri> for ArachneaProxyLayer {
 
     /// Delegates connection requests to the backing connector service.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `req`: URI requested by the caller.
     ///

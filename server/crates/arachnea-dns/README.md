@@ -92,6 +92,8 @@ Profiles must fail with a clear configuration error when a required feature is m
 
 The durable remaining work from the retired specification is tracked in the root `docs/TODO.md`. Important DNS gaps include ODoH transport, finer DNSSEC modes, Smart DNS route/TOML support, external blocklist reload, NSEC3 aggressive-cache synthesis, DNS Cookies, alternative roots, optional proxy-backed DNS egress, and censorship metadata through API and EDNS Extended DNS Error.
 
+Several accepted configuration switches are not enforced yet: resolver `retries`, `parallel_upstreams`, `allow_insecure_fallback` and `upstream_strategy`; upstream `verify_tls`; privacy `qname_minimisation`, `ecs`, `odoh`, `query_padding` and `log_qnames`; `dns_cookies`; and the server `allow_recursion` ACL. The current forwarder tries upstreams in declaration order and uses library-default TLS settings. Only DNSSEC `Off` and `Strict` change resolution; the intermediate modes are metadata labels for now.
+
 ## Common Commands
 
 Run an example through the system resolver profile:

@@ -15,6 +15,9 @@ pub use base62::encode as encode_base62;
 /// digest is encoded in full base62 (up to 11 characters, `"0"` for a zero
 /// digest).
 ///
+/// # Arguments
+/// * `data` - Bytes whose stable 64-bit digest is encoded.
+///
 /// # Examples
 ///
 /// ```

@@ -8,6 +8,13 @@ use super::{
 };
 
 /// Validates a generic action pipeline applied to a root scalar field.
+///
+/// # Arguments
+///
+/// * `owner` - Owning query or entry label used to contextualize validation errors.
+/// * `source` - `>`-delimited path of the source node within the result tree.
+/// * `target` - `>`-delimited destination path that receives the transformed result.
+/// * `actions` - Action pipeline applied in declaration order.
 pub(super) fn validate(
     owner: &str,
     source: &str,
@@ -34,6 +41,15 @@ pub(super) fn validate(
 
 /// Applies an action pipeline to values read from `source` and writes the
 /// result to `target`, creating the target path when necessary.
+///
+/// # Arguments
+///
+/// * `root` - Result tree updated in place by this operation.
+/// * `context` - Execution context supplying runtime parameters, parent response and request metadata.
+/// * `source` - `>`-delimited path of the source node within the result tree.
+/// * `target` - `>`-delimited destination path that receives the transformed result.
+/// * `output_type` - Declared scalar or container type governing the result shape.
+/// * `actions` - Action pipeline applied in declaration order.
 pub(super) fn apply(
     root: &mut ScraperDataNode,
     context: &ScraperPostProcessContext<'_>,

@@ -4,6 +4,17 @@ use super::*;
 
 impl StreamResolver<'_> {
     /// Runs the HTML-content fallback phase after every direct resolver attempt fails.
+    ///
+    /// # Arguments
+    /// * `url` - Source URL to fetch as HTML.
+    /// * `source_names` - Resolver service names tried in order.
+    ///
+    /// # Errors
+    /// Returns an error when fetching fails or a recognized service reports a
+    /// terminal error or yields no stream.
+    ///
+    /// # Returns
+    /// The resolved stream, or `None` when no service recognizes the document.
     pub(super) async fn resolve_from_fetched_html(
         &self,
         url: &str,
@@ -75,6 +86,16 @@ impl StreamResolver<'_> {
     /// never executed: only the target of the first plain literal assignment is extracted and
     /// re-fetched via HTTP. The number of followed JS hops is bounded and each hop is validated
     /// like the initial fetch (success status, `text/html`, size limit).
+    ///
+    /// # Arguments
+    /// * `url` - Initial embed URL.
+    ///
+    /// # Errors
+    /// Returns an error on HTTP failure, unsupported content type, oversized body
+    /// or excessive JavaScript redirects.
+    ///
+    /// # Returns
+    /// The final document URL and its HTML body.
     pub(super) async fn fetch_embed_html(&self, url: &str) -> Result<FetchedEmbedHtml> {
         let http_config = ScraperHttpConfig {
             max_redirects: Some(DEFAULT_MAX_REDIRECTS),
@@ -166,6 +187,17 @@ impl StreamResolver<'_> {
     }
 
     /// Runs optional `can_resolve_html` on one service with `{url, html}` params.
+    ///
+    /// # Arguments
+    /// * `service_name` - Resolver service to query.
+    /// * `url` - Current document URL.
+    /// * `html` - Fetched document body.
+    ///
+    /// # Errors
+    /// Returns an error when the scraper query fails.
+    ///
+    /// # Returns
+    /// `true` when the service reports that it recognizes the document.
     pub(super) async fn can_resolve_html(
         &self,
         service_name: &str,
@@ -202,6 +234,16 @@ impl StreamResolver<'_> {
     }
 
     /// Runs optional `can_resolve_url` on one service as a cheap direct-resolution prefilter.
+    ///
+    /// # Arguments
+    /// * `service_name` - Resolver service to query.
+    /// * `url` - Source URL to test.
+    ///
+    /// # Errors
+    /// Returns an error when the scraper query fails.
+    ///
+    /// # Returns
+    /// `true` when the service reports that it can resolve the URL.
     pub(super) async fn can_resolve_url(&self, service_name: &str, url: &str) -> Result<bool> {
         let params = self.build_resolver_params(url, None);
         let results = self

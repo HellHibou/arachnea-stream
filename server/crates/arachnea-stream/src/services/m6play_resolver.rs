@@ -100,19 +100,26 @@ const SIXPLAY_STORYBOARD_COLUMNS: u32 = 300;
 /// Number of rows in the M6/6play storyboard sprite layout.
 const SIXPLAY_STORYBOARD_ROWS: u32 = 1;
 
+/// Shared regex used to find the M6 JavaScript bundle identifier.
 static SIXPLAY_JS_ID_REGEX: OnceLock<Regex> = OnceLock::new();
+/// Shared regex used to find the public M6 API key in the bundle.
 static SIXPLAY_API_KEY_REGEX: OnceLock<Regex> = OnceLock::new();
+/// Process-local cache for the public M6 API key.
 static SIXPLAY_API_KEY_CACHE: OnceLock<Mutex<Option<CachedSixPlayApiKey>>> = OnceLock::new();
+/// Process-wide cache of authenticated M6 sessions keyed by login.
 static SIXPLAY_SESSION_CACHE: OnceLock<Mutex<HashMap<String, CachedSixPlaySession>>> =
     OnceLock::new();
+/// Serializes cache misses during the M6 login flow.
 static SIXPLAY_LOGIN_LOCK: OnceLock<AsyncMutex<()>> = OnceLock::new();
 
+/// Authenticated M6 account and login tokens.
 #[derive(Clone)]
 struct SixPlaySession {
     account_id: String,
     login_token: String,
 }
 
+/// Cached M6 session with its expiry instant.
 struct CachedSixPlaySession {
     session: SixPlaySession,
     expires_at: Instant,
@@ -190,6 +197,22 @@ impl PlayerStreamResolver for M6PlayResolver {
     }
 }
 
+/// Resolves an M6 replay video into a protected DASH player stream.
+///
+/// # Arguments
+/// * `scraper_agregator` - Aggregator used to create the HTTP client.
+/// * `credentials_store` - Store providing the M6 credentials.
+/// * `video_id` - M6 video identifier; surrounding whitespace is ignored.
+/// * `stream_kind` - Optional caller-selected stream kind.
+/// * `proxy_countries` - Countries selected for outbound routing.
+/// * `endpoints` - Public endpoint settings used to build proxy URLs.
+///
+/// # Errors
+/// Returns an error when the identifier is empty, login or token retrieval
+/// fails, or the payload has no usable DASH asset.
+///
+/// # Returns
+/// The resolved stream with proxied manifest, license, storyboard and chapters.
 async fn resolve_replay_stream(
     scraper_agregator: &ScraperAgregator,
     credentials_store: &dyn CredentialsStore,
@@ -246,6 +269,22 @@ async fn resolve_replay_stream(
     })
 }
 
+/// Resolves an M6 live channel into a protected DASH player stream.
+///
+/// # Arguments
+/// * `scraper_agregator` - Aggregator used to create the HTTP client.
+/// * `credentials_store` - Store providing the M6 credentials.
+/// * `channel_id` - M6 channel identifier; surrounding whitespace is ignored.
+/// * `stream_kind` - Optional caller-selected stream kind.
+/// * `proxy_countries` - Countries selected for outbound routing.
+/// * `endpoints` - Public endpoint settings used to build proxy URLs.
+///
+/// # Errors
+/// Returns an error when the identifier is empty, login or token retrieval
+/// fails, or the live payload has no usable DASH asset.
+///
+/// # Returns
+/// The resolved live stream with proxied manifest and license.
 async fn resolve_live_stream(
     scraper_agregator: &ScraperAgregator,
     credentials_store: &dyn CredentialsStore,
@@ -360,6 +399,13 @@ async fn resolve_live_stream(
     })
 }
 
+/// Builds the HTTP configuration used for M6 requests.
+///
+/// # Arguments
+/// * `proxy_countries` - Countries to use for outbound routing.
+///
+/// # Returns
+/// A configuration treating HTTP 403 as a rejection and grouping M6 domains.
 fn m6play_http_config(proxy_countries: &[String]) -> ScraperHttpConfig {
     ScraperHttpConfig {
         proxy_rejection_statuses: vec![M6PLAY_PROXY_REJECTION_STATUS],
@@ -373,6 +419,11 @@ fn m6play_http_config(proxy_countries: &[String]) -> ScraperHttpConfig {
     }
 }
 
+/// Builds proxy actions that rewrite M6 DASH segment paths.
+///
+/// # Returns
+/// Actions removing internal proxy headers on redirects and rewriting
+/// initialization and media paths.
 fn stream_headers() -> Vec<ProxyHttpActionConfig> {
     vec![
         RemoveHeader::on_http302([
@@ -392,6 +443,20 @@ fn stream_headers() -> Vec<ProxyHttpActionConfig> {
     ]
 }
 
+/// Returns a cached M6 session or performs the full Gigya login flow.
+///
+/// Cache misses are serialized by `SIXPLAY_LOGIN_LOCK`.
+///
+/// # Arguments
+/// * `http_client` - HTTP client used for key discovery and login requests.
+/// * `credentials_store` - Store providing the M6 login and password.
+///
+/// # Errors
+/// Returns an error when credentials are missing, key discovery falls back and
+/// login still fails, or required login fields are absent.
+///
+/// # Returns
+/// A session containing the account and login token.
 async fn get_or_login_session(
     http_client: &HttpClient,
     credentials_store: &dyn CredentialsStore,
@@ -499,6 +564,19 @@ async fn get_or_login_session(
     Ok(session)
 }
 
+/// Fetches and decodes a 6play front-auth JSON response.
+///
+/// # Arguments
+/// * `http_client` - HTTP client used for the request.
+/// * `url` - Front-auth endpoint URL.
+/// * `headers` - Authentication headers sent with the request.
+///
+/// # Errors
+/// Returns an error when the request fails, the status is unsuccessful, or the
+/// body is not valid JSON.
+///
+/// # Returns
+/// The decoded front-auth payload.
 async fn fetch_sixplay_front_auth_json(
     http_client: &HttpClient,
     url: &str,
@@ -604,6 +682,17 @@ fn invalidate_api_key(rejected_key: &str) {
     }
 }
 
+/// Fetches the public M6 API key from the login page and JavaScript bundle.
+///
+/// # Arguments
+/// * `http_client` - HTTP client used for the page and bundle requests.
+///
+/// # Errors
+/// Returns an error when the bundle identifier, bundle request, or API key is
+/// missing.
+///
+/// # Returns
+/// The API key extracted from the web bundle.
 async fn fetch_api_key(http_client: &HttpClient) -> Result<String> {
     let login_page = http_client
         .query_http(http::Method::GET, SIXPLAY_LOGIN_PAGE_URL)
@@ -634,6 +723,18 @@ async fn fetch_api_key(http_client: &HttpClient) -> Result<String> {
         .ok_or_else(|| anyhow!("Missing 6play API key in web bundle."))
 }
 
+/// Fetches the DRM upfront token for an M6 replay video.
+///
+/// # Arguments
+/// * `http_client` - HTTP client used for the request.
+/// * `session` - Authenticated M6 session.
+/// * `video_id` - M6 video identifier.
+///
+/// # Errors
+/// Returns an error when the request fails or the response has no token.
+///
+/// # Returns
+/// The replay upfront token.
 async fn fetch_upfront_token(
     http_client: &HttpClient,
     session: &SixPlaySession,
@@ -669,6 +770,17 @@ async fn fetch_upfront_token(
     )
 }
 
+/// Fetches the M6 replay video metadata payload.
+///
+/// # Arguments
+/// * `http_client` - HTTP client used for the request.
+/// * `video_id` - M6 video identifier.
+///
+/// # Errors
+/// Returns an error when the request fails or the response is not valid JSON.
+///
+/// # Returns
+/// The decoded video payload.
 async fn fetch_video_payload_json(http_client: &HttpClient, video_id: &str) -> Result<Value> {
     let video_url = SIXPLAY_VIDEO_JSON_URL_TEMPLATE.replace("{}", video_id);
     let mut headers = HashMap::new();
@@ -682,6 +794,16 @@ async fn fetch_video_payload_json(http_client: &HttpClient, video_id: &str) -> R
         .await
 }
 
+/// Extracts the best DRM DASH manifest from a replay video payload.
+///
+/// # Arguments
+/// * `video_payload` - Decoded M6 video payload.
+///
+/// # Errors
+/// Returns an error when no replay assets or usable DASH asset are present.
+///
+/// # Returns
+/// The best available DASH manifest URL.
 fn extract_manifest_url(video_payload: &Value) -> Result<String> {
     let assets = video_payload
         .pointer("/clips/0/assets")
@@ -701,7 +823,12 @@ fn extract_manifest_url(video_payload: &Value) -> Result<String> {
 /// The interval is computed as `duration_seconds / columns`, where the duration
 /// is read from the first clip's `duration` field (in seconds).
 ///
-/// Returns `None` when no storyboard image key is found in the payload.
+/// # Arguments
+/// * `video_payload` - Decoded M6 video payload.
+///
+/// # Returns
+/// The sprite storyboard metadata, or `None` when no storyboard image key is
+/// found.
 fn extract_storyboard_from_video_payload(video_payload: &Value) -> Option<SpriteThumbnail> {
     let storyboard_keys: Vec<String> = video_payload
         .pointer("/clips/0/images")
@@ -758,7 +885,12 @@ fn extract_storyboard_from_video_payload(video_payload: &Value) -> Option<Sprite
 ///
 /// Chapters are read from the `clips[0].chapters` array. Each entry provides
 /// `tc_in` (start), `tc_out` (end), `title`, and `chapter_type` fields.
-/// Returns `None` when no chapters are present in the payload.
+///
+/// # Arguments
+/// * `video_payload` - Decoded M6 video payload.
+///
+/// # Returns
+/// The valid chapters, or `None` when no chapter is present.
 fn extract_chapters_from_video_payload(video_payload: &Value) -> Option<Vec<Chapter>> {
     let chapters = video_payload
         .pointer("/clips/0/chapters")
@@ -794,6 +926,14 @@ fn extract_chapters_from_video_payload(video_payload: &Value) -> Option<Vec<Chap
     }
 }
 
+/// Selects the highest-quality asset URL of a given type.
+///
+/// # Arguments
+/// * `assets` - Candidate asset objects.
+/// * `asset_type` - Required asset `type` value.
+///
+/// # Returns
+/// The highest-ranked `full_physical_path`, or `None` when no asset matches.
 fn select_best_asset_url(assets: &[Value], asset_type: &str) -> Option<String> {
     assets
         .iter()
@@ -812,6 +952,13 @@ fn select_best_asset_url(assets: &[Value], asset_type: &str) -> Option<String> {
         .map(|(_, url)| url)
 }
 
+/// Ranks an M6 video quality label.
+///
+/// # Arguments
+/// * `value` - Quality label such as `uhd`, `fhd`, `hd` or `sd`.
+///
+/// # Returns
+/// A numeric rank from 4 for UHD down to 0 for unknown labels.
 fn quality_rank(value: &str) -> usize {
     match value.trim().to_ascii_lowercase().as_str() {
         "uhd" => 4,
@@ -822,6 +969,16 @@ fn quality_rank(value: &str) -> usize {
     }
 }
 
+/// Parses the JSON object inside an M6 JSONP response.
+///
+/// # Arguments
+/// * `payload` - Raw JSONP text.
+///
+/// # Errors
+/// Returns an error when the parentheses or inner JSON are invalid.
+///
+/// # Returns
+/// The decoded JSON payload.
 fn parse_jsonp_payload(payload: &str) -> Result<Value> {
     let trimmed = payload.trim();
     let Some(open_paren_index) = trimmed.find('(') else {
@@ -835,6 +992,19 @@ fn parse_jsonp_payload(payload: &str) -> Result<Value> {
     serde_json::from_str(json_payload).context("Invalid JSON inside the 6play JSONP response.")
 }
 
+/// Reads a non-empty string or integer from a nested JSON path.
+///
+/// # Arguments
+/// * `payload` - JSON value to traverse.
+/// * `path` - Object keys applied successively.
+/// * `error_message` - Message used when a key or scalar is missing.
+///
+/// # Errors
+/// Returns an error when traversal fails or the target is neither a non-empty
+/// string nor an integer.
+///
+/// # Returns
+/// The trimmed string representation of the scalar.
 fn read_json_string(payload: &Value, path: &[&str], error_message: &str) -> Result<String> {
     let mut current = payload;
 
@@ -862,6 +1032,14 @@ fn read_json_string(payload: &Value, path: &[&str], error_message: &str) -> Resu
     bail!(error_message.to_string())
 }
 
+/// Produces a bounded preview of an HTTP error body.
+///
+/// # Arguments
+/// * `body` - Raw response body.
+///
+/// # Returns
+/// A trimmed preview capped by `PLAYER_ERROR_BODY_PREVIEW_LENGTH`, with an
+/// ellipsis when longer, or `<empty body>` when blank.
 fn preview_error_body(body: &str) -> String {
     let value = body.trim();
     if value.is_empty() {
@@ -878,6 +1056,16 @@ fn preview_error_body(body: &str) -> String {
     preview
 }
 
+/// Loads the configured M6 login and password.
+///
+/// # Arguments
+/// * `credentials_store` - Store queried for the M6 service credentials.
+///
+/// # Errors
+/// Returns an error when the store cannot be read or has no M6 credentials.
+///
+/// # Returns
+/// The credential login and password.
 fn load_credentials(credentials_store: &dyn CredentialsStore) -> Result<(String, String)> {
     let credentials = credentials_store
         .get_credentials(M6PLAY_SERVICE_ID)
@@ -897,6 +1085,14 @@ fn load_credentials(credentials_store: &dyn CredentialsStore) -> Result<(String,
     Ok((credentials.login, credentials.password))
 }
 
+/// Loads a non-expired M6 session, pruning expired entries.
+///
+/// # Arguments
+/// * `login` - Account login used as the cache key.
+///
+/// # Returns
+/// The cached session, or `None` when absent, expired, or the cache mutex is
+/// poisoned.
 fn load_cached_session(login: &str) -> Option<SixPlaySession> {
     let cache = SIXPLAY_SESSION_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     let Ok(mut cache_guard) = cache.lock() else {
@@ -908,6 +1104,13 @@ fn load_cached_session(login: &str) -> Option<SixPlaySession> {
     cache_guard.get(login).map(|entry| entry.session.clone())
 }
 
+/// Caches an M6 session for `login` using `SIXPLAY_SESSION_TTL`.
+///
+/// # Arguments
+/// * `login` - Account login used as the cache key.
+/// * `session` - Session to store.
+///
+/// The write is skipped when the cache mutex is poisoned.
 fn save_cached_session(login: &str, session: &SixPlaySession) {
     let cache = SIXPLAY_SESSION_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     let Ok(mut cache_guard) = cache.lock() else {

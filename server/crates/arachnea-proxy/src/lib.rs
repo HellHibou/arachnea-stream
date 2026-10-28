@@ -435,7 +435,7 @@ pub const PROXY_NETWORK_DEFAULT_RATE_LIMIT: u32 = 50;
 #[cfg(feature = "server")]
 pub const PROXY_NETWORK_DEFAULT_MAX_CONNECTIONS: u32 = 1024;
 
-/// Default port for [`LoopbackProxyRuntime`] (0 means OS-allocated).
+/// Default port for [`server::LoopbackProxyRuntime`] (0 means OS-allocated).
 #[cfg(feature = "server")]
 pub const PROXY_LOOPBACK_DEFAULT_PORT: u16 = 0;
 

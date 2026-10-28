@@ -36,15 +36,26 @@ pub(super) struct ProxyHttpOpts {
     /// Explicit operation-level replay guarantee; request bodies are buffered and cloneable.
     pub(super) proxy_retry_replayable: bool,
 }
-
+/// Validated effective headers, cookies and actions after combining request input with URL options.
 pub(super) struct MergedProxyHttpInput {
+    /// Effective request headers after explicit options and forwarding rules.
     pub(super) headers: HashMap<String, String>,
+    /// Cookie values to attach to the effective upstream request.
     pub(super) cookies: HashMap<String, String>,
+    /// Body transformations to run after receiving the upstream response.
     pub(super) post_actions: Vec<ProxyHttpPostActionConfig>,
+    /// Rules applied to proxy URL options when forwarding redirects.
     pub(super) redirect_actions: Vec<ProxyHttpRedirectActionConfig>,
 }
 
 /// Decodes a base64url (no-padding) value from a path segment.
+///
+/// # Arguments
+/// * `encoded` - Base64url-encoded options segment without padding.
+///
+/// # Errors
+///
+/// Returns a decoding error for invalid base64url or padding.
 pub(super) fn decode_base64url_segment(encoded: &str) -> Result<Vec<u8>, String> {
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
     URL_SAFE_NO_PAD
@@ -56,6 +67,13 @@ pub(super) fn decode_base64url_segment(encoded: &str) -> Result<Vec<u8>, String>
 ///
 /// Supports both legacy object format for `headers` and the new array-of-pairs
 /// format that preserves duplicate header names.
+///
+/// # Arguments
+/// * `value` - JSON options value; null yields defaults and objects are validated field by field.
+///
+/// # Errors
+///
+/// Returns an HTTP 400 error for unsupported fields, invalid types, classifier configuration or invalid header/cookie values.
 pub(super) fn parse_opts_value(value: &serde_json::Value) -> Result<ProxyHttpOpts, (u16, String)> {
     let obj = match value {
         serde_json::Value::Object(map) => map,
@@ -245,6 +263,10 @@ pub(super) fn parse_opts_value(value: &serde_json::Value) -> Result<ProxyHttpOpt
     })
 }
 
+/// Encodes non-default proxy options as base64url JSON, or returns an empty segment.
+///
+/// # Arguments
+/// * `opts` - Decoded proxy URL options to serialize or apply.
 pub(super) fn encode_proxy_opts(opts: &ProxyHttpOpts) -> String {
     if opts.headers.is_empty()
         && opts.cookies.is_empty()
@@ -302,6 +324,11 @@ pub(super) fn encode_proxy_opts(opts: &ProxyHttpOpts) -> String {
 /// Merges frontend opts headers/cookies over the incoming headers/cookies.
 ///
 /// Priority: incoming < opts (opts wins on conflict).
+///
+/// # Arguments
+/// * `incoming_headers` - Incoming request headers used as the base for explicit options.
+/// * `opts` - Decoded proxy URL options to serialize or apply.
+///
 pub(super) fn merge_opts(
     incoming_headers: &HashMap<String, String>,
     opts: Option<ProxyHttpOpts>,

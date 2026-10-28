@@ -24,7 +24,7 @@ impl ArachneaHttpConfigBuilder {
     }
     /// Sets the outbound HTTP engine.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `engine`: Engine kind selected by the caller.
     ///
@@ -38,7 +38,7 @@ impl ArachneaHttpConfigBuilder {
 
     /// Sets the default request execution mode.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `mode`: Mode used when an individual request does not override it.
     ///
@@ -52,7 +52,7 @@ impl ArachneaHttpConfigBuilder {
 
     /// Sets the outbound HTTP engine from a concrete instance.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `engine`: Concrete engine instance, including any engine-specific
     ///   parameters already applied.
@@ -70,7 +70,13 @@ impl ArachneaHttpConfigBuilder {
 
     /// Sets Cloudflare orchestration mode.
     ///
-    /// # Parameters
+    /// This also updates the default request mode:
+    /// `Disabled` selects `Direct`, `KnownProtected` selects
+    /// `CloudflareSmart`, and `DetectOnForbidden` selects `Auto`. A later
+    /// [`default_request_mode`](Self::default_request_mode) call overrides that
+    /// choice.
+    ///
+    /// # Arguments
     ///
     /// - `cloudflare`: Cloudflare mode selected by the caller.
     ///
@@ -89,7 +95,7 @@ impl ArachneaHttpConfigBuilder {
 
     /// Sets the Cloudflare challenge solver engine.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `solver`: Cloudflare solver selected by the caller.
     ///
@@ -103,7 +109,7 @@ impl ArachneaHttpConfigBuilder {
 
     /// Sets the Cloudflare challenge solver from a concrete engine instance.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `engine`: Concrete solver engine instance, including any
     ///   engine-specific parameters already applied.
@@ -121,7 +127,7 @@ impl ArachneaHttpConfigBuilder {
 
     /// Sets the browser-backed Cloudflare fallback solver.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `solver`: Browser solver selected by the caller.
     ///
@@ -138,7 +144,7 @@ impl ArachneaHttpConfigBuilder {
 
     /// Sets the browser-backed Cloudflare fallback solver from a concrete engine.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `engine`: Concrete solver engine instance, including any
     ///   engine-specific parameters already applied.
@@ -156,7 +162,7 @@ impl ArachneaHttpConfigBuilder {
 
     /// Sets the browser profile.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `profile`: Browser profile used by engines and headers.
     ///
@@ -170,7 +176,7 @@ impl ArachneaHttpConfigBuilder {
 
     /// Sets the outbound proxy or transport override.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `proxy`: Proxy configuration selected by the caller.
     ///
@@ -207,7 +213,7 @@ impl ArachneaHttpConfigBuilder {
 
     /// Routes requests through an explicit network proxy URL.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `url`: Proxy URL, optionally without a scheme. Bare authorities default
     ///   to `http://`.
@@ -225,7 +231,7 @@ impl ArachneaHttpConfigBuilder {
     /// Engines that do not expose a direct connector API may fall back to a
     /// loopback proxy compatibility path.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `core`: Proxy core reused for outbound routing decisions.
     ///
@@ -243,7 +249,7 @@ impl ArachneaHttpConfigBuilder {
     /// Parameters are interpreted by the configured `arachnea-proxy` core when
     /// the transport supports proxy-level request hints.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `name`: Proxy parameter name such as `country`.
     /// - `value`: Parameter value such as `FR`.
@@ -260,7 +266,7 @@ impl ArachneaHttpConfigBuilder {
 
     /// Sets the proactive Cloudflare cookie refresh margin.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `duration`: Margin before expiry where refresh becomes necessary.
     ///
@@ -283,7 +289,7 @@ impl ArachneaHttpConfigBuilder {
 
     /// Sets the outbound request timeout.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `duration`: Timeout for HTTP engine requests.
     ///
@@ -297,7 +303,7 @@ impl ArachneaHttpConfigBuilder {
 
     /// Sets the maximum number of redirects followed by the HTTP facade.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `redirects`: `None` uses the crate default, `Some(0)` disables
     ///   redirects, and `Some(n)` follows up to `n` redirects.
@@ -312,7 +318,7 @@ impl ArachneaHttpConfigBuilder {
 
     /// Sets the maximum Cloudflare retry count.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `retries`: Maximum refresh attempts for one request.
     ///
@@ -326,7 +332,7 @@ impl ArachneaHttpConfigBuilder {
 
     /// Sets the TTL for session cookies.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `duration`: TTL used when a cookie has no explicit expiry.
     ///
@@ -340,7 +346,7 @@ impl ArachneaHttpConfigBuilder {
 
     /// Sets the browser session management configuration.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `config`: Browser session configuration.
     ///
@@ -360,8 +366,10 @@ impl ArachneaHttpConfigBuilder {
     ///
     /// # Errors
     ///
-    /// Returns `InvalidConfiguration` when durations are zero or retry limits are
-    /// inconsistent with the selected request mode.
+    /// Returns `InvalidConfiguration` when the request timeout, session-cookie
+    /// TTL, browser session count, or browser idle timeout is zero; when
+    /// Cloudflare-capable modes have no retries; when a Cloudflare mode has no
+    /// compatible solver or required feature; or when the proxy URL is malformed.
     pub fn build(self) -> Result<ArachneaHttpConfig, ArachneaHttpError> {
         if self.config.request_timeout.is_zero() {
             return Err(ArachneaHttpError::InvalidConfiguration(
@@ -417,7 +425,7 @@ impl ArachneaHttpConfigBuilder {
 
 /// Validates proxy settings that can be checked from the static configuration.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `proxy`: Proxy configuration being finalized.
 ///
@@ -440,6 +448,15 @@ fn validate_proxy(proxy: &HttpProxyConfig) -> Result<(), ArachneaHttpError> {
 }
 
 /// Normalizes proxy input so callers may pass `host:port` or a fully qualified URL.
+///
+/// # Arguments
+///
+/// - `url`: Proxy URL or bare authority.
+///
+/// # Returns
+///
+/// The URL unchanged when it contains `://`, otherwise the same value prefixed
+/// with `http://`.
 fn normalize_proxy_url(url: String) -> String {
     if url.contains("://") {
         url
@@ -450,7 +467,7 @@ fn normalize_proxy_url(url: String) -> String {
 
 /// Validates browser solver settings that can be known at build time.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `config`: Configuration being finalized.
 ///

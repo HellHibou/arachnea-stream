@@ -57,7 +57,7 @@ pub(super) fn system_relay_config_from_env() -> Result<ProxyConfig> {
 
 /// Finds the first non-empty proxy environment variable.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `names`: Environment variable names checked in order.
 ///
@@ -75,7 +75,7 @@ fn first_proxy_env(names: &[&str]) -> Option<String> {
 
 /// Adds one system proxy route for a specific protocol.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `config`: Configuration receiving the proxy route.
 /// - `name`: Stable name used for the node and chain.

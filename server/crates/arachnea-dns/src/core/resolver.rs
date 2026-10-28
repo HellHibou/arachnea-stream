@@ -36,7 +36,7 @@ pub struct ArachneaDnsCore {
 impl ArachneaDnsCore {
     /// Creates a new core instance with its own cache and stats.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `config`: DNS core configuration to resolve and validate.
     ///
@@ -68,7 +68,7 @@ impl ArachneaDnsCore {
 
     /// Resolves a single DNS query asynchronously.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `query`: DNS query to resolve.
     ///
@@ -144,7 +144,7 @@ impl ArachneaDnsCore {
 
     /// Adds runtime metadata to an answer.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `answer`: Answer produced by policy, cache, or upstream resolution.
     ///
@@ -158,7 +158,7 @@ impl ArachneaDnsCore {
 
     /// Resolves A and AAAA records as one logical operation.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `name`: DNS name to resolve.
     ///
@@ -208,7 +208,7 @@ impl ArachneaDnsCore {
 
     /// Resolves several queries in order and returns per-query results.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `queries`: Queries to resolve sequentially.
     ///
@@ -235,7 +235,7 @@ impl ArachneaDnsCore {
 
     /// Builds the cache key for a query under current privacy/security policy.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `query`: Query whose cache key is requested.
     ///
@@ -252,7 +252,7 @@ impl ArachneaDnsCore {
 
     /// Applies local resolver policies before upstream resolution.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `query`: Normalized query to evaluate against configured policies.
     ///
@@ -394,7 +394,7 @@ impl ArachneaDnsCore {
 
     /// Resolves a query using the configured upstream strategy.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `query`: Normalized query to resolve.
     ///
@@ -420,7 +420,7 @@ impl ArachneaDnsCore {
     #[cfg(feature = "recursive")]
     /// Resolves a query using the recursive resolver feature.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `query`: Query to resolve recursively.
     ///
@@ -450,7 +450,7 @@ impl ArachneaDnsCore {
     #[cfg(not(feature = "recursive"))]
     /// Reports that recursive resolution is unavailable without the feature.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `_query`: Query that would require recursive resolution.
     ///
@@ -465,7 +465,7 @@ impl ArachneaDnsCore {
 
     /// Resolves a query through the system resolver.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `query`: Query to resolve through the operating system.
     ///
@@ -521,7 +521,7 @@ impl ArachneaDnsCore {
 
     /// Resolves a query by trying configured forwarding upstreams.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `query`: Query to forward.
     ///
@@ -558,7 +558,7 @@ impl ArachneaDnsCore {
 
     /// Resolves a query with one specific upstream.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `query`: Query to resolve.
     /// - `upstream`: Upstream configuration to use.
@@ -665,7 +665,7 @@ impl ArachneaDnsCore {
 
 /// Returns whether the Hickory DNSSEC path supports an upstream transport.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `upstream`: Upstream considered for DNSSEC validation.
 ///
@@ -686,7 +686,7 @@ fn hickory_dnssec_transport_supported(upstream: &Upstream) -> bool {
 
 /// Builds an answer from already-selected records.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `query`: Query associated with the records.
 /// - `records`: Records to include in the answer.
@@ -719,7 +719,7 @@ fn answer_from_records(
 trait WithUpstream {
     /// Attaches upstream metadata to an answer.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `upstream`: Upstream label to record.
     ///
@@ -732,7 +732,7 @@ trait WithUpstream {
 impl WithUpstream for Answer {
     /// Attaches upstream metadata to an answer.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `upstream`: Upstream label to record.
     ///
@@ -747,7 +747,7 @@ impl WithUpstream for Answer {
 
 /// Builds the answer or error for a block action.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `query`: Query being blocked.
 /// - `action`: Configured block action.

@@ -2,6 +2,35 @@
 
 use super::*;
 
+/// Runs a standalone Wry solver window on a Tao event loop.
+///
+/// The window opens `incognito` when requested or whenever a proxy is used. It
+/// denies popup windows and tracks the latest navigation URL. The function
+/// blocks until clearance, timeout, or window close.
+///
+/// # Arguments
+///
+/// - `url`: Cloudflare-protected URL to load.
+/// - `user_agent`: Optional browser user-agent override.
+/// - `timeout`: Maximum solve duration.
+/// - `poll_interval`: Cookie polling interval.
+/// - `clearance_stabilization`: Delay required after clearance before closing.
+/// - `window_width`: Initial window width.
+/// - `window_height`: Initial window height.
+/// - `devtools`: Whether to open developer tools when the build permits it.
+/// - `auto_close_after_clearance`: Whether to close once clearance is stable.
+/// - `incognito`: Whether to use an incognito webview.
+/// - `collect_page_source`: Whether to capture page HTML after solving.
+/// - `proxy`: Optional native webview proxy configuration.
+///
+/// # Returns
+///
+/// Solver headers and optional page HTML.
+///
+/// # Errors
+///
+/// Returns webview, event-loop, proxy, or URL failures. Timeout before clearance
+/// is an error.
 pub(super) fn solve_cloudflare_with_wry_event_loop(
     url: &str,
     user_agent: Option<&str>,
@@ -323,6 +352,16 @@ pub(super) fn solve_cloudflare_with_wry_event_loop(
 /// Tao destroys Windows windows by posting a message that is processed by the
 /// event loop, so the solver must keep pumping briefly after dropping the
 /// window instead of exiting the loop immediately.
+///
+/// This is a no-op when shutdown has already started.
+///
+/// # Arguments
+///
+/// - `webview`: Webview slot to drop.
+/// - `window`: Window slot to hide and drop.
+/// - `window_destroy_started_at`: Shutdown marker; set on the first call.
+/// - `control_flow`: Event-loop control flow, switched to a short poll so pending
+///   destroy messages can be processed.
 pub(super) fn start_solver_window_shutdown(
     webview: &mut Option<wry::WebView>,
     window: &mut Option<tao::window::Window>,

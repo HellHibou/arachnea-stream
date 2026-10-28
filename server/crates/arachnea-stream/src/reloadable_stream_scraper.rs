@@ -139,6 +139,9 @@ impl ReloadableStreamScraper {
     /// sizing changes, the instance is rebuilt so the new bounds apply to the
     /// fresh aggregator.
     ///
+    /// # Arguments
+    /// * `settings` - Effective scraper settings to apply.
+    ///
     /// # Errors
     /// Returns an error when the replacement instance cannot be built.
     pub async fn apply_scraper_settings(&self, settings: &ScraperAdminSettings) -> Result<()> {
@@ -278,6 +281,10 @@ impl ReloadableStreamScraper {
 }
 
 /// Registers every stream route so each request resolves the active instance.
+///
+/// # Arguments
+/// * `reloadable` - Shared reloadable scraper runtime.
+/// * `controler` - Controller receiving the stream routes.
 fn register_routes(
     reloadable: &Arc<ReloadableStreamScraper>,
     controler: &mut dyn ControlerService,

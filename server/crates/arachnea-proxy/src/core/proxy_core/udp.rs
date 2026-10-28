@@ -14,7 +14,7 @@ impl ArachneaProxyCore {
     /// Proxied UDP is intentionally kept explicit: non-direct UDP routes return
     /// an unsupported error until a transport-specific association is selected.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `destination`: UDP target destination.
     ///
@@ -33,7 +33,7 @@ impl ArachneaProxyCore {
 
     /// Opens a direct connected UDP socket using a full connect request.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `request`: UDP destination and client context for route selection.
     ///
@@ -52,6 +52,10 @@ impl ArachneaProxyCore {
         Box::pin(self.connect_udp_request_inner(request))
     }
 
+    /// Applies security and routing policy before opening a supported UDP association.
+    ///
+    /// # Arguments
+    /// * `request` - Outbound request, including its destination and routing options.
     async fn connect_udp_request_inner(&self, request: ConnectRequest) -> Result<UdpSocket> {
         self.config
             .as_config()
@@ -91,7 +95,7 @@ impl ArachneaProxyCore {
     /// proxy hop return an unsupported error until transport-specific semantics
     /// are implemented for each chain shape.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `destination`: UDP target used for route selection and policy checks.
     ///
@@ -113,7 +117,7 @@ impl ArachneaProxyCore {
 
     /// Opens a SOCKS5 UDP association using a full connect request.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `request`: UDP destination and client context for route selection.
     ///

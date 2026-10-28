@@ -288,6 +288,7 @@ pub trait MainThreadDispatcher: Send + Sync {
     ) -> Result<(), MainThreadDispatchError>;
 }
 
+/// Process-wide dispatcher installed by the active controller backend.
 static GLOBAL_MAIN_THREAD_DISPATCHER: OnceLock<Arc<dyn MainThreadDispatcher>> = OnceLock::new();
 
 /// Installs the process-wide main-thread dispatcher.
@@ -310,6 +311,7 @@ pub fn global_main_thread_dispatcher() -> Option<Arc<dyn MainThreadDispatcher>> 
     GLOBAL_MAIN_THREAD_DISPATCHER.get().cloned()
 }
 
+/// Registry of main-thread handlers keyed by their generated identifiers.
 #[derive(Default)]
 pub(super) struct MainThreadHandlerStore {
     next_id: AtomicU64,
@@ -317,6 +319,13 @@ pub(super) struct MainThreadHandlerStore {
 }
 
 impl MainThreadHandlerStore {
+    /// Registers a main-thread handler and returns its generated identifier.
+    ///
+    /// # Arguments
+    /// * `handler` - Handler invoked on the main thread.
+    ///
+    /// # Errors
+    /// Returns [`MainThreadDispatchError::DispatchFailed`] when the registry lock is poisoned.
     pub(super) fn register(
         &self,
         handler: MainThreadHandler,
@@ -329,6 +338,14 @@ impl MainThreadHandlerStore {
         Ok(id)
     }
 
+    /// Removes a registered handler.
+    ///
+    /// # Arguments
+    /// * `id` - Identifier returned when the handler was registered.
+    ///
+    /// # Errors
+    /// Returns [`MainThreadDispatchError::HandlerNotFound`] for an unknown identifier, or
+    /// [`MainThreadDispatchError::DispatchFailed`] when the registry lock is poisoned.
     pub(super) fn unregister(
         &self,
         id: MainThreadHandlerId,
@@ -342,6 +359,16 @@ impl MainThreadHandlerStore {
             .ok_or(MainThreadDispatchError::HandlerNotFound(id))
     }
 
+    /// Dispatches one event to a registered handler.
+    ///
+    /// # Arguments
+    /// * `context` - Main-thread context passed to the handler.
+    /// * `id` - Identifier of the target handler.
+    /// * `event` - Event delivered to the handler.
+    ///
+    /// # Errors
+    /// Returns [`MainThreadDispatchError::HandlerNotFound`] for an unknown identifier, or
+    /// [`MainThreadDispatchError::DispatchFailed`] when the registry lock is poisoned.
     pub(super) fn dispatch_event(
         &self,
         context: &mut MainThreadContext,
@@ -358,6 +385,14 @@ impl MainThreadHandlerStore {
         Ok(())
     }
 
+    /// Checks that a handler identifier is still registered.
+    ///
+    /// # Arguments
+    /// * `id` - Identifier to look up.
+    ///
+    /// # Errors
+    /// Returns [`MainThreadDispatchError::HandlerNotFound`] when absent, or
+    /// [`MainThreadDispatchError::DispatchFailed`] when the registry lock is poisoned.
     pub(super) fn ensure_registered(
         &self,
         id: MainThreadHandlerId,
@@ -372,6 +407,7 @@ impl MainThreadHandlerStore {
     }
 }
 
+/// Commands consumed by the logical main-thread loop.
 enum MainThreadCommand {
     Run(MainThreadTask),
 }

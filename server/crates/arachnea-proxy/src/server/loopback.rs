@@ -14,8 +14,11 @@ use crate::server::{handlers, ServerConfig};
 
 /// A routing context kept alive by clients and accepted connections, never by the registry.
 pub struct LoopbackRoute {
+    /// Core used to establish connections for this routing lease.
     pub(crate) core: ArachneaProxyCore,
+    /// Default client routing parameters associated with this lease.
     pub(crate) context: ClientContext,
+    /// Whether connection headers may supply additional routing parameters.
     pub(crate) allow_parameter_headers: bool,
     id: String,
 }
@@ -26,7 +29,7 @@ impl LoopbackRoute {
         &self.id
     }
 }
-
+/// Owned loopback accept task, aborted when the listener handle is dropped.
 struct RunningListener {
     addr: SocketAddr,
     task: JoinHandle<()>,

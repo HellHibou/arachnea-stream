@@ -7,9 +7,9 @@ impl StreamScraper {
     ///
     /// # Arguments
     ///
+    /// * `context` - Context of the incoming controller request.
     /// * `query_source` - Query source name.
     /// * `query_url` - Source-specific player URL or API endpoint.
-    /// * `context` - Context of the incoming controller request.
     ///
     /// # Returns
     ///
@@ -73,6 +73,20 @@ impl StreamScraper {
         ))
     }
 
+    /// Resolves a stream through the selected player resolver.
+    ///
+    /// # Arguments
+    /// * `resolver_id` - Player resolver identifier, generic resolver, or scraper query.
+    /// * `target` - Source, embed, or stream URL to resolve.
+    /// * `source` - Optional scraper source for the scraper-query resolver.
+    /// * `proxy_countries` - Ordered country hints forwarded to the proxy.
+    /// * `proxy_rewrite_manifest_urls` - Whether proxied HLS manifests rewrite child URLs.
+    ///
+    /// # Errors
+    /// Returns an error for an unsupported resolver or when resolution fails.
+    ///
+    /// # Returns
+    /// The resolved stream wrapped in an aggregation result.
     pub(crate) async fn get_stream(
         &self,
         resolver_id: String,
@@ -124,6 +138,16 @@ impl StreamScraper {
         Ok(ScraperAggregationResult::ok(resolved))
     }
 
+    /// Forwards a DRM license request to the resolver identified by the stream token.
+    ///
+    /// # Arguments
+    /// * `input` - Controller request whose path carries the stream token and body carries the license challenge.
+    ///
+    /// # Errors
+    /// Returns an error for a missing token, unsupported source, or resolver failure.
+    ///
+    /// # Returns
+    /// The buffered license response with its status, content type and headers.
     pub(crate) async fn get_drm_license(
         &self,
         input: ControlerStreamInput,

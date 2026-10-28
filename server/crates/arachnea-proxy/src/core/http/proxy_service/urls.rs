@@ -13,6 +13,10 @@ struct ParsedProtocol {
 }
 
 /// Parses a protocol segment like `https:8080`, `http:3000`, `https:`, `http:`.
+///
+/// # Arguments
+/// * `segment` - Protocol segment such as `https:` or `http:8080`.
+///
 fn parse_protocol_segment(segment: &str) -> Result<ParsedProtocol, String> {
     if segment == "https:" || segment == "https" {
         Ok(ParsedProtocol {
@@ -49,6 +53,14 @@ fn parse_protocol_segment(segment: &str) -> Result<ParsedProtocol, String> {
 }
 
 /// Builds the target URL from the parsed components and local query string.
+///
+/// # Arguments
+/// * `protocol` - Upstream URL scheme, either `http` or `https`.
+/// * `port` - Optional explicit upstream port; `None` uses the scheme default.
+/// * `host` - Upstream hostname or IP literal, bracketed when needed for IPv6.
+/// * `path_and_query` - Target resource path and any query already encoded in the proxy path.
+/// * `local_query` - Query string supplied on the local controller request.
+///
 pub(super) fn build_target_url(
     protocol: &str,
     port: Option<u16>,
@@ -85,6 +97,12 @@ pub(super) fn build_target_url(
 /// so HTTP clients resolve it against the host they actually used. Otherwise
 /// the prefix is kept verbatim (e.g. custom scheme entry points such as
 /// `arachnea://api/proxy`).
+///
+/// # Arguments
+/// * `api_prefix` - Controller API prefix used to construct the local proxy route.
+/// * `resolved_url` - Absolute upstream URL encoded into the controller proxy route.
+/// * `opts_encoded` - Encoded options segment; an empty value omits the segment.
+///
 pub(super) fn encode_proxy_path(
     api_prefix: &str,
     resolved_url: &Url,
@@ -129,6 +147,10 @@ pub(super) fn encode_proxy_path(
 /// the server bind address (which may be unspecified, e.g. `0.0.0.0`).
 /// Custom scheme entry points (e.g. `arachnea://api/proxy`) are returned
 /// unchanged so the rewritten Location stays an absolute custom-scheme URL.
+///
+/// # Arguments
+/// * `entry_point` - Controller entry-point URL or path used to derive its public proxy path.
+///
 pub(super) fn entry_point_location_prefix(entry_point: &str) -> String {
     let normalized = entry_point.trim().trim_end_matches('/');
     let Ok(url) = Url::parse(normalized) else {
@@ -158,6 +180,14 @@ pub(super) struct ParsedProxyPath {
     pub(super) path_and_query: String,
 }
 
+/// Decodes a local proxy route into its target and optional encoded options.
+///
+/// # Arguments
+/// * `path` - Proxy route suffix containing options and the upstream target.
+///
+/// # Errors
+///
+/// Returns an HTTP 400 error when the target is missing or the protocol/options segment is malformed.
 pub(super) fn parse_proxy_path(path: &str) -> Result<ParsedProxyPath, (u16, String)> {
     let trimmed = path.trim_matches('/');
     if trimmed.is_empty() {
@@ -225,6 +255,14 @@ pub(super) fn parse_proxy_path(path: &str) -> Result<ParsedProxyPath, (u16, Stri
 }
 
 /// Builds a proxied media URL carrying a canonical JSON set of allowed countries.
+///
+/// # Arguments
+/// * `media_locator` - Media URL to wrap; non-HTTP(S) locators are returned trimmed and unchanged.
+/// * `http_proxy_public_path` - Optional controller proxy base path; an absent or blank path disables wrapping.
+/// * `countries` - Allowed ISO alpha-2 country codes.
+/// * `actions` - Configured response and redirect actions to inspect or encode.
+/// * `headers` - HTTP headers inspected or updated by this operation.
+///
 pub fn proxied_url_with_countries(
     media_locator: &str,
     http_proxy_public_path: Option<&str>,
@@ -246,6 +284,16 @@ pub fn proxied_url_with_countries(
 }
 
 /// Builds a proxied media URL carrying countries, affinity and rejection statuses.
+///
+/// # Arguments
+/// * `media_locator` - Media URL to wrap; non-HTTP(S) locators are returned trimmed and unchanged.
+/// * `http_proxy_public_path` - Optional controller proxy base path; an absent or blank path disables wrapping.
+/// * `countries` - Allowed ISO alpha-2 country codes.
+/// * `proxy_affinity` - Optional opaque affinity key for reusing an eligible endpoint across related requests.
+/// * `proxy_rejection_statuses` - Origin HTTP statuses that exclude the selected endpoint for that destination.
+/// * `actions` - Configured response and redirect actions to inspect or encode.
+/// * `headers` - HTTP headers inspected or updated by this operation.
+///
 pub fn proxied_url_with_countries_and_policy(
     media_locator: &str,
     http_proxy_public_path: Option<&str>,
@@ -270,6 +318,15 @@ pub fn proxied_url_with_countries_and_policy(
 
 /// Builds a proxied media URL carrying a canonical JSON set of allowed countries and an
 /// optional TLS bypass flag.
+///
+/// # Arguments
+/// * `media_locator` - Media URL to wrap; non-HTTP(S) locators are returned trimmed and unchanged.
+/// * `http_proxy_public_path` - Optional controller proxy base path; an absent or blank path disables wrapping.
+/// * `countries` - Allowed ISO alpha-2 country codes.
+/// * `actions` - Configured response and redirect actions to inspect or encode.
+/// * `headers` - HTTP headers inspected or updated by this operation.
+/// * `insecure_tls` - Whether these request options explicitly allow skipping upstream TLS verification.
+///
 pub fn proxied_url_with_countries_and_insecure_tls(
     media_locator: &str,
     http_proxy_public_path: Option<&str>,
@@ -292,6 +349,15 @@ pub fn proxied_url_with_countries_and_insecure_tls(
 }
 
 /// Builds a proxied media URL carrying countries and redirect-following settings.
+///
+/// # Arguments
+/// * `media_locator` - Media URL to wrap; non-HTTP(S) locators are returned trimmed and unchanged.
+/// * `http_proxy_public_path` - Optional controller proxy base path; an absent or blank path disables wrapping.
+/// * `countries` - Allowed ISO alpha-2 country codes.
+/// * `actions` - Configured response and redirect actions to inspect or encode.
+/// * `headers` - HTTP headers inspected or updated by this operation.
+/// * `follow_redirects` - Optional boolean or numeric redirect policy serialized into the proxy options.
+///
 pub fn proxied_url_with_countries_and_options(
     media_locator: &str,
     http_proxy_public_path: Option<&str>,
@@ -313,6 +379,18 @@ pub fn proxied_url_with_countries_and_options(
     )
 }
 
+/// Adds country routing headers before encoding proxy URL options.
+///
+/// # Arguments
+/// * `media_locator` - Media URL to wrap; non-HTTP(S) locators are returned trimmed and unchanged.
+/// * `http_proxy_public_path` - Optional controller proxy base path; an absent or blank path disables wrapping.
+/// * `countries` - Allowed ISO alpha-2 country codes.
+/// * `proxy_affinity` - Optional opaque affinity key for reusing an eligible endpoint across related requests.
+/// * `proxy_rejection_statuses` - Origin HTTP statuses that exclude the selected endpoint for that destination.
+/// * `actions` - Configured response and redirect actions to inspect or encode.
+/// * `headers` - HTTP headers inspected or updated by this operation.
+/// * `insecure_tls` - Whether these request options explicitly allow skipping upstream TLS verification.
+/// * `follow_redirects` - Optional boolean or numeric redirect policy serialized into the proxy options.
 fn proxied_url_with_countries_and_internal_options(
     media_locator: &str,
     http_proxy_public_path: Option<&str>,
@@ -348,6 +426,16 @@ fn proxied_url_with_countries_and_internal_options(
     )
 }
 
+/// Wraps an HTTP(S) media locator in a controller proxy URL when a base path is configured.
+///
+/// # Arguments
+/// * `media_locator` - Media URL to wrap; non-HTTP(S) locators are returned trimmed and unchanged.
+/// * `http_proxy_public_path` - Optional controller proxy base path; an absent or blank path disables wrapping.
+/// * `actions` - Configured response and redirect actions to inspect or encode.
+/// * `headers` - HTTP headers inspected or updated by this operation.
+/// * `insecure_tls` - Whether these request options explicitly allow skipping upstream TLS verification.
+/// * `follow_redirects` - Optional boolean or numeric redirect policy serialized into the proxy options.
+/// * `proxy_rejection_statuses` - Origin HTTP statuses that exclude the selected endpoint for that destination.
 fn proxied_url_with_internal_options(
     media_locator: &str,
     http_proxy_public_path: Option<&str>,

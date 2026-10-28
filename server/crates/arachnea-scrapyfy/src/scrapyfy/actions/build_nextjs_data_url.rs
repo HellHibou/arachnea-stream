@@ -118,6 +118,10 @@ fn build_nextjs_data_url(
 
 /// Searches `response_body` for the Next.js build id using the configured
 /// inline-JSON and build manifest patterns.
+///
+/// # Arguments
+///
+/// * `response_body` - Current response text exposed to extraction actions.
 fn extract_nextjs_build_id(response_body: &str) -> Option<String> {
     for pattern in [nextjs_build_id_json_regex(), nextjs_build_manifest_regex()] {
         if let Some(captures) = pattern.captures(response_body) {
@@ -133,6 +137,7 @@ fn extract_nextjs_build_id(response_body: &str) -> Option<String> {
 /// Returns the cached regex used to detect the Next.js build id embedded as
 /// an inline JSON property (`"buildId":"..."`).
 fn nextjs_build_id_json_regex() -> &'static Regex {
+    /// Cached matcher for the inline Next.js build ID property.
     static REGEX: OnceLock<Regex> = OnceLock::new();
     REGEX.get_or_init(|| {
         Regex::new(r#""buildId":"([^"]+)""#).expect("Invalid Next.js buildId JSON regex")

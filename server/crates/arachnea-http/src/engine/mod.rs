@@ -70,7 +70,7 @@ pub trait HttpEngine: Send + Sync {
 
     /// Sends one normalized request.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `request`: Request to execute.
     ///
@@ -103,7 +103,7 @@ pub trait HttpEngine: Send + Sync {
     /// when only cookies and browser metadata are needed. The default behavior
     /// sends the request normally.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `request`: Request used to refresh the Cloudflare session.
     ///
@@ -128,7 +128,7 @@ pub trait HttpEngine: Send + Sync {
     /// accepted by the target. The default behavior uses the normal refresh
     /// path.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `request`: Request used to refresh the Cloudflare session.
     ///
@@ -162,9 +162,10 @@ pub trait HttpEngine: Send + Sync {
 
 /// Builds the automatic smart Cloudflare solver.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `config`: Client configuration used to configure the engine.
+/// - `ghostwire_proxy_url`: Optional proxy URL forwarded to Ghostwire.
 ///
 /// # Returns
 ///
@@ -194,14 +195,17 @@ pub(crate) async fn build_auto_smart_cloudflare_solver(
 
 /// Builds the configured browser-backed Cloudflare solver.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `config`: Client configuration used to configure the engine.
 /// - `solver`: Browser solver selection.
+/// - `proxy_url`: Optional proxy URL forwarded to the solver.
+/// - `session_store`: Typed store used by chaser-cf sessions.
 ///
 /// # Returns
 ///
-/// A dynamic browser solver when one is enabled and available.
+/// A dynamic browser solver when one is enabled and available. `Auto` selects
+/// [`get_default_cloudflare_solver`].
 ///
 /// # Errors
 ///
@@ -230,13 +234,16 @@ pub(crate) async fn build_browser_cloudflare_solver(
 
 /// Builds the default browser-backed Cloudflare solver.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `config`: Client configuration used to configure the engine.
+/// - `proxy_url`: Optional proxy URL forwarded to the solver.
+/// - `session_store`: Typed store used by chaser-cf sessions.
 ///
 /// # Returns
 ///
-/// The selected default browser-backed Cloudflare solver when one is available.
+/// Tauri/Wry when `tauri-cloudflare-solver` is enabled; otherwise chaser-cf
+/// when `chaser-cf` is enabled; otherwise `None`.
 ///
 /// # Errors
 ///
@@ -272,9 +279,11 @@ pub(crate) async fn get_default_cloudflare_solver(
 
 /// Builds chaser-cf for an explicit browser solver selection.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `config`: Client configuration used to configure the engine.
+/// - `proxy_url`: Optional proxy URL forwarded to chaser-cf.
+/// - `session_store`: Typed store used for cached sessions.
 ///
 /// # Returns
 ///
@@ -307,9 +316,10 @@ async fn build_explicit_chaser_cf_engine(
 
 /// Builds the Tauri/Wry solver for an explicit browser solver selection.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `config`: Client configuration used to configure the engine.
+/// - `proxy_url`: Optional proxy URL forwarded to the solver.
 ///
 /// # Returns
 ///
@@ -340,9 +350,10 @@ async fn build_explicit_tauri_cloudflare_engine(
 
 /// Builds a Ghostwire engine.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `config`: Client configuration used to configure the engine.
+/// - `ghostwire_proxy_url`: Optional proxy URL forwarded to Ghostwire.
 ///
 /// # Returns
 ///
@@ -364,9 +375,11 @@ pub(crate) async fn build_ghostwire_engine(
 
 /// Builds a chaser-cf engine.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `config`: Client configuration used to configure the engine.
+/// - `proxy_url`: Optional proxy URL forwarded to chaser-cf.
+/// - `session_store`: Typed store used for cached sessions.
 ///
 /// # Returns
 ///
@@ -390,9 +403,10 @@ pub(crate) async fn build_chaser_cf_engine(
 
 /// Builds an interactive Tauri/Wry Cloudflare solver engine.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `config`: Client configuration used to configure the solver.
+/// - `proxy_url`: Optional proxy URL forwarded to the solver.
 ///
 /// # Returns
 ///

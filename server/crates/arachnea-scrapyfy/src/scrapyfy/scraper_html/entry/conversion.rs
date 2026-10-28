@@ -7,7 +7,7 @@ impl TryFrom<HtmlScraperEntryRaw> for HtmlScraperEntry {
 
     /// Converts a raw YAML entry definition into a validated runtime entry.
     ///
-    /// Delegates to [`from_raw_with_base_url`] with an empty string as the base URL.
+    /// Delegates to `HtmlScraperEntry::from_raw_with_base_url` with an empty string as the base URL.
     ///
     /// # Arguments
     ///

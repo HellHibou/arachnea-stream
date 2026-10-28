@@ -5,6 +5,10 @@ use std::collections::HashMap;
 use crate::core::{normalize_parameter_value, ClientContext, ClientParameter, ParameterDefinition};
 
 /// Filters out non-transferable headers.
+///
+/// # Arguments
+/// * `headers` - HTTP headers inspected or updated by this operation.
+///
 pub(super) fn filter_non_transferable(headers: &mut HashMap<String, String>) {
     headers.retain(|key, _| {
         let lower = key.to_ascii_lowercase();
@@ -14,6 +18,10 @@ pub(super) fn filter_non_transferable(headers: &mut HashMap<String, String>) {
 
 /// Filters hop-by-hop headers from an upstream response while preserving its
 /// valid content length for streamed responses.
+///
+/// # Arguments
+/// * `headers` - HTTP headers inspected or updated by this operation.
+///
 pub(super) fn filter_response_non_transferable(headers: &mut HashMap<String, String>) {
     headers.retain(|key, _| {
         let lower = key.to_ascii_lowercase();
@@ -21,6 +29,11 @@ pub(super) fn filter_response_non_transferable(headers: &mut HashMap<String, Str
     });
 }
 
+/// Removes every spelling of a header name using ASCII-insensitive comparison.
+///
+/// # Arguments
+/// * `headers` - HTTP headers inspected or updated by this operation.
+/// * `wanted` - Header name matched without regard to ASCII case.
 pub(super) fn remove_header_variants(headers: &mut HashMap<String, String>, wanted: &str) {
     let keys: Vec<String> = headers
         .keys()
@@ -32,6 +45,11 @@ pub(super) fn remove_header_variants(headers: &mut HashMap<String, String>, want
     }
 }
 
+/// Removes and returns one matching header; duplicate case variants are left intact.
+///
+/// # Arguments
+/// * `headers` - Mutable header map; one matching entry is removed and its value returned.
+/// * `wanted` - Header name matched without regard to ASCII case.
 pub(super) fn remove_header_case_insensitive(
     headers: &mut HashMap<String, String>,
     wanted: &str,
@@ -43,6 +61,11 @@ pub(super) fn remove_header_case_insensitive(
     headers.remove(&key)
 }
 
+/// Extracts and normalizes declared client parameters from HTTP headers.
+///
+/// # Arguments
+/// * `headers` - HTTP headers inspected or updated by this operation.
+/// * `definitions` - Parameter definitions specifying header names and forwarding policy.
 pub(super) fn context_from_header_map(
     headers: &HashMap<String, String>,
     definitions: &[ParameterDefinition],
@@ -62,6 +85,11 @@ pub(super) fn context_from_header_map(
     context
 }
 
+/// Removes parameter headers whose definitions forbid upstream forwarding.
+///
+/// # Arguments
+/// * `headers` - HTTP headers inspected or updated by this operation.
+/// * `definitions` - Parameter definitions specifying header names and forwarding policy.
 pub(super) fn strip_non_forwarded_parameter_headers(
     headers: &mut HashMap<String, String>,
     definitions: &[ParameterDefinition],
@@ -74,6 +102,13 @@ pub(super) fn strip_non_forwarded_parameter_headers(
 }
 
 /// Validates that header names and values are syntactically acceptable.
+///
+/// # Arguments
+/// * `headers` - HTTP headers inspected or updated by this operation.
+///
+/// # Errors
+///
+/// Rejects empty, oversized or invalid header names, oversized values, and values containing CR or LF.
 pub(super) fn validate_headers(headers: &[(String, String)]) -> Result<(), String> {
     for (name, value) in headers {
         if name.is_empty()
@@ -95,6 +130,13 @@ pub(super) fn validate_headers(headers: &[(String, String)]) -> Result<(), Strin
 }
 
 /// Validates that cookie names and values are acceptable.
+///
+/// # Arguments
+/// * `cookies` - Cookie name/value pairs to validate before building the Cookie header.
+///
+/// # Errors
+///
+/// Rejects empty, oversized or invalid names and values containing prohibited characters or exceeding 4096 bytes.
 pub(super) fn validate_cookies(cookies: &HashMap<String, String>) -> Result<(), String> {
     for (name, value) in cookies {
         if name.is_empty()

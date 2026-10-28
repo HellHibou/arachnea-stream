@@ -1,8 +1,8 @@
-//! Serializable envelope types for `StreamScraper` JSON commands.
+//! Serializable envelopes for aggregated scraper results, including application JSON commands.
 //!
 //! These types wrap the response of every backend JSON command so that
 //! per-source errors can be returned alongside partial data without failing
-//! the entire request. The frontend [`call_api`] adapter unpacks the envelope
+//! the entire request. The frontend `call_api` adapter unpacks the envelope
 //! and routes errors to a global notification stack.
 
 use arachnea_core::error_code::ArachneaErrorCode;
@@ -73,7 +73,7 @@ pub struct ScraperExecutionError {
     pub message: String,
 }
 
-/// Envelope returned by all JSON commands of [`StreamScraper`].
+/// Envelope returned by all JSON commands of `StreamScraper`.
 ///
 /// # Contract
 ///
@@ -128,6 +128,10 @@ pub struct ScraperAggregationResult<T> {
 
 impl<T> ScraperAggregationResult<T> {
     /// Creates a fully successful result with no errors.
+    ///
+    /// # Arguments
+    ///
+    /// * `data` - Response data or raw bytes consumed by this operation.
     pub fn ok(data: T) -> Self {
         Self {
             data,
@@ -138,6 +142,11 @@ impl<T> ScraperAggregationResult<T> {
     }
 
     /// Creates a result from data and a list of errors.
+    ///
+    /// # Arguments
+    ///
+    /// * `data` - Response data or raw bytes consumed by this operation.
+    /// * `errors` - Per-source failures retained alongside partial successful data.
     pub fn new(data: T, errors: Vec<ScraperExecutionError>) -> Self {
         Self {
             data,
@@ -148,6 +157,10 @@ impl<T> ScraperAggregationResult<T> {
     }
 
     /// Attaches per-source validation outcomes to this result.
+    ///
+    /// # Arguments
+    ///
+    /// * `validations` - Per-source freshness and validator outcomes attached to the aggregation result.
     pub fn with_validations(
         mut self,
         validations: HashMap<String, ScraperSourceValidation>,
@@ -157,6 +170,10 @@ impl<T> ScraperAggregationResult<T> {
     }
 
     /// Attaches the up-to-date global ETag to this result.
+    ///
+    /// # Arguments
+    ///
+    /// * `global_etag` - Global validator built from the participating per-source fragments.
     pub fn with_global_etag(mut self, global_etag: Option<String>) -> Self {
         self.global_etag = global_etag;
         self

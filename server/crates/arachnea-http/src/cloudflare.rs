@@ -25,7 +25,7 @@ pub(crate) struct CloudflareDetection {
 
 /// Detects Cloudflare block signals from status, headers, and a body preview.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `status`: HTTP status code returned by the server.
 /// - `headers`: Response headers.
@@ -33,8 +33,10 @@ pub(crate) struct CloudflareDetection {
 ///
 /// # Returns
 ///
-/// A conservative detection result. A plain `403` without Cloudflare signals is
-/// not enough to count as a Cloudflare block.
+/// A conservative detection result. Only `403`, `429`, and `503` are
+/// challenge candidates, and any of them needs at least one Cloudflare header or
+/// body signal. A plain `403` without Cloudflare signals is not enough to count
+/// as a Cloudflare block.
 pub(crate) fn detect_cloudflare_block(
     status: StatusCode,
     headers: &HeaderMap,
@@ -90,15 +92,17 @@ pub(crate) fn detect_cloudflare_block(
 
 /// Checks whether a named header contains a case-insensitive substring.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `headers`: Header map to inspect.
 /// - `name`: Header name.
-/// - `needle`: ASCII case-insensitive marker.
+/// - `needle`: Marker that must already be lowercase; only header values are
+///   lowercased before comparison.
 ///
 /// # Returns
 ///
-/// `true` when any value for `name` contains `needle`.
+/// `true` when any UTF-8 value for `name` contains `needle`. Non-UTF-8 values
+/// are ignored.
 fn header_contains(headers: &HeaderMap, name: &str, needle: &str) -> bool {
     headers.get_all(name).iter().any(|value| {
         value

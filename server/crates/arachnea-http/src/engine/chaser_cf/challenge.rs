@@ -3,6 +3,16 @@
 use super::*;
 
 /// Applies HTTP proxy credentials to a page when the proxy requires auth.
+///
+/// # Arguments
+///
+/// - `page`: Browser page that will send proxy requests.
+/// - `proxy`: Optional proxy configuration; credentials are applied only when
+///   both username and password are present.
+///
+/// # Errors
+///
+/// Returns `ChaserCfFailure` when browser authentication setup fails.
 pub(super) async fn setup_proxy_auth(
     page: &Page,
     proxy: Option<&ProxyConfig>,
@@ -27,6 +37,15 @@ pub(super) async fn setup_proxy_auth(
 /// Polling the DOM during that phase causes timing anomalies that raise the bot
 /// score. After the passive window a Turnstile widget, if present, is clicked
 /// through its closed shadow root.
+///
+/// This function returns on timeout or success; it does not report which
+/// occurred. Callers must inspect the resulting cookies.
+///
+/// # Arguments
+///
+/// - `page`: Raw page used to read cookies.
+/// - `chaser`: High-level page used for challenge interaction.
+/// - `timeout_seconds`: Maximum polling duration in seconds.
 pub(super) async fn wait_for_clearance(page: &Page, chaser: &ChaserPage, timeout_seconds: u64) {
     let started = Instant::now();
     let timeout = Duration::from_secs(timeout_seconds);
@@ -54,6 +73,12 @@ pub(super) async fn wait_for_clearance(page: &Page, chaser: &ChaserPage, timeout
 }
 
 /// Returns true if the browser has a `cf_clearance` cookie for any domain.
+///
+/// Cookie-read failures are treated as absence.
+///
+/// # Arguments
+///
+/// - `page`: Browser page whose cookie jar is inspected.
 pub(super) async fn has_clearance_cookie(page: &Page) -> bool {
     page.get_cookies()
         .await
@@ -63,6 +88,14 @@ pub(super) async fn has_clearance_cookie(page: &Page) -> bool {
 
 /// Prints a snapshot of the main document (iframes, turnstile markers) when
 /// `CHASER_CF_DEBUG` is set, to pinpoint where the injected captcha lives.
+///
+/// This function is a no-op unless `CHASER_CF_DEBUG` is present in the
+/// environment.
+///
+/// # Arguments
+///
+/// - `chaser`: Page whose main document is inspected.
+/// - `stage`: Diagnostic label printed with the snapshot.
 pub(super) async fn debug_dump(chaser: &ChaserPage, stage: &str) {
     if std::env::var_os("CHASER_CF_DEBUG").is_none() {
         return;
@@ -81,6 +114,11 @@ pub(super) async fn debug_dump(chaser: &ChaserPage, stage: &str) {
 /// Collects human-readable descriptions of every `<iframe>` element in the CDP
 /// DOM tree, including whether its content document was exposed (OOPIF iframes
 /// have no content document in the parent tree).
+///
+/// # Arguments
+///
+/// - `node`: Root of the subtree to inspect.
+/// - `out`: Destination for one description per iframe.
 pub(super) fn collect_iframes(node: &Node, out: &mut Vec<String>) {
     if node.node_name.eq_ignore_ascii_case("iframe") {
         let src = attr_value(node, "src").unwrap_or("(none)");
@@ -110,6 +148,12 @@ pub(super) fn collect_iframes(node: &Node, out: &mut Vec<String>) {
 
 /// Returns true when a Cloudflare challenge iframe or Turnstile widget has been
 /// injected into the page by a page action, meaning the captcha needs solving.
+///
+/// Script failures and unexpected results are treated as absent.
+///
+/// # Arguments
+///
+/// - `chaser`: Page inspected for a challenge widget.
 pub(super) async fn challenge_is_present(chaser: &ChaserPage) -> bool {
     let script = crate::HTTP_CHASER_SCRIPT_CHALLENGE_IS_PRESENT;
     chaser
@@ -122,6 +166,12 @@ pub(super) async fn challenge_is_present(chaser: &ChaserPage) -> bool {
 }
 
 /// Returns true when a solved Turnstile token is readable from the main page.
+///
+/// Script failures and unexpected results are treated as absence.
+///
+/// # Arguments
+///
+/// - `chaser`: Page inspected for a solved token.
 pub(super) async fn has_turnstile_token(chaser: &ChaserPage) -> bool {
     let script = crate::HTTP_CHASER_SCRIPT_HAS_TURNSTILE_TOKEN;
     chaser
@@ -143,6 +193,12 @@ pub(super) async fn has_turnstile_token(chaser: &ChaserPage) -> bool {
 /// which would short-circuit the wait without ever solving the injected
 /// widget. While waiting, the challenge is clicked automatically (see
 /// [`wait_for_clearance`] for the passive window).
+///
+/// # Arguments
+///
+/// - `page`: Raw page used to keep the solver foregrounded.
+/// - `chaser`: High-level page used to inspect and click the challenge.
+/// - `timeout`: Maximum polling duration.
 pub(super) async fn wait_for_injected_captcha(page: &Page, chaser: &ChaserPage, timeout: Duration) {
     let started = Instant::now();
     let mut last_click = started - crate::HTTP_CHASER_INITIAL_CLICK_OFFSET;
@@ -199,6 +255,12 @@ pub(super) async fn wait_for_injected_captcha(page: &Page, chaser: &ChaserPage, 
 /// 3. A captcha injected into an `<iframe>` after a page action — the frame
 ///    owner element is located and the checkbox inside the frame is clicked at
 ///    its viewport position.
+///
+/// CDP failures are silently ignored.
+///
+/// # Arguments
+///
+/// - `chaser`: Page containing the challenge.
 pub(super) async fn try_click_challenge(chaser: &ChaserPage) {
     let page = chaser.raw_page();
 
@@ -279,6 +341,14 @@ pub(super) async fn try_click_challenge(chaser: &ChaserPage) {
 /// edge, vertically centered), where the checkbox circle is rendered. This
 /// works both for a precise checkbox element and for the widget `<iframe>`
 /// itself.
+///
+/// Returns `false` when the box model is unavailable or too small; click
+/// failures are ignored.
+///
+/// # Arguments
+///
+/// - `page`: Browser page receiving the click.
+/// - `target_id`: Node whose surface is clicked.
 pub(super) async fn click_turnstile_surface(page: &Page, target_id: NodeId) -> bool {
     let box_model = match page
         .execute(GetBoxModelParams {
@@ -317,6 +387,13 @@ pub(super) async fn click_turnstile_surface(page: &Page, target_id: NodeId) -> b
 /// The checkbox position is resolved inside the frame's own execution context
 /// when available, otherwise it falls back to the top-left corner of the widget
 /// where the Turnstile checkbox is rendered.
+///
+/// Returns without clicking when the iframe box model cannot be obtained.
+///
+/// # Arguments
+///
+/// - `page`: Browser page receiving the click.
+/// - `frame_node`: Iframe owner node.
 pub(super) async fn click_challenge_frame(page: &Page, frame_node: &Node) {
     let box_model = match page
         .execute(GetBoxModelParams {
@@ -349,6 +426,14 @@ pub(super) async fn click_challenge_frame(page: &Page, frame_node: &Node) {
 
 /// Locates the Turnstile checkbox inside `frame_node`'s document and returns
 /// its center relative to the frame's viewport.
+///
+/// Returns `None` when the frame has no frame id or execution context, or when
+/// the locator script cannot produce a point.
+///
+/// # Arguments
+///
+/// - `page`: Browser page containing the frame.
+/// - `frame_node`: Iframe owner node.
 pub(super) async fn challenge_checkbox_point(page: &Page, frame_node: &Node) -> Option<(f64, f64)> {
     let frame_id = frame_node.frame_id.clone()?;
     let context_id = page
@@ -378,6 +463,15 @@ pub(super) fn fallback_checkbox_offset() -> (f64, f64) {
 
 /// Walks the CDP DOM tree and returns the frame owner node hosting a Cloudflare
 /// challenge iframe.
+///
+/// # Arguments
+///
+/// - `node`: Root of the subtree to inspect.
+///
+/// # Returns
+///
+/// The first matching iframe node, including inside shadow roots and exposed
+/// content documents.
 pub(super) fn find_challenge_frame_node(node: &Node) -> Option<&Node> {
     if is_challenge_frame(node) {
         return Some(node);
@@ -403,6 +497,16 @@ pub(super) fn find_challenge_frame_node(node: &Node) -> Option<&Node> {
 }
 
 /// Returns whether the node is an `<iframe>` that hosts a Cloudflare challenge.
+///
+/// # Arguments
+///
+/// - `node`: Node to classify.
+///
+/// # Returns
+///
+/// `true` for an iframe whose `src`, document URL, or exposed content points at
+/// `challenges.cloudflare.com`, or whose content contains a challenge response
+/// input.
 pub(super) fn is_challenge_frame(node: &Node) -> bool {
     if !node.node_name.eq_ignore_ascii_case("iframe") {
         return false;
@@ -437,6 +541,10 @@ pub(super) fn is_challenge_frame(node: &Node) -> bool {
 
 /// Returns whether the subtree contains a Cloudflare Turnstile or managed
 /// challenge response input.
+///
+/// # Arguments
+///
+/// - `node`: Root of the subtree to inspect.
 pub(super) fn subtree_has_response_input(node: &Node) -> bool {
     if node.node_name.eq_ignore_ascii_case("input")
         && attr_value(node, "name")
@@ -465,6 +573,13 @@ pub(super) fn subtree_has_response_input(node: &Node) -> bool {
 }
 
 /// Returns the value of the named attribute when present.
+///
+/// Attribute names are matched exactly and case-sensitively.
+///
+/// # Arguments
+///
+/// - `node`: Node carrying attributes.
+/// - `wanted`: Attribute name.
 pub(super) fn attr_value<'a>(node: &'a Node, wanted: &str) -> Option<&'a str> {
     node.attributes
         .as_deref()
@@ -477,6 +592,14 @@ pub(super) fn attr_value<'a>(node: &'a Node, wanted: &str) -> Option<&'a str> {
 
 /// Dispatches a human-like click at `(tx, ty)` using a ghost-cursor style cubic
 /// Bezier arc from a random off-screen origin.
+///
+/// Mouse movement and click failures are ignored.
+///
+/// # Arguments
+///
+/// - `page`: Browser page receiving pointer events.
+/// - `tx`: Target viewport x coordinate.
+/// - `ty`: Target viewport y coordinate.
 pub(super) async fn human_click(page: &Page, tx: f64, ty: f64) {
     // Compute all random values in a synchronous block so the thread RNG is
     // dropped before any await point (ThreadRng is !Send).
@@ -536,6 +659,15 @@ pub(super) async fn human_click(page: &Page, tx: f64, ty: f64) {
 /// by Turnstile. Otherwise the widget container — the node that owns the
 /// `cf-turnstile-response` input — is located and its visible shadow-root
 /// surface is returned (the whole Turnstile surface toggles on click).
+///
+/// # Arguments
+///
+/// - `node`: Root of the subtree to inspect.
+///
+/// # Returns
+///
+/// The preferred checkbox node id, or the widget surface when no precise
+/// checkbox is found.
 pub(super) fn find_turnstile_checkbox(node: &Node) -> Option<NodeId> {
     if let Some(id) = find_precise_checkbox(node) {
         return Some(id);
@@ -549,6 +681,10 @@ pub(super) fn find_turnstile_checkbox(node: &Node) -> Option<NodeId> {
 /// Returns the id of any Turnstile widget `<iframe>` (whose src is served by
 /// `challenges.cloudflare.com`) present anywhere in the tree, including inside
 /// closed shadow roots. Clicking the widget iframe toggles its checkbox.
+///
+/// # Arguments
+///
+/// - `node`: Root of the subtree to inspect.
 pub(super) fn find_turnstile_iframe(node: &Node) -> Option<NodeId> {
     if node.node_name.eq_ignore_ascii_case("iframe")
         && attr_value(node, "src")
@@ -579,6 +715,10 @@ pub(super) fn find_turnstile_iframe(node: &Node) -> Option<NodeId> {
 
 /// Returns the id of the first Turnstile checkbox element found in any closed
 /// shadow root of the tree.
+///
+/// # Arguments
+///
+/// - `node`: Root of the subtree to inspect.
 pub(super) fn find_precise_checkbox(node: &Node) -> Option<NodeId> {
     for sr in node.shadow_roots.as_deref().unwrap_or(&[]) {
         for sr_child in sr.children.as_deref().unwrap_or(&[]) {
@@ -602,6 +742,10 @@ pub(super) fn find_precise_checkbox(node: &Node) -> Option<NodeId> {
 
 /// Returns the node whose direct children include the hidden
 /// `cf-turnstile-response` input — the Turnstile widget container.
+///
+/// # Arguments
+///
+/// - `node`: Root of the subtree to inspect.
 pub(super) fn find_widget_container(node: &Node) -> Option<&Node> {
     let has_input = node.children.as_deref().unwrap_or(&[]).iter().any(|child| {
         child.node_name.eq_ignore_ascii_case("input")
@@ -625,6 +769,12 @@ pub(super) fn find_widget_container(node: &Node) -> Option<&Node> {
 
 /// Returns the visible shadow-root surface inside the widget container's
 /// subtree (the element whose box toggles the Turnstile checkbox).
+///
+/// Hidden nodes and stylesheet/link elements are skipped.
+///
+/// # Arguments
+///
+/// - `node`: Root of the subtree to inspect.
 pub(super) fn checkbox_surface_within(node: &Node) -> Option<NodeId> {
     for sr in node.shadow_roots.as_deref().unwrap_or(&[]) {
         for sr_child in sr.children.as_deref().unwrap_or(&[]) {
@@ -643,6 +793,10 @@ pub(super) fn checkbox_surface_within(node: &Node) -> Option<NodeId> {
 
 /// Returns the node id if `node` or one of its descendants looks like the
 /// Turnstile checkbox element.
+///
+/// # Arguments
+///
+/// - `node`: Root of the subtree to inspect.
 pub(super) fn checkbox_node_in_subtree(node: &Node) -> Option<NodeId> {
     if is_checkbox_node(node) {
         return Some(node.node_id);
@@ -663,6 +817,10 @@ pub(super) fn checkbox_node_in_subtree(node: &Node) -> Option<NodeId> {
 }
 
 /// Returns whether the node is the Turnstile checkbox surface.
+///
+/// # Arguments
+///
+/// - `node`: Node to classify.
 pub(super) fn is_checkbox_node(node: &Node) -> bool {
     if node.node_name.eq_ignore_ascii_case("input") && attr_value(node, "type") == Some("checkbox")
     {
@@ -674,11 +832,19 @@ pub(super) fn is_checkbox_node(node: &Node) -> bool {
 }
 
 /// Returns whether the node is a `<style>` or `<link>` element.
+///
+/// # Arguments
+///
+/// - `node`: Node to classify.
 pub(super) fn is_style_element(node: &Node) -> bool {
     node.node_name.eq_ignore_ascii_case("style") || node.node_name.eq_ignore_ascii_case("link")
 }
 
 /// Returns whether the node is hidden via an inline `display: none` style.
+///
+/// # Arguments
+///
+/// - `node`: Node to classify.
 pub(super) fn is_hidden_node(node: &Node) -> bool {
     node.attributes
         .as_deref()

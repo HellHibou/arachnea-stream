@@ -18,7 +18,7 @@ use std::time::Duration;
 
 /// Resolves through Hickory Resolver, optionally enabling DNSSEC validation.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `query`: DNS query to resolve.
 /// - `upstream`: Upstream DNS server configuration.
@@ -103,7 +103,7 @@ pub(crate) async fn resolve_with_hickory(
 
 /// Builds Hickory name server configuration for an upstream.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `upstream`: DNS upstream declaration containing transport and endpoint information.
 ///
@@ -149,7 +149,7 @@ fn name_server_config_group(upstream: &Upstream) -> Result<NameServerConfigGroup
 
 /// Wraps one name server configuration in a Hickory group.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `config`: Name server configuration to wrap in a configuration group.
 ///
@@ -163,7 +163,7 @@ fn single_name_server(config: NameServerConfig) -> NameServerConfigGroup {
 
 /// Resolves a host and port into one socket address.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `host`: Hostname or IP address to resolve into a socket address.
 /// - `port`: Port number to combine with the resolved IP address.
@@ -186,7 +186,7 @@ fn resolve_host_port(host: &str, port: u16) -> Result<SocketAddr> {
 
 /// Resolves a host into all socket IPs Hickory can try for DoQ.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `host`: Hostname or IP address to resolve into IP addresses for DoQ.
 ///
@@ -214,7 +214,7 @@ fn resolve_host_ips(host: &str) -> Result<Vec<IpAddr>> {
 
 /// Maps a Hickory resolver error into the crate error type.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `error`: Hickory resolver error to convert.
 /// - `query`: Original DNS query associated with the error.

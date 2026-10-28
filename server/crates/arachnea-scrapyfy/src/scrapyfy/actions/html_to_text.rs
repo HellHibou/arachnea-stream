@@ -73,6 +73,7 @@ fn text_only_markdown_options() -> quick_html2md::MarkdownOptions {
 ///
 /// The HTML fragment with every `<br>` tag replaced by `\n`.
 fn preprocess_html_breaks(html: &str) -> String {
+    /// Cached HTML line-break matcher used before plain-text conversion.
     static BR_REGEX: OnceLock<Regex> = OnceLock::new();
     let regex = BR_REGEX.get_or_init(|| Regex::new(r"(?i)<br\s*/?>").expect("Invalid <br> regex"));
     regex.replace_all(html, "\n").into_owned()
@@ -80,7 +81,12 @@ fn preprocess_html_breaks(html: &str) -> String {
 
 /// Returns whether `value` contains an HTML opening, closing, declaration, or
 /// comment tag rather than plain text that merely includes comparison symbols.
+///
+/// # Arguments
+///
+/// * `value` - Text inspected for HTML markup or normalized as plain text.
 fn contains_html_tag(value: &str) -> bool {
+    /// Cached matcher distinguishing HTML markup from plain comparison symbols.
     static HTML_TAG_REGEX: OnceLock<Regex> = OnceLock::new();
     let regex = HTML_TAG_REGEX.get_or_init(|| {
         Regex::new(r"(?is)<(?:/?[a-z][^>]*|![^>]*|\?[^>]*?)>").expect("Invalid HTML tag regex")
@@ -112,6 +118,10 @@ fn html_to_plain_text(html: &str, options: &quick_html2md::MarkdownOptions) -> S
 }
 
 /// Collapses empty lines and trims each remaining line in a plain-text value.
+///
+/// # Arguments
+///
+/// * `value` - Text inspected for HTML markup or normalized as plain text.
 fn normalize_plain_text(value: &str) -> String {
     let mut result = String::new();
     for line in value.lines() {

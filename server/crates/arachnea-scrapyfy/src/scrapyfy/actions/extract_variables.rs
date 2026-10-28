@@ -19,6 +19,20 @@ static CAPTURE_PLACEHOLDER_REGEX: OnceLock<Regex> = OnceLock::new();
 /// `value` from regex captures, and stores the resulting pair in the shared
 /// dynamic variable set. Current values are returned unchanged so the action can
 /// be inserted into an existing pipeline as a controlled side effect.
+///
+/// # Arguments
+///
+/// * `texts` - Values produced by earlier actions in the pipeline.
+/// * `pattern` - Regular-expression pattern used for matching or extraction.
+/// * `name` - Capture-based variable-name template; the rendered name must start with `@`.
+/// * `value` - Capture-based value template rendered for each regex match.
+/// * `on_duplicate` - Policy used when an extracted dynamic variable already exists.
+/// * `params` - Runtime parameters available to query templates and action pipelines.
+/// * `dynamic_variables` - Shared dynamic variables in the reserved `@` namespace, scoped to this execution.
+///
+/// # Errors
+///
+/// Returns an error for an invalid regex, unusable variable name, protected standard parameter, duplicate under the error policy, or poisoned variable-store lock. Earlier matches may already have inserted variables.
 pub(super) fn apply(
     texts: Vec<String>,
     pattern: &str,
@@ -53,6 +67,13 @@ pub(super) fn apply(
 }
 
 /// Validates the configuration of an `extract_variables` action.
+///
+/// # Arguments
+///
+/// * `owner_name` - Name of the owning entry included in validation diagnostics.
+/// * `owner` - Owning query or entry label used to contextualize validation errors.
+/// * `pattern` - Regular-expression pattern used for matching or extraction.
+/// * `name` - Capture-based variable-name template; the rendered name must start with `@`.
 pub(super) fn validate(owner_name: &str, owner: &str, pattern: &str, name: &str) -> Result<()> {
     Regex::new(pattern).with_context(|| {
         format!(
@@ -82,6 +103,14 @@ pub(super) enum ExtractVariablesDuplicatePolicy {
 
 impl ExtractVariablesDuplicatePolicy {
     /// Parses the YAML `on_duplicate` value.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - Optional YAML policy: `error` or `replace`; `None` defaults to `error`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for a policy other than `error` or `replace`.
     pub(super) fn parse(value: Option<&str>) -> Result<Self> {
         match value.unwrap_or("error") {
             "error" => Ok(Self::Error),
@@ -95,6 +124,11 @@ impl ExtractVariablesDuplicatePolicy {
 }
 
 /// Renders `{1}`, `{2}`, ... placeholders from regex captures.
+///
+/// # Arguments
+///
+/// * `format` - Capture template containing numeric placeholders such as `{1}`.
+/// * `captures` - Regex captures supplying replacements; missing captures render as empty strings.
 fn render_capture_template(format: &str, captures: &regex::Captures<'_>) -> String {
     let placeholder_re = CAPTURE_PLACEHOLDER_REGEX
         .get_or_init(|| Regex::new(r"\{([0-9]+)\}").expect("Invalid capture placeholder regex"));
@@ -113,6 +147,10 @@ fn render_capture_template(format: &str, captures: &regex::Captures<'_>) -> Stri
 
 /// Returns the compiled regular expression for `pattern`, caching successful
 /// compilations for reuse across calls.
+///
+/// # Arguments
+///
+/// * `pattern` - Regular-expression pattern used for matching or extraction.
 fn get_cached_regex(pattern: &str) -> Option<Regex> {
     let cache = REGEX_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
 

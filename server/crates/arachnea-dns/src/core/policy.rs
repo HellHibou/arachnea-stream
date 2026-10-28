@@ -23,10 +23,10 @@ pub struct LocalRecord {
     /// If true, this local record matches any domain that ends with the
     /// specified name (e.g., "example.com" would match "www.example.com").
     pub wildcard: bool,
-    /// Whether local answers have priority over upstream answers.
+    /// Declared priority preference over upstream answers.
     ///
-    /// If true, local records are returned even when upstream servers
-    /// could provide answers. If false, upstream answers are preferred.
+    /// The current resolver always answers matching local records before
+    /// upstream resolution and does not branch on this field.
     pub priority_over_upstream: bool,
 }
 
@@ -74,7 +74,8 @@ pub enum BlockAction {
     ///
     /// Respond with specific IP addresses instead of the real ones.
     /// This can be used to redirect blocked domains to a specific server
-    /// (e.g., a blocking page or local service).
+    /// (e.g., a blocking page or local service). If no address is configured
+    /// for the query family, the resolver returns an empty answer.
     Address {
         /// IPv4 address to return for A queries.
         ipv4: Option<std::net::Ipv4Addr>,
@@ -111,11 +112,14 @@ pub enum SmartDnsAction {
         records: Vec<Record>,
     },
     /// Route the query to a named upstream.
+    ///
+    /// Declared for configuration compatibility; the current resolver ignores
+    /// this action and continues with later rules and upstream resolution.
     Route {
         /// Name of the upstream target.
         upstream: String,
     },
-    /// Route the query to a named proxy target.
+    /// Return fallback records from a named proxy target.
     ProxyTarget {
         /// Name of the proxy target.
         proxy_target: String,
@@ -127,9 +131,15 @@ pub enum SmartDnsAction {
 pub struct ProxyTarget {
     /// Target name.
     pub name: String,
-    /// Target mode.
+    /// Declared selection mode.
+    ///
+    /// The current resolver always returns `fallback_records` and does not
+    /// branch on this field.
     pub mode: ProxyTargetMode,
-    /// Records returned until dynamic proxy selection exists.
+    /// Records returned when the target matches.
+    ///
+    /// Dynamic proxy selection is not implemented, so these records are the
+    /// only answer source for this target.
     pub fallback_records: Vec<Record>,
 }
 
@@ -137,7 +147,9 @@ pub struct ProxyTarget {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProxyTargetMode {
-    /// Dynamic internal proxy selection is used.
+    /// Declares dynamic internal proxy selection.
+    ///
+    /// Current resolution still returns the target's fallback records.
     InternalDynamic,
     /// Static fallback records are always returned.
     Static,
@@ -160,19 +172,28 @@ pub struct Rule {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RuleAction {
-    /// Allow the query to proceed normally.
+    /// Stop rule evaluation and allow the query to continue to upstream
+    /// resolution.
     Allow,
     /// Block the query with the given action.
     Block(BlockAction),
     /// Return the specified records as the answer.
     Answer(Vec<Record>),
     /// Rewrite the queried domain name.
+    ///
+    /// Declared for configuration compatibility; the current resolver ignores
+    /// this action and continues with upstream resolution.
     Rewrite(String),
     /// Route the query to a named upstream.
+    ///
+    /// Declared for configuration compatibility; the current resolver ignores
+    /// this action and continues with upstream resolution.
     Route(String),
-    /// Route the query to a named proxy target.
+    /// Return fallback records from a named proxy target.
     ProxyTarget(String),
-    /// Log the query without taking action.
+    /// Stop rule evaluation without taking action.
+    ///
+    /// The current resolver does not add an action-specific log entry.
     LogOnly,
 }
 
@@ -196,7 +217,7 @@ pub struct DomainPattern {
 impl DomainPattern {
     /// Parses a domain pattern.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `value`: Pattern text using exact, suffix, or wildcard syntax.
     ///
@@ -218,7 +239,7 @@ impl DomainPattern {
 
     /// Returns true when the pattern matches the provided DNS name.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `name`: DNS name to test.
     ///
@@ -240,7 +261,7 @@ impl DomainPattern {
 impl From<&str> for DomainPattern {
     /// Creates an exact domain pattern from a string.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `value`: Domain name used for exact matching.
     ///
@@ -309,8 +330,8 @@ pub enum PolicySource {
     LocalRecords,
     /// SmartDns,
     ///
-    /// The decision was made by a Smart DNS rule that provides advanced
-    /// routing or answering behavior based on domain patterns.
+    /// The decision was made by a Smart DNS rule that answered directly or
+    /// returned proxy-target fallback records based on domain patterns.
     SmartDns,
     /// Rule,
     ///
@@ -322,38 +343,37 @@ pub enum PolicySource {
 
 /// NXDOMAIN behavior for failover strategies.
 ///
-/// This enum defines how the resolver should handle NXDOMAIN (non-existent
-/// domain) responses when using multiple upstream servers with failover
-/// or consensus strategies.
+/// The current forwarder only special-cases `FallbackOnNxdomain`. The other
+/// variants are accepted configuration values but do not yet change upstream
+/// selection or consensus behavior.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NxdomainStrategy {
     /// TrustFirst,
     ///
-    /// Accept the first upstream's NXDOMAIN response without questioning
-    /// it or trying other upstreams.
+    /// Declared default. The current forwarder still tries later upstreams
+    /// when one returns NXDOMAIN and returns the last error if none succeeds.
     TrustFirst,
     /// FallbackOnNxdomain,
     ///
     /// When an upstream returns NXDOMAIN, try the next upstream in the
-    /// list to see if it can provide a positive answer.
+    /// list to see if it can provide a positive answer. This is the only
+    /// strategy currently special-cased by the forwarder.
     FallbackOnNxdomain,
     /// FallbackOnSuspiciousNxdomain,
     ///
-    /// Similar to FallbackOnNxdomain, but only fall back when the
-    /// NXDOMAIN response seems suspicious (e.g., from upstreams that
-    /// might be censoring or manipulating responses).
+    /// Declared strategy; current resolution does not distinguish suspicious
+    /// NXDOMAIN responses from ordinary ones.
     FallbackOnSuspiciousNxdomain,
     /// Consensus,
     ///
-    /// Require multiple upstreams to agree on an NXDOMAIN response
-    /// before accepting it as definitive.
+    /// Declared strategy; upstream consensus is not implemented.
     Consensus,
 }
 
 /// Filters records by DNS record type.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `records`: Candidate records.
 /// - `record_type`: Record type requested by the query.
@@ -374,7 +394,7 @@ pub(crate) fn matching_records(records: &[Record], record_type: RecordType) -> V
 
 /// Returns local records that match a query.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `local`: Local record rule to evaluate.
 /// - `query`: Query request being resolved.

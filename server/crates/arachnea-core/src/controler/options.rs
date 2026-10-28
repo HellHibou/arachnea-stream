@@ -65,6 +65,7 @@ pub enum ServerNetworkMode {
 }
 
 impl std::str::FromStr for ServerNetworkMode {
+    /// Error returned when the network mode string is unknown.
     type Err = String;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
@@ -389,6 +390,10 @@ impl Default for CoreApplicationOptions {
     }
 }
 
+/// Rejects entrypoint roots containing query, fragment, or dot segments.
+///
+/// # Arguments
+/// * `root` - Configured entrypoint root path.
 fn validate_entrypoint_root(root: &str) -> Result<()> {
     if root.contains('?') || root.contains('#') {
         bail!("Application configuration entrypoint root cannot contain a query or fragment.");

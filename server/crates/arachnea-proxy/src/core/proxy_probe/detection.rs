@@ -10,6 +10,12 @@ use super::results::{
 use super::ProxyProbe;
 
 impl ProxyProbe {
+    /// Dispatches capability measurement to the requested HTTP or SOCKS protocol.
+    ///
+    /// # Arguments
+    /// * `host` - Hostname or IP address to resolve or connect to, without a port.
+    /// * `port` - TCP port of the proxy endpoint.
+    /// * `protocol` - Proxy transport protocol used for the endpoint handshake.
     async fn probe_protocol(
         &self,
         host: &str,
@@ -26,6 +32,10 @@ impl ProxyProbe {
         }
     }
 
+    /// Orders declared protocols by configured priority, adding alternatives only in relaxed mode.
+    ///
+    /// # Arguments
+    /// * `record` - Proxy record whose endpoint and runtime evidence are inspected or updated.
     pub(super) fn protocol_candidates(&self, record: &ProxyRecord) -> Vec<ProxyProtocol> {
         let mut declared = Vec::new();
         for protocol in record
@@ -68,6 +78,11 @@ impl ProxyProbe {
         candidates
     }
 
+    /// Tries protocol candidates until usable or terminal endpoint evidence is obtained.
+    ///
+    /// # Arguments
+    /// * `record` - Proxy record whose endpoint and runtime evidence are inspected or updated.
+    /// * `protocols` - Ordered proxy protocols to try for the endpoint.
     pub(super) async fn detect_protocol(
         &self,
         record: &ProxyRecord,
@@ -136,6 +151,12 @@ impl ProxyProbe {
         }))
     }
 
+    /// Measures HTTP forwarding and configured HTTPS capabilities over an HTTP(S) proxy.
+    ///
+    /// # Arguments
+    /// * `host` - Hostname or IP address to resolve or connect to, without a port.
+    /// * `port` - TCP port of the proxy endpoint.
+    /// * `tls` - Whether to negotiate TLS with the proxy before sending the HTTP probe.
     async fn probe_http(&self, host: &str, port: u16, tls: bool) -> Result<ProtocolProbeResult> {
         let protocol = if tls {
             ProxyProtocol::Https
@@ -145,11 +166,22 @@ impl ProxyProbe {
         self.probe_capabilities(host, port, &protocol).await
     }
 
+    /// Measures configured complementary capabilities through SOCKS5.
+    ///
+    /// # Arguments
+    /// * `host` - Hostname or IP address to resolve or connect to, without a port.
+    /// * `port` - TCP port of the proxy endpoint.
     async fn probe_socks5(&self, host: &str, port: u16) -> Result<ProtocolProbeResult> {
         self.probe_capabilities(host, port, &ProxyProtocol::Socks5)
             .await
     }
 
+    /// Measures configured complementary capabilities through SOCKS4 or SOCKS4a.
+    ///
+    /// # Arguments
+    /// * `host` - Hostname or IP address to resolve or connect to, without a port.
+    /// * `port` - TCP port of the proxy endpoint.
+    /// * `protocol` - Proxy transport protocol used for the endpoint handshake.
     async fn probe_socks4(
         &self,
         host: &str,
@@ -159,6 +191,12 @@ impl ProxyProbe {
         self.probe_capabilities(host, port, protocol).await
     }
 
+    /// Aggregates configured HTTP and HTTPS complementary measurements for one endpoint.
+    ///
+    /// # Arguments
+    /// * `host` - Hostname or IP address to resolve or connect to, without a port.
+    /// * `port` - TCP port of the proxy endpoint.
+    /// * `protocol` - Proxy transport protocol used for the endpoint handshake.
     async fn probe_capabilities(
         &self,
         host: &str,

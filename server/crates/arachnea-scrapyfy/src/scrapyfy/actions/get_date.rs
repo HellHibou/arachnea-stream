@@ -352,6 +352,10 @@ fn lookup_month(months: &HashMap<String, u32>, token: &str) -> Option<u32> {
 
 /// Normalizes free-form date text by lowercasing it and stripping commas and
 /// periods so day/month names can be compared loosely.
+///
+/// # Arguments
+///
+/// * `value` - Date text normalized for the supported date parsers.
 fn normalize_date_text(value: &str) -> String {
     value
         .trim()
@@ -384,6 +388,12 @@ fn format_iso_date(year: u32, month: u32, day: u32) -> Option<String> {
 
 /// Returns `true` when `year`, `month`, `day` describe an existing calendar
 /// date (with leap-year aware February handling).
+///
+/// # Arguments
+///
+/// * `year` - Gregorian calendar year to validate.
+/// * `month` - Calendar month, from 1 through 12.
+/// * `day` - Day of the month, validated against the month and leap-year rules.
 fn is_valid_date(year: u32, month: u32, day: u32) -> bool {
     if year == 0 || !(1..=12).contains(&month) {
         return false;
@@ -402,12 +412,17 @@ fn is_valid_date(year: u32, month: u32, day: u32) -> bool {
 
 /// Returns `true` when `year` is a leap year according to the proleptic
 /// Gregorian calendar.
+///
+/// # Arguments
+///
+/// * `year` - Gregorian calendar year to validate.
 fn is_leap_year(year: u32) -> bool {
     (year.is_multiple_of(4) && !year.is_multiple_of(100)) || year.is_multiple_of(400)
 }
 
 /// Returns the cached regex used to detect ISO-like `YYYY-MM-DD` substrings.
 fn iso_like_date_regex() -> &'static Regex {
+    /// Cached ISO-like date matcher.
     static REGEX: OnceLock<Regex> = OnceLock::new();
     REGEX.get_or_init(|| {
         Regex::new(r"(^|[^0-9])(\d{4})-(\d{2})-(\d{2})([^0-9]|$)")
@@ -418,6 +433,7 @@ fn iso_like_date_regex() -> &'static Regex {
 /// Returns the cached regex used to detect ISO-like `YYYY-MM-DD HH:MM:SS`
 /// substrings with optional timezone information.
 fn iso_like_date_time_regex() -> &'static Regex {
+    /// Cached ISO-like date/time matcher with optional timezone.
     static REGEX: OnceLock<Regex> = OnceLock::new();
     REGEX.get_or_init(|| {
         Regex::new(r"(^|[^0-9])(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})(?:Z|[+-]\d{2}:?\d{2})?([^0-9]|$)")
@@ -427,6 +443,7 @@ fn iso_like_date_time_regex() -> &'static Regex {
 
 /// Returns the cached regex used to detect `DD/MM/YYYY` or `DD.MM.YYYY` substrings.
 fn day_month_year_regex() -> &'static Regex {
+    /// Cached four-digit day/month/year matcher.
     static REGEX: OnceLock<Regex> = OnceLock::new();
     REGEX.get_or_init(|| {
         Regex::new(r"\b(\d{1,2})[/.](\d{1,2})[/.](\d{4})\b")
@@ -436,6 +453,7 @@ fn day_month_year_regex() -> &'static Regex {
 
 /// Returns the cached regex used to detect `DD/MM/YY` or `DD.MM.YY` substrings.
 fn day_month_short_year_regex() -> &'static Regex {
+    /// Cached two-digit day/month/year matcher.
     static REGEX: OnceLock<Regex> = OnceLock::new();
     REGEX.get_or_init(|| {
         Regex::new(r"\b(\d{1,2})[/.](\d{1,2})[/.](\d{2})\b")

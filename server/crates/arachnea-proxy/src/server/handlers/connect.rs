@@ -5,7 +5,7 @@ use crate::core::{ApplicationProtocol, Destination, Result};
 /// Port 443 is treated as HTTPS so dynamic country proxy selection can require
 /// upstream HTTPS tunnelling support before choosing a public proxy.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `authority`: CONNECT authority such as `example.com:443`.
 ///

@@ -17,6 +17,7 @@ pub enum ProbeHttpMethod {
     Get,
 }
 impl ProbeHttpMethod {
+    /// Returns the HTTP method token sent to a complementary probe target.
     pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Head => "HEAD",
@@ -87,7 +88,7 @@ pub struct ProbeTargetDiagnostics {
     /// Whether an on-demand recovery attempt currently has a subscriber.
     pub recovery_in_progress: bool,
 }
-
+/// Shared suspicion, suspension and recovery state for one complementary target.
 #[derive(Default)]
 struct Health {
     failures: VecDeque<(Instant, String)>,
@@ -104,6 +105,12 @@ struct Health {
 pub(crate) struct TargetStates(Arc<Mutex<HashMap<String, Health>>>);
 
 impl TargetStates {
+    /// Grants a target lease unless suspension or another recovery attempt currently prevents probing.
+    ///
+    /// # Arguments
+    /// * `key` - Complementary target identity used to share suspicion and recovery state.
+    /// * `policy` - Acceptance and suspension policy for the complementary target.
+    /// * `deadline` - Optional search deadline beyond which no target recovery attempt may start.
     pub(crate) fn enter(
         &self,
         key: String,
@@ -142,6 +149,10 @@ impl TargetStates {
             generation: state.generation,
         })
     }
+    /// Returns current target suspension diagnostics after expiring old failure observations.
+    ///
+    /// # Arguments
+    /// * `key` - Complementary target identity whose suspension state is inspected.
     pub(crate) fn diagnostics(&self, key: &str) -> ProbeTargetDiagnostics {
         let mut states = self.0.lock().unwrap();
         let Some(state) = states.get_mut(key) else {
@@ -162,7 +173,7 @@ impl TargetStates {
         }
     }
 }
-
+/// One target probe lease; dropping an unfinished recovery updates its suspension state.
 pub(crate) struct TargetLease {
     states: TargetStates,
     key: String,
@@ -174,6 +185,11 @@ pub(crate) struct TargetLease {
 }
 impl TargetLease {
     /// True means a healthy response; false an explicit service indication; None is ambiguous.
+    ///
+    /// # Arguments
+    /// * `endpoint` - Concrete proxy endpoint excluded or tracked by this operation.
+    /// * `healthy` - `Some(true)` for acceptance, `Some(false)` for explicit service unavailability, or `None` for an ambiguous outcome.
+    ///
     pub(crate) fn finish(mut self, endpoint: String, healthy: Option<bool>) {
         let mut states = self.states.0.lock().unwrap();
         let state = states.entry(self.key.clone()).or_default();

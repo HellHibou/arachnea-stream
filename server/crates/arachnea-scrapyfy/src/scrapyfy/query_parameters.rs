@@ -26,7 +26,7 @@ impl QueryParameters {
     /// Creates a new [`QueryParameters`] with the given cache type.
     ///
     ///  # Arguments
-    /// * `cache_type:` - The cache type to use for this query execution.
+    /// * `cache_type` - The cache type to use for this query execution.
     pub fn from_cache_type(cache_type: CacheType) -> Self {
         Self { cache_type }
     }
@@ -34,7 +34,7 @@ impl QueryParameters {
     /// Sets the cache type for this query execution.
     ///
     ///  # Arguments
-    /// * `cache_type:` - The cache type to use for this query execution.
+    /// * `cache_type` - The cache type to use for this query execution.
     pub fn set_cache_type(&mut self, cache_type: CacheType) -> Self {
         self.cache_type = cache_type;
         *self

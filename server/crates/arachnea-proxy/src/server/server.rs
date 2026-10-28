@@ -19,7 +19,7 @@ pub struct ProxyServer {
 impl ProxyServer {
     /// Creates a server from server and core configuration.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `config`: Server listener and safety configuration.
     /// - `core_config`: Proxy core routing and transport configuration.
@@ -41,8 +41,11 @@ impl ProxyServer {
     /// Executes one HTTP request through the proxy core without starting a listener.
     ///
     /// The request is sent with the method, headers, cookies, body and absolute
-    /// URL supplied by `request`. Redirects are returned to the caller as normal
-    /// HTTP responses and are not followed automatically.
+    /// URL supplied by `request`. Redirects are returned unless the request explicitly
+    /// enables a redirect-following budget.
+    ///
+    /// # Arguments
+    /// * `request` - Outbound request, including its destination and routing options.
     ///
     /// # Errors
     ///

@@ -5,7 +5,7 @@ use super::*;
 impl ArachneaHttpClient {
     /// Forces a Cloudflare refresh for an origin.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `origin`: Origin or URL to refresh.
     ///
@@ -17,15 +17,18 @@ impl ArachneaHttpClient {
             .await
     }
 
-    /// Forces a Cloudflare refresh using the first configured solver path.
+    /// Forces a fresh Cloudflare refresh using the smart solver when available,
+    /// otherwise the browser solver.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `url`: Absolute URL used to obtain or refresh Cloudflare cookies.
+    /// - `extra_headers`: Optional headers forwarded to the solver request.
     ///
     /// # Errors
     ///
-    /// Returns Cloudflare solver or URL parsing failures.
+    /// Returns `CloudflareSolverUnavailable` when no solver is configured, or
+    /// URL parsing and solver failures.
     pub(super) async fn refresh_cloudflare_for_url(
         &self,
         url: &str,
@@ -52,7 +55,7 @@ impl ArachneaHttpClient {
 
     /// Forces a Cloudflare refresh using a selected solver path.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `url`: Absolute URL used to obtain or refresh Cloudflare cookies.
     /// - `strategy`: Solver class selected by the request mode.
@@ -113,7 +116,7 @@ impl ArachneaHttpClient {
 
     /// Returns the configured engine for a Cloudflare refresh strategy.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `strategy`: Solver class selected by the request mode.
     ///

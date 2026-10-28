@@ -22,12 +22,33 @@ pub use crate::PROXY_PREFERENCE_STORE_NAME;
 #[async_trait]
 pub trait ProxyPreferenceRepository: Send + Sync {
     /// Loads an exact destination without requiring provider discovery.
+    ///
+    /// # Arguments
+    /// * `destination` - Length-prefixed exact-destination key used to look up accepted history.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the backing store cannot read or decode the accepted history.
     async fn get(&self, destination: &str) -> Result<Option<ProxyDestinationPreference>>;
     /// Loads accepted histories once to derive the related-origin candidate index.
     async fn load_all(&self) -> Result<Vec<ProxyDestinationPreference>>;
     /// Merges and commits history, preserving newer durable observations.
+    ///
+    /// # Arguments
+    /// * `preference` - Accepted endpoint history to store for its exact destination.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if reading, merging or writing the history fails.
     async fn save(&self, preference: &ProxyDestinationPreference) -> Result<()>;
     /// Removes orphan references after an endpoint is evicted.
+    ///
+    /// # Arguments
+    /// * `endpoint` - Concrete proxy endpoint excluded or tracked by this operation.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if affected histories cannot be read or updated.
     async fn remove_endpoint(&self, endpoint: &ProxyKey) -> Result<()>;
 }
 
@@ -43,6 +64,7 @@ impl TypedProxyPreferenceRepository {
     /// # Arguments
     /// * `store` - Application-owned typed preference store.
     pub fn new(store: Arc<dyn TypedEntityStore<ProxyDestinationPreference>>) -> Self {
+        /// Weak registry sharing a commit lock between repositories backed by the same store.
         static LOCKS: OnceLock<std::sync::Mutex<HashMap<usize, Weak<Mutex<()>>>>> = OnceLock::new();
         let identity = Arc::as_ptr(&store) as *const () as usize;
         let mut locks = LOCKS

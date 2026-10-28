@@ -7,12 +7,12 @@ impl StreamScraper {
     ///
     /// # Arguments
     ///
+    /// * `context` - Context of the incoming controller request.
     /// * `query` - Raw search string that will be URL-encoded before execution.
     /// * `media_types` - Optional media type filters applied to query selection and result filtering.
     /// * `themes` - Optional theme filters applied to scraped results.
     /// * `page` - 1-based page number requested by the caller.
     /// * `source_params` - Source-specific runtime parameters returned by the previous page.
-    /// * `context` - Context of the incoming controller request.
     ///
     /// # Returns
     ///
@@ -78,9 +78,9 @@ impl StreamScraper {
     ///
     /// # Arguments
     ///
+    /// * `context` - Context of the incoming controller request.
     /// * `query_source` - Query source name.
     /// * `query_url` - Absolute URL of the entry page to fetch.
-    /// * `context` - Context of the incoming controller request.
     ///
     /// # Returns
     ///
@@ -140,10 +140,10 @@ impl StreamScraper {
     ///
     /// # Arguments
     ///
+    /// * `context` - Context of the incoming controller request.
     /// * `query_source` - Query source name.
     /// * `query_url` - Absolute URL of the season payload to fetch.
     /// * `page` - 1-based page number requested from the backend source.
-    /// * `context` - Context of the incoming controller request.
     ///
     /// # Returns
     ///
@@ -240,9 +240,9 @@ impl StreamScraper {
     ///
     /// # Arguments
     ///
+    /// * `context` - Context of the incoming controller request.
     /// * `query_source` - Query source name.
     /// * `channel` - Source-specific live channel identifier.
-    /// * `context` - Context of the incoming controller request.
     ///
     /// # Returns
     ///
@@ -439,10 +439,10 @@ impl StreamScraper {
     ///
     /// # Arguments
     ///
+    /// * `context` - Context of the incoming controller request.
     /// * `sources` - Source descriptors returned under `category.sources` by `load_home`.
     /// * `page` - 1-based page number requested from the backend source.
     /// * `source_params` - Optional per-source runtime parameters overriding global values.
-    /// * `context` - Context of the incoming controller request.
     ///
     /// # Returns
     ///
@@ -517,11 +517,11 @@ impl StreamScraper {
     ///
     /// # Arguments
     ///
+    /// * `context` - Context of the incoming controller request.
     /// * `query_source` - Query source name.
     /// * `query_url` - Source-specific section URL or API endpoint.
     /// * `page` - 1-based page number requested from the backend source.
     /// * `source_params` - Optional per-source runtime parameters overriding global values.
-    /// * `context` - Context of the incoming controller request.
     ///
     /// # Returns
     ///
@@ -605,11 +605,11 @@ impl StreamScraper {
     ///
     /// # Arguments
     ///
+    /// * `context` - Context of the incoming controller request.
     /// * `query_source` - Query source name.
     /// * `query_url` - Source-specific recommendations URL or API endpoint.
     /// * `page` - 1-based page number requested from the backend source.
     /// * `source_params` - Optional per-source runtime parameters overriding global values.
-    /// * `context` - Context of the incoming controller request.
     ///
     /// # Returns
     ///
@@ -689,9 +689,9 @@ impl StreamScraper {
     ///
     /// # Arguments
     ///
+    /// * `context` - Context of the incoming controller request.
     /// * `query_source` - Query source name.
     /// * `query_url` - Source-specific banner URL or API endpoint.
-    /// * `context` - Context of the incoming controller request.
     ///
     /// # Returns
     ///

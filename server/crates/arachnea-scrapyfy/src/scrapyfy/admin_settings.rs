@@ -193,6 +193,10 @@ mod tests;
 
 /// Validates one current-country override value.
 ///
+/// # Arguments
+///
+/// * `country` - Country-code text, trimmed and converted to uppercase ASCII.
+///
 /// # Errors
 /// Returns an error when the value is not a two-letter uppercase ASCII code.
 pub fn validate_current_country(country: &str) -> Result<()> {

@@ -2,6 +2,23 @@
 
 use super::*;
 
+/// Fetches and decodes TF1 mediainfo for a video or live channel.
+///
+/// Live and replay requests use different media identifiers and client hints;
+/// the caller supplies the already derived identifier.
+///
+/// # Arguments
+/// * `http_client` - HTTP client used for the mediainfo request.
+/// * `session` - Authenticated TF1 session providing the bearer token.
+/// * `video_id` - TF1 video or live content identifier.
+/// * `is_live` - Whether the request targets a live channel.
+///
+/// # Errors
+/// Returns an error when the query cannot be serialized, the request fails,
+/// the response status is unsuccessful, or the body is not valid JSON.
+///
+/// # Returns
+/// The decoded mediainfo payload.
 pub(super) async fn fetch_media_info(
     http_client: &HttpClient,
     session: &Tf1Session,
@@ -101,6 +118,14 @@ pub(super) async fn fetch_media_info(
     Ok(media_info)
 }
 
+/// Classifies a non-mediainfo TF1 response status.
+///
+/// # Arguments
+/// * `status` - HTTP status code.
+///
+/// # Returns
+/// `RejectedForDestination` for `TF1_PROXY_REJECTION_STATUS`, `Accepted` for
+/// other 2xx statuses and `Inconclusive` otherwise.
 pub(super) fn classify_tf1_status(status: u16) -> ProxyResponseDecision {
     if status == TF1_PROXY_REJECTION_STATUS {
         rejected_for_destination(format!("TF1 HTTP {}", status))
@@ -111,6 +136,13 @@ pub(super) fn classify_tf1_status(status: u16) -> ProxyResponseDecision {
     }
 }
 
+/// Builds a destination-rejection decision without a cooldown.
+///
+/// # Arguments
+/// * `reason` - Human-readable rejection reason.
+///
+/// # Returns
+/// A `RejectedForDestination` decision carrying `reason`.
 pub(super) fn rejected_for_destination(reason: String) -> ProxyResponseDecision {
     ProxyResponseDecision::RejectedForDestination {
         cooldown: None,
@@ -118,6 +150,13 @@ pub(super) fn rejected_for_destination(reason: String) -> ProxyResponseDecision 
     }
 }
 
+/// Checks whether a URL targets the TF1 mediainfo host.
+///
+/// # Arguments
+/// * `url` - URL or URI to inspect.
+///
+/// # Returns
+/// `true` when the host is `mediainfo.tf1.fr`, case-insensitively.
 pub(super) fn is_tf1_mediainfo_url(url: &str) -> bool {
     url.parse::<http::Uri>()
         .ok()
@@ -125,6 +164,15 @@ pub(super) fn is_tf1_mediainfo_url(url: &str) -> bool {
         .is_some_and(|host| host.eq_ignore_ascii_case("mediainfo.tf1.fr"))
 }
 
+/// Extracts `/delivery/code` from a mediainfo response body.
+///
+/// # Arguments
+/// * `body` - Response body prefix.
+/// * `state` - Availability state of the captured body.
+///
+/// # Returns
+/// The delivery code, or `None` when the body is unavailable, empty, invalid
+/// JSON, or does not contain an integer delivery code.
 pub(super) fn extract_delivery_code(body: &[u8], state: ProxyBodyState) -> Option<i64> {
     if state == ProxyBodyState::Unavailable || body.is_empty() {
         return None;
@@ -134,6 +182,16 @@ pub(super) fn extract_delivery_code(body: &[u8], state: ProxyBodyState) -> Optio
     value.pointer("/delivery/code").and_then(Value::as_i64)
 }
 
+/// Extracts normalized country codes from `/media/geoList`.
+///
+/// Values are trimmed, uppercased, restricted to two ASCII letters and
+/// deduplicated in encounter order.
+///
+/// # Arguments
+/// * `media_info` - Decoded TF1 mediainfo payload.
+///
+/// # Returns
+/// The valid geo-routing country codes, or an empty vector when absent.
 pub(super) fn extract_media_proxy_countries(media_info: &Value) -> Vec<String> {
     let Some(countries) = media_info
         .pointer("/media/geoList")
@@ -158,6 +216,13 @@ pub(super) fn extract_media_proxy_countries(media_info: &Value) -> Vec<String> {
         })
 }
 
+/// Reports whether TF1 rejected playback in the mediainfo payload.
+///
+/// # Arguments
+/// * `media_info` - Decoded TF1 mediainfo payload.
+///
+/// # Returns
+/// `true` when `/delivery/code` is at least 400.
 pub(super) fn delivery_rejected(media_info: &Value) -> bool {
     media_info
         .pointer("/delivery/code")
@@ -165,6 +230,13 @@ pub(super) fn delivery_rejected(media_info: &Value) -> bool {
         .is_some_and(|code| code >= 400)
 }
 
+/// Checks whether an error chain contains an HTTP proxy error.
+///
+/// # Arguments
+/// * `error` - Error chain to inspect.
+///
+/// # Returns
+/// `true` when any cause is `ArachneaHttpError::Proxy`.
 pub(super) fn is_proxy_error(error: &anyhow::Error) -> bool {
     error.chain().any(|cause| {
         matches!(

@@ -8,7 +8,7 @@ use tracing::{debug, warn};
 
 /// Handles one DNS wire-format packet by delegating resolution to the core.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `core`: DNS core used to resolve the decoded query.
 /// - `packet`: Wire-format DNS request bytes.
@@ -49,21 +49,7 @@ pub async fn handle_packet(core: &ArachneaDnsCore, packet: &[u8]) -> Result<Vec<
 
 /// Encodes a DNS answer for a wire-format response.
 ///
-/// # Parameters
-///
-/// - `request`: Original DNS request message.
-/// - `answer`: Resolver answer to encode.
-///
-/// # Returns
-///
-/// Wire-format DNS response bytes.
-///
-/// # Errors
-///
-/// Returns an error when the response cannot be encoded.
-/// Encodes a DNS answer for a wire-format response.
-///
-/// # Parameters
+/// # Arguments
 ///
 /// - `request`: Original DNS request message.
 /// - `answer`: Resolver answer to encode.
@@ -86,7 +72,7 @@ fn encode_answer(request: &Message, answer: &Answer) -> Result<Vec<u8>> {
 
 /// Encodes an error DNS response.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `request`: Original DNS request message.
 /// - `code`: DNS response code to send.
@@ -104,7 +90,7 @@ fn encode_error(request: &Message, code: ResponseCode) -> Result<Vec<u8>> {
 
 /// Creates the common response envelope for a request.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `request`: Original DNS request message.
 /// - `code`: Response code to place in the envelope.
@@ -128,7 +114,7 @@ fn response_base(request: &Message, code: ResponseCode) -> Message {
 
 /// Serializes a DNS message into wire-format bytes.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `message`: DNS message to serialize into wire format.
 ///
@@ -149,7 +135,7 @@ fn encode_message(message: Message) -> Result<Vec<u8>> {
 
 /// Builds an empty answer for a query and record type.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `request`: Original DNS request message.
 /// - `record_type`: Requested DNS record type.

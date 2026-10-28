@@ -2,6 +2,26 @@
 
 use super::*;
 
+/// Resolves the DASH manifest and DRM metadata for an RTLplay video.
+///
+/// The player page is used to obtain the bearer token and content identifier,
+/// which are then exchanged for a play-config payload. Live and replay content
+/// use different identifier sources.
+///
+/// # Arguments
+/// * `http_client` - HTTP client used for player and play-config requests.
+/// * `session` - Authenticated RTLplay session whose cookies are forwarded.
+/// * `video_url` - RTLplay player URL for the requested content.
+/// * `is_live` - Whether to resolve a live channel instead of replay content.
+/// * `api_version` - API version controlling request headers.
+///
+/// # Errors
+/// Returns an error when the player page or play-config request fails, the
+/// expected JSON fields are missing, the content is unavailable, or no DASH
+/// stream is present.
+///
+/// # Returns
+/// The selected DASH stream with optional license and chapter metadata.
 pub(super) async fn resolve_final_video_url(
     http_client: &HttpClient,
     session: &RtlPlaySession,
@@ -80,6 +100,14 @@ pub(super) async fn resolve_final_video_url(
     select_dash_stream(&payload).context("Missing RTL Play DASH stream in play-config response.")
 }
 
+/// Selects the first DASH stream from an RTLplay play-config payload.
+///
+/// # Arguments
+/// * `payload` - Decoded play-config response.
+///
+/// # Returns
+/// The selected stream with manifest, thumbnail storyboard, DRM metadata and
+/// chapters, or `None` when the payload has no DASH stream with an `.mpd` URL.
 pub(super) fn select_dash_stream(payload: &Value) -> Option<ResolvedRtlPlayVideo> {
     let streams = payload.get("video")?.get("streams")?.as_array()?;
 
@@ -170,12 +198,23 @@ pub(super) fn select_dash_stream(payload: &Value) -> Option<ResolvedRtlPlayVideo
     None
 }
 
+/// Parses the `__NEXT_DATA__` JSON payload embedded in an RTLplay page.
+///
+/// # Arguments
+/// * `html` - Player or connexion page HTML.
+///
+/// # Returns
+/// The decoded payload, or `None` when the script tag or JSON is invalid.
 pub(super) fn extract_next_data_json(html: &str) -> Option<Value> {
     let json = next_data_regex().captures(html)?.get(1)?.as_str().trim();
 
     serde_json::from_str(json).ok()
 }
 
+/// Returns the shared regex matching the `__NEXT_DATA__` script payload.
+///
+/// # Returns
+/// A process-wide compiled regex with one capture group for the payload.
 pub(super) fn next_data_regex() -> &'static Regex {
     NEXT_DATA_REGEX.get_or_init(|| {
         Regex::new(r#"(?s)<script[^>]*\bid=["']__NEXT_DATA__["'][^>]*>(.*?)</script>"#)
@@ -256,6 +295,16 @@ pub(super) fn live_channel_slug_from_url(channel_id: &str) -> Option<String> {
         .map(str::to_string)
 }
 
+/// Reports whether a play-config payload denotes unavailable content.
+///
+/// RTLplay uses code `103` with an availability-related type for unpublished
+/// content and code `104` with a not-found type for missing content.
+///
+/// # Arguments
+/// * `payload` - Decoded play-config response.
+///
+/// # Returns
+/// `true` for the known unavailable-content responses.
 pub(super) fn is_unavailable_payload(payload: &Value) -> bool {
     let code = payload.get("code").and_then(Value::as_i64);
     let payload_type = payload

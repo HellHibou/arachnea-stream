@@ -140,6 +140,10 @@ impl BrowserSessionHandle {
     }
 
     /// Replaces the token associated with this browser session.
+    ///
+    /// # Arguments
+    ///
+    /// - `token`: Opaque Turnstile callback token to retain in memory.
     pub(crate) fn cache_turnstile_token(&self, token: String) {
         if let Ok(mut cached) = self.state.turnstile_token.lock() {
             *cached = Some(token);
@@ -154,6 +158,16 @@ impl BrowserSessionHandle {
     }
 
     /// Returns whether the session can be evicted after the supplied timeout.
+    ///
+    /// A handle whose activity timestamp cannot be locked is treated as idle.
+    ///
+    /// # Arguments
+    ///
+    /// - `timeout`: Minimum inactivity duration before eviction.
+    ///
+    /// # Returns
+    ///
+    /// `true` when the last-use time is at least `timeout` in the past.
     pub(crate) fn is_idle(&self, timeout: Duration) -> bool {
         self.state
             .last_used
@@ -195,18 +209,57 @@ impl BrowserSessionHandle {
 #[async_trait]
 pub trait BrowserPageSession: Send {
     /// Navigates the page to the source URL and waits for the configured state.
+    ///
+    /// # Arguments
+    ///
+    /// - `request`: Navigation URL, headers, and whether to collect page HTML.
+    ///
+    /// # Errors
+    ///
+    /// Returns browser-specific navigation failures.
+    ///
+    /// # Returns
+    ///
+    /// The final URL and optional stable HTML.
     async fn navigate(
         &mut self,
         request: PageNavigationRequest,
     ) -> Result<PageNavigationResponse, crate::ArachneaHttpError>;
 
     /// Executes one JavaScript `fetch()` request inside the current page.
+    ///
+    /// # Arguments
+    ///
+    /// - `request`: In-page request, optional body, and token substitution rules.
+    ///
+    /// # Errors
+    ///
+    /// Returns browser-specific script, navigation, or execution failures.
+    ///
+    /// # Returns
+    ///
+    /// The in-page response with its body decoded as text.
     async fn fetch(
         &mut self,
         request: PageFetchRequest,
     ) -> Result<PageFetchResponse, crate::ArachneaHttpError>;
 
     /// Clicks an element in the current page and returns HTML after a selector appears.
+    ///
+    /// The default implementation reports the operation as unsupported.
+    ///
+    /// # Arguments
+    ///
+    /// - `_request`: Click selector and selector to wait for.
+    ///
+    /// # Errors
+    ///
+    /// Returns `UnsupportedEngineOperation` unless an engine overrides this
+    /// method.
+    ///
+    /// # Returns
+    ///
+    /// The page HTML captured after the wait selector appears.
     async fn click_and_wait(
         &mut self,
         _request: PageClickRequest,
@@ -406,9 +459,10 @@ impl BrowserSessionManager {
 
     /// Invalidates all sessions matching the given origin.
     ///
-    /// Sessions that have already been evicted or dropped are silently ignored.
-    /// Existing handles remain usable but will be invalidated on their next
-    /// locked access.
+    /// Matches exactly on the session key origin. Removed handles are marked
+    /// invalid immediately and their pages are closed asynchronously. Clones
+    /// held by callers remain allocated but report `is_valid() == false` and
+    /// must not be used for further page operations.
     ///
     /// # Arguments
     ///
@@ -433,8 +487,9 @@ impl BrowserSessionManager {
 
     /// Invalidates and removes all sessions.
     ///
-    /// Existing handles remain usable but report `valid: false` on their next
-    /// locked access.
+    /// Every removed handle is marked invalid immediately and its page is
+    /// closed asynchronously. Clones held by callers must not be used for
+    /// further page operations.
     pub fn invalidate_all(&self) {
         let mut guard = self.sessions.write().expect("session map lock poisoned");
         let evicted = guard
@@ -487,6 +542,13 @@ impl BrowserSessionManager {
     }
 
     /// Closes removed browser pages without blocking the manager's map lock.
+    ///
+    /// Closing is spawned on the current Tokio runtime. Without a runtime, the
+    /// handles are dropped without an explicit close.
+    ///
+    /// # Arguments
+    ///
+    /// - `handles`: Invalidated handles removed from the session map.
     fn close_evicted(handles: Vec<BrowserSessionHandle>) {
         if handles.is_empty() {
             return;
@@ -541,6 +603,20 @@ impl PageFetchRequest {
     ///
     /// The token is never written to logs or errors. Session-scoped retention,
     /// when explicitly enabled, is managed by the owning HTTP client.
+    ///
+    /// # Arguments
+    ///
+    /// - `token`: Turnstile callback token substituted into the body.
+    ///
+    /// # Returns
+    ///
+    /// The request with the placeholder replaced, or the original request when
+    /// no placeholder is configured.
+    ///
+    /// # Errors
+    ///
+    /// Returns `InvalidConfiguration` when the placeholder is configured
+    /// without a body, the body is not UTF-8, or the placeholder is absent.
     pub(crate) fn inject_turnstile_token(
         mut self,
         token: &str,
@@ -569,6 +645,18 @@ impl PageFetchRequest {
     }
 
     /// Returns whether the supplied response rejects the callback token.
+    ///
+    /// A response rejects the token when its status is listed in
+    /// `token_rejection_statuses` or its body contains a non-empty marker from
+    /// `token_rejection_body_markers`. Marker matching is case-sensitive.
+    ///
+    /// # Arguments
+    ///
+    /// - `response`: In-page response to classify.
+    ///
+    /// # Returns
+    ///
+    /// `true` when the configured status or body marker rejects the token.
     pub(crate) fn is_token_rejected_by(&self, response: &PageFetchResponse) -> bool {
         self.token_rejection_statuses.contains(&response.status)
             || self
@@ -666,7 +754,19 @@ impl ResolvedIframeCache {
 
     /// Returns a cached embed URL if a fresh entry exists.
     ///
-    /// Returns `None` when the entry is absent, expired, or evicted.
+    /// Returns `None` when the entry is absent, expired, or evicted. Expired
+    /// entries are not removed by this lookup.
+    ///
+    /// # Arguments
+    ///
+    /// - `episode_url`: Episode page URL.
+    /// - `player_id`: Player identifier.
+    /// - `player_field`: Player field name.
+    /// - `player_type`: Player type discriminator.
+    ///
+    /// # Returns
+    ///
+    /// The cached embed URL while it is within its TTL.
     pub fn get(
         &self,
         episode_url: &str,
@@ -690,7 +790,15 @@ impl ResolvedIframeCache {
     /// Inserts or replaces a resolved embed URL.
     ///
     /// When the cache is at capacity the oldest entry (by creation time) is
-    /// evicted before insertion.
+    /// evicted before insertion. Replacing an entry resets its creation time.
+    ///
+    /// # Arguments
+    ///
+    /// - `episode_url`: Episode page URL.
+    /// - `player_id`: Player identifier.
+    /// - `player_field`: Player field name.
+    /// - `player_type`: Player type discriminator.
+    /// - `embed_url`: Resolved embed URL to cache.
     pub fn insert(
         &mut self,
         episode_url: &str,
@@ -725,6 +833,13 @@ impl ResolvedIframeCache {
     }
 
     /// Invalidates one specific cache entry by its composite key.
+    ///
+    /// # Arguments
+    ///
+    /// - `episode_url`: Episode page URL.
+    /// - `player_id`: Player identifier.
+    /// - `player_field`: Player field name.
+    /// - `player_type`: Player type discriminator.
     pub fn invalidate(
         &mut self,
         episode_url: &str,

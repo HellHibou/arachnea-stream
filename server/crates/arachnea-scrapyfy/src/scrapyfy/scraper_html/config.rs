@@ -109,6 +109,10 @@ impl TryFrom<HtmlScraperQueryRaw> for HtmlScraperQuery {
 
     /// Converts a raw YAML query definition into a validated runtime query.
     ///
+    /// # Arguments
+    ///
+    /// * `config` - Cache sizing and directory configuration used to construct the server-side cache.
+    ///
     /// # Errors
     ///
     /// Returns an error if the row selector, entries, or request headers are invalid.
@@ -437,7 +441,7 @@ impl From<&crate::scrapyfy::scraper_html::query::HtmlScraperSubQuery> for HtmlSc
     ///
     /// # Panics
     ///
-    /// Panics if a nested sub-query is not a [`HtmlScraperSubQuery`].
+    /// Panics if a nested sub-query is not a [`crate::scrapyfy::scraper_html::query::HtmlScraperSubQuery`].
     /// This should not occur during normal operation as HTML sub-queries
     /// should only contain other HTML sub-queries.
     fn from(sub_query: &crate::scrapyfy::scraper_html::query::HtmlScraperSubQuery) -> Self {

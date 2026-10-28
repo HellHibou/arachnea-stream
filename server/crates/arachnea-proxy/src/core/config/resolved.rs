@@ -7,6 +7,7 @@ use super::proxy_config::ProxyConfig;
 /// Effective validated proxy configuration.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ResolvedProxyConfig {
+    /// Validated configuration retained for runtime routing and transport decisions.
     pub(super) inner: ProxyConfig,
 }
 
@@ -22,7 +23,7 @@ impl ResolvedProxyConfig {
 
     /// Returns a chain by name.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `name`: Chain name to look up.
     ///
@@ -35,7 +36,7 @@ impl ResolvedProxyConfig {
 
     /// Returns an egress pool by name.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `name`: Egress pool name to look up.
     ///
@@ -51,7 +52,7 @@ impl ResolvedProxyConfig {
 
     /// Returns an upstream node by name.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `name`: Upstream node name to look up.
     ///

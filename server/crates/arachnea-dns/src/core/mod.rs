@@ -1,6 +1,6 @@
 //! Core DNS resolution module for Arachnea DNS.
 //!
-//! This crate owns configuration, policies, caching, upstream selection and
+//! This module owns configuration, policies, caching, upstream selection and
 //! reusable resolution APIs. Server-specific socket handling lives behind the
 //! `server` feature.
 

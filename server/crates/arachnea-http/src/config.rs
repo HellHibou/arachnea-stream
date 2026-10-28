@@ -57,6 +57,10 @@ impl Default for HttpProxyConfig {
 
 impl fmt::Debug for HttpProxyConfig {
     /// Formats the proxy selection without exposing connector internals.
+    ///
+    /// # Arguments
+    ///
+    /// - `f`: Destination formatter.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Disabled => f.write_str("Disabled"),
@@ -70,9 +74,16 @@ impl fmt::Debug for HttpProxyConfig {
 /// Selects which HTTP engine executes outbound requests.
 #[derive(Clone)]
 pub enum HttpEngineKind {
-    /// Always use `rquest`, except for configured Cloudflare refreshes.
+    /// Use the built-in `rquest` path.
+    ///
+    /// The per-request mode still controls Cloudflare refresh behavior. This
+    /// variant and [`Auto`](Self::Auto) currently select the same built-in path.
     Rquest,
-    /// Prefer `rquest` and use the configured solver only when Cloudflare handling requires it.
+    /// Prefer the built-in `rquest` path and use configured solvers through the
+    /// request mode.
+    ///
+    /// This variant and [`Rquest`](Self::Rquest) currently select the same
+    /// built-in path.
     Auto,
     /// Use a caller-provided engine instance.
     Engine(DynHttpEngine),
@@ -81,7 +92,7 @@ pub enum HttpEngineKind {
 impl HttpEngineKind {
     /// Selects an HTTP engine instance.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `engine`: Engine instance with its own implementation-specific
     ///   configuration.
@@ -95,7 +106,7 @@ impl HttpEngineKind {
 
     /// Selects an HTTP engine from a concrete implementation.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `engine`: Concrete engine instance.
     ///
@@ -125,7 +136,7 @@ impl HttpEngineKind {
 impl fmt::Debug for HttpEngineKind {
     /// Formats the engine selection without exposing implementation internals.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `f`: Formatter receiving the debug representation.
     ///
@@ -147,7 +158,7 @@ where
 {
     /// Converts a shared engine into an HTTP engine selection.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `engine`: Shared concrete engine instance.
     ///
@@ -162,7 +173,7 @@ where
 impl From<DynHttpEngine> for HttpEngineKind {
     /// Converts a shared dynamic engine into an HTTP engine selection.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `engine`: Shared dynamic engine instance.
     ///
@@ -188,7 +199,7 @@ pub enum CloudflareSolverKind {
 impl CloudflareSolverKind {
     /// Selects a Cloudflare solver instance.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `engine`: Engine instance with its own implementation-specific
     ///   configuration.
@@ -202,7 +213,7 @@ impl CloudflareSolverKind {
 
     /// Selects a Cloudflare solver from a concrete implementation.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `engine`: Concrete engine instance.
     ///
@@ -220,7 +231,7 @@ impl CloudflareSolverKind {
 impl fmt::Debug for CloudflareSolverKind {
     /// Formats the solver selection without exposing implementation internals.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `f`: Formatter receiving the debug representation.
     ///
@@ -239,7 +250,11 @@ impl fmt::Debug for CloudflareSolverKind {
 /// Selects the browser-backed Cloudflare solver used as a stronger fallback.
 #[derive(Clone)]
 pub enum CloudflareBrowserSolverKind {
-    /// Pick the default browser solver selected by the engine layer.
+    /// Pick the default compiled browser solver.
+    ///
+    /// The engine layer selects Tauri/Wry when
+    /// `tauri-cloudflare-solver` is enabled, otherwise chaser-cf when
+    /// `chaser-cf` is enabled. It returns no solver when neither is enabled.
     Auto,
     /// Do not configure a browser-backed Cloudflare solver.
     Disabled,
@@ -255,7 +270,7 @@ pub enum CloudflareBrowserSolverKind {
 impl CloudflareBrowserSolverKind {
     /// Selects a browser-backed Cloudflare solver instance.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `engine`: Engine instance with its own implementation-specific
     ///   configuration.
@@ -269,7 +284,7 @@ impl CloudflareBrowserSolverKind {
 
     /// Selects a browser-backed Cloudflare solver from a concrete engine.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `engine`: Concrete engine instance.
     ///
@@ -287,7 +302,7 @@ impl CloudflareBrowserSolverKind {
 impl fmt::Debug for CloudflareBrowserSolverKind {
     /// Formats the browser solver selection without exposing implementation internals.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `f`: Formatter receiving the debug representation.
     ///
@@ -311,7 +326,7 @@ where
 {
     /// Converts a shared engine into a browser solver selection.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `engine`: Shared concrete engine instance.
     ///
@@ -326,7 +341,7 @@ where
 impl From<DynHttpEngine> for CloudflareBrowserSolverKind {
     /// Converts a shared dynamic engine into a browser solver selection.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `engine`: Shared dynamic engine instance.
     ///
@@ -344,7 +359,7 @@ where
 {
     /// Converts a shared engine into a Cloudflare solver selection.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `engine`: Shared concrete engine instance.
     ///
@@ -359,7 +374,7 @@ where
 impl From<DynHttpEngine> for CloudflareSolverKind {
     /// Converts a shared dynamic engine into a Cloudflare solver selection.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `engine`: Shared dynamic engine instance.
     ///
@@ -445,10 +460,19 @@ impl Default for BrowserProfile {
 #[derive(Debug, Clone)]
 pub struct ArachneaHttpConfig {
     /// Explicit engine selection.
+    ///
+    /// Only [`HttpEngineKind::Engine`] changes runtime dispatch by injecting a
+    /// direct engine; the default execution policy still comes from
+    /// [`default_request_mode`](Self::default_request_mode).
     pub engine: HttpEngineKind,
     /// Default execution policy used when a request does not specify one.
     pub default_request_mode: HttpRequestMode,
-    /// Cloudflare handling mode.
+    /// Recorded Cloudflare handling mode.
+    ///
+    /// The builder uses this value to choose the initial
+    /// [`default_request_mode`](Self::default_request_mode). Runtime dispatch
+    /// reads that request mode; mutating this field directly after construction
+    /// does not reconfigure an existing client.
     pub cloudflare: CloudflareMode,
     /// Engine used by the smart Cloudflare cookie refresh path.
     pub cloudflare_solver: CloudflareSolverKind,

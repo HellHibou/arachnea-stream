@@ -52,6 +52,7 @@ pub(crate) struct StructuredCookie {
 }
 
 impl PersistentEntity for CachedChaserSession {
+    /// Origin used as the stable persistence key.
     type Key = String;
     fn key(&self) -> Self::Key {
         self.origin.clone()

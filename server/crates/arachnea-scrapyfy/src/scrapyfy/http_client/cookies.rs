@@ -4,11 +4,29 @@ use super::*;
 
 impl HttpClient {
     /// Stores simple name/value cookies for a URL in the shared HTTP cache.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - Absolute request URL used by the HTTP transport.
+    /// * `cookies` - Simple cookie names and values; blank names or values are skipped after trimming.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the URL is invalid or has no host.
     pub async fn store_cookies_for_url(url: &str, cookies: &HashMap<String, String>) -> Result<()> {
         Self::store_cookies_in_cache(global_cookie_cache(), url, cookies).await
     }
 
     /// Stores simple name/value cookies for a URL in this client's cookie cache.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - Absolute request URL used by the HTTP transport.
+    /// * `cookies` - Simple cookie names and values; blank names or values are skipped after trimming.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the URL is invalid or has no host.
     pub async fn store_cookies_for_url_in_client(
         &self,
         url: &str,
@@ -17,6 +35,17 @@ impl HttpClient {
         Self::store_cookies_in_cache(self.cookie_cache.clone(), url, cookies).await
     }
 
+    /// Stores trimmed non-empty cookies using the URL host, path and HTTPS security flag.
+    ///
+    /// # Arguments
+    ///
+    /// * `cache` - Cookie cache from which matching cookies are read or into which they are inserted.
+    /// * `url` - Absolute request URL used by the HTTP transport.
+    /// * `cookies` - Simple cookie names and values; blank names or values are skipped after trimming.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the URL is invalid or has no host; blank cookie pairs are skipped.
     pub(super) async fn store_cookies_in_cache(
         cache: Arc<AsyncRwLock<SharedCookieCache>>,
         url: &str,
@@ -71,10 +100,24 @@ impl HttpClient {
     }
 
     /// Returns this client's cookie view currently applicable to one absolute URL.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - Absolute request URL used by the HTTP transport.
     pub async fn cookies_for_url_in_client(&self, url: &str) -> Result<HashMap<String, String>> {
         Self::cookies_for_url_in_cache(self.cookie_cache.clone(), url).await
     }
 
+    /// Returns the cache view applicable to the URL while allowing expired-cookie cleanup.
+    ///
+    /// # Arguments
+    ///
+    /// * `cache` - Cookie cache from which matching cookies are read or into which they are inserted.
+    /// * `url` - Absolute request URL used by the HTTP transport.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the cookie cache cannot parse the supplied URL.
     pub(super) async fn cookies_for_url_in_cache(
         cache: Arc<AsyncRwLock<SharedCookieCache>>,
         url: &str,

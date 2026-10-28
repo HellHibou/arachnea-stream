@@ -2,11 +2,11 @@
 //!
 //! An [`HtmlScraperQuery`] wraps a validated CSS selector, entry definitions,
 //! and HTTP configuration.  Execution is delegated to the unified executor
-//! ([`ScraperQuery`](crate::scrapyfy::scraper::query_trait::ScraperQuery)).
+//! (`crate::scrapyfy::scraper::ScraperQuery`).
 //!
-//! Raw YAML deserialization and bidirectional conversion live in [`config`].
+//! Raw YAML deserialization and bidirectional conversion live in [`crate::scrapyfy::scraper_html::config`].
 //! Response parsing and row-level post-processing are handled by the unified
-//! executor in [`crate::scrapyfy::scraper::query_executor`].
+//! executor in `crate::scrapyfy::scraper::query_executor`.
 
 use std::any::Any;
 
@@ -27,9 +27,9 @@ use crate::scrapyfy::*;
 ///
 /// Represents a validated HTML scraper query that fetches HTML pages and extracts
 /// structured data using CSS selectors. Fields are `pub(crate)` so that the
-/// [`config`] module can populate them during the raw-to-validated conversion.
+/// [`crate::scrapyfy::scraper_html::config`] module can populate them during the raw-to-validated conversion.
 ///
-/// # Type Parameters
+/// # Configuration
 ///
 /// This struct contains all the configuration needed to execute an HTML scraping query:
 /// - Query identification (name, base URL)
@@ -363,7 +363,7 @@ impl HtmlScraperQuery {
 ///
 /// An `HtmlScraperSubQuery` fetches an HTML page derived from a parent row,
 /// selects rows via a CSS selector, and merges the extracted fields into the
-/// parent data tree. This type implements [`ScraperQuery`] so it can be
+/// parent data tree. This type implements `crate::scrapyfy::scraper::ScraperQuery` so it can be
 /// executed by the unified executor.
 ///
 /// Sub-queries enable hierarchical data fetching where follow-up requests

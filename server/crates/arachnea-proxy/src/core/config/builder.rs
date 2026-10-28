@@ -28,7 +28,7 @@ impl Default for ProxyConfigBuilder {
 impl ProxyConfigBuilder {
     /// Sets the profile.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `profile`: Proxy profile to apply.
     ///
@@ -42,7 +42,7 @@ impl ProxyConfigBuilder {
 
     /// Replaces the current configuration with one generated from a usage profile.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `profile`: Usage profile used to generate the new configuration.
     ///
@@ -56,7 +56,7 @@ impl ProxyConfigBuilder {
 
     /// Replaces all chains.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `chains`: Chains to place in the configuration.
     ///
@@ -70,7 +70,7 @@ impl ProxyConfigBuilder {
 
     /// Adds a single upstream node and creates a chain for it.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `node`: Upstream node to add and make the default chain.
     ///
@@ -91,7 +91,7 @@ impl ProxyConfigBuilder {
 
     /// Replaces all egress pools.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `egress_pools`: Egress pools to place in the configuration.
     ///
@@ -105,7 +105,7 @@ impl ProxyConfigBuilder {
 
     /// Replaces the route policy.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `routing`: Route policy to install.
     ///
@@ -119,7 +119,7 @@ impl ProxyConfigBuilder {
 
     /// Replaces the security policy.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `security`: Security policy to install.
     ///
@@ -147,7 +147,7 @@ impl ProxyConfigBuilder {
 
     /// Replaces timeout values.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `timeouts`: Timeout values to install.
     ///

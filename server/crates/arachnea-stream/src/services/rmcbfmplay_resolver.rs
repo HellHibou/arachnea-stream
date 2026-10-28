@@ -35,9 +35,12 @@ const BFF_MODEL: &str = "web";
 /// Lifetime of cached RMC/BFM Play login sessions.
 const SESSION_TTL: std::time::Duration = std::time::Duration::from_secs(45 * 60);
 
+/// Process-wide cache of authenticated RMC/BFM Play sessions.
 static SESSION_CACHE: OnceLock<Mutex<HashMap<String, CachedSession>>> = OnceLock::new();
+/// Serializes cache misses during the RMC/BFM Play login flow.
 static LOGIN_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
 
+/// Cognito tokens returned by the Connect gateway.
 #[derive(Clone)]
 struct CognitoSession {
     id_token: String,
@@ -46,6 +49,7 @@ struct CognitoSession {
     refresh_token: String,
 }
 
+/// Cached Cognito session with its expiry instant.
 struct CachedSession {
     session: CognitoSession,
     expires_at: Instant,
@@ -107,6 +111,21 @@ impl PlayerStreamResolver for RmcBfmPlayResolver {
     }
 }
 
+/// Resolves an RMC/BFM Play replay content identifier.
+///
+/// # Arguments
+/// * `http_client` - HTTP client used for the BFF request.
+/// * `session` - Authenticated Cognito session.
+/// * `content_id` - Content identifier or BFF page URL.
+/// * `proxy_countries` - Countries selected for outbound routing.
+/// * `endpoints` - Public endpoint settings used to build proxy URLs.
+///
+/// # Errors
+/// Returns an error when the identifier is invalid or the composant has no
+/// usable video payload.
+///
+/// # Returns
+/// The resolved replay stream.
 async fn resolve_replay(
     http_client: &HttpClient,
     session: &CognitoSession,
@@ -121,6 +140,24 @@ async fn resolve_replay(
     resolve_composant_video(http_client, session, &url, proxy_countries, endpoints).await
 }
 
+/// Resolves an RMC/BFM Play live channel.
+///
+/// Embedded section videos are preferred; otherwise every player composant
+/// endpoint from the live page is attempted in order.
+///
+/// # Arguments
+/// * `http_client` - HTTP client used for the BFF requests.
+/// * `session` - Authenticated Cognito session.
+/// * `channel_id` - Channel identifier or page URL.
+/// * `proxy_countries` - Countries selected for outbound routing.
+/// * `endpoints` - Public endpoint settings used to build proxy URLs.
+///
+/// # Errors
+/// Returns an error when the identifier is invalid, no composant is exposed,
+/// or every candidate fails.
+///
+/// # Returns
+/// The resolved live stream.
 async fn resolve_live(
     http_client: &HttpClient,
     session: &CognitoSession,
@@ -172,6 +209,20 @@ async fn resolve_live(
 
 /// Shared replay/live tail: fetches one `player` composant, extracts its
 /// authenticated `video` payload, and builds the proxied stream.
+///
+/// # Arguments
+/// * `http_client` - HTTP client used for the BFF request.
+/// * `session` - Authenticated Cognito session.
+/// * `url` - Player composant URL.
+/// * `proxy_countries` - Countries selected for outbound routing.
+/// * `endpoints` - Public endpoint settings used to build proxy URLs.
+///
+/// # Errors
+/// Returns an error when the composant has no video payload or playback parts
+/// cannot be extracted.
+///
+/// # Returns
+/// The resolved stream built from the composant video.
 async fn resolve_composant_video(
     http_client: &HttpClient,
     session: &CognitoSession,
@@ -201,6 +252,15 @@ struct PlaybackParts {
     storyboard_vtt_url: Option<String>,
 }
 
+/// Builds the public player stream from authenticated playback parts.
+///
+/// # Arguments
+/// * `parts` - Manifest, optional license and storyboard data.
+/// * `proxy_countries` - Countries selected for outbound routing.
+/// * `endpoints` - Public endpoint settings used to build proxy URLs.
+///
+/// # Returns
+/// The resolved stream with proxied manifest, license and storyboard.
 fn resolved_stream(
     parts: PlaybackParts,
     proxy_countries: &[String],
@@ -247,6 +307,17 @@ fn resolved_stream(
     })
 }
 
+/// Returns a cached session or signs in through the Connect gateway.
+///
+/// # Arguments
+/// * `http_client` - HTTP client used for the sign-in request.
+/// * `credentials_store` - Store providing the RMC/BFM Play credentials.
+///
+/// # Errors
+/// Returns an error when credentials are missing or blank, or sign-in fails.
+///
+/// # Returns
+/// The authenticated Cognito session.
 async fn get_or_login_session(
     http_client: &HttpClient,
     credentials_store: &dyn CredentialsStore,
@@ -278,6 +349,18 @@ async fn get_or_login_session(
 
 /// Signs in through the Connect gateway, mirroring the Connect login page
 /// (`sign_in` endpoint, email lowercased/trimmed, password trimmed).
+///
+/// # Arguments
+/// * `http_client` - HTTP client used for the gateway request.
+/// * `login` - Account email.
+/// * `password` - Account password.
+///
+/// # Errors
+/// Returns an error when the gateway rejects the credentials or omits required
+/// Cognito tokens.
+///
+/// # Returns
+/// The authenticated Cognito session.
 async fn sign_in(http_client: &HttpClient, login: &str, password: &str) -> Result<CognitoSession> {
     let body = json!({
         "endpoint": "sign_in",
@@ -335,6 +418,18 @@ async fn sign_in(http_client: &HttpClient, login: &str, password: &str) -> Resul
 /// The exact transport the `/api/bff` server proxy injects is not documented;
 /// each attempt is reported, and the successful variant is logged (never the
 /// token), so the chain can be locked to the working variant once observed.
+///
+/// # Arguments
+/// * `http_client` - HTTP client used for the request.
+/// * `session` - Authenticated Cognito session providing candidate tokens.
+/// * `url` - BFF document URL.
+/// * `require_video` - Whether a successful response must contain `video`.
+///
+/// # Errors
+/// Returns an error when every transport fails or lacks the required video.
+///
+/// # Returns
+/// The first successful decoded BFF payload.
 async fn fetch_bff_json(
     http_client: &HttpClient,
     session: &CognitoSession,
@@ -414,6 +509,17 @@ async fn fetch_bff_json(
 /// the manifest itself is encrypted (probed directly); clear manifests
 /// return a license-less stream instead of bailing. The storyboard VTT is
 /// best-effort and never fails the stream.
+///
+/// # Arguments
+/// * `http_client` - HTTP client used to probe the manifest.
+/// * `video` - Authenticated `video` payload.
+///
+/// # Errors
+/// Returns an error when no manifest URL exists or a required license is
+/// missing for an encrypted manifest.
+///
+/// # Returns
+/// The extracted playback parts.
 async fn extract_playback(http_client: &HttpClient, video: &Value) -> Result<PlaybackParts> {
     extract_playback_parts(http_client, video)
         .await
@@ -425,6 +531,18 @@ async fn extract_playback(http_client: &HttpClient, video: &Value) -> Result<Pla
         })
 }
 
+/// Extracts manifest, license and storyboard candidates from a video payload.
+///
+/// # Arguments
+/// * `http_client` - HTTP client used to probe the manifest.
+/// * `video` - Authenticated `video` payload.
+///
+/// # Errors
+/// Returns an error when no manifest exists or an encrypted manifest lacks a
+/// license URL or play token.
+///
+/// # Returns
+/// The selected playback parts.
 async fn extract_playback_parts(http_client: &HttpClient, video: &Value) -> Result<PlaybackParts> {
     // Collect every manifest candidate: explicit pointers first, then content
     // scans. DASH is preferred over HLS whenever both exist: the shared DRM
@@ -569,6 +687,12 @@ async fn extract_playback_parts(http_client: &HttpClient, video: &Value) -> Resu
 ///
 /// Best-effort only: returns `None` when no VTT turns up, never failing the
 /// stream. Only the field layout is logged, never payload values.
+///
+/// # Arguments
+/// * `video` - Authenticated `video` payload.
+///
+/// # Returns
+/// The storyboard VTT URL, or `None` when absent.
 fn extract_storyboard_vtt(video: &Value) -> Option<String> {
     let sprites = video.pointer("/sprites").unwrap_or(&Value::Null);
     if let Value::Null = sprites {
@@ -588,6 +712,14 @@ fn extract_storyboard_vtt(video: &Value) -> Option<String> {
 /// Probes a manifest for encryption markers (`EXT-X-KEY` for HLS,
 /// `ContentProtection` for DASH). Unreadable manifests conservatively count
 /// as encrypted so negotiation keeps requiring a license.
+///
+/// # Arguments
+/// * `http_client` - HTTP client used to fetch the manifest.
+/// * `manifest_url` - Manifest URL to probe.
+/// * `manifest_type` - Manifest type, `m3u8` or `mpd`.
+///
+/// # Returns
+/// `true` when the manifest is encrypted or cannot be read.
 async fn manifest_requires_drm(
     http_client: &HttpClient,
     manifest_url: &str,
@@ -607,6 +739,13 @@ async fn manifest_requires_drm(
     }
 }
 
+/// Determines the manifest type from its URL.
+///
+/// # Arguments
+/// * `url` - Manifest URL.
+///
+/// # Returns
+/// `m3u8` for URLs containing that extension, `mpd` otherwise.
 fn manifest_type_from_url(url: &str) -> String {
     if url.to_ascii_lowercase().contains(".m3u8") {
         return "m3u8".to_string();
@@ -615,6 +754,10 @@ fn manifest_type_from_url(url: &str) -> String {
     "mpd".to_string()
 }
 
+/// Builds the headers used for Connect gateway requests.
+///
+/// # Returns
+/// JSON request and acceptance headers with the resolver user-agent.
 fn gateway_headers() -> HashMap<String, String> {
     HashMap::from([
         ("user-agent".to_string(), USER_AGENT.to_string()),
@@ -626,6 +769,10 @@ fn gateway_headers() -> HashMap<String, String> {
     ])
 }
 
+/// Builds the headers used for BFF playback requests.
+///
+/// # Returns
+/// JSON acceptance headers with the resolver user-agent.
 fn playback_headers() -> HashMap<String, String> {
     HashMap::from([
         ("user-agent".to_string(), USER_AGENT.to_string()),
@@ -637,6 +784,12 @@ fn playback_headers() -> HashMap<String, String> {
 }
 
 /// Reads the Cognito error kind and message without exposing credentials.
+///
+/// # Arguments
+/// * `body` - Gateway error response body.
+///
+/// # Returns
+/// The normalized error kind and a safe message.
 fn parse_gateway_error(body: &str) -> (String, String) {
     if let Ok(payload) = serde_json::from_str::<Value>(body) {
         let kind = payload
@@ -667,6 +820,15 @@ fn parse_gateway_error(body: &str) -> (String, String) {
 /// BFF page URL (the frontend calls `get_live` with the entry `link` and
 /// `get_players` with the episode page URL). Both forms resolve to the
 /// `page_id` query value when present.
+///
+/// # Arguments
+/// * `target` - Raw content identifier or BFF page URL.
+///
+/// # Errors
+/// Returns an error when the trimmed target is empty.
+///
+/// # Returns
+/// The decoded `page_id` when present, otherwise the trimmed target.
 fn normalize_content_id(target: &str) -> Result<String> {
     let target = target.trim();
     if target.is_empty() {
@@ -691,6 +853,13 @@ fn normalize_content_id(target: &str) -> Result<String> {
     Ok(target.to_string())
 }
 
+/// Collects absolute player composant URLs from a BFF page.
+///
+/// # Arguments
+/// * `page` - Decoded BFF page payload.
+///
+/// # Returns
+/// Composant URLs with the model query added, in page order.
 fn composant_endpoints(page: &Value) -> Vec<String> {
     let Some(sections) = page.pointer("/sections").and_then(Value::as_array) else {
         return Vec::new();
@@ -711,6 +880,13 @@ fn composant_endpoints(page: &Value) -> Vec<String> {
         .collect()
 }
 
+/// Adds the BFF model query parameter when it is absent.
+///
+/// # Arguments
+/// * `url` - Endpoint URL.
+///
+/// # Returns
+/// The URL with `model=BFF_MODEL` appended when needed.
 fn with_model_query(url: &str) -> String {
     if url.contains("model=") {
         return url.to_string();
@@ -719,6 +895,13 @@ fn with_model_query(url: &str) -> String {
     format!("{url}{separator}model={BFF_MODEL}")
 }
 
+/// Summarizes the section types present in a BFF page.
+///
+/// # Arguments
+/// * `page` - Decoded BFF page payload.
+///
+/// # Returns
+/// A diagnostic string listing section types.
 fn describe_sections(page: &Value) -> String {
     let types = page
         .pointer("/sections")
@@ -736,6 +919,12 @@ fn describe_sections(page: &Value) -> String {
 
 /// Describes an unexpected payload shape for diagnostics: object keys and
 /// URLs with query strings redacted, never token values.
+///
+/// # Arguments
+/// * `payload` - Payload to describe.
+///
+/// # Returns
+/// A bounded diagnostic string with keys and redacted URLs.
 fn describe_value(payload: &Value) -> String {
     let mut parts = Vec::new();
     if let Some(object) = payload.as_object() {
@@ -772,6 +961,12 @@ fn describe_value(payload: &Value) -> String {
     parts.join(" ")
 }
 
+/// Recursively collects string values up to a limit.
+///
+/// # Arguments
+/// * `payload` - JSON value to traverse.
+/// * `output` - Accumulator receiving strings.
+/// * `limit` - Maximum number of strings to collect.
 fn collect_strings(payload: &Value, output: &mut Vec<String>, limit: usize) {
     if output.len() >= limit {
         return;
@@ -792,6 +987,13 @@ fn collect_strings(payload: &Value, output: &mut Vec<String>, limit: usize) {
     }
 }
 
+/// Hides the query string of a URL for diagnostics.
+///
+/// # Arguments
+/// * `url` - URL to redact.
+///
+/// # Returns
+/// The base URL with `?<redacted>` when a query was present.
 fn redact_url(url: &str) -> String {
     match url.split_once('?') {
         Some((base, _)) => format!("{base}?<redacted>"),
@@ -799,6 +1001,14 @@ fn redact_url(url: &str) -> String {
     }
 }
 
+/// Reads a trimmed non-empty string at a JSON pointer.
+///
+/// # Arguments
+/// * `payload` - JSON value to query.
+/// * `pointer` - JSON pointer selecting the string.
+///
+/// # Returns
+/// The trimmed string, or `None` when absent, blank or not a string.
 fn read_opt_string(payload: &Value, pointer: &str) -> Option<String> {
     payload
         .pointer(pointer)
@@ -808,10 +1018,26 @@ fn read_opt_string(payload: &Value, pointer: &str) -> Option<String> {
         .map(str::to_string)
 }
 
+/// Returns the first HTTP URL containing a marker.
+///
+/// # Arguments
+/// * `payload` - JSON value to search.
+/// * `marker` - Required URL substring.
+///
+/// # Returns
+/// The first matching URL, or `None` when none exists.
 fn find_url_containing(payload: &Value, marker: &str) -> Option<String> {
     find_all_urls_containing(payload, marker).into_iter().next()
 }
 
+/// Collects HTTP URLs containing a marker.
+///
+/// # Arguments
+/// * `payload` - JSON value to search.
+/// * `marker` - Required URL substring.
+///
+/// # Returns
+/// Matching URLs in traversal order, bounded by the collection limit.
 fn find_all_urls_containing(payload: &Value, marker: &str) -> Vec<String> {
     let mut all = Vec::new();
     collect_strings(payload, &mut all, 50);
@@ -821,12 +1047,27 @@ fn find_all_urls_containing(payload: &Value, marker: &str) -> Vec<String> {
         .collect()
 }
 
+/// Returns the first HTTP string found in a payload.
+///
+/// # Arguments
+/// * `payload` - JSON value to search.
+///
+/// # Returns
+/// The first trimmed string starting with `http`, or `None`.
 fn find_http_string(payload: &Value) -> Option<String> {
     let mut found = None;
     find_string(payload, &mut found, &|value| value.starts_with("http"));
     found
 }
 
+/// Finds an HTTP URL stored under a key containing a marker.
+///
+/// # Arguments
+/// * `payload` - JSON value to search.
+/// * `key_marker` - Case-insensitive key substring.
+///
+/// # Returns
+/// The first matching HTTP URL, or `None`.
 fn find_keyed_url(payload: &Value, key_marker: &str) -> Option<String> {
     match payload {
         Value::Object(object) => {
@@ -858,6 +1099,12 @@ fn find_keyed_url(payload: &Value, key_marker: &str) -> Option<String> {
     }
 }
 
+/// Finds the first string matching a predicate.
+///
+/// # Arguments
+/// * `payload` - JSON value to search.
+/// * `found` - Accumulator receiving the first match.
+/// * `matches` - Predicate applied to trimmed string values.
 fn find_string(payload: &Value, found: &mut Option<String>, matches: &dyn Fn(&str) -> bool) {
     if found.is_some() {
         return;
@@ -880,6 +1127,18 @@ fn find_string(payload: &Value, found: &mut Option<String>, matches: &dyn Fn(&st
     }
 }
 
+/// Reads a non-empty string at a JSON pointer.
+///
+/// # Arguments
+/// * `payload` - JSON value to query.
+/// * `pointer` - JSON pointer selecting the string.
+/// * `error` - Error message used when the value is absent or blank.
+///
+/// # Errors
+/// Returns an error when the pointer does not resolve to a non-empty string.
+///
+/// # Returns
+/// The trimmed string value.
 fn read_string(payload: &Value, pointer: &str, error: &str) -> Result<String> {
     payload
         .pointer(pointer)
@@ -890,6 +1149,14 @@ fn read_string(payload: &Value, pointer: &str, error: &str) -> Result<String> {
         .context(error.to_string())
 }
 
+/// Produces a bounded preview of an HTTP error body.
+///
+/// # Arguments
+/// * `body` - Raw response body.
+///
+/// # Returns
+/// A trimmed preview capped by `PLAYER_ERROR_BODY_PREVIEW_LENGTH`, with an
+/// ellipsis when longer, or `<empty body>` when blank.
 fn preview_error_body(body: &str) -> String {
     let value = body.trim();
     if value.is_empty() {
@@ -906,6 +1173,13 @@ fn preview_error_body(body: &str) -> String {
     preview
 }
 
+/// Caches a session for `login` using `SESSION_TTL`.
+///
+/// # Arguments
+/// * `login` - Account email used as the cache key.
+/// * `session` - Session to store.
+///
+/// The write is skipped when the cache mutex is poisoned.
 fn save_cached_session(login: &str, session: &CognitoSession) {
     let cache = SESSION_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     if let Ok(mut cache) = cache.lock() {
@@ -920,6 +1194,14 @@ fn save_cached_session(login: &str, session: &CognitoSession) {
     }
 }
 
+/// Loads a non-expired session, pruning expired entries.
+///
+/// # Arguments
+/// * `login` - Account email used as the cache key.
+///
+/// # Returns
+/// The cached session, or `None` when absent, expired, or the cache mutex is
+/// poisoned.
 fn load_cached_session(login: &str) -> Option<CognitoSession> {
     let cache = SESSION_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     let Ok(mut cache) = cache.lock() else {

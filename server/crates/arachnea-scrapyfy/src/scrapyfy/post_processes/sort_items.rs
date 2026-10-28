@@ -79,6 +79,12 @@ pub(super) fn apply(
 ///
 /// Uses numeric comparison when both values parse as integers, otherwise
 /// falls back to lexicographic comparison. Items with no value compare equal.
+///
+/// # Arguments
+///
+/// * `left` - Left item supplied to the sort comparator.
+/// * `right` - Right item supplied to the sort comparator.
+/// * `field` - Field path relative to the item being inspected.
 fn compare_items(
     left: &ScraperDataNode,
     right: &ScraperDataNode,

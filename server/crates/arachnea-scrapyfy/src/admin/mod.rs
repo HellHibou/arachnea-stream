@@ -5,7 +5,7 @@
 //! command names. Sources are addressed by the composite pair
 //! `(service_store_id, service_id)`; application-specific behaviors (persisted
 //! settings, REST hot application, encrypted credentials, runtime rebuilds)
-//! are reached through the [`AdminRuntimeAdapter`] injected by the executable.
+//! are reached through the [`crate::admin::AdminRuntimeAdapter`] injected by the executable.
 
 pub mod auth;
 pub mod dto;
@@ -95,6 +95,10 @@ pub trait AdminRuntimeAdapter: Send + Sync {
 
     /// Validates and persists the application settings.
     ///
+    /// # Arguments
+    ///
+    /// * `settings` - Application or scraper settings supplied to the adapter for persistence or application.
+    ///
     /// # Errors
     /// Returns an error when a value is invalid or the configuration cannot
     /// be written.
@@ -112,6 +116,11 @@ pub trait AdminRuntimeAdapter: Send + Sync {
 
     /// Returns the stored credentials of one namespaced source, if any.
     ///
+    /// # Arguments
+    ///
+    /// * `service_store_id` - Service-store namespace used to distinguish identical source IDs across groups.
+    /// * `service_id` - Source identifier within the selected service store.
+    ///
     /// # Errors
     /// Returns an error when the credentials store cannot be read or the
     /// stored values cannot be decrypted.
@@ -123,6 +132,12 @@ pub trait AdminRuntimeAdapter: Send + Sync {
 
     /// Writes the credentials of one namespaced source.
     ///
+    /// # Arguments
+    ///
+    /// * `service_store_id` - Service-store namespace used to distinguish identical source IDs across groups.
+    /// * `service_id` - Source identifier within the selected service store.
+    /// * `credentials` - Plaintext credentials passed to the application adapter for encrypted persistence.
+    ///
     /// # Errors
     /// Returns an error when the credentials cannot be encrypted or persisted.
     fn set_stored_credentials(
@@ -133,6 +148,11 @@ pub trait AdminRuntimeAdapter: Send + Sync {
     ) -> anyhow::Result<()>;
 
     /// Removes the credentials of one namespaced source.
+    ///
+    /// # Arguments
+    ///
+    /// * `service_store_id` - Service-store namespace used to distinguish identical source IDs across groups.
+    /// * `service_id` - Source identifier within the selected service store.
     ///
     /// # Errors
     /// Returns an error when the credentials store cannot be updated.
@@ -149,6 +169,10 @@ pub trait AdminRuntimeAdapter: Send + Sync {
     /// has no application-specific runtime. The hook must never partially apply
     /// a failed rebuild.
     ///
+    /// # Arguments
+    ///
+    /// * `group` - Validated service group to rebuild without partially applying a failed update.
+    ///
     /// # Errors
     /// Returns an error for unexpected internal failures only.
     async fn rebuild_validated_group(
@@ -162,6 +186,10 @@ pub trait AdminRuntimeAdapter: Send + Sync {
     /// Called after the overrides have been persisted. The hook applies the
     /// effective merged values (command line wins over persisted). It must
     /// never partially apply a failed update.
+    ///
+    /// # Arguments
+    ///
+    /// * `settings` - Application or scraper settings supplied to the adapter for persistence or application.
     ///
     /// # Errors
     /// Returns an error for unexpected internal failures only.
@@ -202,12 +230,14 @@ impl AdminState {
     /// caller for one-time display instead of being printed from this crate.
     ///
     /// # Arguments
+    ///
     /// * `settings` - Effective runtime settings of the running server.
     /// * `groups` - Declared service stores, in display order.
     /// * `source_enabled` - Typed store holding the `arachnea-services`
-    ///   records, qualified by `(service_store_id, source_id)`.
+    /// records, qualified by `(service_store_id, source_id)`.
     /// * `adapter` - Application adapter for persisted settings, hot apply,
-    ///   credentials, and runtime rebuilds.
+    /// credentials, and runtime rebuilds.
+    /// * `cli_scraper` - Command-line scraper overrides, which take precedence over persisted settings.
     ///
     /// # Errors
     /// Returns an error when the persisted settings cannot be read.
@@ -290,7 +320,14 @@ impl AdminState {
     /// Updates the effective server settings after a hot application.
     ///
     /// Only the values that actually changed are updated, and their provenance
-    /// becomes `Configuration`; command-line pinned values stay untouched.
+    /// becomes `Configuration`. Callers supply effective values after resolving
+    /// command-line precedence; this method does not enforce pinning itself.
+    ///
+    /// # Arguments
+    ///
+    /// * `server_port` - Effective HTTP listening port displayed by the administration state.
+    /// * `network_mode` - Effective network exposure mode of the running server.
+    /// * `entrypoint_root` - Effective root path or entry-point prefix of the running controller.
     pub(crate) fn update_effective_server_settings(
         &self,
         server_port: u16,
@@ -328,6 +365,11 @@ impl AdminState {
     }
 
     /// Builds the composite identity of one source.
+    ///
+    /// # Arguments
+    ///
+    /// * `service_store_id` - Service-store namespace used to distinguish identical source IDs across groups.
+    /// * `source_id` - Source identifier within the selected service store.
     pub(crate) fn source_key(&self, service_store_id: &str, source_id: &str) -> SourceServiceKey {
         SourceServiceKey::new(service_store_id, source_id)
     }
@@ -337,6 +379,13 @@ impl AdminState {
 ///
 /// The operation accepts both JSON (POST/invoke) and query-string (GET)
 /// payloads. Every reply carries `Cache-Control: no-store`.
+///
+/// # Arguments
+///
+/// * `controler` - Controller service on which the administration operation is registered.
+/// * `state` - Shared administration state providing settings, sessions, stores and runtime hooks.
+/// * `operation` - Administration operation name registered beneath the admin command prefix.
+/// * `handler` - Asynchronous handler invoked for the registered operation.
 fn register_admin_operation<I, F, Fut>(
     controler: &mut dyn ControlerService,
     state: &Arc<AdminState>,
@@ -365,6 +414,10 @@ fn register_admin_operation<I, F, Fut>(
 }
 
 /// Turns an operation result into a header-aware JSON output.
+///
+/// # Arguments
+///
+/// * `reply` - Administration reply converted into the controller JSON response.
 fn reply_to_output(reply: Result<AdminReply, AdminError>) -> ControlerJsonOutput {
     let (status, value, mut headers) = match reply {
         Ok(reply) => (reply.status, reply.value, reply.headers),

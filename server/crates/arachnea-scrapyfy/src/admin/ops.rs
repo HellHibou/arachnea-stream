@@ -46,6 +46,10 @@ pub struct AdminError {
 
 impl AdminError {
     /// Builds a `400 Bad Request` error.
+    ///
+    /// # Arguments
+    ///
+    /// * `message` - Technical error message returned with the corresponding administration status.
     pub fn bad_request(message: impl Into<String>) -> Self {
         Self {
             status: 400,
@@ -55,6 +59,10 @@ impl AdminError {
     }
 
     /// Builds a `401 Unauthorized` error.
+    ///
+    /// # Arguments
+    ///
+    /// * `message` - Technical error message returned with the corresponding administration status.
     pub fn unauthorized(message: impl Into<String>) -> Self {
         Self {
             status: 401,
@@ -64,6 +72,10 @@ impl AdminError {
     }
 
     /// Builds a `403 Forbidden` error.
+    ///
+    /// # Arguments
+    ///
+    /// * `message` - Technical error message returned with the corresponding administration status.
     pub fn forbidden(message: impl Into<String>) -> Self {
         Self {
             status: 403,
@@ -73,6 +85,10 @@ impl AdminError {
     }
 
     /// Builds a `404 Not Found` error.
+    ///
+    /// # Arguments
+    ///
+    /// * `message` - Technical error message returned with the corresponding administration status.
     pub fn not_found(message: impl Into<String>) -> Self {
         Self {
             status: 404,
@@ -82,6 +98,10 @@ impl AdminError {
     }
 
     /// Builds a `405 Method Not Allowed` error.
+    ///
+    /// # Arguments
+    ///
+    /// * `message` - Technical error message returned with the corresponding administration status.
     pub fn method_not_allowed(message: impl Into<String>) -> Self {
         Self {
             status: 405,
@@ -91,6 +111,10 @@ impl AdminError {
     }
 
     /// Builds a `429 Too Many Requests` error.
+    ///
+    /// # Arguments
+    ///
+    /// * `message` - Technical error message returned with the corresponding administration status.
     pub fn rate_limited(message: impl Into<String>) -> Self {
         Self {
             status: 429,
@@ -127,6 +151,10 @@ pub struct AdminReply {
 
 impl AdminReply {
     /// Builds a `200 OK` reply from a serializable payload.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - Serialized JSON value returned in the successful administration reply.
     pub fn ok<T: Serialize>(value: &T) -> Self {
         Self {
             status: 200,
@@ -136,6 +164,11 @@ impl AdminReply {
     }
 
     /// Builds a `200 OK` reply with custom response headers.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - Serialized JSON value returned in the successful administration reply.
+    /// * `headers` - Additional response headers, including cookie or session metadata when needed.
     pub fn ok_with_headers<T: Serialize>(value: &T, headers: HashMap<String, String>) -> Self {
         Self {
             status: 200,
@@ -146,6 +179,10 @@ impl AdminReply {
 }
 
 /// Converts an `anyhow` error into a contextualized bad-request error.
+///
+/// # Arguments
+///
+/// * `error` - Underlying error wrapped with the administration operation status.
 fn admin_err(error: anyhow::Error) -> AdminError {
     AdminError::bad_request(format!("{error:#}"))
 }
@@ -154,6 +191,11 @@ fn admin_err(error: anyhow::Error) -> AdminError {
 ///
 /// Desktop clients are always authorized. In server mode, loopback clients are
 /// authorized; any other caller must hold a valid session.
+///
+/// # Arguments
+///
+/// * `state` - Shared administration state providing settings, sessions, stores and runtime hooks.
+/// * `context` - Incoming controller context used for access checks and request metadata.
 pub(crate) async fn require_authorized(
     state: &AdminState,
     context: &RequestControlerContext,
@@ -185,6 +227,11 @@ pub(crate) async fn require_authorized(
 /// Writes must arrive over `POST` and, when a browser `Origin` or `Referer`
 /// header is present, must originate from the same host as the `Host` header.
 /// Requests without an origin header (CLI tooling) are accepted.
+///
+/// # Arguments
+///
+/// * `state` - Shared administration state providing settings, sessions, stores and runtime hooks.
+/// * `context` - Incoming controller context used for access checks and request metadata.
 pub(crate) fn verify_write(
     state: &AdminState,
     context: &RequestControlerContext,
@@ -217,6 +264,11 @@ pub(crate) fn verify_write(
 /// Returns whether the origin host matches the request `Host` header.
 ///
 /// Ports equal to the scheme default (`80`/`443`) are treated as implicit.
+///
+/// # Arguments
+///
+/// * `origin` - Origin header value to compare with the request Host header.
+/// * `host_header` - Host header value, including an optional port.
 fn origin_matches_host(origin: &str, host_header: Option<&str>) -> bool {
     let Some(host) = host_header else {
         return true;
@@ -240,6 +292,10 @@ fn origin_matches_host(origin: &str, host_header: Option<&str>) -> bool {
 }
 
 /// Splits a `Host` header value into its host name and optional port.
+///
+/// # Arguments
+///
+/// * `host` - Host value split into hostname and optional port.
 fn split_host(host: &str) -> (String, Option<u16>) {
     match host.rsplit_once(':') {
         Some((name, port)) => match port.parse::<u16>() {
@@ -263,6 +319,12 @@ struct ResolvedSource {
 /// When `service_store_id` is given, only that group is searched; otherwise
 /// every group is searched in declaration order and an identifier present in
 /// several groups is rejected with a bad request asking for qualification.
+///
+/// # Arguments
+///
+/// * `state` - Shared administration state providing settings, sessions, stores and runtime hooks.
+/// * `service_store_id` - Service-store namespace used to distinguish identical source IDs across groups.
+/// * `service_id` - Source identifier within the selected service store.
 async fn resolve_source(
     state: &AdminState,
     service_store_id: Option<&str>,
@@ -298,6 +360,12 @@ async fn resolve_source(
 }
 
 /// Builds the `status` operation reply.
+///
+/// # Arguments
+///
+/// * `state` - Shared administration state providing settings, sessions, stores and runtime hooks.
+/// * `context` - Incoming controller context used for access checks and request metadata.
+/// * `_input` - Unused input accepted for compatibility with the administration handler signature.
 pub(crate) async fn op_status(
     state: Arc<AdminState>,
     context: RequestControlerContext,
@@ -340,6 +408,12 @@ pub(crate) async fn op_status(
 }
 
 /// Builds the `login` operation reply.
+///
+/// # Arguments
+///
+/// * `state` - Shared administration state providing settings, sessions, stores and runtime hooks.
+/// * `context` - Incoming controller context used for access checks and request metadata.
+/// * `input` - Deserialized input for the administration operation.
 pub(crate) async fn op_login(
     state: Arc<AdminState>,
     context: RequestControlerContext,
@@ -396,6 +470,12 @@ pub(crate) async fn op_login(
 }
 
 /// Builds the `logout` operation reply.
+///
+/// # Arguments
+///
+/// * `state` - Shared administration state providing settings, sessions, stores and runtime hooks.
+/// * `context` - Incoming controller context used for access checks and request metadata.
+/// * `_input` - Unused input accepted for compatibility with the administration handler signature.
 pub(crate) async fn op_logout(
     state: Arc<AdminState>,
     context: RequestControlerContext,
@@ -418,6 +498,11 @@ pub(crate) async fn op_logout(
 ///
 /// Prefers the requested language, then English, then French, then the first
 /// available declaration.
+///
+/// # Arguments
+///
+/// * `descriptions` - Localized descriptions indexed by language code.
+/// * `requested_lang` - Optional preferred language; fallback is English, French, then any available value.
 fn localized_description(
     descriptions: &HashMap<String, String>,
     requested_lang: Option<&str>,
@@ -434,6 +519,11 @@ fn localized_description(
 ///
 /// Returns `None` when the template contains a placeholder that cannot be
 /// resolved from the available parameters.
+///
+/// # Arguments
+///
+/// * `template` - Optional logo template resolved against configured collection parameters.
+/// * `parameters` - Configured collection parameter names and values available for template replacement.
 fn resolve_logo(
     template: Option<&str>,
     parameters: &[ScraperQueryCollectionParameter],
@@ -451,12 +541,22 @@ fn resolve_logo(
 }
 
 /// Masks a stored login, keeping the first character.
+///
+/// # Arguments
+///
+/// * `login` - Stored login whose first character is retained while masking the remainder.
 fn mask_login(login: &str) -> String {
     let first = login.chars().next().unwrap_or('*');
     format!("{first}***")
 }
 
 /// Builds the `services` catalog reply across every declared service store.
+///
+/// # Arguments
+///
+/// * `state` - Shared administration state providing settings, sessions, stores and runtime hooks.
+/// * `context` - Incoming controller context used for access checks and request metadata.
+/// * `input` - Deserialized input for the administration operation.
 pub(crate) async fn op_services(
     state: Arc<AdminState>,
     context: RequestControlerContext,
@@ -525,6 +625,12 @@ pub(crate) async fn op_services(
 }
 
 /// Builds the `set-service-enabled` reply.
+///
+/// # Arguments
+///
+/// * `state` - Shared administration state providing settings, sessions, stores and runtime hooks.
+/// * `context` - Incoming controller context used for access checks and request metadata.
+/// * `input` - Deserialized input for the administration operation.
 pub(crate) async fn op_set_service_enabled(
     state: Arc<AdminState>,
     context: RequestControlerContext,
@@ -553,6 +659,12 @@ pub(crate) async fn op_set_service_enabled(
 }
 
 /// Builds the `reset-service-enabled` reply.
+///
+/// # Arguments
+///
+/// * `state` - Shared administration state providing settings, sessions, stores and runtime hooks.
+/// * `context` - Incoming controller context used for access checks and request metadata.
+/// * `input` - Deserialized input for the administration operation.
 pub(crate) async fn op_reset_service_enabled(
     state: Arc<AdminState>,
     context: RequestControlerContext,
@@ -578,6 +690,12 @@ pub(crate) async fn op_reset_service_enabled(
 }
 
 /// Builds the `credentials` operation reply.
+///
+/// # Arguments
+///
+/// * `state` - Shared administration state providing settings, sessions, stores and runtime hooks.
+/// * `context` - Incoming controller context used for access checks and request metadata.
+/// * `input` - Deserialized input for the administration operation.
 pub(crate) async fn op_credentials(
     state: Arc<AdminState>,
     context: RequestControlerContext,
@@ -655,6 +773,12 @@ pub(crate) async fn op_credentials(
 }
 
 /// Builds the `set-credentials` reply.
+///
+/// # Arguments
+///
+/// * `state` - Shared administration state providing settings, sessions, stores and runtime hooks.
+/// * `context` - Incoming controller context used for access checks and request metadata.
+/// * `input` - Deserialized input for the administration operation.
 pub(crate) async fn op_set_credentials(
     state: Arc<AdminState>,
     context: RequestControlerContext,
@@ -692,6 +816,12 @@ pub(crate) async fn op_set_credentials(
 }
 
 /// Builds the `clear-credentials` reply.
+///
+/// # Arguments
+///
+/// * `state` - Shared administration state providing settings, sessions, stores and runtime hooks.
+/// * `context` - Incoming controller context used for access checks and request metadata.
+/// * `input` - Deserialized input for the administration operation.
 pub(crate) async fn op_clear_credentials(
     state: Arc<AdminState>,
     context: RequestControlerContext,
@@ -720,6 +850,12 @@ pub(crate) async fn op_clear_credentials(
 /// Every declared group is validated before any application-specific runtime
 /// hook runs. A failing group keeps its runtime untouched and is reported with
 /// its identifier.
+///
+/// # Arguments
+///
+/// * `state` - Shared administration state providing settings, sessions, stores and runtime hooks.
+/// * `context` - Incoming controller context used for access checks and request metadata.
+/// * `_input` - Unused input accepted for compatibility with the administration handler signature.
 pub(crate) async fn op_reload(
     state: Arc<AdminState>,
     context: RequestControlerContext,

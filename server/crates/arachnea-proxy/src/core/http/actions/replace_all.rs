@@ -24,6 +24,12 @@ pub struct ReplaceAll;
 
 impl ReplaceAll {
     /// Creates a ReplaceAll action without an explicit execution order.
+    ///
+    /// # Arguments
+    /// * `pattern` - Regular expression stored in the action; compilation happens when the action is built.
+    /// * `replacement` - Replacement template, with request-context variables resolved when the action runs.
+    /// * `content_types` - Optional media-type allowlist; `None` uses the built-in textual content-type policy.
+    ///
     pub fn new(
         pattern: impl Into<String>,
         replacement: impl Into<String>,
@@ -33,6 +39,13 @@ impl ReplaceAll {
     }
 
     /// Creates a ReplaceAll action with an explicit execution order.
+    ///
+    /// # Arguments
+    /// * `order` - Execution order used when sorting post-response actions.
+    /// * `pattern` - Regular expression stored in the action; compilation happens when the action is built.
+    /// * `replacement` - Replacement template, with request-context variables resolved when the action runs.
+    /// * `content_types` - Optional media-type allowlist; `None` uses the built-in textual content-type policy.
+    ///
     pub fn ordered(
         order: i32,
         pattern: impl Into<String>,
@@ -42,6 +55,13 @@ impl ReplaceAll {
         Self::with_order(Some(order), pattern, replacement, content_types)
     }
 
+    /// Builds a serializable regex replacement action without compiling the pattern.
+    ///
+    /// # Arguments
+    /// * `order` - Optional execution order; `None` retains the default action ordering.
+    /// * `pattern` - Regular expression stored in the action; compilation happens when the action is built.
+    /// * `replacement` - Replacement template, with request-context variables resolved when the action runs.
+    /// * `content_types` - Optional media-type allowlist; `None` uses the built-in textual content-type policy.
     fn with_order(
         order: Option<i32>,
         pattern: impl Into<String>,
@@ -100,6 +120,10 @@ impl ReplaceAllHeaderValue {
 }
 
 /// Serializes a ReplaceAll action to its proxy action header.
+///
+/// # Arguments
+/// * `action` - Action configuration to inspect or encode.
+///
 #[cfg(feature = "controller-service")]
 pub(crate) fn proxy_action_header(
     action: &ProxyHttpActionConfig,
@@ -127,6 +151,12 @@ pub(crate) fn proxy_action_header(
 }
 
 /// Parses the JSON value of a ReplaceAll proxy action header.
+///
+/// # Arguments
+/// * `name_lower` - ASCII-lowercase header name used to identify the supported action.
+/// * `name` - Original HTTP action header name.
+/// * `value` - Header value to decode and validate.
+///
 #[cfg(feature = "controller-service")]
 pub(crate) fn parse_proxy_action_header_value(
     name_lower: &str,
@@ -203,6 +233,10 @@ impl ReplaceAllAction {
     }
 
     /// Detects whether the content type is textual.
+    ///
+    /// # Arguments
+    /// * `content_type` - Content-Type value, including any optional charset parameters.
+    ///
     fn is_textual_content_type(&self, content_type: &str) -> bool {
         if let Some(content_types) = &self.content_types {
             return content_type_matches(content_type, content_types);
@@ -298,6 +332,14 @@ impl super::ProxyHttpPostAction for ReplaceAllAction {
     }
 }
 
+/// Parses a JSON media-type list, trimming and lowercasing non-empty entries.
+///
+/// # Arguments
+/// * `value` - JSON array of allowed media-type strings.
+///
+/// # Errors
+///
+/// Returns a protocol error if the value is not a JSON array of strings.
 fn parse_content_types(value: &str) -> Result<Vec<String>> {
     let content_types: Vec<String> = serde_json::from_str(value).map_err(|error| {
         ProxyError::Protocol(format!(
@@ -312,6 +354,11 @@ fn parse_content_types(value: &str) -> Result<Vec<String>> {
         .collect())
 }
 
+/// Matches the response media type against the allowlist, ignoring charset parameters.
+///
+/// # Arguments
+/// * `content_type` - Content-Type value, including any optional charset parameters.
+/// * `allowed_content_types` - Allowed media types compared without charset parameters or ASCII case.
 fn content_type_matches(content_type: &str, allowed_content_types: &[String]) -> bool {
     let media_type = content_type
         .split(';')
@@ -326,6 +373,11 @@ fn content_type_matches(content_type: &str, allowed_content_types: &[String]) ->
 }
 
 /// Resolves predefined variables in a replacement string using request context.
+///
+/// # Arguments
+/// * `template` - Replacement template containing predefined request-context variables.
+/// * `context` - Request metadata available when resolving replacement variables.
+///
 fn resolve_variables(template: &str, context: &PostActionContext) -> String {
     let base_url = target_origin(&context.target_url);
     let proxy_path = entry_point_public_path(&context.entry_point);
@@ -358,6 +410,10 @@ fn resolve_variables(template: &str, context: &PostActionContext) -> String {
         .replace("{path_base}", &path_base)
 }
 
+/// Extracts the target origin, retaining the trimmed input when URL parsing fails.
+///
+/// # Arguments
+/// * `target_url` - Target URL from which the scheme, host and port are extracted.
 fn target_origin(target_url: &str) -> String {
     let normalized = target_url.trim().trim_end_matches('/');
     let Ok(url) = url::Url::parse(normalized) else {
@@ -381,6 +437,10 @@ fn target_origin(target_url: &str) -> String {
     origin
 }
 
+/// Derives the controller public path from HTTP or custom-webview entry points.
+///
+/// # Arguments
+/// * `entry_point` - Controller entry-point URL or path used to derive its public proxy path.
 fn entry_point_public_path(entry_point: &str) -> String {
     let normalized = entry_point.trim().trim_end_matches('/');
     if normalized.is_empty() {
@@ -432,6 +492,10 @@ fn entry_point_public_path(entry_point: &str) -> String {
 /// 1. `charset` parameter from the header.
 /// 2. UTF-8 (fallback for textual types).
 /// 3. Fallback to Windows-1252 then ISO-8859-1 if UTF-8 decoding fails.
+///
+/// # Arguments
+/// * `content_type` - Content-Type value, including any optional charset parameters.
+///
 fn detect_encoding(content_type: &str) -> &'static Encoding {
     // Try to extract charset from content-type
     for part in content_type.split(';') {

@@ -55,7 +55,7 @@ pub struct Destination {
 impl Destination {
     /// Creates a TCP destination from a hostname and port.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `host`: Hostname to preserve in the destination.
     /// - `port`: Target port.
@@ -73,7 +73,7 @@ impl Destination {
 
     /// Creates a TCP destination from an IP address and port.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `ip`: Target IP address.
     /// - `port`: Target port.
@@ -91,7 +91,7 @@ impl Destination {
 
     /// Returns a copy of this destination with a different protocol hint.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `protocol`: Application protocol hint to assign.
     ///
@@ -105,7 +105,7 @@ impl Destination {
 
     /// Parses an authority value such as `example.com:443` or `[::1]:443`.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `authority`: Authority string to parse.
     /// - `protocol`: Application protocol hint to attach.
@@ -175,7 +175,7 @@ impl Destination {
 impl fmt::Display for Destination {
     /// Formats the destination as an authority string.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `f`: Formatter receiving the destination authority.
     ///
@@ -189,7 +189,7 @@ impl fmt::Display for Destination {
 
 /// Splits an authority string into host and port components.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `authority`: Authority formatted as `host:port` or `[ipv6]:port`.
 ///

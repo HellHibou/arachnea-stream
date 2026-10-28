@@ -89,7 +89,7 @@ pub struct ScraperQueryCollectionRaw {
     pub queries: Vec<ScraperQueryDefinitionRaw>,
 }
 
-/// Raw configuration wrapper supporting both HTML and JSON query definitions.
+/// Raw configuration wrapper supporting HTML, JSON, static and text query definitions.
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "scraper_type", rename_all = "snake_case")]
 pub enum ScraperQueryDefinitionRaw {
@@ -185,6 +185,10 @@ impl ScraperQueryDefinition {
     }
 
     /// Returns whether the query matches at least one requested media type.
+    ///
+    /// # Arguments
+    ///
+    /// * `media_types` - Requested media types tested against the query declaration.
     pub fn is_media_type(&self, media_types: &[String]) -> bool {
         match self {
             ScraperQueryDefinition::Html(query) => query.is_media_type(media_types),
@@ -195,11 +199,20 @@ impl ScraperQueryDefinition {
     }
 
     /// Rebinds all embedded HTTP clients to the provided shared proxy handle.
+    ///
+    /// # Arguments
+    ///
+    /// * `proxy_handle` - Shared, versioned routing configuration observed by derived HTTP clients.
     pub fn set_proxy_handle(&mut self, proxy_handle: SharedProxyConfigHandle) {
         self.set_runtime_handles(proxy_handle, SharedLocalCountry::new());
     }
 
     /// Rebinds all embedded HTTP clients to the provided shared runtime handles.
+    ///
+    /// # Arguments
+    ///
+    /// * `proxy_handle` - Shared, versioned routing configuration observed by derived HTTP clients.
+    /// * `local_country` - Shared explicit or detected outbound-country state used for local-country proxy bypass.
     pub fn set_runtime_handles(
         &mut self,
         proxy_handle: SharedProxyConfigHandle,
@@ -214,6 +227,12 @@ impl ScraperQueryDefinition {
 
     /// Rebinds all embedded HTTP clients to the provided shared runtime handles
     /// and persistence store.
+    ///
+    /// # Arguments
+    ///
+    /// * `proxy_handle` - Shared, versioned routing configuration observed by derived HTTP clients.
+    /// * `local_country` - Shared explicit or detected outbound-country state used for local-country proxy bypass.
+    /// * `session_store` - Typed store for reusable chaser-cf sessions shared by this client family.
     pub fn set_runtime_handles_with_session_store(
         &mut self,
         proxy_handle: SharedProxyConfigHandle,
@@ -282,6 +301,10 @@ impl TryFrom<ScraperQueryDefinitionRaw> for ScraperQueryDefinition {
 
     /// Converts a raw query definition into its validated runtime variant.
     ///
+    /// # Arguments
+    ///
+    /// * `config` - Cache sizing and directory configuration used to construct the server-side cache.
+    ///
     /// # Errors
     ///
     /// Returns an error if the inner query definition is invalid.
@@ -297,6 +320,10 @@ impl TryFrom<ScraperQueryDefinitionRaw> for ScraperQueryDefinition {
 
 impl From<&ScraperQueryDefinition> for ScraperQueryDefinitionRaw {
     /// Converts a runtime query definition back into its raw YAML-compatible representation.
+    ///
+    /// # Arguments
+    ///
+    /// * `query` - Query definition supplying request, extraction and post-processing settings.
     fn from(query: &ScraperQueryDefinition) -> Self {
         match query {
             ScraperQueryDefinition::Html(query) => Self::Html {
@@ -317,6 +344,10 @@ impl From<&ScraperQueryDefinition> for ScraperQueryDefinitionRaw {
 
 impl Serialize for ScraperQueryDefinition {
     /// Serializes the query definition through its raw YAML representation.
+    ///
+    /// # Arguments
+    ///
+    /// * `serializer` - Serde serializer receiving the raw or typed representation.
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -350,6 +381,7 @@ impl ScraperQueryCollection {
     /// * `logo` - Logo URL or path for the source.
     /// * `description` - Multi-language description map.
     /// * `parameters` - Collection-level default parameters merged into every execution.
+    /// * `proxy_insecure_tls_hosts` - Exact host allowlist eligible for an explicit proxy TLS-verification bypass.
     /// * `parameter_defaults` - Resolved and action-processed parameter defaults indexed by name.
     /// * `queries` - Query definitions indexed by their individual names.
     pub fn new(
@@ -422,6 +454,10 @@ impl ScraperQueryCollection {
     }
 
     /// Records the base62 hash of the raw source YAML document.
+    ///
+    /// # Arguments
+    ///
+    /// * `yaml_hash` - Hash of the owning YAML configuration included in the source validator identity.
     pub(crate) fn set_yaml_hash(&mut self, yaml_hash: String) -> &mut Self {
         self.yaml_hash = yaml_hash;
         self
@@ -480,11 +516,20 @@ impl ScraperQueryCollection {
     }
 
     /// Rebinds all query HTTP clients to the provided shared proxy handle.
+    ///
+    /// # Arguments
+    ///
+    /// * `proxy_handle` - Shared, versioned routing configuration observed by derived HTTP clients.
     pub fn set_proxy_handle(&mut self, proxy_handle: SharedProxyConfigHandle) {
         self.set_runtime_handles(proxy_handle, SharedLocalCountry::new());
     }
 
     /// Rebinds all query HTTP clients to the provided shared runtime handles.
+    ///
+    /// # Arguments
+    ///
+    /// * `proxy_handle` - Shared, versioned routing configuration observed by derived HTTP clients.
+    /// * `local_country` - Shared explicit or detected outbound-country state used for local-country proxy bypass.
     pub fn set_runtime_handles(
         &mut self,
         proxy_handle: SharedProxyConfigHandle,
@@ -499,6 +544,12 @@ impl ScraperQueryCollection {
 
     /// Rebinds all query HTTP clients to the provided shared runtime handles
     /// and persistence store.
+    ///
+    /// # Arguments
+    ///
+    /// * `proxy_handle` - Shared, versioned routing configuration observed by derived HTTP clients.
+    /// * `local_country` - Shared explicit or detected outbound-country state used for local-country proxy bypass.
+    /// * `session_store` - Typed store for reusable chaser-cf sessions shared by this client family.
     pub fn set_runtime_handles_with_session_store(
         &mut self,
         proxy_handle: SharedProxyConfigHandle,
@@ -515,6 +566,14 @@ impl ScraperQueryCollection {
     }
 }
 
+/// Installs shared routing, local-country and session-store handles throughout the text query definition.
+///
+/// # Arguments
+///
+/// * `query` - Query definition supplying request, extraction and post-processing settings.
+/// * `proxy_handle` - Shared, versioned routing configuration observed by derived HTTP clients.
+/// * `local_country` - Shared explicit or detected outbound-country state used for local-country proxy bypass.
+/// * `session_store` - Typed store for reusable chaser-cf sessions shared by this client family.
 fn bind_text_query_runtime_handles(
     query: &mut TextScraperQuery,
     proxy_handle: &SharedProxyConfigHandle,
@@ -530,6 +589,14 @@ fn bind_text_query_runtime_handles(
         );
 }
 
+/// Installs shared routing, local-country and session-store handles throughout the html query definition.
+///
+/// # Arguments
+///
+/// * `query` - Query definition supplying request, extraction and post-processing settings.
+/// * `proxy_handle` - Shared, versioned routing configuration observed by derived HTTP clients.
+/// * `local_country` - Shared explicit or detected outbound-country state used for local-country proxy bypass.
+/// * `session_store` - Typed store for reusable chaser-cf sessions shared by this client family.
 fn bind_html_query_runtime_handles(
     query: &mut HtmlScraperQuery,
     proxy_handle: &SharedProxyConfigHandle,
@@ -565,6 +632,14 @@ fn bind_html_query_runtime_handles(
     }
 }
 
+/// Installs shared routing, local-country and session-store handles throughout the html sub query definition.
+///
+/// # Arguments
+///
+/// * `query` - Query definition supplying request, extraction and post-processing settings.
+/// * `proxy_handle` - Shared, versioned routing configuration observed by derived HTTP clients.
+/// * `local_country` - Shared explicit or detected outbound-country state used for local-country proxy bypass.
+/// * `session_store` - Typed store for reusable chaser-cf sessions shared by this client family.
 fn bind_html_sub_query_runtime_handles(
     query: &mut HtmlScraperSubQuery,
     proxy_handle: &SharedProxyConfigHandle,
@@ -580,6 +655,14 @@ fn bind_html_sub_query_runtime_handles(
         );
 }
 
+/// Installs shared routing, local-country and session-store handles throughout the json query definition.
+///
+/// # Arguments
+///
+/// * `query` - Query definition supplying request, extraction and post-processing settings.
+/// * `proxy_handle` - Shared, versioned routing configuration observed by derived HTTP clients.
+/// * `local_country` - Shared explicit or detected outbound-country state used for local-country proxy bypass.
+/// * `session_store` - Typed store for reusable chaser-cf sessions shared by this client family.
 fn bind_json_query_runtime_handles(
     query: &mut JsonScraperQuery,
     proxy_handle: &SharedProxyConfigHandle,
@@ -615,6 +698,14 @@ fn bind_json_query_runtime_handles(
     }
 }
 
+/// Installs shared routing, local-country and session-store handles throughout the json sub query definition.
+///
+/// # Arguments
+///
+/// * `query` - Query definition supplying request, extraction and post-processing settings.
+/// * `proxy_handle` - Shared, versioned routing configuration observed by derived HTTP clients.
+/// * `local_country` - Shared explicit or detected outbound-country state used for local-country proxy bypass.
+/// * `session_store` - Typed store for reusable chaser-cf sessions shared by this client family.
 fn bind_json_sub_query_runtime_handles(
     query: &mut JsonScraperSubQuery,
     proxy_handle: &SharedProxyConfigHandle,
@@ -657,6 +748,10 @@ impl TryFrom<ScraperQueryCollectionRaw> for ScraperQueryCollection {
     ///
     /// Resolves collection-level parameters and HTTP config into each query before
     /// converting them to their runtime variants.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - Cache sizing and directory configuration used to construct the server-side cache.
     ///
     /// # Errors
     ///
@@ -717,6 +812,10 @@ impl TryFrom<ScraperQueryCollectionRaw> for ScraperQueryCollection {
 
 impl From<&ScraperQueryCollection> for ScraperQueryCollectionRaw {
     /// Converts a runtime collection back into its raw YAML-compatible representation.
+    ///
+    /// # Arguments
+    ///
+    /// * `collection` - Runtime query collection converted into its raw YAML representation.
     fn from(collection: &ScraperQueryCollection) -> Self {
         let mut queries = collection
             .queries
@@ -745,6 +844,10 @@ impl From<&ScraperQueryCollection> for ScraperQueryCollectionRaw {
 
 impl Serialize for ScraperQueryCollection {
     /// Serializes the collection through its raw YAML representation.
+    ///
+    /// # Arguments
+    ///
+    /// * `serializer` - Serde serializer receiving the raw or typed representation.
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
         S: Serializer,

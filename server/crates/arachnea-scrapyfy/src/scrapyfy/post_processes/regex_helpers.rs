@@ -17,6 +17,7 @@ use super::types::ScraperRegexItemEntry;
 ///
 /// The compiled [`Regex`], or `None` when the pattern fails to compile.
 pub(super) fn get_cached_regex(pattern: &str) -> Option<Regex> {
+    /// Cache of successfully compiled patterns shared by post-processing calls.
     static REGEX_CACHE: OnceLock<Mutex<HashMap<String, Regex>>> = OnceLock::new();
 
     let cache = REGEX_CACHE.get_or_init(|| Mutex::new(HashMap::new()));

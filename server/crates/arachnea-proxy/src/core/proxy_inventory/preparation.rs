@@ -20,7 +20,7 @@ use super::{
     ProxyInventory,
 };
 use crate::core::{Destination, ProxyRecord, ProxySearchContext, ProxySearchLimits};
-
+/// Exact accepted origin and capability constraints retained for fallback preparation.
 #[derive(Clone, Debug)]
 struct PreparationRoute {
     countries: Vec<String>,
@@ -68,10 +68,12 @@ impl ProbeContinuation {
         });
     }
 
+    /// Returns whether this continuation retains an exact-origin route for reserve preparation.
     pub(crate) fn is_routed(&self) -> bool {
         self.route.lock().unwrap().is_some()
     }
 
+    /// Aborts all technical subscriptions owned by this continuation.
     pub(crate) fn cancel(&self) {
         self.tasks.lock().unwrap().abort_all();
     }
@@ -110,12 +112,19 @@ impl ProbeContinuation {
 pub(super) struct PreparationRuntime {
     tasks: Mutex<HashMap<String, PreparationEntry>>,
 }
-
+/// Owned reserve-preparation tasks and their shared technical deadline.
 struct PreparationEntry {
     tasks: JoinSet<()>,
     retry_at: Instant,
 }
 
+/// Collects eligible fallback endpoints other than the already accepted endpoint.
+///
+/// # Arguments
+/// * `inventory` - Inventory owning the selected endpoint and its runtime observations.
+/// * `inner` - Locked inventory state used to inspect currently cached candidates.
+/// * `route` - Accepted origin and allowed countries defining the fallback reserve.
+/// * `endpoint` - Concrete proxy endpoint excluded or tracked by this operation.
 fn ready_reserve(
     inventory: &ProxyInventory,
     inner: &super::InventoryInner,
@@ -161,6 +170,7 @@ fn ready_reserve(
 }
 
 impl ProxyInventory {
+    /// Clones the inventory with an independent empty preparation supervisor to avoid ownership cycles.
     pub(super) fn clone_for_probe(&self) -> Self {
         let mut inventory = self.clone();
         inventory.preparations = Arc::new(PreparationRuntime::default());

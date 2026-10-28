@@ -39,14 +39,17 @@ const REDBEE_TOKEN_TTL: std::time::Duration = std::time::Duration::from_secs(55 
 /// Timeout for RTBF provider-specific license forwarding.
 const RTBF_LICENSE_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(25);
 
+/// Process-wide cache of RTBF Auvio license proxy requests.
 static REDBEE_LICENSE_CACHE: OnceLock<Mutex<HashMap<String, CachedRedbeeLicense>>> =
     OnceLock::new();
 
+/// Authenticated RedBee session token.
 #[derive(Clone)]
 struct RedbeeSession {
     session_token: String,
 }
 
+/// Cached RTBF Auvio license request with its stream kind and expiry.
 #[derive(Clone)]
 struct CachedRedbeeLicense {
     license_url: String,
@@ -106,6 +109,21 @@ impl PlayerStreamResolver for RtbfAuvioResolver {
     }
 }
 
+/// Resolves an RTBF Auvio asset into a protected RedBee player stream.
+///
+/// # Arguments
+/// * `scraper_agregator` - Aggregator used to create the HTTP client.
+/// * `credentials_store` - Store providing optional RTBF credentials.
+/// * `asset_id` - RedBee asset identifier; surrounding whitespace is ignored.
+/// * `stream_kind` - Optional caller-selected stream kind.
+/// * `endpoints` - Public endpoint settings used to build proxy URLs.
+///
+/// # Errors
+/// Returns an error when the identifier is empty, authentication or
+/// entitlement retrieval fails, or no playable format is available.
+///
+/// # Returns
+/// The resolved stream with proxied manifest, license and storyboard.
 async fn resolve_redbee_stream(
     scraper_agregator: &ScraperAgregator,
     credentials_store: &dyn CredentialsStore,
@@ -145,6 +163,13 @@ async fn resolve_redbee_stream(
     })
 }
 
+/// Extracts the first storyboard VTT URL from the entitlement sprites.
+///
+/// # Arguments
+/// * `entitlement` - Decoded RTBF entitlement payload.
+///
+/// # Returns
+/// The first non-empty VTT URL, or `None` when absent.
 fn extract_redbee_storyboard_vtt_url(entitlement: &Value) -> Option<String> {
     entitlement
         .get("sprites")?
@@ -160,6 +185,15 @@ fn extract_redbee_storyboard_vtt_url(entitlement: &Value) -> Option<String> {
         })
 }
 
+/// Prefixes an absolute media URL with the configured public proxy path.
+///
+/// # Arguments
+/// * `media_locator` - Manifest or storyboard URL.
+/// * `http_proxy_public_path` - Optional public HTTP proxy path.
+///
+/// # Returns
+/// The proxied URL for absolute HTTP(S) locators, otherwise the trimmed
+/// original locator.
 fn proxied_redbee_media_url(media_locator: &str, http_proxy_public_path: Option<&str>) -> String {
     let normalized_media_locator = media_locator.trim();
     if normalized_media_locator.starts_with("http://")
@@ -180,6 +214,18 @@ fn proxied_redbee_media_url(media_locator: &str, http_proxy_public_path: Option<
     normalized_media_locator.to_string()
 }
 
+/// Authenticates with RedBee, preferring a configured JWT when available.
+///
+/// # Arguments
+/// * `http_client` - HTTP client used for authentication requests.
+/// * `credentials_store` - Store providing optional RTBF credentials.
+/// * `asset_id` - Asset identifier used for anonymous authentication.
+///
+/// # Errors
+/// Returns an error when credentials cannot be read or authentication fails.
+///
+/// # Returns
+/// The authenticated RedBee session.
 async fn authenticate_redbee(
     http_client: &HttpClient,
     credentials_store: &dyn CredentialsStore,
@@ -208,6 +254,17 @@ async fn authenticate_redbee(
     authenticate_anonymous(http_client, asset_id).await
 }
 
+/// Creates an anonymous RedBee session for an asset.
+///
+/// # Arguments
+/// * `http_client` - HTTP client used for the request.
+/// * `asset_id` - Asset identifier sent as a query parameter.
+///
+/// # Errors
+/// Returns an error when the anonymous session cannot be created.
+///
+/// # Returns
+/// The anonymous RedBee session.
 async fn authenticate_anonymous(http_client: &HttpClient, asset_id: &str) -> Result<RedbeeSession> {
     let url = format!("{}/auth/anonymous?assetId={}", REDBEE_API_ROOT, asset_id);
     let body = auth_device_payload(None, None, None);
@@ -216,6 +273,17 @@ async fn authenticate_anonymous(http_client: &HttpClient, asset_id: &str) -> Res
         .context("Failed to create an anonymous RTBF Auvio RedBee session.")
 }
 
+/// Authenticates RedBee with a Gigya JWT.
+///
+/// # Arguments
+/// * `http_client` - HTTP client used for the request.
+/// * `jwt` - Gigya identity token.
+///
+/// # Errors
+/// Returns an error when RedBee rejects the JWT.
+///
+/// # Returns
+/// The authenticated RedBee session.
 async fn authenticate_with_jwt(http_client: &HttpClient, jwt: &str) -> Result<RedbeeSession> {
     let url = format!("{}/auth/gigyaLogin", REDBEE_API_ROOT);
     let body = auth_device_payload(None, None, Some(jwt));
@@ -224,6 +292,19 @@ async fn authenticate_with_jwt(http_client: &HttpClient, jwt: &str) -> Result<Re
         .context("Failed to authenticate RTBF Auvio RedBee with the configured JWT.")
 }
 
+/// Authenticates RedBee with an RTBF login and password.
+///
+/// # Arguments
+/// * `http_client` - HTTP client used for the Gigya requests.
+/// * `login` - RTBF account login.
+/// * `password` - RTBF account password.
+///
+/// # Errors
+/// Returns an error when the Gigya login, JWT exchange or RedBee
+/// authentication fails.
+///
+/// # Returns
+/// The authenticated RedBee session.
 async fn authenticate_with_rtbf_credentials(
     http_client: &HttpClient,
     login: &str,
@@ -237,6 +318,19 @@ async fn authenticate_with_rtbf_credentials(
         .context("Failed to authenticate RTBF Auvio RedBee with the configured RTBF account.")
 }
 
+/// Fetches a Gigya login token for RTBF credentials.
+///
+/// # Arguments
+/// * `http_client` - HTTP client used for the Gigya request.
+/// * `login` - RTBF account login.
+/// * `password` - RTBF account password.
+///
+/// # Errors
+/// Returns an error when encoding or the request fails, Gigya rejects the
+/// credentials, or the token is missing.
+///
+/// # Returns
+/// The Gigya login cookie value.
 async fn fetch_rtbf_login_token(
     http_client: &HttpClient,
     login: &str,
@@ -267,6 +361,18 @@ async fn fetch_rtbf_login_token(
     )
 }
 
+/// Exchanges a Gigya login token for a JWT.
+///
+/// # Arguments
+/// * `http_client` - HTTP client used for the Gigya request.
+/// * `login_token` - Gigya login cookie value.
+///
+/// # Errors
+/// Returns an error when encoding or the request fails, Gigya reports an
+/// error, or the JWT is missing.
+///
+/// # Returns
+/// The Gigya `id_token`.
 async fn fetch_rtbf_jwt(http_client: &HttpClient, login_token: &str) -> Result<String> {
     let body =
         serde_urlencoded::to_string([("APIKey", RTBF_GIGYA_API_KEY), ("login_token", login_token)])
@@ -290,6 +396,19 @@ async fn fetch_rtbf_jwt(http_client: &HttpClient, login_token: &str) -> Result<S
     )
 }
 
+/// Requests a RedBee session and extracts its token.
+///
+/// # Arguments
+/// * `http_client` - HTTP client used for the request.
+/// * `url` - RedBee authentication URL.
+/// * `body` - JSON authentication payload.
+///
+/// # Errors
+/// Returns an error when the request fails, RedBee returns a `message`, or
+/// the session token is missing.
+///
+/// # Returns
+/// The authenticated RedBee session.
 async fn request_redbee_session(
     http_client: &HttpClient,
     url: &str,
@@ -312,6 +431,18 @@ async fn request_redbee_session(
     })
 }
 
+/// Fetches the playback entitlement for an asset.
+///
+/// # Arguments
+/// * `http_client` - HTTP client used for the request.
+/// * `asset_id` - RedBee asset identifier.
+/// * `session` - Authenticated RedBee session.
+///
+/// # Errors
+/// Returns an error when the request fails or the entitlement reports HTTP 403.
+///
+/// # Returns
+/// The decoded entitlement payload.
 async fn fetch_entitlement(
     http_client: &HttpClient,
     asset_id: &str,
@@ -335,12 +466,20 @@ async fn fetch_entitlement(
     Ok(response)
 }
 
+/// Selected RTBF Auvio playback format.
 struct SelectedRedbeeFormat {
     media_locator: String,
     manifest_type: String,
     license_url: Option<String>,
 }
 
+/// Selects a Widevine DASH format, then falls back to HLS.
+///
+/// # Arguments
+/// * `entitlement` - Decoded RTBF entitlement payload.
+///
+/// # Returns
+/// The preferred usable format, or `None` when none is available.
 fn select_best_format(entitlement: &Value) -> Option<SelectedRedbeeFormat> {
     let formats = entitlement.get("formats")?.as_array()?;
 
@@ -365,6 +504,17 @@ fn select_best_format(entitlement: &Value) -> Option<SelectedRedbeeFormat> {
         })
 }
 
+/// Converts one entitlement format into a selected playback format.
+///
+/// # Arguments
+/// * `format` - Entitlement format object.
+/// * `expected_format` - Required value of the `format` field.
+/// * `manifest_type` - Manifest type assigned to the result.
+/// * `require_widevine_license` - Whether a Widevine license URL is mandatory.
+///
+/// # Returns
+/// The selected format, or `None` when the type differs, the media locator is
+/// missing, or the required license is absent.
 fn selected_format(
     format: &Value,
     expected_format: &str,
@@ -400,6 +550,13 @@ fn selected_format(
     })
 }
 
+/// Builds the user-facing entitlement error message.
+///
+/// # Arguments
+/// * `entitlement` - Decoded RTBF entitlement payload.
+///
+/// # Returns
+/// The server message, with a credentials hint when login is required.
 fn entitlement_error_message(entitlement: &Value) -> String {
     let message = entitlement
         .get("message")
@@ -430,6 +587,15 @@ fn entitlement_error_message(entitlement: &Value) -> String {
     }
 }
 
+/// Builds the RedBee authentication device payload.
+///
+/// # Arguments
+/// * `login` - Optional RTBF account login.
+/// * `password` - Optional RTBF account password.
+/// * `jwt` - Optional Gigya identity token.
+///
+/// # Returns
+/// The serialized JSON device payload.
 fn auth_device_payload(login: Option<&str>, password: Option<&str>, jwt: Option<&str>) -> String {
     let mut payload = json!({
         "device": {
@@ -452,6 +618,14 @@ fn auth_device_payload(login: Option<&str>, password: Option<&str>, jwt: Option<
     payload.to_string()
 }
 
+/// Returns the configured login or password when it is a JWT.
+///
+/// # Arguments
+/// * `login` - Configured login value.
+/// * `password` - Configured password value.
+///
+/// # Returns
+/// A borrowed JWT with an optional Bearer prefix stripped, or `None`.
 fn credential_jwt<'a>(login: &'a str, password: &'a str) -> Option<&'a str> {
     let password = strip_bearer_prefix(password);
     let login = strip_bearer_prefix(login);
@@ -467,6 +641,13 @@ fn credential_jwt<'a>(login: &'a str, password: &'a str) -> Option<&'a str> {
     None
 }
 
+/// Strips a case-variant `Bearer ` prefix and surrounding whitespace.
+///
+/// # Arguments
+/// * `value` - Credential or token value.
+///
+/// # Returns
+/// The trimmed value without a Bearer prefix.
 fn strip_bearer_prefix(value: &str) -> &str {
     value
         .trim()
@@ -475,10 +656,24 @@ fn strip_bearer_prefix(value: &str) -> &str {
         .unwrap_or_else(|| value.trim())
 }
 
+/// Checks whether a value has the JWT shape used by RTBF.
+///
+/// # Arguments
+/// * `value` - Candidate token.
+///
+/// # Returns
+/// `true` for three dot-separated segments starting with `eyJ`.
 fn looks_like_jwt(value: &str) -> bool {
     value.split('.').count() == 3 && value.starts_with("eyJ")
 }
 
+/// Normalizes an RTBF stream kind to the supported RedBee proxy kind.
+///
+/// # Arguments
+/// * `stream_kind` - Optional caller-selected stream kind.
+///
+/// # Returns
+/// The trimmed non-empty kind, or `DEFAULT_STREAM_KIND` when absent or blank.
 fn normalize_redbee_stream_kind(stream_kind: Option<String>) -> String {
     stream_kind
         .map(|value| value.trim().to_string())
@@ -486,6 +681,15 @@ fn normalize_redbee_stream_kind(stream_kind: Option<String>) -> String {
         .unwrap_or_else(|| DEFAULT_STREAM_KIND.to_string())
 }
 
+/// Caches a RedBee license request and returns its public proxy URL.
+///
+/// # Arguments
+/// * `endpoints` - Public endpoint settings used to build the proxy URL.
+/// * `license_url` - Upstream Widevine license URL.
+/// * `stream_kind` - Stream kind validated when the token is used.
+///
+/// # Returns
+/// The public license proxy URL containing a generated token.
 fn save_redbee_license_proxy_url(
     endpoints: &PlayerResolverEndpoints,
     license_url: &str,
@@ -495,6 +699,15 @@ fn save_redbee_license_proxy_url(
     endpoints.drm_license_url(RTBF_AUVIO_SERVICE_ID, &token_id)
 }
 
+/// Stores a RedBee license request under a newly generated token.
+///
+/// # Arguments
+/// * `license_url` - Upstream Widevine license URL.
+/// * `stream_kind` - Stream kind validated when the token is used.
+///
+/// # Returns
+/// The generated token. The entry is not stored when the cache mutex is
+/// poisoned.
 fn save_redbee_license_token(license_url: &str, stream_kind: &str) -> String {
     let token_id: String = rand::rng()
         .sample_iter(&Alphanumeric)
@@ -521,6 +734,14 @@ fn save_redbee_license_token(license_url: &str, stream_kind: &str) -> String {
     token_id
 }
 
+/// Loads a non-expired RedBee license request, pruning expired entries.
+///
+/// # Arguments
+/// * `token_id` - Public token used as the cache key.
+///
+/// # Returns
+/// The cached license request, or `None` when absent, expired, or the cache
+/// mutex is poisoned.
 fn load_cached_redbee_license(token_id: &str) -> Option<CachedRedbeeLicense> {
     let cache = REDBEE_LICENSE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     let Ok(mut cache_guard) = cache.lock() else {
@@ -532,6 +753,18 @@ fn load_cached_redbee_license(token_id: &str) -> Option<CachedRedbeeLicense> {
     cache_guard.get(token_id).cloned()
 }
 
+/// Proxies a Widevine challenge using a cached RedBee license request.
+///
+/// # Arguments
+/// * `token_id` - Public token identifying the cached license request.
+/// * `challenge_body` - Raw Widevine challenge bytes.
+///
+/// # Errors
+/// Returns an error when the token is empty, expired or unsupported, the
+/// client cannot be built, or the upstream request fails.
+///
+/// # Returns
+/// The upstream license response with a `no-store` cache policy.
 async fn proxy_redbee_license_request(
     token_id: &str,
     challenge_body: &[u8],
@@ -596,6 +829,10 @@ async fn proxy_redbee_license_request(
     })
 }
 
+/// Builds JSON headers for RedBee API requests.
+///
+/// # Returns
+/// JSON acceptance and content-type headers.
 fn json_headers() -> HashMap<String, String> {
     HashMap::from([
         ("accept".to_string(), "application/json".to_string()),
@@ -603,6 +840,10 @@ fn json_headers() -> HashMap<String, String> {
     ])
 }
 
+/// Builds form headers for Gigya requests.
+///
+/// # Returns
+/// JSON acceptance and form content-type headers.
 fn form_headers() -> HashMap<String, String> {
     HashMap::from([
         ("accept".to_string(), "application/json".to_string()),
@@ -613,6 +854,14 @@ fn form_headers() -> HashMap<String, String> {
     ])
 }
 
+/// Fails when a Gigya response contains an error message.
+///
+/// # Arguments
+/// * `payload` - Decoded Gigya response.
+/// * `fallback_message` - Context prepended to the server message.
+///
+/// # Errors
+/// Returns an error when `errorMessage` is present and non-empty.
 fn bail_on_rtbf_gigya_error(payload: &Value, fallback_message: &str) -> Result<()> {
     if let Some(message) = payload
         .get("errorMessage")
@@ -626,6 +875,19 @@ fn bail_on_rtbf_gigya_error(payload: &Value, fallback_message: &str) -> Result<(
     Ok(())
 }
 
+/// Reads a non-empty string from a nested JSON path.
+///
+/// # Arguments
+/// * `payload` - JSON value to traverse.
+/// * `path` - Object keys applied successively.
+/// * `error_message` - Message used when a key or string is missing.
+///
+/// # Errors
+/// Returns an error when traversal fails or the target is missing, blank or
+/// not a string.
+///
+/// # Returns
+/// The trimmed string value.
 fn read_json_string(payload: &Value, path: &[&str], error_message: &str) -> Result<String> {
     let mut current = payload;
     for segment in path {

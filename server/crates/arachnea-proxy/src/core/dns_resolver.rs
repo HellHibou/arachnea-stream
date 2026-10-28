@@ -30,6 +30,10 @@ impl ProxyDnsResolver {
     }
 
     /// Creates a resolver backed by the supplied Arachnea DNS core.
+    ///
+    /// # Arguments
+    /// * `dns_core` - Shared DNS core used for local hostname resolution.
+    ///
     #[cfg(feature = "arachnea-dns")]
     pub(crate) fn with_arachnea_dns(dns_core: Arc<arachnea_dns::core::ArachneaDnsCore>) -> Self {
         Self {
@@ -44,6 +48,14 @@ impl ProxyDnsResolver {
     }
 
     /// Resolves a hostname to the first available IP address.
+    ///
+    /// # Arguments
+    /// * `host` - Hostname or IP address to resolve or connect to, without a port.
+    ///
+    /// # Errors
+    ///
+    /// Returns configured-resolver or system DNS errors, including an empty answer.
+    /// A configured DNS core is authoritative for this lookup; its errors do not trigger system fallback.
     pub(crate) async fn resolve_ip(&self, host: &str) -> Result<IpAddr> {
         if let Ok(ip) = host.parse::<IpAddr>() {
             tracing::debug!(host = %host, ip = %ip, "destination is a literal ip address");
@@ -73,6 +85,13 @@ impl ProxyDnsResolver {
     }
 
     /// Resolves a hostname to the first available IPv4 address.
+    ///
+    /// # Arguments
+    /// * `host` - Hostname or IP address to resolve or connect to, without a port.
+    ///
+    /// # Errors
+    ///
+    /// Returns DNS errors when resolution fails or no IPv4 address is available.
     pub(crate) async fn resolve_ipv4(&self, host: &str) -> Result<IpAddr> {
         if let Ok(ip) = host.parse::<IpAddr>() {
             return match ip {
@@ -100,7 +119,11 @@ impl ProxyDnsResolver {
             .ok_or_else(|| no_ipv4_error(host))
     }
 }
-
+/// Builds the contextual DNS error for a hostname with no IPv4 answer.
+///
+/// # Arguments
+///
+/// * `host` - Hostname whose answer contained no usable IPv4 address.
 fn no_ipv4_error(host: &str) -> ProxyError {
     ProxyError::Dns(format!("hostname '{host}' resolved to no ipv4 address"))
 }

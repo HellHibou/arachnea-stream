@@ -17,6 +17,7 @@ use crate::TAURI_TABS_CHANGED_EVENT as CHANGED_EVENT;
 /// Logical height reserved for the desktop tab strip.
 use crate::TAURI_TAB_STRIP_HEIGHT as STRIP_HEIGHT;
 
+/// Work item executed by the tab host on the main thread.
 type Job = Box<dyn FnOnce(&mut TabHost) + Send>;
 
 /// Queue keeping native webview operations off the UI callback thread.
@@ -184,6 +185,7 @@ pub(super) fn setup(
 }
 
 impl TabHost {
+    /// Captures the current tabs and active tab for publication.
     fn snapshot(&self) -> Snapshot {
         Snapshot {
             tabs: self.tabs.clone(),
@@ -191,6 +193,7 @@ impl TabHost {
         }
     }
 
+    /// Emits the current tab snapshot to the desktop shell.
     fn publish(&self) {
         if let Err(error) =
             self.window

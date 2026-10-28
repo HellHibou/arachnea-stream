@@ -78,6 +78,13 @@ pub fn memory_application_stores() -> Result<ApplicationStores> {
 }
 
 /// Creates missing persistent service states without changing existing choices.
+///
+/// # Arguments
+/// * `store` - Typed service-state store.
+/// * `sources` - Loaded source descriptors to register.
+///
+/// # Errors
+/// Returns an error when the store cannot be read or updated.
 pub(super) async fn synchronize_service_defaults_async(
     store: Arc<dyn TypedEntityStore<SourceServiceRecord>>,
     sources: Vec<ScraperSourceDescriptor>,
@@ -88,6 +95,13 @@ pub(super) async fn synchronize_service_defaults_async(
 }
 
 /// Blocking variant of [`synchronize_service_defaults_async`] for synchronous callers.
+///
+/// # Arguments
+/// * `store` - Typed service-state store.
+/// * `sources` - Loaded source descriptors to register.
+///
+/// # Errors
+/// Returns an error when the worker thread panics or synchronization fails.
 pub(super) fn synchronize_service_defaults(
     store: Arc<dyn TypedEntityStore<SourceServiceRecord>>,
     sources: Vec<ScraperSourceDescriptor>,

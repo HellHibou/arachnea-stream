@@ -3,6 +3,19 @@
 use super::*;
 
 impl ArachneaHttpClient {
+    /// Opens a browser page and keeps the prepared proxy runtime alive with it.
+    ///
+    /// # Arguments
+    ///
+    /// - `engine`: Browser-capable engine used to open the page.
+    ///
+    /// # Returns
+    ///
+    /// A page session bound to this client's runtime.
+    ///
+    /// # Errors
+    ///
+    /// Returns the engine's page-opening failure.
     pub(super) async fn open_browser_page(
         &self,
         engine: &DynHttpEngine,
@@ -19,6 +32,17 @@ impl ArachneaHttpClient {
     }
 
     /// Closes the retained browser session for the origin of one URL.
+    ///
+    /// All sessions sharing the URL origin are invalidated, regardless of
+    /// browser profile or proxy route.
+    ///
+    /// # Arguments
+    ///
+    /// - `url`: URL whose origin identifies the session family.
+    ///
+    /// # Returns
+    ///
+    /// `Ok(())` when the URL is valid, even if no session existed.
     ///
     /// # Errors
     ///
@@ -37,10 +61,20 @@ impl ArachneaHttpClient {
     /// and proxy route. Browser cookies and the observed user-agent are handed back
     /// to the existing shared HTTP state after navigation.
     ///
+    /// # Arguments
+    ///
+    /// - `navigation`: Navigation URL, headers, and body-collection flag.
+    ///
+    /// # Returns
+    ///
+    /// The engine navigation result.
+    ///
     /// # Errors
     ///
     /// Returns `UnsupportedEngineOperation` when the configured browser solver does
-    /// not implement persistent pages, or browser/session failures otherwise.
+    /// not implement persistent pages, `BrowserSessionUnavailable` when session
+    /// management is disabled or the session was invalidated, or browser/session
+    /// failures otherwise. A failure invalidates the origin's retained sessions.
     pub async fn page_navigate(
         &self,
         navigation: PageNavigationRequest,
@@ -98,10 +132,21 @@ impl ArachneaHttpClient {
     /// and proxy route. Browser cookies and the observed user-agent are handed back
     /// to the existing shared HTTP state after navigation and interaction.
     ///
+    /// # Arguments
+    ///
+    /// - `navigation`: Navigation URL, headers, and body-collection flag.
+    /// - `click`: Selector to click and selector to wait for afterwards.
+    ///
+    /// # Returns
+    ///
+    /// The page HTML captured after the wait selector appears.
+    ///
     /// # Errors
     ///
     /// Returns `UnsupportedEngineOperation` when the configured browser solver does
-    /// not support page interaction, or browser/session failures otherwise.
+    /// not support page interaction, `BrowserSessionUnavailable` when session
+    /// management is disabled or the session was invalidated, or browser/session
+    /// failures otherwise. A failure invalidates the origin's retained sessions.
     pub async fn page_click(
         &self,
         navigation: PageNavigationRequest,
@@ -161,6 +206,21 @@ impl ArachneaHttpClient {
     ///
     /// This is intended for independent interactions that may run concurrently.
     /// It deliberately does not enter the origin-scoped retained-session cache.
+    ///
+    /// # Arguments
+    ///
+    /// - `navigation`: Navigation URL, headers, and body-collection flag.
+    /// - `click`: Selector to click and selector to wait for afterwards.
+    ///
+    /// # Returns
+    ///
+    /// The page HTML captured after the wait selector appears.
+    ///
+    /// # Errors
+    ///
+    /// Returns `CloudflareSolverUnavailable` when no browser solver is
+    /// configured, or browser/session failures otherwise. The dedicated page is
+    /// closed after the operation.
     pub async fn page_click_isolated(
         &self,
         navigation: PageNavigationRequest,
@@ -192,11 +252,28 @@ impl ArachneaHttpClient {
     /// are handed back to the existing shared HTTP state after both navigation
     /// and fetch.
     ///
+    /// When a callback token is submitted and the response matches the
+    /// configured rejection status or body marker, the token caches are cleared
+    /// and `TokenRejected` is returned without invalidating the browser session.
+    /// Other failures invalidate the origin's retained sessions.
+    ///
+    /// # Arguments
+    ///
+    /// - `navigation`: Navigation URL, headers, and body-collection flag.
+    /// - `request`: In-page fetch request and token-substitution rules.
+    ///
+    /// # Returns
+    ///
+    /// The in-page fetch response.
+    ///
     /// # Errors
     ///
     /// Returns `UnsupportedEngineOperation` when the configured browser solver
-    /// does not implement persistent pages, `TokenAbsent` when a requested
-    /// callback token is unavailable, or browser/session failures otherwise.
+    /// does not implement persistent pages, `BrowserSessionUnavailable` when
+    /// session management is disabled or the session was invalidated,
+    /// `TokenAbsent` when a requested callback token is unavailable,
+    /// `TokenRejected` when the target rejects the submitted token, or
+    /// browser/session failures otherwise.
     pub async fn page_fetch(
         &self,
         navigation: PageNavigationRequest,

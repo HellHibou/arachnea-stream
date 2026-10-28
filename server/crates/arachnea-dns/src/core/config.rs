@@ -59,20 +59,20 @@ pub struct CoreConfig {
     pub blocklists: Vec<crate::core::BlockRule>,
     /// Smart DNS routing rules.
     ///
-    /// Advanced routing rules that can answer queries directly, route
-    /// them to specific upstreams, or use proxy targets based on domain
-    /// patterns.
+    /// Rules that may answer queries directly or return proxy-target fallback
+    /// records based on domain patterns. Upstream route actions are parsed but
+    /// not applied yet.
     pub smart_dns: crate::core::SmartDnsConfig,
     /// Advanced ordered policy rules.
     ///
     /// Ordered list of policy rules that are evaluated in sequence to
-    /// determine how to handle DNS queries. Rules can allow, block, answer,
-    /// rewrite, or route queries.
+    /// determine how to handle DNS queries. Rules can allow, block, or answer
+    /// queries; rewrite and route actions are parsed but not applied yet.
     pub rules: Vec<crate::core::Rule>,
     /// Proxy targets used by Smart DNS rules.
     ///
-    /// Named proxy targets that can be referenced by Smart DNS rules
-    /// to provide specialized routing or load balancing.
+    /// Named proxy targets that provide fallback records. Dynamic proxy
+    /// selection and load balancing are not implemented.
     pub proxy_targets: Vec<crate::core::ProxyTarget>,
 }
 
@@ -129,45 +129,28 @@ pub enum UsageProfile {
 
     /// Forward every query to one configured upstream.
     ///
-    /// # Parameters
-    ///
-    /// - `Upstream`: Upstream that receives every forwarded query.
-    ///
-    /// This profile sends all DNS queries to a single upstream DNS server,
-    /// providing simple forwarding behavior.
+    /// The wrapped upstream receives every forwarded query, providing simple
+    /// forwarding behavior.
     SingleForwarder(Upstream),
 
     /// Prefer availability and fallback behavior.
     ///
-    /// # Parameters
-    ///
-    /// - `Vec<Upstream>`: Upstreams used by the failover strategy.
-    ///
-    /// This profile is designed for reliability, using multiple upstream
-    /// servers with failover behavior to ensure queries can be resolved
-    /// even if some upstreams are unavailable.
+    /// The wrapped upstreams are used by the failover strategy, which the
+    /// current forwarder applies by trying them in declaration order.
     Resilience(Vec<Upstream>),
 
     /// Prefer encrypted/private upstream behavior.
     ///
-    /// # Parameters
-    ///
-    /// - `Vec<Upstream>`: Private upstreams queried by the forwarder.
-    ///
-    /// This profile prioritizes privacy by using encrypted transports
-    /// (like DNS-over-TLS or DNS-over-HTTPS) and disabling features that
-    /// might leak client information.
+    /// The wrapped upstreams are queried by the forwarder and privacy-oriented
+    /// defaults are set. The profile does not itself enforce encrypted
+    /// transports.
     Privacy(Vec<Upstream>),
 
     /// Prefer integrity and strict fallbacks.
     ///
-    /// # Parameters
-    ///
-    /// - `Vec<Upstream>`: Secure upstreams queried by the forwarder.
-    /// - `DnssecState`: DNSSEC validation mode applied to the profile.
-    ///
-    /// This profile emphasizes security and data integrity, enabling
-    /// DNSSEC validation and using secure upstream transports.
+    /// The wrapped upstreams are queried by the forwarder and the supplied
+    /// DNSSEC state is stored. Only the `Strict` state enables validation in
+    /// the current implementation.
     Secure(Vec<Upstream>, DnssecState),
 
     /// Require explicit settings.
@@ -234,6 +217,10 @@ impl UsageProfile {
 }
 
 /// Resolver mode, retries and upstream strategy settings.
+///
+/// `retries`, `parallel_upstreams`, `allow_insecure_fallback` and
+/// `upstream_strategy` are part of the configuration contract but are not yet
+/// enforced by the forwarder, which tries upstreams in declaration order.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResolverConfig {
     /// Resolution strategy.
@@ -293,18 +280,18 @@ pub enum ResolutionMode {
     /// In forwarder mode, the resolver sends DNS queries to configured
     /// upstream DNS servers and returns their responses to clients.
     Forwarder,
-    /// Recursive mode placeholder for v1 architecture.
+    /// Full recursive resolution from root hints.
     ///
-    /// Recursive mode indicates that the resolver should perform full
-    /// recursive DNS resolution starting from root servers. Note that
-    /// this is a placeholder in the current architecture.
+    /// Requires the `recursive` feature. When upstreams are configured, the
+    /// forwarder path is used instead of the recursive resolver.
     Recursive,
 }
 
 /// Upstream selection algorithm.
 ///
-/// This enum defines the strategies used to select among multiple
-/// configured upstream DNS servers when resolving queries.
+/// The current forwarder always tries upstreams in declaration order. The
+/// other variants are accepted configuration values but are not implemented
+/// as distinct selection algorithms yet.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum UpstreamStrategy {
@@ -349,14 +336,17 @@ pub struct Upstream {
     pub endpoint: UpstreamEndpoint,
     /// Optional upstream-specific timeout.
     pub timeout_ms: Option<u64>,
-    /// Whether TLS verification is required for encrypted transports.
+    /// Declared TLS verification preference.
+    ///
+    /// The current transport clients use their library defaults and do not
+    /// branch on this field.
     pub verify_tls: bool,
 }
 
 impl Upstream {
     /// Creates a system relay upstream.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `timeout_ms`: Request timeout in milliseconds, or `None` for the default timeout.
     ///
@@ -375,7 +365,7 @@ impl Upstream {
 
     /// Creates a classic UDP upstream.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `name`: Stable upstream name.
     /// - `socket_addr`: UDP socket address of the upstream resolver.
@@ -395,7 +385,7 @@ impl Upstream {
 
     /// Creates a DNS-over-HTTPS upstream.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `name`: Stable upstream name.
     /// - `url`: HTTPS endpoint URL of the upstream resolver.
@@ -416,7 +406,7 @@ impl Upstream {
 
     /// Creates a classic DoQ upstream.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `name`: Stable upstream name.
     /// - `host`: DNS server hostname.
@@ -483,9 +473,8 @@ pub enum Transport {
     Doq,
     /// Odoh,
     ///
-    /// Oblivious DNS over HTTPS, provides enhanced privacy by preventing
-    /// the DNS resolver from knowing both the client's identity and the
-    /// query content.
+    /// Declared Oblivious DNS over HTTPS transport. No ODoH implementation is
+    /// wired yet; selecting it currently fails as an unsupported transport.
     Odoh,
     /// Recursive,
     ///
@@ -504,7 +493,8 @@ pub enum UpstreamEndpoint {
     Socket(SocketAddr),
     /// A URL endpoint, used for DoH.
     Url(String),
-    /// A hostname-and-port pair, used for DoT / DoQ / ODoH.
+    /// A hostname-and-port pair, used for DoT and DoQ; ODoH would use the same
+    /// shape once implemented.
     HostPort {
         /// Server hostname.
         host: String,
@@ -555,6 +545,10 @@ impl Default for CacheConfig {
 }
 
 /// Privacy controls applied to resolution and metadata.
+///
+/// The current forwarder does not yet apply QNAME minimisation, ECS options,
+/// ODoH, query padding, or QNAME log filtering. These fields are configuration
+/// placeholders and are not enforced on the wire or in logs.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PrivacyConfig {
     /// Whether QNAME minimisation is enabled.
@@ -597,6 +591,9 @@ pub enum EcsPolicy {
 }
 
 /// Security controls for DNSSEC, cookies and rate limits.
+///
+/// `dns_cookies` is not enforced yet. The optional per-client rate limit is
+/// applied by the server listeners, not by the core resolver.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SecurityConfig {
     /// DNSSEC validation state.
@@ -620,9 +617,9 @@ impl Default for SecurityConfig {
 
 /// DNSSEC validation mode exposed in metadata and configuration.
 ///
-/// This enum defines the different levels of DNSSEC (DNS Security Extensions)
-/// validation that can be applied to DNS responses to ensure data integrity
-/// and authenticity.
+/// Only `Off` and `Strict` currently change resolution. `Strict` uses the
+/// Hickory path for supported upstream transports; the intermediate modes are
+/// copied into answer metadata but do not perform distinct validation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DnssecState {
@@ -633,26 +630,24 @@ pub enum DnssecState {
     Off,
     /// Passthrough,
     ///
-    /// DNSSEC records are preserved in responses but no validation
-    /// is performed. Useful for debugging or when validation is handled
-    /// elsewhere.
+    /// Declared passthrough mode. Current resolution performs no validation
+    /// and does not expose DNSSEC records through the public record model.
     Passthrough,
     /// ReportOnly,
     ///
-    /// DNSSEC validation is performed and results are recorded in
-    /// metadata, but validation failures do not cause queries to fail.
+    /// Declared report-only mode. Current resolution does not validate or
+    /// report per-answer results; the state is only copied into metadata.
     ReportOnly,
     /// Opportunistic,
     ///
-    /// DNSSEC validation is performed when possible, but queries
-    /// continue even if validation cannot be performed (e.g., due to
-    /// missing keys or unsupported algorithms).
+    /// Declared opportunistic mode. Current resolution does not perform
+    /// opportunistic validation; the state is only copied into metadata.
     Opportunistic,
     /// Strict,
     ///
-    /// Full DNSSEC validation is required. Queries fail if DNSSEC
-    /// validation cannot be performed or if validation fails.
-    /// This provides the highest level of security.
+    /// Full DNSSEC validation is required through the Hickory path for UDP,
+    /// TCP, DoT and DoQ upstreams. Other transports, or builds without the
+    /// `dnssec` feature, fail instead of falling back silently.
     Strict,
 }
 
@@ -666,7 +661,7 @@ pub struct CoreConfigBuilder {
 impl CoreConfigBuilder {
     /// Sets the profile used when no full config override is provided.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `profile`: Usage profile to use.
     ///
@@ -680,7 +675,7 @@ impl CoreConfigBuilder {
 
     /// Uses a complete configuration instead of profile defaults.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `config`: Complete core configuration override.
     ///
@@ -693,6 +688,15 @@ impl CoreConfigBuilder {
     }
 
     /// Builds and validates an `ArachneaDnsCore`.
+    ///
+    /// # Returns
+    ///
+    /// Core instance configured from the override or selected profile.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the effective configuration fails validation or
+    /// root hints cannot be resolved.
     pub fn build(self) -> Result<crate::core::ArachneaDnsCore> {
         let config = self
             .overrides
@@ -703,7 +707,7 @@ impl CoreConfigBuilder {
 
 /// Validates cross-field constraints for a DNS core configuration.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `config`: DNS core configuration to validate.
 ///
@@ -745,7 +749,7 @@ fn validate_config(config: &CoreConfig) -> Result<()> {
 
 /// Validates that declared transports are enabled by compiled features.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `config`: DNS core configuration whose upstreams are checked.
 ///
@@ -783,7 +787,7 @@ fn validate_features(config: &CoreConfig) -> Result<()> {
 
 /// Resolves root hints from a file override or embedded defaults.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `resolver`: Resolver configuration containing root hint settings.
 ///
@@ -820,7 +824,7 @@ fn resolve_root_hints(resolver: &ResolverConfig) -> Result<Vec<String>> {
 
 /// Parses root hint text into non-empty entries.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `raw`: Root hint file contents.
 ///

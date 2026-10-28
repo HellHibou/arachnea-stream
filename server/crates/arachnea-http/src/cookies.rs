@@ -10,7 +10,6 @@ use url::Url;
 
 use crate::{cloudflare::CloudflareCookieState, error::ArachneaHttpError};
 
-/// Global process-wide cookie cache.
 /// Global process-wide cookie cache shared by all Arachnea HTTP clients.
 ///
 /// Initialized lazily on first access through global_cookie_cache().
@@ -51,7 +50,7 @@ pub struct CookieEntry {
 impl CookieEntry {
     /// Checks whether the cookie is expired at `now`.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `now`: Current time used for the expiration comparison.
     ///
@@ -75,7 +74,7 @@ pub struct SharedCookieCache {
 impl SharedCookieCache {
     /// Inserts or replaces one cookie.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `cookie`: Cookie to store.
     pub fn insert_cookie(&mut self, cookie: CookieEntry) {
@@ -85,7 +84,7 @@ impl SharedCookieCache {
 
     /// Removes one cookie by domain, name, and path.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `domain`: Cookie domain.
     /// - `name`: Cookie name.
@@ -101,7 +100,7 @@ impl SharedCookieCache {
 
     /// Removes expired cookies.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `now`: Current time used for expiration checks.
     pub fn clear_expired(&mut self, now: SystemTime) {
@@ -110,7 +109,10 @@ impl SharedCookieCache {
 
     /// Parses and stores cookies from `Set-Cookie` headers.
     ///
-    /// # Parameters
+    /// Non-UTF-8 and malformed header values are skipped. An expired cookie
+    /// removes any cached cookie with the same domain, path, and name.
+    ///
+    /// # Arguments
     ///
     /// - `url`: URL whose response carried the headers.
     /// - `headers`: Response headers to inspect.
@@ -143,13 +145,16 @@ impl SharedCookieCache {
 
     /// Builds a valid `Cookie` header for a URL.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `url`: Request URL.
     ///
     /// # Returns
     ///
     /// A cookie header value when at least one cookie matches the URL.
+    ///
+    /// Expired cookies are removed first. The order of cookies in the header is
+    /// unspecified because the cache is backed by a hash map.
     ///
     /// # Errors
     ///
@@ -169,13 +174,15 @@ impl SharedCookieCache {
 
     /// Returns cookie name/value pairs currently applicable to one URL.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `url`: Request URL.
     ///
     /// # Returns
     ///
-    /// A map of matching cookie names to their current values.
+    /// A map of matching cookie names to their current values. Expired cookies
+    /// are removed first. When multiple matching cookies share a name, which
+    /// value is retained is unspecified.
     ///
     /// # Errors
     ///
@@ -197,7 +204,7 @@ impl SharedCookieCache {
 
     /// Returns Cloudflare cookie state for an origin URL.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `origin`: Origin or URL to inspect.
     ///
@@ -237,7 +244,7 @@ impl SharedCookieCache {
 
     /// Determines whether Cloudflare cookies need refresh.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `origin`: Origin or URL to inspect.
     /// - `margin`: Proactive refresh margin before expiry.
@@ -267,7 +274,7 @@ impl SharedCookieCache {
 
 /// Builds the canonical cookie cache key.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `domain`: Cookie domain.
 /// - `path`: Cookie path.
@@ -275,7 +282,8 @@ impl SharedCookieCache {
 ///
 /// # Returns
 ///
-/// A normalized tuple key.
+/// A tuple key with a leading dot removed from the domain and the domain
+/// lowercased. Path and name are preserved exactly.
 fn cookie_key(domain: &str, path: &str, name: &str) -> (String, String, String) {
     (
         domain.trim_start_matches('.').to_ascii_lowercase(),
@@ -286,7 +294,7 @@ fn cookie_key(domain: &str, path: &str, name: &str) -> (String, String, String) 
 
 /// Parses one `Set-Cookie` header value.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `raw`: Raw `Set-Cookie` header value.
 /// - `url`: Response URL.
@@ -294,7 +302,14 @@ fn cookie_key(domain: &str, path: &str, name: &str) -> (String, String, String) 
 ///
 /// # Returns
 ///
-/// A parsed cookie when the header contains a valid name-value pair.
+/// A parsed cookie when the header contains a non-empty name and `name=value`
+/// pair.
+///
+/// Parsing is intentionally minimal: `Domain` is accepted as supplied (leading
+/// dots removed, lowercased) without checking that it covers the response host,
+/// quoted values are retained verbatim, and unknown attributes are ignored.
+/// `Max-Age` takes precedence over `Expires`. Cookies without `Expires` or
+/// `Max-Age` use the supplied session TTL.
 fn parse_set_cookie(
     raw: &str,
     url: &Url,
@@ -358,7 +373,7 @@ fn parse_set_cookie(
 
 /// Calculates the RFC-style default cookie path.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `request_path`: Path of the response URL.
 ///
@@ -377,7 +392,7 @@ fn default_path(request_path: &str) -> String {
 
 /// Checks whether a cookie can be sent to a URL.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `cookie`: Cookie being considered.
 /// - `url`: Request URL.
@@ -385,7 +400,10 @@ fn default_path(request_path: &str) -> String {
 ///
 /// # Returns
 ///
-/// `true` when domain, path, scheme, and expiry constraints match.
+/// `true` when expiry, `Secure`, domain, and path constraints match.
+///
+/// Path matching is a simple prefix comparison, not the RFC 6265 path-match
+/// algorithm, so sibling paths that share a textual prefix can match.
 fn cookie_matches_url(cookie: &CookieEntry, url: &Url, now: SystemTime) -> bool {
     if cookie.is_expired(now) {
         return false;

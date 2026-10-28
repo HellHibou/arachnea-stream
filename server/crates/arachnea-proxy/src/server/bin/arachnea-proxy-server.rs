@@ -167,7 +167,7 @@ async fn main() -> anyhow::Result<()> {
 
 /// Starts proxy listeners from a resolved file configuration.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `file_config`: Parsed TOML configuration for the server and core.
 ///
@@ -181,7 +181,7 @@ async fn serve(file_config: FileConfig) -> anyhow::Result<()> {
 
 /// Loads a TOML configuration file or returns defaults.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `path`: Optional path to a TOML configuration file.
 ///
@@ -205,7 +205,7 @@ fn load_config(path: Option<PathBuf>) -> anyhow::Result<FileConfig> {
 
 /// Prints listener diagnostics for a configuration.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `file_config`: Parsed file configuration.
 ///
@@ -230,7 +230,7 @@ fn show_listeners(file_config: FileConfig) -> anyhow::Result<()> {
 
 /// Prints configured proxy chains without exposing secrets.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `file_config`: Parsed file configuration.
 ///
@@ -267,7 +267,7 @@ fn show_chains(file_config: FileConfig) -> anyhow::Result<()> {
 
 /// Prints the selected route for a destination.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `file_config`: Parsed file configuration.
 /// - `destination`: Destination authority such as `example.com:443`.
@@ -299,7 +299,7 @@ async fn test_route(
 
 /// Opens a proxied TCP connection and prints connection metadata.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `file_config`: Parsed file configuration.
 /// - `destination`: Destination authority such as `example.com:443`.
@@ -341,7 +341,7 @@ async fn test_connect(
 
 /// Checks TCP reachability for one or more upstream proxy endpoints.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `file_config`: Parsed file configuration.
 /// - `name`: Optional upstream node name filter.

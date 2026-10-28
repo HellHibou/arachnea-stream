@@ -87,11 +87,10 @@ This crate is intended for authorized traffic only. Callers must respect target 
 | `CloudflareBrowserSolverKind::ChaserCf` | Require the `chaser-cf` feature for the browser fallback. |
 | `CloudflareBrowserSolverKind::TauriCloudflareSolver` | Require the `tauri-cloudflare-solver` feature for the interactive browser fallback. |
 
-Cloudflare detection should require supporting signals such as `server: cloudflare`, `cf-ray`, `cf-mitigated`, `cf-` or `__cf` headers/cookies, or known challenge markers. A plain `403` is not enough by itself.
+Cloudflare detection considers only `403`, `429`, and `503` responses, and requires supporting signals such as `server: cloudflare`, `cf-ray`, `cf-mitigated`, `cf-` or `__cf` headers/cookies, or known challenge markers. A plain `403` is not enough by itself.
 When `Auto` reaches the browser fallback after an active Cloudflare block, the browser solver is asked for a fresh solve instead of reusing an engine-specific session cache.
-The chaser-cf integration is a session solver only: it delegates challenge handling to `ChaserCF::solve_waf_session`, then returns `cf_clearance` cookies and the browser-observed user-agent to the shared caches. `rquest` always performs the subsequent HTML request, redirects, and response handling.
+The chaser-cf adapter implements challenge handling directly on its shared Chrome instance, then returns `cf_clearance` cookies and the browser-observed user-agent to the shared caches. In `CloudflareBrowser` mode, `rquest` performs the subsequent request, redirects, and response handling. When invoked directly as an HTTP engine, `GET` returns the rendered browser HTML, while other methods are rejected except `HEAD` (which returns no body). It also supports persistent browser page sessions through the same shared Chrome process.
 If the rquest handoff remains blocked, the client returns `CloudflareBlocked` after its bounded refresh policy; it does not retrieve HTML through the browser as a fallback. The solver and rquest must use the same proxy route, and clearance portability is target-dependent.
-If the browser solve succeeds but the `rquest` cookie handoff is still blocked, the client returns `CloudflareBlocked` after its bounded refresh attempts. Chaser-CF is a session solver only and never returns HTML.
 Callers can force the browser solver with `ArachneaHttpConfig::builder().cloudflare_browser_solver(...)` or provide an engine instance with `cloudflare_browser_solver_instance(...)`.
 Injected custom engines keep full control over their own transport setup; the facade-level proxy configuration applies to built-in engines only.
 
@@ -153,6 +152,9 @@ let response = client
 - Session cookies use configurable temporary cache lifetime.
 - Cloudflare cookies of special interest include `cf_clearance`, `__cf_bm`, and `_cfuvid`.
 - Cookies must be refreshed when absent, expired, close to expiration, explicitly forced, or after a configured Cloudflare block.
+- Cookie path matching is a simple textual prefix check, not the full RFC 6265 path-match algorithm.
+- `Domain` attributes are accepted as supplied after removing a leading dot and lowercasing; they are not checked against the response host.
+- Matching cookies are emitted in unspecified order because the cache is hash-map backed.
 - Redirect responses are processed by the facade so intermediate `Set-Cookie` headers are stored before the next request is sent.
 
 ## Browser Page Sessions
@@ -197,11 +199,11 @@ let config = ArachneaHttpConfig::builder()
 
 ### Engine support
 
-- The `chaser-cf` engine is a Cloudflare session solver and does not support persistent page sessions.
-- Use another explicit browser engine for page-scoped JavaScript work, callbacks, or DOM interactions.
+- The `chaser-cf` engine supports persistent page sessions through its process-wide shared Chrome instance.
+- Use an explicit browser engine for page-scoped JavaScript work, callbacks, or DOM interactions.
 - Engines without this capability return `UnsupportedEngineOperation` rather than silently falling back to direct HTTP.
 - `BrowserPageSession::clear_turnstile_token()` has a default no-op implementation.
-- Browser contexts are resource-intensive. Keep `max_sessions` small and invalidate an origin when its session is known to be invalid.
+- Browser contexts are resource-intensive. Keep `max_sessions` small and invalidate an origin when its session is known to be invalid. Invalidated handles are marked unusable immediately; do not reuse clones.
 
 ### Error contract for callers
 
@@ -236,6 +238,8 @@ The default feature set is empty, so the crate builds as an `rquest`-only client
 ## Known Gaps
 
 The durable remaining work from the retired specification is tracked in the root `docs/TODO.md`. Important HTTP gaps include deeper no-loopback engine integrations where upstream APIs allow it, Wry/Tauri and web-server challenge flows, dependency API verification, a possible `tower::Service` API, deeper browser-driven captcha flows, and expanded cookie/Cloudflare tests.
+
+`HttpEngineKind::Rquest` and `HttpEngineKind::Auto` currently select the same built-in path; only `HttpEngineKind::Engine` changes dispatch by injecting a direct engine. The configured `ArachneaHttpConfig::cloudflare` value is recorded by the builder to choose the initial default request mode, but runtime dispatch reads `default_request_mode`; mutating `cloudflare` after construction does not reconfigure an existing client.
 
 ## Common Commands
 

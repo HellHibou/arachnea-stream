@@ -13,7 +13,7 @@ use crate::core::{ProxyError, Result};
 
 /// Logs a TLS client handshake attempt at DEBUG level.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `server_name`: SNI hostname being connected to.
 /// - `verify_tls`: Whether certificate verification is enabled.
@@ -28,7 +28,7 @@ fn log_client_tls(server_name: &str, verify_tls: bool) {
 
 /// Wraps an existing stream in TLS for an HTTPS upstream proxy.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `stream`: Existing stream connected to the HTTPS proxy endpoint.
 /// - `server_name`: TLS server name sent through SNI.
@@ -95,7 +95,7 @@ struct NoCertificateVerification;
 impl ServerCertVerifier for NoCertificateVerification {
     /// Accepts any server certificate chain.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `_end_entity`: End-entity certificate supplied by the server.
     /// - `_intermediates`: Intermediate certificates supplied by the server.
@@ -119,7 +119,7 @@ impl ServerCertVerifier for NoCertificateVerification {
 
     /// Accepts TLS 1.2 handshake signatures.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `_message`: Handshake message signed by the peer.
     /// - `_cert`: Certificate associated with the signature.
@@ -139,7 +139,7 @@ impl ServerCertVerifier for NoCertificateVerification {
 
     /// Accepts TLS 1.3 handshake signatures.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `_message`: Handshake message signed by the peer.
     /// - `_cert`: Certificate associated with the signature.

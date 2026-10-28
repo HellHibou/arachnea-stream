@@ -86,7 +86,7 @@ pub struct ArachneaProxyCore {
 impl fmt::Debug for ArachneaProxyCore {
     /// Formats the proxy core without exposing resolver internals.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `f`: Formatter receiving the debug fields.
     ///
@@ -134,7 +134,7 @@ impl fmt::Debug for ArachneaProxyCore {
 
 /// Builds configured parameter handler objects.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `config`: Resolved proxy configuration containing handler declarations.
 ///
@@ -159,7 +159,7 @@ fn build_parameter_handlers(
 impl ArachneaProxyCore {
     /// Creates a proxy core from a raw configuration.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `config`: Proxy configuration to validate and resolve.
     ///
@@ -183,7 +183,7 @@ impl ArachneaProxyCore {
     /// custom upstreams, Smart DNS rules, or cache settings instead of the
     /// profile-derived default resolver created by `new`.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `config`: Proxy configuration to validate and resolve.
     /// - `dns_core`: DNS core used when the proxy must resolve hostnames.
@@ -205,7 +205,7 @@ impl ArachneaProxyCore {
 
     /// Creates a proxy core from a validated configuration.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `config`: Already resolved proxy configuration.
     ///
@@ -248,7 +248,7 @@ impl ArachneaProxyCore {
 
     /// Creates a proxy core from a resolved config with a dynamic proxy inventory.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `config`: Already resolved proxy configuration.
     /// - `inventory`: Dynamic proxy inventory for country-based routing.
@@ -295,7 +295,7 @@ impl ArachneaProxyCore {
 
     /// Creates a proxy core from a resolved config and explicit `arachnea-dns` core.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `config`: Already resolved proxy configuration.
     /// - `dns_core`: DNS core used when hostnames must be resolved locally.
@@ -322,7 +322,7 @@ impl ArachneaProxyCore {
     /// Creates a proxy core from a resolved config, explicit DNS core and
     /// dynamic proxy inventory.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `config`: Already resolved proxy configuration.
     /// - `dns_core`: DNS core used when hostnames must be resolved locally.
@@ -407,6 +407,10 @@ impl ArachneaProxyCore {
     ///
     /// The allowlist is owned by trusted server configuration. Proxy URL options
     /// can request a bypass but cannot add arbitrary hosts to this list.
+    ///
+    /// # Arguments
+    /// * `hosts` - Exact hosts; whitespace and trailing dots are stripped, ASCII is lowercased, and empty or duplicate values are removed.
+    ///
     pub fn set_insecure_tls_hosts<I, S>(&self, hosts: I)
     where
         I: IntoIterator<Item = S>,
@@ -428,6 +432,10 @@ impl ArachneaProxyCore {
     }
 
     /// Returns whether one exact host is allowed to disable certificate validation.
+    ///
+    /// # Arguments
+    /// * `host` - Hostname or IP address to resolve or connect to, without a port.
+    ///
     pub fn allows_insecure_tls_for_host(&self, host: &str) -> bool {
         let normalized = host.trim().trim_end_matches('.').to_ascii_lowercase();
         self.insecure_tls_hosts
@@ -440,7 +448,7 @@ impl ArachneaProxyCore {
     /// Existing clones keep their current handler list so runtime changes remain
     /// local to this handle.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `handler`: Parameter handler appended after configured handlers.
     ///
@@ -459,7 +467,7 @@ impl ArachneaProxyCore {
     /// Existing clones keep their current inventory. Use this when the core
     /// was created without [`ArachneaProxyCore::from_resolved_with_proxy_inventory`].
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `inventory`: Dynamic proxy inventory for country-based routing.
     ///
@@ -486,7 +494,7 @@ impl ArachneaProxyCore {
     /// current resolved configuration, which avoids surprising route changes in
     /// already-shared clients.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `node`: Proxy hop appended after the existing default chain hops.
     ///

@@ -14,6 +14,15 @@ use crate::server::handlers;
 use crate::server::ServerConfig;
 
 /// Runs the HTTPS proxy listener.
+///
+/// # Arguments
+/// * `addr` - Local socket address to bind for incoming proxy connections.
+/// * `config` - Shared server configuration controlling limits, ACLs and authentication.
+/// * `core` - Proxy core used to route and establish outbound connections.
+///
+/// # Errors
+///
+/// Returns errors from TLS configuration, listener setup, connection acceptance or permit acquisition. Individual connection failures are logged.
 pub async fn run(
     addr: SocketAddr,
     config: Arc<ServerConfig>,
@@ -57,7 +66,7 @@ pub async fn run(
 
 /// Builds the TLS acceptor used by the HTTPS proxy listener.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `config`: Server configuration that contains either PEM or DER TLS paths.
 ///
@@ -103,7 +112,7 @@ fn tls_acceptor(config: &ServerConfig) -> anyhow::Result<TlsAcceptor> {
 
 /// Parses one or more certificate blocks from a PEM document.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `pem`: Text containing `CERTIFICATE` PEM blocks.
 ///
@@ -129,7 +138,7 @@ fn load_pem_certificates(pem: &str) -> anyhow::Result<Vec<CertificateDer<'static
 
 /// Parses the first supported private key block from a PEM document.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `pem`: Text containing a PKCS#8, RSA, or EC private key PEM block.
 ///
@@ -155,7 +164,7 @@ fn load_pem_private_key(pem: &str) -> anyhow::Result<PrivateKeyDer<'static>> {
 
 /// Extracts and decodes PEM blocks matching a label.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `pem`: PEM text to scan.
 /// - `label`: PEM block label without the `BEGIN` or `END` markers.

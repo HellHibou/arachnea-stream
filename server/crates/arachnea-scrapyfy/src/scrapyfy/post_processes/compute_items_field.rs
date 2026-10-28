@@ -136,6 +136,7 @@ pub(super) fn apply(
     expression: &str,
     variables: &HashMap<String, ScraperComputedFieldVariable>,
 ) -> Result<()> {
+    /// Single or per-nested-item computed values staged before mutating the result tree.
     enum ComputedTargetValues {
         Single(Option<String>),
         Many(Vec<Option<String>>),

@@ -7,6 +7,10 @@ impl TryFrom<JsonScraperQueryRaw> for JsonScraperQuery {
 
     /// Converts a raw YAML query definition into a validated runtime query.
     ///
+    /// # Arguments
+    ///
+    /// * `config` - Cache sizing and directory configuration used to construct the server-side cache.
+    ///
     /// # Errors
     ///
     /// Returns an error if the row pointer, entries, sub-queries, or request headers are invalid.
@@ -111,6 +115,10 @@ impl From<&JsonScraperQuery> for JsonScraperQueryRaw {
     /// Heterogeneous composition (e.g. HTML sub-queries inside a JSON query)
     /// raises a panic in the serialization path; a round-trip extension is a
     /// planned improvement.
+    ///
+    /// # Arguments
+    ///
+    /// * `query` - Query definition supplying request, extraction and post-processing settings.
     fn from(query: &JsonScraperQuery) -> Self {
         Self {
             common: ScraperQueryCommon {
@@ -163,6 +171,10 @@ impl From<&JsonScraperQuery> for JsonScraperQueryRaw {
 
 impl Serialize for JsonScraperQuery {
     /// Serializes the query through its raw YAML representation.
+    ///
+    /// # Arguments
+    ///
+    /// * `serializer` - Serde serializer receiving the raw or typed representation.
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -176,12 +188,13 @@ impl TryFrom<JsonScraperSubQueryRaw> for JsonScraperSubQuery {
 
     /// Converts a raw YAML sub-query definition into a validated runtime sub-query.
     ///
-    /// Nested sub-queries are boxed into `Box<dyn ScraperQuery>`. They are
-    /// dispatched by the unified executor or by [`JsonScraperSubQuery::execute_siblings`]
-    /// at runtime; this conversion does not validate the runtime dispatch
-    /// compatibility of mixed children (a `JsonScraperSubQuery` cannot dispatch
-    /// a non-JSON sibling through its own siblings path, but the unified
-    /// executor handles such cases).
+    /// Nested sub-queries are boxed as the shared `ScraperQuery` contract and
+    /// dispatched by the unified executor. Runtime dispatch is shared across
+    /// supported scraper types rather than a JSON-only siblings method.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - Raw YAML sub-query definition to validate and convert.
     ///
     /// # Errors
     ///
@@ -291,6 +304,10 @@ impl From<&JsonScraperSubQuery> for JsonScraperSubQueryRaw {
     /// contain heterogeneous children; the serialization slot is left empty
     /// for such cases.  A full bidirectional conversion for heterogeneous
     /// trees is a planned extension.
+    ///
+    /// # Arguments
+    ///
+    /// * `sub_query` - Entry-level query definition supplying URL, headers and extraction rules.
     fn from(sub_query: &JsonScraperSubQuery) -> Self {
         Self {
             common: SubQueryCommon {

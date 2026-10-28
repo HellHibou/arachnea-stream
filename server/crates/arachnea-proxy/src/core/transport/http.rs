@@ -8,7 +8,7 @@ use crate::core::{Destination, ProxyError, ProxyNodeCredentials, Result};
 
 /// Logs an HTTP CONNECT tunnel handshake at DEBUG level.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `destination`: Target being tunneled through the proxy.
 fn log_connect_tunnel(destination: &Destination) {
@@ -21,7 +21,7 @@ fn log_connect_tunnel(destination: &Destination) {
 
 /// Performs an HTTP CONNECT handshake over an existing stream.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `stream`: Stream connected to the HTTP proxy.
 /// - `destination`: Target destination requested through the proxy.
@@ -65,7 +65,7 @@ where
 
 /// Encodes HTTP Basic credentials for an upstream proxy.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `credentials`: Upstream proxy credentials.
 ///
@@ -79,7 +79,7 @@ pub(crate) fn basic_authorization_value(credentials: &ProxyNodeCredentials) -> S
 
 /// Reads an HTTP header block from an upstream proxy.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `stream`: Stream connected to the HTTP proxy.
 /// - `max_bytes`: Maximum accepted header size.
@@ -117,7 +117,7 @@ where
 
 /// Validates an HTTP `CONNECT` response status line.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `response`: Raw response header bytes from the upstream proxy.
 ///

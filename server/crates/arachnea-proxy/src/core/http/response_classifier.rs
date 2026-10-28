@@ -86,7 +86,7 @@ pub trait ProxyResponseClassifier: Send + Sync {
     /// Existing callbacks retain their historical requirement by default.
     ///
     /// # Arguments
-    /// - `response`: Original metadata before body inspection or transformations.
+    /// - `_response`: Original metadata before body inspection or transformations.
     fn body_requirement_for_response(
         &self,
         _response: &ProxyResponseView<'_>,
@@ -142,6 +142,7 @@ pub enum ProxyResponseClassifierConfig {
     },
 }
 
+/// Returns the default accepted HTTP statuses from 200 through 299 inclusive.
 fn default_accepted_statuses() -> Vec<u16> {
     (200..300).collect()
 }

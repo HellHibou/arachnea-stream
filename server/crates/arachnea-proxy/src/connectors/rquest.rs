@@ -38,7 +38,7 @@ pub struct ArachneaRquestLoopback {
 impl ArachneaRquestLoopback {
     /// Starts a loopback HTTP proxy listener backed by the supplied core.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `core`: Proxy core used by the loopback HTTP listener.
     ///
@@ -58,6 +58,14 @@ impl ArachneaRquestLoopback {
     ///
     /// This is intended for clients such as Chrome that cannot attach custom
     /// headers to HTTP proxy CONNECT requests.
+    ///
+    /// # Arguments
+    /// * `core` - Proxy core used to route and establish outbound connections.
+    /// * `parameters` - Per-client proxy parameters converted into routing context.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if route registration or binding the loopback listener fails.
     pub async fn start_with_parameters<'a>(
         core: ArachneaProxyCore,
         parameters: impl IntoIterator<Item = (&'a str, &'a str)>,
@@ -68,6 +76,12 @@ impl ArachneaRquestLoopback {
     }
 
     /// Starts a loopback listener with one client context applied to every connection.
+    ///
+    /// # Arguments
+    /// * `core` - Proxy core used to route and establish outbound connections.
+    /// * `parameter_definitions` - Definitions mapping client parameters to their HTTP headers.
+    /// * `client_context` - Routing parameters attached to requests handled by this client route.
+    ///
     async fn start_with_client_context(
         core: ArachneaProxyCore,
         parameter_definitions: Vec<ParameterDefinition>,
@@ -192,7 +206,7 @@ impl ArachneaRquestLoopback {
     /// headers are selected from the core parameter definitions captured when
     /// the loopback listener started.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `parameters`: Request-parameter pairs encoded as `name=value`.
     ///

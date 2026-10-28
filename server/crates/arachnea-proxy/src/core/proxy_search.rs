@@ -34,7 +34,7 @@ impl Default for ProxySearchLimits {
         }
     }
 }
-
+/// Request-local discovery reservations, origin attempts and accepted-response state.
 #[derive(Default, Debug)]
 struct Work {
     technical: HashSet<(bool, String)>,
@@ -55,7 +55,7 @@ struct Work {
     validations_eligible: usize,
     provider_refresh: HashMap<Option<String>, ProviderRefreshProgress>,
 }
-
+/// Per-origin exploration start, validation failures and exhausted-cache refresh triggers.
 #[derive(Debug)]
 struct ProviderRefreshProgress {
     started: Instant,
@@ -66,8 +66,11 @@ struct ProviderRefreshProgress {
 /// Cloneable request-local search. It is never persisted or sent over the wire.
 #[derive(Clone, Debug)]
 pub struct ProxySearchContext {
+    /// Request-owned subscriptions that may be retained for fallback preparation after acceptance.
     pub(crate) continuation: Option<Arc<super::proxy_inventory::preparation::ProbeContinuation>>,
+    /// Whether admission must leave spare capacity for business discovery.
     pub(crate) speculative: bool,
+    /// Endpoints excluded from speculative fallback preparation for this search.
     pub(crate) preparation_exclusions: HashSet<String>,
     started: Instant,
     limits: ProxySearchLimits,
@@ -234,6 +237,10 @@ impl ProxySearchContext {
     pub async fn scope<F: Future>(&self, future: F) -> F::Output {
         SEARCH.scope(Some(self.clone()), future).await
     }
+    /// Executes a future with the ambient proxy search context explicitly cleared.
+    ///
+    /// # Arguments
+    /// * `future` - Future executed without inheriting the ambient proxy search context.
     pub(crate) async fn unscoped<F: Future>(future: F) -> F::Output {
         SEARCH.scope(None, future).await
     }
@@ -295,6 +302,11 @@ impl ProxySearchContext {
             }
         }
     }
+    /// Reserves one technical phase per key while the search target budget remains available.
+    ///
+    /// # Arguments
+    /// * `validation` - Whether the operation is a capability validation rather than an endpoint precheck.
+    /// * `key` - Technical endpoint/phase identity reserved once within this search.
     pub(crate) fn reserve(&self, validation: bool, key: &str) -> bool {
         if !self.can_start() {
             return false;
@@ -308,6 +320,11 @@ impl ProxySearchContext {
         true
     }
     /// Allows a later selection to resume a phase cancelled before completion.
+    ///
+    /// # Arguments
+    /// * `validation` - Whether the operation is a capability validation rather than an endpoint precheck.
+    /// * `key` - Technical endpoint/phase identity whose reservation is released for a later selection.
+    ///
     pub(crate) fn release_incomplete_work(&self, validation: bool, key: &str) {
         self.work
             .lock()
@@ -341,6 +358,7 @@ impl ProxySearchContext {
         }
         timeouts
     }
+    /// Increments origin refresh progress and notifies validation-failure subscribers.
     pub(crate) fn failed_validation(&self) {
         if let Some(progress) = self
             .work
@@ -405,9 +423,11 @@ impl ProxySearchContext {
             progress.ready = true;
         }
     }
+    /// Subscribes to the cumulative capability-validation failure count for this search.
     pub(crate) fn validation_failures(&self) -> watch::Receiver<usize> {
         self.validation_failures.subscribe()
     }
+    /// Returns whether technical discovery may still start before acceptance or the target deadline.
     pub(crate) fn can_discover(&self) -> bool {
         self.can_start()
     }
@@ -454,6 +474,11 @@ impl ProxySearchContext {
             "localized proxy origin selected");
         Ok(())
     }
+    /// Checks whether this endpoint has already been tried for the search target; no destination returns false.
+    ///
+    /// # Arguments
+    /// * `endpoint` - Concrete proxy endpoint excluded or tracked by this operation.
+    /// * `destination` - Optional origin to inspect; `None` never counts as an attempted business request.
     pub(crate) fn attempted(&self, endpoint: &str, destination: Option<&Destination>) -> bool {
         let work = self.work.lock().unwrap();
         destination.is_some_and(|destination| {

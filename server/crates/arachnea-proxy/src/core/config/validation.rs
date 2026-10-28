@@ -7,7 +7,7 @@ use std::collections::HashSet;
 
 /// Validates that declared upstream names are non-empty and unique.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `upstreams`: Upstream node declarations from the configuration.
 ///
@@ -34,7 +34,7 @@ pub(super) fn validate_unique_upstream_names(upstreams: &[ProxyNode]) -> Result<
 
 /// Validates declared egress pools and their upstream references.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `pools`: Egress pool declarations from the configuration.
 /// - `security`: Security policy used for upstream TLS checks.
@@ -101,7 +101,7 @@ pub(super) fn validate_egress_pools(pools: &[EgressPool], security: &SecurityPol
 
 /// Validates node-level constraints inside a proxy chain.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `chain`: Chain to validate.
 /// - `security`: Security policy used for upstream TLS checks.
@@ -165,7 +165,7 @@ pub(super) fn validate_chain_nodes(
 
 /// Validates one concrete proxy node declaration.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `node`: Proxy node to validate.
 /// - `security`: Security policy used for upstream TLS checks.

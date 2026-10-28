@@ -6,7 +6,7 @@ Production code lives under `src/`; existing tests mirror the exact source paths
 
 The unified executor in `scrapyfy/scraper/query_executor.rs` delegates fetching, extraction, entry sub-queries and merging to private modules. The aggregator separates source loading, manifest expansion, execution and feature-gated diagnostics. Query collections separate execution and parameter handling; HTML/JSON conversions and administration settings handlers have dedicated private modules. Public import paths remain available through reexports.
 
-`src/lib.rs` centralizes documented constants and relevant defaults for cache identities, administration, JavaScript, HTTP, concurrency and proxy providers. Values, feature gates, YAML contracts, cache-key encoding and retry policies are preserved. Mutable caches, routing hooks and registries remain with their owning implementations. Every Rust file stays within 1,000 lines.
+`src/lib.rs` centralizes documented constants and relevant defaults for cache identities, administration, JavaScript, HTTP, concurrency and proxy providers. Values, feature gates, YAML contracts, cache-key encoding and retry policies are preserved. Mutable caches, routing hooks and registries remain with their owning implementations. The rustdoc correction temporarily leaves `scrapyfy/http_client.rs` and `scrapyfy/scraper_data_node.rs` above 1,000 lines. Their size reduction is deferred at the user’s request; see the lot 5 report in `docs/dev-tracking/rustdoc-correction-report.md`.
 
 From `server/`, run `cargo test -p arachnea-scrapyfy` for the default configuration or `cargo test -p arachnea-scrapyfy --all-features` for all compiled features. Existing tests use temporary manifests, local persistence, checked-in service YAML and local proxy/HTTP fixtures. They do not validate live providers or native browser windows. The localized proxy command below also checks the SQLite-enabled configuration without requiring optional browser engines.
 
@@ -19,6 +19,12 @@ application. The localized-proxy test suites run with:
 ```sh
 cargo test --offline -p arachnea-scrapyfy --lib --features arachnea-proxy,sqlite-persistence
 ```
+
+## Rust API contracts
+
+`HttpClient::new` keeps its base-URL argument for compatibility and does not use it. Derived clients share routing, local-country and session-store handles. Cookie isolation creates a separate cookie cache; it does not create separate routing configuration. Ordinary textual HTTP requests attach a body only for POST; an omitted POST body uses the URL query string. Binary request helpers attach any supplied body independently of the method. Browser-page fetches use their own request-body and token configuration.
+
+Source-scoped controller parameters omit JSON nulls, preserve strings and convert numbers, booleans, arrays and objects into their JSON text. Later entries for the same source overwrite matching parameter names. Server-cache reads and writes are best-effort and degrade to misses or skipped writes, while explicitly requesting the underlying cache handle can return an initialization error. Source-record batch writes inherit transactional guarantees from their typed-store backend.
 
 ## Direct fallback diagnostics
 

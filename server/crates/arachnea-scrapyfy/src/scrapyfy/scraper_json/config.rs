@@ -4,8 +4,8 @@
 //! [`JsonScraperSubQueryRaw`], [`EntrySubQueryRaw`]) and the conversions between
 //! raw YAML config and the validated runtime types.
 //!
-//! Shared types like [`ScraperRequestMethod`], [`ScraperRequestHeaderRaw`],
-//! [`ScraperRequestHeader`] are defined in [`crate::scrapyfy::scraper::config`].
+//! Shared types like `crate::scrapyfy::scraper::config::ScraperRequestMethod`, [`ScraperRequestHeaderRaw`],
+//! [`ScraperRequestHeader`] are defined in `crate::scrapyfy::scraper::config`.
 //! Bidirectional conversion between raw YAML config and the validated runtime
 //! types is provided through `TryFrom`/`From`/`Serialize` implementations.
 //!

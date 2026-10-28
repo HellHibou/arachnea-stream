@@ -231,6 +231,11 @@ impl LoginRateLimiter {
             .remove(&peer);
     }
 
+    /// Prunes expired login-failure timestamps and removes clients with no remaining failures.
+    ///
+    /// # Arguments
+    ///
+    /// * `failures` - Per-client failure timestamps pruned in place to the active rate-limit window.
     fn retain_current(failures: &mut HashMap<IpAddr, Vec<Instant>>) {
         failures.retain(|_, entries| {
             entries.retain(|instant| instant.elapsed() < RATE_LIMIT_WINDOW);

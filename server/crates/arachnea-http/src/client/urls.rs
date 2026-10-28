@@ -5,20 +5,21 @@ use super::*;
 /// Normalizes a URL or origin string to an origin URL.
 ///
 /// This function takes a URL or origin string and normalizes it to a consistent
-/// origin format (scheme://host:port/). It's used throughout the client to ensure
-/// consistent cookie and Cloudflare state management.
+/// origin format. It is used throughout the client to ensure consistent cookie
+/// and Cloudflare state management.
 ///
-/// # Parameters
+/// # Arguments
 ///
-/// - `value`: Absolute URL or origin string to normalize
+/// - `value`: Absolute URL or origin string to normalize.
 ///
 /// # Returns
 ///
-/// A normalized origin URL string in the format `scheme://host:port/`
+/// `scheme://host[:explicit-port]/`. User info, path, query, and fragment are
+/// discarded; default ports are omitted.
 ///
 /// # Errors
 ///
-/// Returns `InvalidUrl` when parsing fails or the URL has no host
+/// Returns `InvalidUrl` when parsing fails or the URL has no host.
 ///
 /// # Examples
 ///
@@ -56,13 +57,14 @@ pub(super) fn origin_url(value: &str) -> Result<String, ArachneaHttpError> {
 /// Returns None when the response is not a redirection or has no Location
 /// header. Resolves relative locations against the response URL.
 ///
-/// # Parameters
+/// # Arguments
 ///
-/// - Response: Materialized response to inspect.
+/// - `response`: Materialized response to inspect.
 ///
 /// # Returns
 ///
-/// An absolute redirect target URL, or None.
+/// An absolute redirect target URL, or `None` when the response is not a
+/// redirection or carries no `Location` header.
 ///
 /// # Errors
 ///
@@ -91,14 +93,13 @@ pub(super) fn redirect_target(
 
 /// Determines whether a redirect status code should rewrite the method to GET.
 ///
-/// POST, PUT, and PATCH are rewritten to GET for 303 See Other. 302 Found and
-/// 301 Moved Permanently are also rewritten except when the original method is
-/// GET or HEAD.
+/// Any method other than `GET` or `HEAD` is rewritten to `GET` for `301`, `302`,
+/// and `303` responses. `307` and `308` preserve the method.
 ///
-/// # Parameters
+/// # Arguments
 ///
-/// - status: HTTP redirect status code.
-/// - method: Original request method.
+/// - `status`: HTTP redirect status code.
+/// - `method`: Original request method.
 ///
 /// # Returns
 ///

@@ -103,11 +103,18 @@ impl WebviewProxy {
         })
     }
 
+    /// Returns the validated proxy endpoint without credentials.
+    ///
+    /// Only available on platforms that configure Wry through an endpoint.
     #[cfg(not(target_os = "macos"))]
     pub(super) fn endpoint(&self) -> Url {
         self.endpoint.clone()
     }
 
+    /// Builds the Wry proxy configuration for the validated endpoint.
+    ///
+    /// `socks5` endpoints become SOCKS5 proxies; all other accepted endpoints
+    /// become HTTP proxies.
     #[cfg(not(target_os = "macos"))]
     pub(super) fn wry_config(&self) -> wry::ProxyConfig {
         let endpoint = wry::ProxyEndpoint {
@@ -130,6 +137,18 @@ impl WebviewProxy {
     }
 
     /// Installs native authentication before the standalone WebView's first navigation.
+    ///
+    /// On macOS this is a no-op because credentials are installed on the
+    /// non-persistent data store before WebKit starts its network session.
+    ///
+    /// # Arguments
+    ///
+    /// - `webview`: WebView whose native proxy authentication handler is updated.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `InvalidConfiguration` error when the platform runtime cannot
+    /// install the handler.
     pub(super) fn configure_wry(&self, webview: &wry::WebView) -> Result<(), ArachneaHttpError> {
         #[cfg(target_os = "macos")]
         {
@@ -154,6 +173,19 @@ impl WebviewProxy {
     }
 
     /// Installs native authentication in Tauri's main-thread WebView callback.
+    ///
+    /// On macOS this is a no-op because credentials are installed on the
+    /// non-persistent data store before WebKit starts its network session.
+    ///
+    /// # Arguments
+    ///
+    /// - `webview`: Tauri platform webview whose native proxy authentication
+    ///   handler is updated.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `InvalidConfiguration` error when the platform runtime cannot
+    /// install the handler.
     pub(super) fn configure_tauri(
         &self,
         webview: tauri::webview::PlatformWebview,
@@ -197,6 +229,19 @@ impl WebviewProxy {
     }
 
     /// Sets credentials on the Network.framework proxy object, never on origin requests.
+    ///
+    /// # Arguments
+    ///
+    /// - `store`: WebKit website data store receiving the proxy configuration.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `InvalidConfiguration` error when the native API or proxy
+    /// objects cannot be created.
+    ///
+    /// # Safety
+    ///
+    /// The caller must run on the WebView thread with a valid data store.
     #[cfg(target_os = "macos")]
     unsafe fn configure_macos_store(
         &self,
@@ -228,6 +273,20 @@ impl WebviewProxy {
         Ok(())
     }
 
+    /// Installs a WebView2 basic-authentication handler for the proxy endpoint.
+    ///
+    /// The handler answers only authentication requests whose parsed URI matches
+    /// the configured proxy scheme, host, and effective port.
+    ///
+    /// # Arguments
+    ///
+    /// - `webview`: WebView2 controller used to subscribe to authentication
+    ///   requests.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `InvalidConfiguration` error when the runtime does not support
+    /// the required interface or the handler cannot be installed.
     #[cfg(target_os = "windows")]
     fn configure_windows(
         &self,
@@ -270,6 +329,15 @@ impl WebviewProxy {
         Ok(())
     }
 
+    /// Installs a WebKitGTK authentication handler for the proxy endpoint.
+    ///
+    /// The handler answers only proxy authentication requests matching the
+    /// configured host and port. On a retry it cancels the request instead of
+    /// sending credentials again.
+    ///
+    /// # Arguments
+    ///
+    /// - `webview`: WebKitGTK view used to subscribe to authentication requests.
     #[cfg(target_os = "linux")]
     fn configure_linux(&self, webview: &webkit2gtk::WebView) {
         use webkit2gtk::{prelude::*, Credential, CredentialPersistence};
@@ -302,6 +370,11 @@ impl WebviewProxy {
     }
 }
 
+/// Builds a redacted Tauri/Wry proxy configuration error.
+///
+/// # Arguments
+///
+/// - `message`: Static explanation that must not contain proxy credentials.
 fn invalid(message: &str) -> ArachneaHttpError {
     ArachneaHttpError::InvalidConfiguration(format!("Tauri/Wry proxy: {message}"))
 }
@@ -323,8 +396,15 @@ struct NativeProxyApi {
     _library: libloading::Library,
 }
 
+/// Resolves the Network.framework proxy symbols once per process.
+///
+/// # Returns
+///
+/// A process-wide API table, or an `InvalidConfiguration` error when the private
+/// framework symbols are unavailable.
 #[cfg(target_os = "macos")]
 fn native_proxy_api() -> Result<&'static NativeProxyApi, ArachneaHttpError> {
+    /// Cached symbol table; failures are cached as unit to avoid retrying.
     static API: std::sync::OnceLock<Result<NativeProxyApi, ()>> = std::sync::OnceLock::new();
     API.get_or_init(|| {
         // These signatures follow Apple's Network.framework C API; keep the library loaded.

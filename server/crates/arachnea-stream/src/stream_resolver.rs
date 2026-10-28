@@ -218,6 +218,17 @@ impl<'a> StreamResolver<'a> {
     /// hoster reported an explicit business error in `error_message`. Returns
     /// `Err` when the query execution itself fails (network, timeout, DNS, or
     /// Scrapyfy runtime error); these technical failures remain non-terminal.
+    ///
+    /// # Arguments
+    /// * `service_name` - Resolver service to query.
+    /// * `url` - Source or embed URL.
+    /// * `html` - Optional pre-fetched document forwarded to the resolver.
+    ///
+    /// # Errors
+    /// Returns an error when the scraper query itself fails.
+    ///
+    /// # Returns
+    /// The resolution outcome for this service.
     async fn try_resolve_stream(
         &self,
         service_name: &str,
@@ -277,6 +288,14 @@ impl<'a> StreamResolver<'a> {
     }
 
     /// Builds common runtime parameters for resolver queries.
+    ///
+    /// # Arguments
+    /// * `url` - Source or embed URL.
+    /// * `html` - Optional pre-fetched document.
+    ///
+    /// # Returns
+    /// Parameters containing the URL, its origin, optional HTML and the
+    /// configured public proxy path.
     fn build_resolver_params(&self, url: &str, html: Option<&str>) -> HashMap<String, String> {
         let mut params = HashMap::new();
         params.insert("url".to_string(), url.to_string());
@@ -310,6 +329,14 @@ impl<'a> StreamResolver<'a> {
 /// The source is selected separately from the target so callers cannot execute an
 /// arbitrary query through the public stream endpoint. The target must be an absolute
 /// HTTP(S) URL and is exposed to YAML as both `{url}` and `{query_url}`.
+///
+/// # Arguments
+/// * `scraper_agregator` - Loaded scraper runtime.
+/// * `endpoints` - Player resolver endpoints, including the public proxy path.
+/// * `source` - Loaded stream source declaring `resolve_stream`.
+/// * `target` - Absolute HTTP(S) URL to resolve.
+/// * `proxy_countries` - Ordered country hints forwarded to the proxy.
+/// * `rewrite_manifest_urls` - Whether proxied HLS manifests rewrite child URLs.
 ///
 /// # Errors
 ///
@@ -423,6 +450,15 @@ pub(crate) async fn resolve_scraper_query_stream(
 
 /// Validates, normalizes and deduplicates ordered country hints requested by a
 /// `scraper-query` player descriptor.
+///
+/// # Arguments
+/// * `proxy_countries` - Raw country hints.
+///
+/// # Errors
+/// Returns an error for a non-blank hint that is not a two-letter ISO code.
+///
+/// # Returns
+/// Uppercase, deduplicated country codes in request order.
 fn normalize_scraper_query_proxy_countries(proxy_countries: &[String]) -> Result<Vec<String>> {
     let mut countries = Vec::new();
     for raw_country in proxy_countries {
@@ -447,6 +483,11 @@ fn normalize_scraper_query_proxy_countries(proxy_countries: &[String]) -> Result
 ///
 /// # Arguments
 ///
+/// * `stream` - Resolved stream whose URLs and headers are read and rewritten.
+/// * `scraper_agregator` - Loaded scraper runtime used to query insecure TLS hosts.
+/// * `group_name` - Scraper group owning the resolver service.
+/// * `service_name` - Resolver service name.
+/// * `endpoints` - Player resolver endpoints, including the public proxy path.
 /// * `proxy_countries` - Ordered ISO country hints forwarded to the proxy,
 ///   enabling geo-routed manifest fetches through the dynamic country pool.
 /// * `rewrite_manifest_urls` - When set, a `ReplaceAll` post-response action
@@ -512,6 +553,13 @@ fn hls_manifest_content_types() -> Vec<String> {
 }
 
 /// Returns whether an absolute stream URL targets one exact allowlisted host.
+///
+/// # Arguments
+/// * `url` - Absolute stream URL.
+/// * `allowed_hosts` - Allowlisted host names.
+///
+/// # Returns
+/// `true` when the URL host exactly matches an allowlisted host.
 fn is_insecure_tls_host(url: &str, allowed_hosts: &[String]) -> bool {
     let authority = url
         .trim()

@@ -6,6 +6,15 @@ impl HttpClient {
     /// Navigates a browser page and returns its stable HTML for a scraper query.
     ///
     /// The browser session and cookie handoff are provided by `arachnea-http`.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - Absolute request URL used by the HTTP transport.
+    /// * `request_headers` - Request header names and values resolved for this fetch.
+    ///
+    /// # Errors
+    ///
+    /// Returns invalid-header, transport or unsupported-engine errors, or an error when no page HTML is returned.
     pub async fn page_navigate_for_request(
         &self,
         url: &str,
@@ -31,6 +40,16 @@ impl HttpClient {
     }
 
     /// Navigates a browser page, clicks one element, and returns the rendered HTML.
+    ///
+    /// # Arguments
+    ///
+    /// * `page_url` - Page URL navigated before clicking or performing an in-page fetch.
+    /// * `selector` - CSS selector locating the element to click or extract.
+    /// * `wait_for_selector` - CSS selector that must appear before the operation completes.
+    ///
+    /// # Errors
+    ///
+    /// Returns client/engine, navigation, click or DOM-wait errors from the browser session manager.
     pub async fn page_click_for_request(
         &self,
         page_url: &str,
@@ -59,6 +78,16 @@ impl HttpClient {
     ///
     /// Unlike [`Self::page_click_for_request`], this operation does not reuse the
     /// origin-scoped page session, so independent clicks can run concurrently.
+    ///
+    /// # Arguments
+    ///
+    /// * `page_url` - Page URL navigated before clicking or performing an in-page fetch.
+    /// * `selector` - CSS selector locating the element to click or extract.
+    /// * `wait_for_selector` - CSS selector that must appear before the operation completes.
+    ///
+    /// # Errors
+    ///
+    /// Returns client/engine, navigation, click or DOM-wait errors from the isolated browser operation.
     pub async fn page_click_isolated_for_request(
         &self,
         page_url: &str,
@@ -84,6 +113,14 @@ impl HttpClient {
     }
 
     /// Closes the retained browser session associated with one page URL.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - Absolute request URL used by the HTTP transport.
+    ///
+    /// # Errors
+    ///
+    /// Returns client-construction or URL/session-close errors from the HTTP facade.
     pub async fn close_browser_session_for_url(&self, url: &str) -> Result<()> {
         self.http_client().await?.close_browser_session(url)?;
         Ok(())
@@ -93,6 +130,19 @@ impl HttpClient {
     ///
     /// The browser session, cookie handoff, callback token capture, and token
     /// rejection classification are provided by `arachnea-http`.
+    ///
+    /// # Arguments
+    ///
+    /// * `page_url` - Page URL navigated before clicking or performing an in-page fetch.
+    /// * `method` - HTTP method used for this request.
+    /// * `url` - Absolute request URL used by the HTTP transport.
+    /// * `request_headers` - Request header names and values resolved for this fetch.
+    /// * `request_body` - Optional request payload; `None` leaves the body unspecified.
+    /// * `token` - Optional callback-token capture and rejection policy; `None` disables token substitution.
+    ///
+    /// # Errors
+    ///
+    /// Returns invalid-header, client/engine, navigation, token-capture or in-page fetch errors.
     pub async fn page_fetch_for_request(
         &self,
         page_url: &str,

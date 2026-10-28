@@ -254,6 +254,10 @@ impl TextScraperQueryRaw {
     }
 
     /// Merges the collection-level HTTP configuration into this query's own config.
+    ///
+    /// # Arguments
+    ///
+    /// * `collection_http` - HTTP options inherited from the owning query collection.
     pub(crate) fn apply_collection_http(&mut self, collection_http: &ScraperHttpConfig) {
         self.common.apply_collection_http(collection_http);
     }
@@ -263,6 +267,10 @@ impl TryFrom<TextScraperQueryRaw> for TextScraperQuery {
     type Error = anyhow::Error;
 
     /// Converts a raw YAML query definition into a validated runtime query.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - Cache sizing and directory configuration used to construct the server-side cache.
     ///
     /// # Errors
     ///
@@ -320,6 +328,10 @@ impl TryFrom<TextScraperQueryRaw> for TextScraperQuery {
 
 impl From<&TextScraperQuery> for TextScraperQueryRaw {
     /// Converts a runtime query back into its raw YAML-compatible representation.
+    ///
+    /// # Arguments
+    ///
+    /// * `query` - Query definition supplying request, extraction and post-processing settings.
     fn from(query: &TextScraperQuery) -> Self {
         Self {
             common: ScraperQueryCommon {

@@ -37,6 +37,13 @@ pub(super) fn as_json_entry(entry: &dyn ScraperEntrySpec) -> Option<&JsonScraper
 }
 
 /// Extracts query-level context fields from the current JSON context row.
+///
+/// # Arguments
+///
+/// * `query` - Query definition supplying request, extraction and post-processing settings.
+/// * `row` - Current source row from which fields or context values are extracted.
+/// * `context` - Execution context supplying runtime parameters, parent response and request metadata.
+/// * `request_url` - URL of the current response, used as the base for URL and header templates.
 pub(super) fn extract_json_context_entries(
     query: &dyn ScraperQuery,
     row: &Value,
@@ -59,6 +66,10 @@ pub(super) fn extract_json_context_entries(
 }
 
 /// Returns JSON row filters for a concrete JSON query or sub-query.
+///
+/// # Arguments
+///
+/// * `query` - Query definition supplying request, extraction and post-processing settings.
 pub(super) fn json_row_filters(query: &dyn ScraperQuery) -> Option<&HashMap<String, Vec<String>>> {
     if let Some(json_query) = query.as_any().downcast_ref::<JsonScraperQuery>() {
         return Some(&json_query.row_filters);

@@ -62,9 +62,8 @@ pub struct NetworkConfig {
     /// Clients allowed to use the server.
     ///
     /// List of CIDR networks that are permitted to query this DNS server.
-    /// If empty, the default behavior depends on the listen address:
-    /// loopback addresses allow loopback clients, other addresses are
-    /// more restrictive.
+    /// If empty, loopback listeners allow loopback clients while non-loopback
+    /// listeners deny every client until this list is populated.
     #[serde(default)]
     pub allow_clients: Vec<String>,
     /// Clients denied even if broader allow rules match.
@@ -74,11 +73,10 @@ pub struct NetworkConfig {
     /// rules take precedence over allow rules.
     #[serde(default)]
     pub deny_clients: Vec<String>,
-    /// Clients allowed to use recursive behavior.
+    /// Clients declared for recursive behavior.
     ///
-    /// List of CIDR networks that are permitted to use recursive DNS
-    /// resolution. This is a subset of allow_clients that have permission
-    /// for more resource-intensive recursive queries.
+    /// Parsed for forward compatibility; the current server does not enforce a
+    /// separate recursion ACL.
     #[serde(default)]
     pub allow_recursion: Vec<String>,
 }
@@ -121,7 +119,7 @@ pub struct FileConfig {
 impl FileConfig {
     /// Loads a TOML server config file.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `path`: Path to the TOML file.
     ///
@@ -138,7 +136,17 @@ impl FileConfig {
         toml::from_str(&raw).context("invalid TOML configuration")
     }
 
-    /// Converts the file format into a validated core configuration.
+    /// Converts the file format into a core configuration.
+    ///
+    /// # Returns
+    ///
+    /// Core configuration built from the profile, overrides and file entries.
+    /// The result is validated when passed to `ArachneaDnsCore::new`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a profile/upstream combination is invalid or a
+    /// local record string cannot be parsed.
     pub fn into_core_config(self) -> Result<CoreConfig> {
         let profile = self.profile.clone();
         let explicit_upstreams = self.upstreams;
@@ -312,9 +320,9 @@ pub enum FileProfile {
     Privacy,
     /// Secure,
     ///
-    /// Configure the server to emphasize security and data integrity.
-    /// This profile enables DNSSEC validation and uses secure upstream
-    /// transports to protect against DNS spoofing and manipulation.
+    /// Configure the server to emphasize security and data integrity. The
+    /// profile stores the configured DNSSEC state, which defaults to
+    /// `report_only` for file configurations; only `strict` enables validation.
     Secure,
     /// Advanced,
     ///
@@ -334,7 +342,7 @@ impl Default for FileProfile {
 impl FileProfile {
     /// Converts a file profile into a core usage profile.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `upstreams`: Upstreams declared by the file sections for this profile.
     /// - `dnssec_state`: DNSSEC state to embed in secure profiles.
@@ -374,7 +382,7 @@ impl FileProfile {
 /// Local record entry as written in TOML.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileLocalRecord {
-    /// Owner name.
+    /// Owner name shared by every record in this entry.
     pub name: String,
     /// Records in compact textual form, such as `A 192.0.2.1 60`.
     pub records: Vec<String>,
@@ -389,7 +397,7 @@ impl TryFrom<FileLocalRecord> for LocalRecord {
 
     /// Converts a file local record into a core local record.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `value`: File local record parsed from TOML.
     ///
@@ -446,10 +454,12 @@ impl FileBlocklist {
 
 /// Parses one textual local record.
 ///
-/// # Parameters
+/// # Arguments
 ///
-/// - `default_name`: Domain name used when the record omits an explicit name.
-/// - `raw`: Record text containing type and address data.
+/// - `default_name`: Owner name assigned to the parsed record. The text format
+///   does not include a separate owner field.
+/// - `raw`: Record text containing type and address data, with an optional
+///   trailing TTL in seconds.
 ///
 /// # Returns
 ///

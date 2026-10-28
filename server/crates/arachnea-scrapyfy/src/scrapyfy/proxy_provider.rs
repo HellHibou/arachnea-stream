@@ -38,6 +38,7 @@ pub struct ScrapyfyProxyDataProvider {
 }
 
 #[derive(Default)]
+/// In-memory sink collecting progressively published proxy records for compatibility callers.
 struct CollectedProxyBatches(Mutex<Vec<ProxyRecord>>);
 
 #[async_trait]
@@ -50,6 +51,10 @@ impl arachnea_proxy::core::ProxyBatchSink for CollectedProxyBatches {
 
 impl ScrapyfyProxyDataProvider {
     /// Creates a proxy data provider backed by the given aggregator.
+    ///
+    /// # Arguments
+    ///
+    /// * `scraper_agregator` - Aggregator whose configured sources and runtime handles are captured for provider queries.
     pub fn new(scraper_agregator: &mut ScraperAgregator) -> Self {
         let preferred_config_path = format!(
             "{}/{}/{}",
@@ -126,6 +131,12 @@ impl ProxyDataProvider for ScrapyfyProxyDataProvider {
 }
 
 impl ScrapyfyProxyDataProvider {
+    /// Publishes provider batches as they complete, resolving unknown IP countries within shared limits.
+    ///
+    /// # Arguments
+    ///
+    /// * `country` - Country-code text, trimmed and converted to uppercase ASCII.
+    /// * `sink` - Subscriber receiving progressively available proxy-record batches.
     async fn publish_country(
         &self,
         country: String,
@@ -190,6 +201,11 @@ impl ScrapyfyProxyDataProvider {
         Ok(())
     }
 
+    /// Resolves one IP through shared subscriber-owned work, caching positive and negative outcomes.
+    ///
+    /// # Arguments
+    ///
+    /// * `ip` - IP address to resolve without guessing a country from the requested partition.
     async fn resolve_shared_ip(&self, ip: IpAddr) -> Option<String> {
         {
             let mut cache = self.geo_cache.lock().await;
@@ -273,6 +289,11 @@ impl ScrapyfyProxyDataProvider {
     }
 }
 
+/// Builds a proxy record from a row with a non-empty host and a valid numeric port.
+///
+/// # Arguments
+///
+/// * `entry` - Source result row converted into a proxy record.
 fn entry_to_proxy_record(entry: &HashMap<String, ScraperDataNode>) -> Option<ProxyRecord> {
     let host = entry.get("host")?.value_as_string()?.trim();
     if host.is_empty() {
@@ -353,6 +374,11 @@ fn entry_to_proxy_record(entry: &HashMap<String, ScraperDataNode>) -> Option<Pro
     Some(record)
 }
 
+/// Parses a supported proxy protocol name case-insensitively, returning `None` for unknown names.
+///
+/// # Arguments
+///
+/// * `value` - Input value interpreted by this operation.
 fn parse_proxy_protocol(value: &str) -> Option<ProxyProtocol> {
     match value.trim().to_ascii_lowercase().as_str() {
         "http" => Some(ProxyProtocol::Http),
@@ -364,6 +390,11 @@ fn parse_proxy_protocol(value: &str) -> Option<ProxyProtocol> {
     }
 }
 
+/// Selects the highest-priority supported protocol present in the provider list.
+///
+/// # Arguments
+///
+/// * `values` - Input values converted or inspected in their existing order.
 fn preferred_proxy_protocol(values: &[String]) -> Option<ProxyProtocol> {
     PROXY_PROTOCOL_PRIORITY
         .iter()
@@ -376,6 +407,11 @@ fn preferred_proxy_protocol(values: &[String]) -> Option<ProxyProtocol> {
         .cloned()
 }
 
+/// Trims and uppercases a provider country hint without verifying its location.
+///
+/// # Arguments
+///
+/// * `country` - Country-code text, trimmed and converted to uppercase ASCII.
 fn normalize_proxy_country(country: &str) -> String {
     country.trim().to_ascii_uppercase()
 }
@@ -413,17 +449,18 @@ pub fn default_scrapyfy_ip_country_resolver(
 
 /// Builds a default dynamic proxy inventory backed by scrapyfy proxy sources.
 ///
-/// The returned inventory uses [`ScrapyfyProxyDataProvider`] and the default
-/// [`ProxyProbe`] configuration, with an IP-country resolver pre-configured
-/// for strict country selection. `persistence_store` is attached as the
-/// persistent cache of dynamic proxies (shared with other domains such as
-/// cookies; namespaces keep data families isolated).
+/// Uses [`ScrapyfyProxyDataProvider`], the default HTTP probe target and an HTTPS
+/// probe at `https://example.com/`, with an IP-country resolver for country-aware
+/// selection. Matching the aggregator's proxy store reuses its coordinated
+/// repository; another store gets a repository with in-memory failure retention.
+/// Accepted-history persistence is shared with the aggregator in either case.
+/// Other data families retain their own typed entity schemas.
 ///
 /// # Arguments
 ///
 /// * `scraper_agregator` - The aggregator instance that owns or will own this
 ///   inventory.
-/// * `persistence_store` - Shared persistence store used as the proxy cache.
+/// * `proxy_store` - Typed proxy-record cache; matching the aggregator store reuses its repository.
 pub fn default_scrapyfy_proxy_inventory(
     scraper_agregator: &mut ScraperAgregator,
     proxy_store: Arc<dyn TypedEntityStore<ProxyRecord>>,
@@ -452,7 +489,7 @@ pub fn default_scrapyfy_proxy_inventory(
 /// Builds a default [`ArachneaProxyCore`] with dynamic country routing backed
 /// by scrapyfy proxy sources.
 ///
-/// The returned core uses [`DynamicCountryRoutingProxyHandler`] with
+/// The returned core uses [`arachnea_proxy::core::DynamicCountryRoutingProxyHandler`] with
 /// `DynamicOnly` coexistence policy — a JSON set of allowed `countries` in the request
 /// parameter triggers a `ProxyInventory` lookup that lazily loads proxy data through
 /// [`ScrapyfyProxyDataProvider`].
@@ -460,7 +497,7 @@ pub fn default_scrapyfy_proxy_inventory(
 /// # Arguments
 ///
 /// * `scraper_agregator` - The aggregator instance that owns or will own this core.
-/// * `persistence_store` - Shared persistence store used as the proxy cache.
+/// * `proxy_store` - Typed proxy-record cache; matching the aggregator store reuses its repository.
 ///
 /// # Returns
 ///

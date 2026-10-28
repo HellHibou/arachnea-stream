@@ -12,7 +12,7 @@ use crate::core::{
 
 /// Logs a SOCKS5 CONNECT handshake at DEBUG level.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `destination`: Target being connected through the SOCKS proxy.
 fn log_socks5_connect(destination: &Destination) {
@@ -25,7 +25,7 @@ fn log_socks5_connect(destination: &Destination) {
 
 /// Logs a SOCKS4 CONNECT handshake at DEBUG level.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `destination`: Target being connected through the SOCKS proxy.
 fn log_socks4_connect(destination: &Destination) {
@@ -54,7 +54,7 @@ pub struct Socks5UdpAssociation {
 impl Socks5UdpAssociation {
     /// Creates a SOCKS5 UDP association from a relay socket and TCP control stream.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `socket`: UDP socket used to communicate with the upstream relay.
     /// - `relay_addr`: Upstream SOCKS5 UDP relay address.
@@ -78,7 +78,7 @@ impl Socks5UdpAssociation {
 
     /// Sends one UDP payload through the upstream SOCKS5 relay.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `destination`: Target destination encoded in the SOCKS5 UDP header.
     /// - `payload`: UDP payload to relay.
@@ -101,7 +101,7 @@ impl Socks5UdpAssociation {
 
     /// Receives one UDP payload from the upstream SOCKS5 relay.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `payload`: Caller-provided buffer that receives the decoded payload.
     ///
@@ -129,7 +129,7 @@ impl Socks5UdpAssociation {
 
 /// Performs a SOCKS5 CONNECT handshake over an existing stream.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `stream`: Stream connected to the SOCKS5 upstream.
 /// - `destination`: Target destination requested through the upstream.
@@ -166,7 +166,7 @@ where
 /// Hostname destinations are encoded with the SOCKS4a extension. Literal IPv4
 /// destinations use the original SOCKS4 address field.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `stream`: Stream connected to the SOCKS4 upstream.
 /// - `destination`: Target destination requested through the upstream.
@@ -198,7 +198,7 @@ where
 
 /// Performs a SOCKS5 UDP ASSOCIATE handshake over an existing stream.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `stream`: Stream connected to the SOCKS5 upstream.
 /// - `timeout`: Maximum duration for the handshake.
@@ -234,7 +234,7 @@ where
 
 /// Negotiates SOCKS5 no-auth or username/password authentication.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `stream`: Stream connected to the SOCKS5 upstream.
 /// - `credentials`: Optional credentials to send to the upstream.
@@ -275,7 +275,7 @@ where
 
 /// Sends SOCKS5 username/password credentials to an upstream.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `stream`: Stream connected to the SOCKS5 upstream.
 /// - `credentials`: Credentials to send.
@@ -315,7 +315,7 @@ where
 
 /// Encodes a SOCKS5 command request.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `command`: SOCKS5 command byte, such as `CONNECT` or `UDP ASSOCIATE`.
 /// - `destination`: Destination to encode in the request.
@@ -355,7 +355,7 @@ fn encode_request(command: u8, destination: &Destination) -> Result<Vec<u8>> {
 
 /// Encodes a SOCKS4 CONNECT request.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `destination`: Target destination to encode.
 /// - `user_id`: SOCKS4 user identifier. It must not contain NUL bytes.
@@ -406,7 +406,7 @@ fn encode_socks4_connect_request(destination: &Destination, user_id: &str) -> Re
 
 /// Reads a SOCKS4 reply from an upstream proxy.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `stream`: Stream connected to the SOCKS4 peer.
 ///
@@ -437,7 +437,7 @@ where
 
 /// Reads a SOCKS5 reply and returns its bound endpoint.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `stream`: Stream connected to the SOCKS5 peer.
 ///
@@ -498,7 +498,7 @@ where
 
 /// Returns a readable label for a SOCKS5 reply code.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `code`: SOCKS5 reply code from an upstream response.
 ///
@@ -521,7 +521,7 @@ fn socks5_reply_label(code: u8) -> &'static str {
 
 /// Returns a readable label for a SOCKS4 reply code.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `code`: SOCKS4 reply code from an upstream response.
 ///
@@ -540,7 +540,7 @@ fn socks4_reply_label(code: u8) -> &'static str {
 
 /// Encodes a UDP payload for a SOCKS5 UDP relay.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `destination`: Target destination for the UDP payload.
 /// - `payload`: Application UDP payload.
@@ -581,7 +581,7 @@ fn encode_udp_packet(destination: &Destination, payload: &[u8]) -> Result<Vec<u8
 
 /// Decodes a SOCKS5 UDP packet received from an upstream relay.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `packet`: Raw UDP packet received from the SOCKS5 relay.
 ///

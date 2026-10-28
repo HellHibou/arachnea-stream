@@ -32,7 +32,7 @@ pub trait ScraperEntrySpec: Send + Sync {
 
     /// Returns the entry type discriminant.
     ///
-    /// Returns [`ScraperType::Html`] for HTML entries or [`ScraperType::Json`] for JSON entries.
+    /// Returns [`super::ScraperType::Html`] for HTML entries or [`super::ScraperType::Json`] for JSON entries.
     fn entry_type(&self) -> super::ScraperType;
 
     /// Returns the JSON pointer (only set for JSON entries).

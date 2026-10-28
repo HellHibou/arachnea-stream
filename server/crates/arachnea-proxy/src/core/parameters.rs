@@ -27,7 +27,7 @@ pub struct ParameterDefinition {
 impl ParameterDefinition {
     /// Creates a parameter definition.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `http_header`: HTTP header name that carries the parameter.
     /// - `name`: Context parameter name used by routing code.
@@ -73,7 +73,7 @@ impl ParameterHandlerDecision {
 
     /// Creates a decision that appends an extra proxy.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `proxy`: Extra request-local proxy node.
     /// - `stop`: Whether following handlers should be skipped.
@@ -100,7 +100,7 @@ pub trait ProxyParameterHandler: Send + Sync + std::fmt::Debug {
 
     /// Selects a request-local extra proxy from client parameters.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `parameters`: Client context built from inbound proxy parameters.
     ///
@@ -187,7 +187,7 @@ impl SmartDnsProxyHandler {
 
     /// Builds a Smart DNS handler from configuration.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `config`: Serializable handler configuration.
     ///
@@ -216,7 +216,7 @@ impl SmartDnsProxyHandler {
 
     /// Adds a Smart DNS hint to proxy mapping.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `hint`: Smart DNS hint value.
     /// - `proxy`: Extra proxy appended when `hint` matches.
@@ -250,7 +250,7 @@ impl ProxyParameterHandler for SmartDnsProxyHandler {
 
     /// Appends the proxy mapped to the Smart DNS hint when present.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `parameters`: Client context containing optional Smart DNS hints.
     ///
@@ -302,7 +302,7 @@ impl CountryRoutingProxyHandler {
 
     /// Builds a country-routing handler from configuration.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `config`: Serializable handler configuration.
     ///
@@ -325,7 +325,7 @@ impl CountryRoutingProxyHandler {
 
     /// Adds a country code to proxy mapping.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `country`: Country code or region label.
     /// - `proxy`: Extra proxy appended when `country` matches.
@@ -364,7 +364,7 @@ impl ProxyParameterHandler for CountryRoutingProxyHandler {
 
     /// Selects a configured route from the allowed countries by stable endpoint order.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `parameters`: Client context containing an optional JSON set of allowed countries.
     ///
@@ -412,7 +412,7 @@ pub struct DynamicCountryRoutingProxyHandler {
 impl DynamicCountryRoutingProxyHandler {
     /// Creates a new dynamic country routing handler.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `coexistence_policy`: Policy controlling when dynamic routing
     ///   activates relative to static pools.
@@ -430,7 +430,7 @@ impl DynamicCountryRoutingProxyHandler {
 
     /// Builds a dynamic country routing handler from configuration.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `config`: Serializable handler configuration.
     ///
@@ -522,7 +522,7 @@ impl ParameterRegistry {
 
     /// Registers or replaces one parameter definition.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `definition`: Parameter definition to register.
     pub fn register(&mut self, definition: ParameterDefinition) {
@@ -540,7 +540,7 @@ impl ParameterRegistry {
 
     /// Registers all definitions returned by one handler.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `handler`: Parameter handler contributing definitions.
     pub fn register_handler(&mut self, handler: &dyn ProxyParameterHandler) {
@@ -570,7 +570,7 @@ impl ParameterRegistry {
 
 /// Builds one configured parameter handler.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `config`: Serializable parameter handler configuration.
 ///
@@ -597,7 +597,7 @@ pub fn build_parameter_handler(
 
 /// Validates configured parameter handlers.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `handlers`: Handler configurations to validate.
 ///
@@ -615,7 +615,7 @@ pub fn validate_parameter_handler_configs(handlers: &[ParameterHandlerConfig]) -
 
 /// Builds a context from textual parameter pairs.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `pairs`: Textual parameter pairs.
 /// - `definitions`: Registered parameter definitions used as an allow-list.
@@ -654,7 +654,7 @@ pub fn default_countries_parameter_definition() -> ParameterDefinition {
 
 /// Normalizes textual parameter values for built-in conventions.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `name`: Context parameter name.
 /// - `value`: Raw textual value.
@@ -705,6 +705,10 @@ pub fn canonical_proxy_countries(countries: &[String]) -> Vec<String> {
 }
 
 /// Parses a JSON set of allowed countries into its canonical representation.
+///
+/// # Arguments
+/// * `value` - Header value to decode and validate.
+///
 fn parse_countries_parameter(value: &str) -> Option<Vec<String>> {
     let countries = serde_json::from_str::<Vec<String>>(value).ok()?;
     Some(canonical_proxy_countries(&countries))
@@ -712,7 +716,7 @@ fn parse_countries_parameter(value: &str) -> Option<Vec<String>> {
 
 /// Validates that a proxy node can be appended by a handler.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `proxy`: Candidate extra proxy.
 ///
@@ -730,7 +734,7 @@ fn validate_extra_proxy(proxy: &ProxyNode) -> Result<()> {
 
 /// Normalizes a country-like routing value.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `country`: Raw country code or region label.
 ///

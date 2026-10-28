@@ -22,6 +22,11 @@ use super::redirects::{redirect_opts_encoded, rewrite_location_header};
 use super::urls::{build_target_url, parse_proxy_path};
 use crate::MAX_LOCAL_URL_BYTES;
 
+/// Builds a buffered plain-text controller response for a proxy failure.
+///
+/// # Arguments
+/// * `status` - HTTP status returned to the controller client.
+/// * `message` - Error text returned in the buffered plain-text response.
 fn stream_error(status: u16, message: impl Into<String>) -> ControlerStreamOutput {
     ControlerStreamOutput {
         status,

@@ -192,6 +192,11 @@ impl StaticScraperQuery {
     }
 
     /// Rebinds the placeholder HTTP client to shared runtime handles.
+    ///
+    /// # Arguments
+    ///
+    /// * `proxy_handle` - Shared, versioned routing configuration observed by derived HTTP clients.
+    /// * `local_country` - Shared explicit or detected outbound-country state used for local-country proxy bypass.
     #[allow(dead_code)]
     pub(crate) fn set_runtime_handles(
         &mut self,
@@ -207,6 +212,12 @@ impl StaticScraperQuery {
 
     /// Rebinds the placeholder HTTP client to shared runtime handles and a
     /// persistence store.
+    ///
+    /// # Arguments
+    ///
+    /// * `proxy_handle` - Shared, versioned routing configuration observed by derived HTTP clients.
+    /// * `local_country` - Shared explicit or detected outbound-country state used for local-country proxy bypass.
+    /// * `session_store` - Typed store for reusable chaser-cf sessions shared by this client family.
     pub(crate) fn set_runtime_handles_with_session_store(
         &mut self,
         proxy_handle: SharedProxyConfigHandle,
@@ -223,6 +234,10 @@ impl StaticScraperQuery {
     }
 
     /// Returns whether the query matches at least one requested media type.
+    ///
+    /// # Arguments
+    ///
+    /// * `media_types` - Requested media types tested against the query declaration.
     pub fn is_media_type(&self, media_types: &[String]) -> bool {
         self.media_types.is_empty()
             || media_types.is_empty()
@@ -237,6 +252,10 @@ impl TryFrom<StaticScraperQueryRaw> for StaticScraperQuery {
     type Error = anyhow::Error;
 
     /// Converts a raw static query definition into a validated runtime query.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - Cache sizing and directory configuration used to construct the server-side cache.
     ///
     /// # Errors
     ///
@@ -253,6 +272,10 @@ impl TryFrom<StaticScraperQueryRaw> for StaticScraperQuery {
 
 impl From<&StaticScraperQuery> for StaticScraperQueryRaw {
     /// Converts a runtime static query back into its raw YAML representation.
+    ///
+    /// # Arguments
+    ///
+    /// * `query` - Query definition supplying request, extraction and post-processing settings.
     fn from(query: &StaticScraperQuery) -> Self {
         Self {
             name: query.name.clone(),
@@ -265,6 +288,10 @@ impl From<&StaticScraperQuery> for StaticScraperQueryRaw {
 
 impl Serialize for StaticScraperQuery {
     /// Serializes the static query through its raw YAML representation.
+    ///
+    /// # Arguments
+    ///
+    /// * `serializer` - Serde serializer receiving the raw or typed representation.
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -286,6 +313,7 @@ impl StaticScraperEntryRaw {
     ///
     /// * `root` - Mutable root data node receiving the rendered values.
     /// * `params` - Runtime parameters used to resolve template placeholders.
+    /// * `dynamic_variables` - Shared dynamic variables in the reserved `@` namespace, scoped to this execution.
     ///
     /// # Errors
     ///
@@ -449,11 +477,13 @@ impl ScraperQuery for StaticScraperQuery {
     }
 
     fn request_actions(&self) -> &[ScraperAction] {
+        /// Shared empty collection returned by this default query trait accessor.
         const EMPTY: &[ScraperAction] = &[];
         EMPTY
     }
 
     fn request_headers(&self) -> &[ScraperRequestHeader] {
+        /// Shared empty collection returned by this default query trait accessor.
         const EMPTY: &[ScraperRequestHeader] = &[];
         EMPTY
     }
@@ -475,6 +505,7 @@ impl ScraperQuery for StaticScraperQuery {
     }
 
     fn post_processes(&self) -> &[crate::scrapyfy::ScraperPostProcess] {
+        /// Shared empty collection returned by this default query trait accessor.
         const EMPTY: &[crate::scrapyfy::ScraperPostProcess] = &[];
         EMPTY
     }
@@ -583,6 +614,13 @@ fn yaml_value_to_template(value: &Value) -> Option<String> {
     }
 }
 
+/// Inserts a static node at a non-empty path, creating intermediate children and replacing its leaf.
+///
+/// # Arguments
+///
+/// * `root` - Result tree updated in place by this operation.
+/// * `path` - Ordered child-path segments; an empty path leaves the root unchanged.
+/// * `node` - Scraper node inspected or updated by this operation.
 fn set_static_node(root: &mut ScraperDataNode, path: &[&str], node: ScraperDataNode) {
     if path.is_empty() {
         return;
@@ -598,6 +636,17 @@ fn set_static_node(root: &mut ScraperDataNode, path: &[&str], node: ScraperDataN
         .insert(path[path.len().saturating_sub(1)].to_string(), node);
 }
 
+/// Parses rendered JSON object values into a typed static object or object array.
+///
+/// # Arguments
+///
+/// * `entry_name` - Entry name used in validation and conversion errors.
+/// * `values` - Rendered JSON strings expected to contain objects.
+/// * `output_type` - Declared scalar or container type governing the result shape.
+///
+/// # Errors
+///
+/// Returns an error for multiple values declared as one object, malformed JSON, or nested node conversion failure.
 fn rendered_json_values_to_node(
     entry_name: &str,
     values: &[String],
@@ -644,6 +693,12 @@ fn rendered_json_values_to_node(
     Ok(node)
 }
 
+/// Converts JSON recursively into scraper nodes with an optional declared output-type override.
+///
+/// # Arguments
+///
+/// * `value` - JSON value recursively converted to a typed scraper node.
+/// * `forced_type` - Optional declared output type overriding the type inferred from the JSON value.
 fn json_value_to_node(
     value: serde_json::Value,
     forced_type: Option<ScraperOutputType>,

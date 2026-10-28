@@ -124,9 +124,9 @@ pub struct NetworkConfig {
     pub allow_clients: Vec<IpNet>,
     /// Denied client networks.
     pub deny_clients: Vec<IpNet>,
-    /// Advisory per-client request rate.
+    /// Advisory per-client requests per second; listeners do not enforce this field yet.
     pub rate_limit_per_client_per_second: Option<u32>,
-    /// Advisory maximum simultaneous connections.
+    /// Maximum simultaneous connections per listener; `None` uses a limit of 1024.
     pub max_connections: Option<u32>,
 }
 
@@ -147,7 +147,7 @@ impl Default for NetworkConfig {
 
 /// Returns whether an IP address is loopback.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `ip`: IP address to classify.
 ///

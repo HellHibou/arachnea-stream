@@ -18,7 +18,7 @@ pub enum ScraperType {
 /// Describes how rows are extracted from a scraper response.
 ///
 /// The variant is chosen at runtime based on the parent query's
-/// [`ScraperType`](super::ScraperType).
+/// [`ScraperType`].
 pub enum RowLocator {
     /// HTML response: apply a CSS selector on the parsed document.
     ///

@@ -20,23 +20,17 @@ pub enum UsageProfile {
 
     /// Send all traffic through one configured proxy.
     ///
-    /// # Parameters
-    ///
-    /// - `ProxyNode`: Proxy node that receives all outbound connections.
+    /// The contained node receives all outbound connections.
     SingleForwarder(ProxyNode),
 
     /// Send all traffic through a fixed multi-hop proxy chain.
     ///
-    /// # Parameters
-    ///
-    /// - `Vec<ProxyNode>`: Ordered proxy nodes used by the chain.
+    /// The contained nodes define the chain in connection order.
     MultiForwarder(Vec<ProxyNode>),
 
     /// Prefer proxy-only behavior with minimized logs and no direct fallback.
     ///
-    /// # Parameters
-    ///
-    /// - `Vec<ProxyNode>`: Ordered proxy nodes used by the privacy chain.
+    /// The contained nodes define the privacy chain in connection order.
     Privacy(Vec<ProxyNode>),
 
     /// Require explicit customization on top of the generated defaults.
@@ -69,7 +63,7 @@ impl UsageProfile {
     /// back to a direct configuration. Use `try_config_with_timeouts` when
     /// those errors should be reported to the caller.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `timeouts`: Timeout values installed on the generated configuration.
     ///
@@ -119,7 +113,7 @@ impl UsageProfile {
 
     /// Builds a complete starting configuration with explicit timeouts and reports errors.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `timeouts`: Timeout values installed on the generated configuration.
     ///
@@ -139,7 +133,7 @@ impl UsageProfile {
 
 /// Builds a single-forwarder configuration.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `node`: Proxy node receiving all outbound traffic.
 /// - `profile`: Low-level profile marker stored in the configuration.
@@ -170,7 +164,7 @@ pub(super) fn single_forwarder_config(
 
 /// Builds a fixed multi-forwarder configuration.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `chain_name`: Name assigned to the generated chain.
 /// - `nodes`: Ordered proxy nodes used by the chain.

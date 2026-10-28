@@ -26,9 +26,10 @@ pub struct GhostwireEngine {
 impl GhostwireEngine {
     /// Creates a Ghostwire engine.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `config`: Client configuration used to choose Ghostwire's user-agent.
+    /// - `proxy_url`: Optional proxy URL added to Ghostwire's transport.
     ///
     /// # Returns
     ///
@@ -74,7 +75,7 @@ impl HttpEngine for GhostwireEngine {
 
     /// Sends a request with Ghostwire.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `request`: Normalized request to execute.
     ///
@@ -124,7 +125,7 @@ impl HttpEngine for GhostwireEngine {
 
     /// Refreshes Cloudflare state and records Ghostwire's configured user-agent.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `request`: Normalized refresh request.
     ///

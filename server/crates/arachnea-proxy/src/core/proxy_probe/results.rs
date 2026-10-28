@@ -8,31 +8,48 @@ use std::time::SystemTime;
 use super::config::ProbeMode;
 use super::http::{HttpProbeTarget, HttpsProbeTarget};
 use super::ProxyProbe;
-
+/// Complementary capability whose runtime evidence is being measured.
 #[derive(Clone, Copy)]
 pub(super) enum ProxyCapability {
+    /// Ordinary HTTP forwarding through the proxy.
     HttpForwarding,
+    /// Tunnel establishment and destination TLS for HTTPS traffic.
     HttpsTunnel,
 }
-
+/// Borrowed HTTP or HTTPS target metadata for one complementary measurement.
 pub(super) enum CapabilityProbeTarget<'a> {
+    /// Absolute-form HTTP forwarding request metadata.
     HttpForwarding(&'a HttpProbeTarget),
+    /// HTTPS tunnel and TLS request metadata.
     Https(&'a HttpsProbeTarget),
 }
-
+/// Evidence from one measured capability, separating endpoint failure from target uncertainty.
 pub(super) struct CapabilityProbeAttempt {
+    /// Whether TCP connectivity to the proxy endpoint was observed.
     pub(super) endpoint_reachable: bool,
+    /// Whether failure was specifically attributed to connecting to the proxy endpoint.
     pub(super) endpoint_connection_failed: bool,
+    /// Measured endpoint connection latency in milliseconds, if available.
     pub(super) latency_ms: Option<u64>,
+    /// Measured TLS certificate status for an HTTPS proxy transport.
     pub(super) proxy_tls_certificate: ProxyCapabilityStatus,
+    /// Measured status of the capability requested by this attempt.
     pub(super) capability_status: ProxyCapabilityStatus,
+    /// Measured TLS status for the destination behind the proxy tunnel.
     pub(super) destination_tls: ProxyCapabilityStatus,
+    /// Whether the measured evidence makes this attempt usable under its policy.
     pub(super) usable: bool,
+    /// Whether an authentication challenge prevents unauthenticated use.
     pub(super) authentication_required: bool,
+    /// Retained failure cause, if measurement did not complete successfully.
     pub(super) error: Option<ProxyError>,
 }
 
 impl CapabilityProbeAttempt {
+    /// Builds a failed capability attempt, classifying its evidence and retaining the error.
+    ///
+    /// # Arguments
+    /// * `error` - Observed error to classify without changing its cause.
     pub(super) fn failed(error: ProxyError) -> Self {
         let capability_status = failed_capability_status(&error);
         Self {
@@ -48,6 +65,10 @@ impl CapabilityProbeAttempt {
         }
     }
 
+    /// Builds a failed attempt explicitly attributed to endpoint connection failure.
+    ///
+    /// # Arguments
+    /// * `error` - Observed error to classify without changing its cause.
     pub(super) fn endpoint_connection_failed(error: ProxyError) -> Self {
         let mut attempt = Self::failed(error);
         attempt.endpoint_connection_failed = true;
@@ -58,21 +79,41 @@ impl CapabilityProbeAttempt {
 /// Intermediate probe result that gets applied to a `ProxyRecord`.
 #[derive(Default)]
 pub(super) struct ProtocolProbeResult {
+    /// Whether TCP connectivity to the proxy endpoint was observed.
     pub(super) endpoint_reachable: bool,
+    /// Whether failure was specifically attributed to connecting to the proxy endpoint.
     pub(super) endpoint_connection_failed: bool,
+    /// Whether at least one complementary capability target was configured.
     pub(super) capability_configured: bool,
+    /// Whether the measured evidence makes this attempt usable under its policy.
     pub(super) usable: bool,
+    /// Measured endpoint connection latency in milliseconds, if available.
     pub(super) latency_ms: Option<u64>,
+    /// Whether an authentication challenge prevents unauthenticated use.
     pub(super) authentication_required: bool,
+    /// Measured ability to forward ordinary HTTP requests.
     pub(super) http_forwarding: ProxyCapabilityStatus,
+    /// Measured ability to establish an HTTPS destination tunnel.
     pub(super) https_tunnel: ProxyCapabilityStatus,
+    /// Measured TLS status for the destination behind the proxy tunnel.
     pub(super) destination_tls: ProxyCapabilityStatus,
+    /// Measured TLS certificate status for an HTTPS proxy transport.
     pub(super) proxy_tls_certificate: ProxyCapabilityStatus,
+    /// Proxy protocol selected by the measurement, if identified.
     pub(super) protocol: Option<ProxyProtocol>,
+    /// Retained failure cause, if measurement did not complete successfully.
     pub(super) error: Option<ProxyError>,
 }
 
 impl ProtocolProbeResult {
+    /// Merges one capability attempt into the aggregate endpoint result and its observations.
+    ///
+    /// # Arguments
+    /// * `capability` - Capability whose result is merged into the aggregate probe result.
+    /// * `attempt` - Measured outcome of one capability probe.
+    /// * `host` - Hostname or IP address to resolve or connect to, without a port.
+    /// * `port` - TCP port of the proxy endpoint.
+    /// * `protocol` - Proxy transport protocol used for the endpoint handshake.
     pub(super) fn record_attempt(
         &mut self,
         capability: ProxyCapability,
@@ -129,6 +170,10 @@ impl ProtocolProbeResult {
 }
 
 /// Returns `true` when the error indicates the proxy requires authentication.
+///
+/// # Arguments
+/// * `error` - Observed error to classify without changing its cause.
+///
 pub(super) fn is_auth_required(error: &ProxyError) -> bool {
     if let ProxyError::UpstreamRejected(msg) = error {
         msg.contains("status 407")
@@ -137,6 +182,10 @@ pub(super) fn is_auth_required(error: &ProxyError) -> bool {
     }
 }
 
+/// Maps a successful measurement to availability and classifies failed measurements.
+///
+/// # Arguments
+/// * `result` - Measured capability outcomes whose explicit evidence is retained separately from unknown states.
 pub(super) fn capability_status<T>(result: &Result<T>) -> ProxyCapabilityStatus {
     match result {
         Ok(_) => ProxyCapabilityStatus::Available,
@@ -144,6 +193,10 @@ pub(super) fn capability_status<T>(result: &Result<T>) -> ProxyCapabilityStatus 
     }
 }
 
+/// Distinguishes proven capability failure from inconclusive transport or target errors.
+///
+/// # Arguments
+/// * `error` - Observed error to classify without changing its cause.
 pub(super) fn failed_capability_status(error: &ProxyError) -> ProxyCapabilityStatus {
     match error {
         ProxyError::Observation {
@@ -171,6 +224,11 @@ pub(super) fn failed_capability_status(error: &ProxyError) -> ProxyCapabilitySta
 impl ProxyProbe {
     // ── internal helpers ──────────────────────────────────────────────
 
+    /// Updates a proxy record from measured evidence and returns any retained probe error.
+    ///
+    /// # Arguments
+    /// * `record` - Proxy record whose endpoint and runtime evidence are inspected or updated.
+    /// * `result` - Measured capability outcomes whose explicit evidence is retained separately from unknown states.
     pub(super) fn apply_result(
         &self,
         record: &mut ProxyRecord,
@@ -231,6 +289,11 @@ impl ProxyProbe {
         }
     }
 
+    /// Checks whether relaxed endpoint evidence permits fallback without overriding explicit failures.
+    ///
+    /// # Arguments
+    /// * `record` - Proxy record whose endpoint and runtime evidence are inspected or updated.
+    /// * `result` - Measured capability outcomes whose explicit evidence is retained separately from unknown states.
     pub(super) fn relaxed_fallback_is_usable(
         &self,
         record: &ProxyRecord,

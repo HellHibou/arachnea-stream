@@ -5,6 +5,12 @@ use super::node_helpers::{get_node, get_node_mut, set_node, split_path};
 use super::types::ScraperFieldMapping;
 
 /// Validates one `copy_item_fields` post-process definition.
+///
+/// # Arguments
+///
+/// * `owner` - Owning query or entry label used to contextualize validation errors.
+/// * `source` - `>`-delimited path of the source node within the result tree.
+/// * `fields` - Field values or field paths supplied by this operation.
 pub(super) fn validate(owner: &str, source: &str, fields: &[ScraperFieldMapping]) -> Result<()> {
     if source.trim().is_empty() {
         bail!("copy_item_fields for {} requires a non-empty source", owner);
@@ -24,6 +30,12 @@ pub(super) fn validate(owner: &str, source: &str, fields: &[ScraperFieldMapping]
 }
 
 /// Copies fields between items of a root group while preserving their node types.
+///
+/// # Arguments
+///
+/// * `root` - Result tree updated in place by this operation.
+/// * `source` - `>`-delimited path of the source node within the result tree.
+/// * `fields` - Field values or field paths supplied by this operation.
 pub(super) fn apply(root: &mut ScraperDataNode, source: &str, fields: &[ScraperFieldMapping]) {
     let Some(source_node) = get_node_mut(root, source) else {
         return;

@@ -9,6 +9,14 @@ use super::{
 };
 
 /// Validates a scalar follow-up fetch and action pipeline.
+///
+/// # Arguments
+///
+/// * `owner` - Owning query or entry label used to contextualize validation errors.
+/// * `source` - `>`-delimited path of the source node within the result tree.
+/// * `target` - `>`-delimited destination path that receives the transformed result.
+/// * `actions` - Action pipeline applied in declaration order.
+/// * `request_actions` - Action pipeline used to prepare URLs before issuing requests.
 pub(super) fn validate(
     owner: &str,
     source: &str,
@@ -39,6 +47,16 @@ pub(super) fn validate(
 
 /// Fetches every URL stored in `source`, applies `actions` to each response,
 /// and replaces `target` with the combined output values.
+///
+/// # Arguments
+///
+/// * `root` - Result tree updated in place by this operation.
+/// * `context` - Execution context supplying runtime parameters, parent response and request metadata.
+/// * `source` - `>`-delimited path of the source node within the result tree.
+/// * `target` - `>`-delimited destination path that receives the transformed result.
+/// * `output_type` - Declared scalar or container type governing the result shape.
+/// * `request_actions` - Action pipeline used to prepare URLs before issuing requests.
+/// * `actions` - Action pipeline applied in declaration order.
 pub(super) async fn apply(
     root: &mut ScraperDataNode,
     context: &ScraperPostProcessContext<'_>,

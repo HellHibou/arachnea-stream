@@ -67,6 +67,9 @@ pub fn set_owner_only_permissions(path: impl AsRef<Path>) -> Result<()> {
 }
 
 /// Does nothing on platforms without Unix file permissions.
+///
+/// # Arguments
+/// * `_path` - Persisted file path, unused on this platform.
 #[cfg(not(unix))]
 pub fn set_owner_only_permissions(_path: impl AsRef<Path>) -> Result<()> {
     Ok(())

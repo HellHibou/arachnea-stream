@@ -94,6 +94,9 @@ pub struct ControlerJsonOutput {
 
 impl From<Value> for ControlerJsonOutput {
     /// Wraps a bare JSON value into a 200 OK output without extra headers.
+    ///
+    /// # Arguments
+    /// * `value` - JSON payload to return with the default status and headers.
     fn from(value: Value) -> Self {
         Self {
             value,
@@ -624,6 +627,9 @@ pub trait ControlerServiceExt: ControlerService {
 ///
 /// Strips surrounding quotes and the weak-validator `W/` prefix so both the
 /// incoming header and the produced ETag compare as bare opaque strings.
+///
+/// # Arguments
+/// * `value` - Optional raw ETag or `If-None-Match` candidate.
 pub(crate) fn normalize_etag(value: Option<&str>) -> Option<String> {
     let value = value?.trim();
     let value = value.strip_prefix("W/").unwrap_or(value);
@@ -681,7 +687,7 @@ impl ::tauri::Assets<::tauri::Wry> for EmptyTauriAssets {
 /// Wraps Tauri generated assets into the shared embedded web asset provider.
 ///
 /// The real embedded assets are extracted out of the supplied context (which is
-/// generated only once, see [`EmptyTauriAssets`]) so they can be shared by
+/// generated only once, see `EmptyTauriAssets`) so they can be shared by
 /// value, leaving an empty placeholder behind for the context's own copy.
 ///
 /// # Arguments
@@ -697,6 +703,12 @@ pub fn desktop_embedded_web_assets(
     Arc::new(TauriEmbeddedWebAssets::new(assets))
 }
 
+/// Builds the Tauri controller using the application defaults for unset options.
+///
+/// # Arguments
+/// * `context` - Generated Tauri context owned by the desktop backend.
+/// * `web_scheme` - Optional custom-protocol scheme; defaults to the application constant.
+/// * `api_prefix` - Optional API path prefix; defaults to the application constant.
 fn tauri_controler_service(
     context: ::tauri::Context<::tauri::Wry>,
     web_scheme: Option<String>,
@@ -809,7 +821,7 @@ pub fn create_application_controler_from_config(
 ///
 /// When [`CoreApplicationOptions::tray_enabled`] is true and no tray factory is
 /// already present on the options, the macro installs a
-/// [`ServerTrayIconService`] built from the caller's Tauri context. The tray
+/// [`ServerTrayIconService`](crate::controler::rest::tray::ServerTrayIconService) built from the caller's Tauri context. The tray
 /// icon falls back to the context's embedded default window icon (derived from
 /// `bundle.icon` in `tauri.conf.json`).
 ///

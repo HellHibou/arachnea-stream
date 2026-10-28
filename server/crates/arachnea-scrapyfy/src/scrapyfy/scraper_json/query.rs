@@ -366,11 +366,12 @@ impl JsonScraperQuery {
     /// * `sibling_sub_query_concurrency` - Max number of sibling sub-queries executed together.
     /// * `sub_query_context_concurrency` - Max number of sub-query contexts executed together.
     /// * `sub_query_fetch_concurrency` - Max number of follow-up HTTP requests executed together.
+    /// * `filters` - Row-filter rules applied to the extracted JSON context.
     /// * `row_pointer` - JSON pointer-like path matching each result row.
     /// * `scraper_entries` - Field extractors executed for every matched row.
     /// * `sub_queries` - Polymorphic sub-queries attached to this query. Each
-    ///   element is stored as `Box<dyn ScraperQuery>`; callers typically
-    ///   pass `Vec<JsonScraperSubQuery>` values boxed individually.
+    /// element is stored as `Box<dyn ScraperQuery>`; callers typically
+    /// pass `Vec<JsonScraperSubQuery>` values boxed individually.
     ///
     /// # Errors
     ///

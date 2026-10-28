@@ -20,6 +20,7 @@ use scraper_result::{
     ScraperSourceValidation,
 };
 
+/// Shared diagnostic-code generator for attributed scraper execution failures.
 static ERROR_CODE_GEN: LazyLock<ErrorCodeGenerator> = LazyLock::new(ErrorCodeGenerator::new);
 
 use super::*;
@@ -88,8 +89,10 @@ pub struct ScraperAgregator {
     #[cfg(feature = "arachnea-proxy")]
     pub(crate) proxy_store: Arc<dyn TypedEntityStore<ProxyRecord>>,
     #[cfg(feature = "arachnea-proxy")]
+    /// Repository coordinating available inventory records and retained endpoint failures.
     pub(crate) proxy_repository: Arc<dyn arachnea_proxy::ProxyRepository>,
     #[cfg(feature = "arachnea-proxy")]
+    /// Repository persisting accepted endpoint history independently from inventory records.
     pub(crate) proxy_preferences: Arc<dyn arachnea_proxy::ProxyPreferenceRepository>,
     /// Typed store backing the Cloudflare session cache of created HTTP clients.
     session_store: Arc<dyn TypedEntityStore<CachedChaserSession>>,
@@ -275,6 +278,10 @@ impl ScraperAgregator {
     ///
     /// This constructor does not attempt any default proxy setup. Use it when
     /// the caller wants full control over the proxy configuration.
+    ///
+    /// # Arguments
+    ///
+    /// * `proxy_handle` - Shared, versioned routing configuration observed by derived HTTP clients.
     pub fn new_with_proxy_handle(proxy_handle: SharedProxyConfigHandle) -> Self {
         #[cfg(feature = "arachnea-proxy")]
         {
@@ -347,6 +354,10 @@ impl ScraperAgregator {
     }
 
     /// Sets the optional policy that overrides manifest source activation.
+    ///
+    /// # Arguments
+    ///
+    /// * `source_enabled` - Activation policy consulted when loading or executing configured sources.
     pub fn set_source_enabled(&mut self, source_enabled: Arc<dyn ScraperSourceEnabled>) {
         self.source_enabled = Some(source_enabled);
     }
@@ -357,6 +368,10 @@ impl ScraperAgregator {
     }
 
     /// Stores the explicitly configured local country for this aggregator.
+    ///
+    /// # Arguments
+    ///
+    /// * `country` - Country-code text, trimmed and converted to uppercase ASCII.
     pub fn set_explicit_local_country(&self, country: impl AsRef<str>) {
         self.local_country.set_explicit_country(country);
     }
@@ -375,6 +390,10 @@ impl ScraperAgregator {
     ///
     /// Must be called before any query execution; the underlying hybrid cache
     /// engine is created lazily on the first cached execution.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - Cache sizing and directory configuration used to construct the server-side cache.
     pub fn set_cache_config(&mut self, config: ScraperCacheConfig) {
         self.server_cache = Arc::new(ScraperServerCache::new(config));
     }
@@ -387,6 +406,16 @@ impl ScraperAgregator {
     /// Builds the deterministic server-cache key of one source execution.
     ///
     /// Returns `None` when the source is unknown within the group.
+    ///
+    /// # Arguments
+    ///
+    /// * `group_name` - Service group identifier used to select the source collection.
+    /// * `source_name` - Source collection identifier within the service group.
+    /// * `query_name` - Query identifier used for lookup and contextual error messages.
+    /// * `params` - Runtime parameters available to query templates and action pipelines.
+    /// * `source_params` - Source-specific runtime parameters retained across paginated requests.
+    /// * `query_media_type_filter` - Media types used for query selection and result filtering.
+    /// * `fields_filters` - Field filters applied to produced rows and included in their cache identity.
     #[allow(clippy::too_many_arguments)]
     fn server_cache_key_for_source(
         &self,
@@ -424,6 +453,10 @@ impl ScraperAgregator {
     }
 
     /// Sets the proxy core instance used by clients created through this aggregator.
+    ///
+    /// # Arguments
+    ///
+    /// * `proxy_core` - Proxy core installed as the shared transport for subsequent scraper requests.
     #[cfg(feature = "arachnea-proxy")]
     pub fn set_proxy_core(&mut self, proxy_core: ArachneaProxyCore) {
         self.proxy_core = Some(proxy_core);
@@ -539,6 +572,11 @@ impl ScraperAgregator {
     }
 
     /// Returns the exact hosts declared by one source for an explicit proxy TLS bypass.
+    ///
+    /// # Arguments
+    ///
+    /// * `group_name` - Service group identifier used to select the source collection.
+    /// * `name` - Source collection name within the selected group.
     pub fn proxy_insecure_tls_hosts(&self, group_name: &str, name: &str) -> Option<&[String]> {
         self.queries_collection
             .get(group_name)?
@@ -549,6 +587,10 @@ impl ScraperAgregator {
     }
 
     /// Returns the deduplicated exact TLS-bypass host allowlist for a query group.
+    ///
+    /// # Arguments
+    ///
+    /// * `group_name` - Service group identifier used to select the source collection.
     pub fn group_proxy_insecure_tls_hosts(&self, group_name: &str) -> Vec<String> {
         let mut hosts = self
             .queries_collection

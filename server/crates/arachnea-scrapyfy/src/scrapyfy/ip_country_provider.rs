@@ -27,6 +27,10 @@ impl ScrapyfyIpCountryDataProvider {
     /// Creates a new provider backed by the given aggregator.
     ///
     /// The loaded sources are copied into an independently owned runtime.
+    ///
+    /// # Arguments
+    ///
+    /// * `scraper_agregator` - Aggregator whose configured sources and runtime handles are captured for provider queries.
     pub fn new(scraper_agregator: &mut ScraperAgregator) -> Self {
         let preferred_config_path = format!(
             "{}/{}/{}",
@@ -53,9 +57,9 @@ impl ScrapyfyIpCountryDataProvider {
     /// Calls the YAML-defined geolocation query for each IP and returns
     /// records for successfully resolved addresses.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
-    /// - `ips`: IP addresses to resolve.
+    /// * `ips` - IP addresses to resolve.
     ///
     /// # Returns
     ///
@@ -122,9 +126,13 @@ impl IpCountryDataProvider for ScrapyfyIpCountryDataProvider {
     /// Resolves a single IP address to a country code via the YAML-defined
     /// geolocation query.
     ///
-    /// This method is called by [`IpCountryResolver`] during bounded synchronous
+    /// This method is called by [`arachnea_proxy::core::IpCountryResolver`] during bounded synchronous
     /// resolution when a proxy record's country is missing and a strict country
     /// selection is in progress.
+    ///
+    /// # Arguments
+    ///
+    /// * `ip` - IP address to resolve without guessing a country from the requested partition.
     async fn resolve_ip_country(&self, ip: &IpAddr) -> Result<Option<String>> {
         let agregator = &self.scraper_agregator;
 
@@ -200,6 +208,11 @@ impl IpCountryDataProvider for ScrapyfyIpCountryDataProvider {
 }
 
 /// Converts a scraper result row into an `IpCountryRecord`.
+///
+/// # Arguments
+///
+/// * `row` - Current source row from which fields or context values are extracted.
+/// * `expected_ip` - IP address expected in the provider row; incompatible rows are ignored.
 fn row_to_ip_country_record(
     row: &HashMap<String, crate::scrapyfy::ScraperDataNode>,
     expected_ip: &IpAddr,
@@ -236,11 +249,11 @@ impl Default for IpCountryRefreshConfig {
 /// This is the main entry point for populating the IP-country mapping.
 /// It resolves IPs without a known country and persists the results.
 ///
-/// # Parameters
+/// # Arguments
 ///
-/// - `aggregator`: Scraper aggregator with the IP-country query collection loaded.
-/// - `ip_addresses`: List of IP addresses to resolve.
-/// - `config`: Refresh configuration (store path, etc.).
+/// * `aggregator` - Scraper aggregator with the IP-country query collection loaded.
+/// * `ip_addresses` - List of IP addresses to resolve.
+/// * `config` - Refresh configuration (store path, etc.).
 ///
 /// # Errors
 ///

@@ -99,6 +99,13 @@ fn parse_runtime_options() -> Result<CliAction> {
 }
 
 /// Builds the effective application options reported by the administration API.
+///
+/// # Arguments
+/// * `options` - Parsed application options.
+/// * `mode` - Active application mode recorded in the settings.
+///
+/// # Returns
+/// The options with the mode applied and a default port when unset.
 fn build_admin_runtime_settings(
     options: &SrcapyfyApplicationOptions,
     mode: ApplicationMode,

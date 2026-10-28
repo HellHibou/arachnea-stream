@@ -1,12 +1,14 @@
 use regex::{Captures, Regex};
 use std::sync::LazyLock;
 
+/// Cached recognizer for the supported packed-JavaScript wrapper prefix.
 static PACKER_PREFIX: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         r"(?s)eval\s*\(\s*function\s*\(\s*\w+\s*,\s*\w+\s*,\s*\w+\s*,\s*\w+\s*,\s*\w+\s*,\s*\w+\s*\)\s*\{.*?\}\s*\(",
     )
     .expect("Packer prefix regex is valid")
 });
+/// Cached token matcher used to replace packed dictionary references.
 static WORD: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\b[A-Za-z0-9_]+\b").expect("word regex is valid"));
 
@@ -14,10 +16,19 @@ static WORD: LazyLock<Regex> =
 ///
 /// Only calls whose payload, radix, symbol count, dictionary, and `split` separator are literals
 /// are accepted. Malformed or unsupported input produces no output.
+///
+/// # Arguments
+///
+/// * `texts` - Values produced by earlier actions in the pipeline.
 pub(super) fn apply(texts: Vec<String>) -> Vec<String> {
     texts.into_iter().filter_map(|text| unpack(&text)).collect()
 }
 
+/// Decodes a supported P.A.C.K.E.R payload without executing JavaScript, returning `None` on malformed input.
+///
+/// # Arguments
+///
+/// * `source` - JavaScript text searched for the supported packed-payload prefix.
 fn unpack(source: &str) -> Option<String> {
     let prefix = PACKER_PREFIX.find(source)?;
     let mut input = &source[prefix.end()..];
@@ -61,10 +72,21 @@ fn unpack(source: &str) -> Option<String> {
     )
 }
 
+/// Advances the parser input past leading whitespace.
+///
+/// # Arguments
+///
+/// * `input` - Unconsumed parser input, advanced in place as tokens are read.
 fn skip_whitespace(input: &mut &str) {
     *input = input.trim_start();
 }
 
+/// Consumes the expected character after whitespace, returning `None` if it is absent.
+///
+/// # Arguments
+///
+/// * `input` - Unconsumed parser input, advanced in place as tokens are read.
+/// * `expected` - Character or literal token required at the current parser position after whitespace.
 fn consume_char(input: &mut &str, expected: char) -> Option<()> {
     skip_whitespace(input);
     let remaining = input.strip_prefix(expected)?;
@@ -72,6 +94,12 @@ fn consume_char(input: &mut &str, expected: char) -> Option<()> {
     Some(())
 }
 
+/// Consumes the expected literal after whitespace, returning `None` if it is absent.
+///
+/// # Arguments
+///
+/// * `input` - Unconsumed parser input, advanced in place as tokens are read.
+/// * `expected` - Character or literal token required at the current parser position after whitespace.
 fn consume_literal(input: &mut &str, expected: &str) -> Option<()> {
     skip_whitespace(input);
     let remaining = input.strip_prefix(expected)?;
@@ -79,6 +107,11 @@ fn consume_literal(input: &mut &str, expected: &str) -> Option<()> {
     Some(())
 }
 
+/// Consumes an unsigned decimal token, returning `None` when absent or out of range.
+///
+/// # Arguments
+///
+/// * `input` - Unconsumed parser input, advanced in place as tokens are read.
 fn parse_number(input: &mut &str) -> Option<usize> {
     skip_whitespace(input);
     let end = input
@@ -92,6 +125,11 @@ fn parse_number(input: &mut &str) -> Option<usize> {
     number.parse().ok()
 }
 
+/// Consumes a quoted JavaScript string with supported escapes, returning `None` on malformed input.
+///
+/// # Arguments
+///
+/// * `input` - Unconsumed parser input, advanced in place as tokens are read.
 fn parse_string(input: &mut &str) -> Option<String> {
     skip_whitespace(input);
     let quote = input.chars().next()?;

@@ -83,11 +83,18 @@ pub struct RestServerHandle {
 
 impl RestServerHandle {
     /// Wraps a supervisor into a shared application handle.
+    ///
+    /// # Arguments
+    /// * `supervisor` - Supervisor shared by controller and application layers.
     pub(crate) fn for_supervisor(supervisor: Arc<RestServerSupervisor>) -> Self {
         Self { supervisor }
     }
 
     /// Sets the resolver used to compute the target settings at apply time.
+    ///
+    /// # Arguments
+    /// * `source` - Callback returning the desired settings, or `None` when no
+    ///   source is available.
     pub fn set_settings_source(&self, source: RestSettingsSource) {
         self.supervisor.set_settings_source(source);
     }
@@ -151,6 +158,10 @@ pub(crate) struct RestServerSupervisor {
 
 impl RestServerSupervisor {
     /// Creates the supervisor from the initial service configuration.
+    ///
+    /// # Arguments
+    /// * `base` - Initial service snapshot replayed with dynamic settings.
+    /// * `dispatcher` - Main-thread dispatcher shared by rebuilt routers.
     pub(crate) fn new(
         base: RestServiceSnapshot,
         dispatcher: Arc<QueuedMainThreadDispatcher>,
@@ -179,6 +190,9 @@ impl RestServerSupervisor {
     }
 
     /// Records a registration step replayed when the router is rebuilt.
+    ///
+    /// # Arguments
+    /// * `step` - Registration callback appended to the replay list.
     pub(crate) fn record_step(&self, step: ReplayStep) {
         self.steps
             .lock()
@@ -187,6 +201,9 @@ impl RestServerSupervisor {
     }
 
     /// Sets the resolver used to compute the target settings.
+    ///
+    /// # Arguments
+    /// * `source` - Callback returning the desired settings, or `None` when no source is available.
     pub(crate) fn set_settings_source(&self, source: RestSettingsSource) {
         *self
             .settings_source
@@ -235,6 +252,17 @@ impl RestServerSupervisor {
     ///
     /// Binding failures keep the historical panicking behaviour of the first
     /// launch: the process cannot serve without its REST server.
+    ///
+    /// # Arguments
+    /// * `router` - Initial router served by the accept loop.
+    /// * `socket_addr` - Address bound for the first launch.
+    /// * `entrypoint_root` - Entrypoint root segments used in the startup URL log.
+    ///
+    /// # Returns
+    /// The process-level shutdown signal shared by the tray and accept loop.
+    ///
+    /// # Panics
+    /// Panics when the initial listener cannot bind.
     pub(crate) fn launch_controller(
         &self,
         router: RestRouter,
@@ -376,6 +404,9 @@ impl RestServerSupervisor {
     }
 
     /// Builds a fresh router by replaying the recorded registration steps.
+    ///
+    /// # Arguments
+    /// * `snapshot` - Service configuration used for the rebuilt router.
     pub(crate) fn build_router(&self, snapshot: &RestServiceSnapshot) -> RestRouter {
         let mut service =
             RestControlerService::from_snapshot(snapshot.clone(), Arc::clone(&self.dispatcher));
@@ -394,6 +425,14 @@ impl RestServerSupervisor {
 
     /// Starts a new accept loop for the given snapshot and records it as the
     /// active runtime state.
+    ///
+    /// # Arguments
+    /// * `runtime` - Guarded runtime state replaced after the listener binds.
+    /// * `snapshot` - Service configuration for the new loop.
+    /// * `settings` - Dynamic settings stored as the active configuration.
+    ///
+    /// # Errors
+    /// Returns a contextual error when the listener cannot bind.
     fn start_service(
         &self,
         runtime: &mut RuntimeState,
@@ -427,6 +466,9 @@ impl RestServerSupervisor {
     }
 
     /// Updates the systray with the configuration actually active.
+    ///
+    /// # Arguments
+    /// * `snapshot` - Active service configuration reflected in the tray.
     fn update_tray(&self, snapshot: &RestServiceSnapshot) {
         let Some(handle) = self.tray_sink.get() else {
             return;
@@ -464,6 +506,10 @@ impl RestServerSupervisor {
     }
 
     /// Builds the report for the configuration currently active.
+    ///
+    /// # Arguments
+    /// * `applied` - Whether the requested settings were applied.
+    /// * `apply_error` - Optional failure message to expose in the report.
     fn report(&self, applied: bool, apply_error: Option<String>) -> RestServerApplyReport {
         let runtime = self.runtime.lock().expect("supervisor runtime poisoned");
         let snapshot = snapshot_for(&self.base, &runtime.settings);
@@ -487,6 +533,9 @@ impl RestServerSupervisor {
 
 /// Normalizes a target so textual variants of "no prefix" (`""`, `/`)
 /// compare equal to an absent root.
+///
+/// # Arguments
+/// * `target` - Settings whose empty entrypoint root is normalized.
 fn normalize_target(mut target: RestServerSettings) -> RestServerSettings {
     if target.entrypoint_root.as_deref().map(str::is_empty) == Some(true) {
         target.entrypoint_root = None;
@@ -495,6 +544,10 @@ fn normalize_target(mut target: RestServerSettings) -> RestServerSettings {
 }
 
 /// Builds the service snapshot matching the given dynamic settings.
+///
+/// # Arguments
+/// * `base` - Immutable service configuration cloned into the snapshot.
+/// * `settings` - Dynamic network and entrypoint settings applied to the snapshot.
 fn snapshot_for(base: &RestServiceSnapshot, settings: &RestServerSettings) -> RestServiceSnapshot {
     let mut snapshot = base.clone();
     snapshot.server_port = settings.server_port;
@@ -523,6 +576,10 @@ fn snapshot_for(base: &RestServiceSnapshot, settings: &RestServerSettings) -> Re
 }
 
 /// Waits for a thread to finish up to the given timeout, then abandons it.
+///
+/// # Arguments
+/// * `thread` - Join handle of the thread being drained.
+/// * `timeout` - Maximum time to wait before returning without joining.
 fn wait_for_thread(thread: std::thread::JoinHandle<()>, timeout: Duration) {
     let deadline = Instant::now() + timeout;
     loop {
@@ -543,6 +600,12 @@ fn wait_for_thread(thread: std::thread::JoinHandle<()>, timeout: Duration) {
 /// **or** when the process-level shutdown is requested (tray "close").
 /// Each request resolves the latest router snapshot. Requests already executing
 /// finish under the snapshot selected when they started.
+///
+/// # Arguments
+/// * `listener` - Bound standard listener adopted by the dedicated runtime.
+/// * `router_rx` - Watch receiver of router snapshots for new requests.
+/// * `shutdown` - Per-instance signal used for a hot re-bind.
+/// * `app_shutdown` - Process-level signal used by the tray close action.
 fn spawn_accept_thread(
     listener: TcpListener,
     router_rx: watch::Receiver<RestRouter>,
@@ -595,6 +658,10 @@ fn spawn_accept_thread(
 }
 
 /// Serves one HTTP connection using the router current for each request.
+///
+/// # Arguments
+/// * `stream` - Accepted TCP connection.
+/// * `router_rx` - Watch receiver yielding the current router for each request.
 async fn serve_connection(stream: tokio::net::TcpStream, router_rx: watch::Receiver<RestRouter>) {
     use warp::hyper::service::Service as _;
     let peer = stream.peer_addr().ok();

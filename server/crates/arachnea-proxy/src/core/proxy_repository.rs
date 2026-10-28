@@ -30,14 +30,52 @@ pub use crate::{PROXY_FAILURE_STORE_NAME, PROXY_STORE_NAME};
 #[async_trait]
 pub trait ProxyRepository: Send + Sync {
     /// Resolves an endpoint without relying on its historical country.
+    ///
+    /// # Arguments
+    /// * `key` - Endpoint identity used to locate the stored proxy record.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if available records or retained failure evidence cannot be read.
     async fn get(&self, key: &ProxyKey) -> Result<Option<ProxyRecord>>;
     /// Loads rediscovery protection retained outside the available inventory.
+    ///
+    /// # Arguments
+    /// * `key` - Endpoint identity used to locate the stored proxy record.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if retained failure evidence cannot be read.
     async fn get_failure(&self, key: &ProxyKey) -> Result<Option<ProxyRecord>>;
     /// Removes an available endpoint after durably recording its failure state.
+    ///
+    /// # Arguments
+    /// * `record` - Proxy record whose endpoint and runtime evidence are inspected or updated.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if failure retention or available-record deletion fails; earlier writes may remain.
     async fn evict(&self, record: &ProxyRecord) -> Result<()>;
     /// Returns the proxies indexed for `country`.
+    ///
+    /// # Arguments
+    /// * `country` - ISO alpha-2 country code associated with the requested inventory partition.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if country records or their failure evidence cannot be read consistently.
     async fn find_by_country(&self, country: &str) -> Result<Vec<ProxyRecord>>;
-    /// Persists a batch of records atomically.
+    /// Merges and persists a batch, preserving newer positive evidence.
+    ///
+    /// The typed store determines transactional guarantees; this boundary does not
+    /// promise batch rollback on a backend write failure.
+    ///
+    /// # Arguments
+    /// * `records` - Proxy records to merge or persist; endpoint identity is host and port.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if existing evidence cannot be read or updated records cannot be saved; store-level rollback depends on the backend.
     async fn save_many(&self, records: &[ProxyRecord]) -> Result<()>;
     /// Clears strictly older `Other`/`Timeout` exclusions for an accepted exact destination.
     /// Reads and updates the latest record under the repository commit lock.
@@ -56,6 +94,13 @@ pub trait ProxyRepository: Send + Sync {
         accepted_at: SystemTime,
     ) -> Result<()>;
     /// Removes a record by its persisted endpoint identity.
+    ///
+    /// # Arguments
+    /// * `key` - Endpoint identity used to locate the stored proxy record.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the available-record deletion fails.
     async fn delete(&self, key: &ProxyKey) -> Result<()>;
 }
 
@@ -67,6 +112,10 @@ pub struct TypedProxyRepository {
 }
 impl TypedProxyRepository {
     /// Creates a repository over `store`.
+    ///
+    /// # Arguments
+    /// * `store` - Typed store containing available proxy records; failure protection defaults to memory.
+    ///
     pub fn new(store: Arc<dyn TypedEntityStore<ProxyRecord>>) -> Self {
         Self::with_failure_store(store, memory_proxy_store().expect("valid failure schema"))
     }
@@ -80,6 +129,7 @@ impl TypedProxyRepository {
         store: Arc<dyn TypedEntityStore<ProxyRecord>>,
         failures: Arc<dyn TypedEntityStore<ProxyRecord>>,
     ) -> Self {
+        /// Weak registry sharing a commit lock between repositories backed by the same inventory store.
         static LOCKS: OnceLock<std::sync::Mutex<HashMap<usize, Weak<Mutex<()>>>>> = OnceLock::new();
         let identity = Arc::as_ptr(&store) as *const () as usize;
         let mut locks = LOCKS
@@ -103,6 +153,10 @@ impl TypedProxyRepository {
     }
 
     /// Filters an already-read record against current durable eviction evidence.
+    ///
+    /// # Arguments
+    /// * `record` - Proxy record whose endpoint and runtime evidence are inspected or updated.
+    ///
     async fn filter_available(&self, record: Option<ProxyRecord>) -> Result<Option<ProxyRecord>> {
         let Some(record) = record else {
             return Ok(None);
@@ -112,6 +166,11 @@ impl TypedProxyRepository {
     }
 
     /// Applies the same durable eviction rules to scalar and grouped reads.
+    ///
+    /// # Arguments
+    /// * `record` - Proxy record whose endpoint and runtime evidence are inspected or updated.
+    /// * `failure` - Durable eviction evidence associated with the same endpoint.
+    ///
     fn available_with_failure(
         record: ProxyRecord,
         failure: Option<ProxyRecord>,
@@ -131,6 +190,10 @@ impl TypedProxyRepository {
             .then_some(record)
     }
 
+    /// Keeps eviction protection for 48 hours after the recorded eviction time.
+    ///
+    /// # Arguments
+    /// * `record` - Proxy record whose endpoint and runtime evidence are inspected or updated.
     fn failure_is_retained(record: &ProxyRecord) -> bool {
         record.health_evidence.evicted_at.is_some_and(|date| {
             SystemTime::now().duration_since(date).unwrap_or_default()
@@ -468,6 +531,10 @@ impl PersistentEntity for ProxyRecord {
         })
     }
 }
+/// Returns the persistent identifier of a runtime proxy status.
+///
+/// # Arguments
+/// * `status` - Runtime status converted to its stable persistence identifier.
 fn status_name(status: &ProxyRuntimeStatus) -> &'static str {
     match status {
         ProxyRuntimeStatus::Unknown => "unknown",
@@ -476,6 +543,10 @@ fn status_name(status: &ProxyRuntimeStatus) -> &'static str {
         ProxyRuntimeStatus::AuthenticationRequired => "authentication_required",
     }
 }
+/// Parses a persisted runtime status, rejecting unknown identifiers.
+///
+/// # Arguments
+/// * `value` - Persisted identifier to decode; unknown values return a contextual storage error.
 fn parse_status(value: &str) -> Result<ProxyRuntimeStatus> {
     match value {
         "unknown" => Ok(ProxyRuntimeStatus::Unknown),
@@ -485,6 +556,10 @@ fn parse_status(value: &str) -> Result<ProxyRuntimeStatus> {
         _ => anyhow::bail!("unknown persisted proxy status '{value}'"),
     }
 }
+/// Returns the persistent identifier of a measured capability status.
+///
+/// # Arguments
+/// * `status` - Runtime status converted to its stable persistence identifier.
 fn capability_status_name(status: ProxyCapabilityStatus) -> &'static str {
     match status {
         ProxyCapabilityStatus::Unknown => "unknown",
@@ -492,6 +567,10 @@ fn capability_status_name(status: ProxyCapabilityStatus) -> &'static str {
         ProxyCapabilityStatus::Unavailable => "unavailable",
     }
 }
+/// Parses a persisted capability status, treating absent data as unknown.
+///
+/// # Arguments
+/// * `value` - Persisted identifier to decode; unknown values return a contextual storage error.
 fn parse_optional_capability_status(value: Option<&str>) -> Result<ProxyCapabilityStatus> {
     match value {
         None | Some("unknown") => Ok(ProxyCapabilityStatus::Unknown),
@@ -500,6 +579,10 @@ fn parse_optional_capability_status(value: Option<&str>) -> Result<ProxyCapabili
         Some(value) => anyhow::bail!("unknown persisted proxy capability status '{value}'"),
     }
 }
+/// Returns the persistent identifier of a provider availability hint.
+///
+/// # Arguments
+/// * `availability` - Provider availability hint converted into its persistent name.
 fn availability_name(availability: &ProxyAvailabilityHint) -> &'static str {
     match availability {
         ProxyAvailabilityHint::Unknown => "unknown",
@@ -508,6 +591,10 @@ fn availability_name(availability: &ProxyAvailabilityHint) -> &'static str {
         ProxyAvailabilityHint::High => "high",
     }
 }
+/// Parses a persisted availability hint, rejecting unknown identifiers.
+///
+/// # Arguments
+/// * `value` - Persisted identifier to decode; unknown values return a contextual storage error.
 fn parse_availability(value: &str) -> Result<ProxyAvailabilityHint> {
     match value {
         "unknown" => Ok(ProxyAvailabilityHint::Unknown),
@@ -517,6 +604,10 @@ fn parse_availability(value: &str) -> Result<ProxyAvailabilityHint> {
         _ => anyhow::bail!("unknown persisted proxy availability '{value}'"),
     }
 }
+/// Parses a persisted proxy protocol, rejecting unknown identifiers.
+///
+/// # Arguments
+/// * `value` - Persisted identifier to decode; unknown values return a contextual storage error.
 fn parse_protocol(value: &str) -> Result<ProxyProtocol> {
     match value {
         "http" => Ok(ProxyProtocol::Http),

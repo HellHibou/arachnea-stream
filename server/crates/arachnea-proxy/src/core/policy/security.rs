@@ -37,7 +37,7 @@ impl Default for SecurityPolicy {
 impl SecurityPolicy {
     /// Validates a destination before route selection opens sockets.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `destination`: Destination requested by a caller or inbound protocol.
     ///

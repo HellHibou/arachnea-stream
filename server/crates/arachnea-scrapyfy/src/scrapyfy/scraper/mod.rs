@@ -8,14 +8,14 @@
 //!
 //! # Key Components
 //!
-//! - [`query_trait`]: The [`ScraperQuery`] contract that all query types must implement.
-//! - [`entry_trait`]: The [`ScraperEntrySpec`] contract for field extractors.
-//! - [`row_locator`]: The [`RowLocator`] enum defining how rows are extracted from responses.
-//! - [`config`]: Common configuration types and defaults for all scraper query types.
+//! - `query_trait`: The [`crate::scrapyfy::scraper::ScraperQuery`] contract that all query types must implement.
+//! - [`crate::scrapyfy::scraper::entry_trait`]: The [`crate::scrapyfy::scraper::ScraperEntrySpec`] contract for field extractors.
+//! - [`crate::scrapyfy::scraper::row_locator`]: The [`crate::scrapyfy::scraper::RowLocator`] enum defining how rows are extracted from responses.
+//! - [`crate::scrapyfy::scraper::config`]: Common configuration types and defaults for all scraper query types.
 //!
 //! # Architecture
 //!
-//! The unified execution engine in [`query_executor`] uses these traits and types
+//! The unified execution engine in `query_executor` uses these traits and types
 //! to drive both root queries and recursive sub-queries through a common interface.
 
 pub mod config;

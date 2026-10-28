@@ -34,7 +34,7 @@ impl ArachneaResponse {
     }
     /// Converts an engine response into a public response.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `response`: Engine-normalized response.
     ///
@@ -57,8 +57,18 @@ impl ArachneaResponse {
 
     /// Builds an in-memory successful text response.
     ///
-    /// This is intended for local fixtures and caller-side mock routers that
-    /// need to share the same response helpers as real HTTP responses.
+    /// The response has status `200 OK`, empty headers, and no redirect
+    /// history. This is intended for local fixtures and caller-side mock routers
+    /// that need to share the same response helpers as real HTTP responses.
+    ///
+    /// # Arguments
+    ///
+    /// - `url`: Final response URL.
+    /// - `body`: Complete response body.
+    ///
+    /// # Returns
+    ///
+    /// A materialized successful response.
     pub fn from_text(url: impl Into<String>, body: impl Into<Bytes>) -> Self {
         Self {
             #[cfg(feature = "arachnea-proxy")]
@@ -98,6 +108,10 @@ impl ArachneaResponse {
     }
 
     /// Replaces the redirect target URL history.
+    ///
+    /// # Arguments
+    ///
+    /// - `redirect_urls`: Redirect targets in the order they were followed.
     pub(super) fn set_redirect_urls(&mut self, redirect_urls: Vec<String>) {
         self.redirect_urls = redirect_urls;
     }
@@ -131,11 +145,12 @@ impl ArachneaResponse {
 
     /// Decodes the response body as text using the charset declared in `Content-Type`.
     ///
-    /// When the `Content-Type` header specifies a charset (e.g. `text/html; charset=iso-8859-1`),
-    /// the body is decoded using that encoding via `encoding_rs`. If no charset is declared
-    /// or the declared encoding is unknown, the body is first tried as UTF-8; if that fails,
-    /// it falls back to `windows-1252` (the superset of ISO-8859-1 commonly used for legacy
-    /// HTML pages), then finally to lossy UTF-8.
+    /// When the `Content-Type` header specifies a known charset (e.g.
+    /// `text/html; charset=iso-8859-1`), the body is decoded with that encoding
+    /// via `encoding_rs`. Otherwise the body is tried as strict UTF-8 first; if
+    /// that fails, it is decoded as `windows-1252` (the superset of ISO-8859-1
+    /// commonly used for legacy HTML pages). Both fallbacks use replacement
+    /// characters for invalid sequences.
     ///
     /// # Returns
     ///

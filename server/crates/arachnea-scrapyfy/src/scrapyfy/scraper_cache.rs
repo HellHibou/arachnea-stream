@@ -161,11 +161,19 @@ pub struct CachedSourceEntry {
 
 impl CachedSourceEntry {
     /// Returns whether this entry outlived [`SERVER_CACHE_ENTRY_TTL`].
+    ///
+    /// # Arguments
+    ///
+    /// * `now_unix` - Reference time in seconds since the Unix epoch used for expiry checks.
     fn is_expired(&self, now_unix: u64) -> bool {
         now_unix.saturating_sub(self.stored_at_unix) >= SERVER_CACHE_ENTRY_TTL.as_secs()
     }
 
     /// Rebuilds an entry from its wire representation.
+    ///
+    /// # Arguments
+    ///
+    /// * `wire` - Lossless cached representation rebuilt into runtime scraper nodes.
     fn from_wire(wire: CachedSourceEntryWire) -> Self {
         Self {
             rows: wire
@@ -191,6 +199,7 @@ struct CachedSourceEntryWire {
     stored_at_unix: u64,
 }
 
+/// Returns wall-clock seconds since the Unix epoch, or zero for a pre-epoch clock.
 fn now_unix() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -270,6 +279,15 @@ pub fn server_cache_key(
     hash62_64(composite.as_bytes())
 }
 
+/// Creates the cache directory and a byte-weighted memory/disk foyer cache.
+///
+/// # Arguments
+///
+/// * `config` - Cache sizing and directory configuration used to construct the server-side cache.
+///
+/// # Errors
+///
+/// Returns directory, device or cache-engine initialization errors.
 async fn build_hybrid_cache(config: &ScraperCacheConfig) -> Result<ServerHybridCache> {
     std::fs::create_dir_all(&config.cache_dir)?;
     let device = FsDeviceBuilder::new(&config.cache_dir)
@@ -308,6 +326,10 @@ pub struct ScraperServerCache {
 impl ScraperServerCache {
     /// Creates an uninitialized cache with the given configuration. The foyer
     /// engine is built on first use.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - Cache sizing and directory configuration used to construct the server-side cache.
     pub fn new(config: ScraperCacheConfig) -> Self {
         Self {
             config,
@@ -335,6 +357,12 @@ impl ScraperServerCache {
             .cloned()
     }
 
+    /// Best-effort serializes and inserts a cached entry; failures are logged and do not fail the query.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - Canonical source-execution cache key.
+    /// * `entry` - Lossless wire entry serialized for the memory/disk cache.
     async fn write_entry(&self, key: &str, entry: &CachedSourceEntryWire) {
         let Ok(handle) = self.handle().await else {
             tracing::warn!(
@@ -353,6 +381,12 @@ impl ScraperServerCache {
     }
 
     /// Stores the parsed rows of one source execution with its validator fragment.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - Canonical source-execution cache key.
+    /// * `rows` - Parsed result rows to retain under the cache identity.
+    /// * `etag_fragment` - Source validator fragment associated with these parsed rows.
     pub async fn store_entry(
         &self,
         key: &str,
@@ -383,6 +417,10 @@ impl ScraperServerCache {
 
     /// Loads the cached entry of one source execution, or `None` when absent,
     /// expired, corrupted, or when the cache engine is unavailable.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - Canonical source-execution cache key.
     pub async fn load_entry(&self, key: &str) -> Option<CachedSourceEntry> {
         let handle = self.handle().await.ok()?;
         let bytes = match handle.get(key).await {
@@ -412,6 +450,10 @@ impl ScraperServerCache {
     }
 
     /// Removes the cached entry of one source execution.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - Canonical source-execution cache key.
     pub async fn invalidate(&self, key: &str) {
         let Ok(handle) = self.handle().await else {
             return;

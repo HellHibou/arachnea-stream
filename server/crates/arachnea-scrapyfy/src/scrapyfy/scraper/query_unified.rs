@@ -1,7 +1,8 @@
 //! [`ScraperQueryConfig`] — unified configuration shared by all query types.
 //!
-//! This module replaces the previous split between `SubQuerySpec`, `BaseQueryConfig`,
-//! `ScraperQueryCommon`, `SubQueryCommon`, and the per-type query structs.
+//! This module provides a unified configuration alongside the shared raw
+//! configuration and existing per-type runtime structs. The query trait still
+//! supports individual getters; its unified configuration accessor defaults to `None`.
 //!
 //! A single [`ScraperQueryConfig`] holds every field that a root query, query-level
 //! sub-query, or entry-level sub-query may need.  Fields that are only relevant for
@@ -13,7 +14,7 @@
 //!
 //! Every query (root or sub) is tagged by `scraper_type: html | json | static`.
 //! Root queries were already tagged in the YAML `queries:` list.  Sub-queries
-//! are now also tagged, matching the [`EntrySubQueryRaw`] format that entry-level
+//! are now also tagged, matching the [`crate::scrapyfy::scraper_json::config::EntrySubQueryRaw`] format that entry-level
 //! sub-queries already use.
 //!
 //! ```yaml
@@ -266,6 +267,12 @@ impl ScraperQueryConfig {
     }
 
     /// Resolves collection-level placeholders in this config.
+    ///
+    /// # Arguments
+    ///
+    /// * `scraper_type_label` - Scraper-kind label used to contextualize unresolved configuration placeholders.
+    /// * `parent_name` - Owning query name included in template-resolution diagnostics.
+    /// * `params` - Runtime parameters available to query templates and action pipelines.
     pub fn resolve_collection_params(
         &mut self,
         scraper_type_label: &str,
@@ -289,11 +296,19 @@ impl ScraperQueryConfig {
     }
 
     /// Merges the collection-level HTTP configuration into this config.
+    ///
+    /// # Arguments
+    ///
+    /// * `collection_http` - HTTP options inherited from the owning query collection.
     pub fn apply_collection_http(&mut self, collection_http: &ScraperHttpConfig) {
         self.http = collection_http.merge(&self.http);
     }
 
     /// Propagates the parent HTTP configuration into this config (for sub-queries).
+    ///
+    /// # Arguments
+    ///
+    /// * `parent_http` - HTTP options inherited from the parent query.
     pub fn apply_parent_http(&mut self, parent_http: &ScraperHttpConfig) {
         self.http = parent_http.merge(&self.http);
     }

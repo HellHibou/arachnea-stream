@@ -74,7 +74,7 @@ pub struct ProxyCredentials {
 impl ProxyCredentials {
     /// Validates a username and password pair.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `username`: Username supplied by the client.
     /// - `password`: Password supplied by the client.
@@ -89,7 +89,7 @@ impl ProxyCredentials {
 
 /// Validates an HTTP `Proxy-Authorization` Basic header value.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `header`: Header value sent by the HTTP proxy client.
 /// - `credentials`: Expected proxy credentials.
@@ -106,7 +106,7 @@ pub fn validate_http_basic_header(header: &str, credentials: &ProxyCredentials) 
 
 /// Decodes an HTTP `Proxy-Authorization` Basic header value.
 ///
-/// # Parameters
+/// # Arguments
 ///
 /// - `header`: Header value sent by the HTTP proxy client.
 ///

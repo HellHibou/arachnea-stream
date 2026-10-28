@@ -22,7 +22,7 @@ use crate::core::{ConnectRequest, ProxyStream, Result};
 pub trait OutboundTransport: Send + Sync {
     /// Opens a stream for the supplied connect request.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `request`: Connect request containing destination and context.
     ///

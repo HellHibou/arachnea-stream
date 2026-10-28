@@ -29,6 +29,7 @@ use arachnea_scrapyfy::{
     *,
 };
 
+/// Error code generator for home endpoint failures.
 static HOME_ERROR_CODES: LazyLock<arachnea_core::error_code::ErrorCodeGenerator> =
     LazyLock::new(arachnea_core::error_code::ErrorCodeGenerator::new);
 
@@ -80,19 +81,29 @@ use crate::STREAM_HTTP_PROXY_COMMAND as HTTP_PROXY_COMMAND;
 
 pub(crate) use crate::STREAM_DRM_LICENSE_PROXY_COMMAND as DRM_LICENSE_PROXY_COMMAND;
 
+/// Antenne Réunion player resolver singleton.
 static ANTENNE_REUNION_RESOLVER: AntenneReunionResolver = AntenneReunionResolver;
+/// M6 Play player resolver singleton.
 static M6PLAY_RESOLVER: M6PlayResolver = M6PlayResolver;
+/// RMC BFM Play player resolver singleton.
 static RMCBFMPLAY_RESOLVER: RmcBfmPlayResolver = RmcBfmPlayResolver;
+/// RTBF Auvio player resolver singleton.
 static RTBF_AUVIO_RESOLVER: RtbfAuvioResolver = RtbfAuvioResolver;
+/// RTL Play player resolver singleton.
 static RTLPLAY_RESOLVER: RtlPlayResolver = RtlPlayResolver;
+/// TF1 player resolver singleton.
 static TF1_RESOLVER: Tf1Resolver = Tf1Resolver;
+/// France.tv player resolver singleton.
 static FRANCETV_RESOLVER: FrancetvResolver = FrancetvResolver;
+/// TV5MONDEplus player resolver singleton.
 static TV5MONDEPLUS_RESOLVER: Tv5mondeplusResolver = Tv5mondeplusResolver;
 
+/// Returns the default 1-based page number for request deserialization.
 fn default_page() -> usize {
     crate::STREAM_DEFAULT_PAGE
 }
 
+/// Search request payload.
 #[derive(Serialize, Deserialize)]
 pub(crate) struct SearchRequest {
     pub(crate) query: String,
@@ -106,12 +117,14 @@ pub(crate) struct SearchRequest {
     pub(crate) source_params: Vec<ScraperSourceParamsRequestEntry>,
 }
 
+/// Entry detail request payload.
 #[derive(Serialize, Deserialize)]
 pub(crate) struct GetEntryRequest {
     pub(crate) entry: String,
     pub(crate) source: String,
 }
 
+/// Season detail request payload.
 #[derive(Serialize, Deserialize)]
 pub(crate) struct GetSeasonRequest {
     pub(crate) season: String,
@@ -120,15 +133,18 @@ pub(crate) struct GetSeasonRequest {
     pub(crate) page: usize,
 }
 
+/// Live-channel listing request payload.
 #[derive(Serialize, Deserialize)]
 pub(crate) struct ListLivesRequest {}
 
+/// Live-channel detail request payload.
 #[derive(Serialize, Deserialize)]
 pub(crate) struct GetLiveRequest {
     pub(crate) channel: String,
     pub(crate) source: String,
 }
 
+/// Stream resolution request payload.
 #[derive(Serialize, Deserialize)]
 pub(crate) struct GetStreamRequest {
     pub(crate) resolver: String,
@@ -142,6 +158,7 @@ pub(crate) struct GetStreamRequest {
     pub(crate) proxy_rewrite_manifest_urls: Option<bool>,
 }
 
+/// Home-page request payload.
 #[derive(Default, Serialize, Deserialize)]
 pub(crate) struct LoadHomeRequest {
     /// Exact source identifiers; omitted means all, an empty list means none.
@@ -154,6 +171,15 @@ pub(crate) struct LoadHomeRequest {
 }
 
 /// Rejects explicit null, invalid types and blank identifiers without treating them as all sources.
+///
+/// # Arguments
+/// * `deserializer` - Serde deserializer for the `sources` field.
+///
+/// # Errors
+/// Returns a deserialization error for an invalid type or blank identifier.
+///
+/// # Returns
+/// The validated source list.
 fn deserialize_home_sources<'de, D>(
     deserializer: D,
 ) -> std::result::Result<Option<Vec<String>>, D::Error>
@@ -169,9 +195,11 @@ where
     Ok(Some(sources))
 }
 
+/// Service listing request payload.
 #[derive(Default, Serialize, Deserialize)]
 pub(crate) struct GetServiceRequest {}
 
+/// Category listing request payload.
 #[derive(Serialize, Deserialize)]
 pub(crate) struct GetCategoryRequest {
     #[serde(default)]
@@ -184,6 +212,7 @@ pub(crate) struct GetCategoryRequest {
     pub(crate) source_params: Vec<ScraperSourceParamsRequestEntry>,
 }
 
+/// Section listing request payload.
 #[derive(Serialize, Deserialize)]
 pub(crate) struct GetSectionRequest {
     #[serde(default)]
@@ -196,6 +225,7 @@ pub(crate) struct GetSectionRequest {
     pub(crate) source_params: Vec<ScraperSourceParamsRequestEntry>,
 }
 
+/// Recommendations listing request payload.
 #[derive(Serialize, Deserialize)]
 pub(crate) struct GetRecommendationsRequest {
     #[serde(default)]
@@ -208,6 +238,7 @@ pub(crate) struct GetRecommendationsRequest {
     pub(crate) source_params: Vec<ScraperSourceParamsRequestEntry>,
 }
 
+/// Banner listing request payload.
 #[derive(Serialize, Deserialize)]
 pub(crate) struct GetBannersRequest {
     #[serde(default)]
@@ -216,6 +247,7 @@ pub(crate) struct GetBannersRequest {
     pub(crate) link: String,
 }
 
+/// Player listing request payload.
 #[derive(Serialize, Deserialize)]
 pub(crate) struct GetPlayersRequest {
     #[serde(default)]
@@ -226,11 +258,17 @@ pub(crate) struct GetPlayersRequest {
 
 /// High-level facade exposing scraper operations used by controllers and tests.
 pub struct StreamScraper {
+    /// Loaded scraper runtime and query aggregator.
     pub(crate) scraper_agregator: Box<ScraperAgregator>,
+    /// Shared credentials persistence used by service resolvers.
     pub(crate) credentials_store: Arc<dyn CredentialsStore>,
+    /// Typed persistence stores shared by the application.
     pub(crate) stores: ApplicationStores,
+    /// Proxy handle shared with the scraper runtime.
     proxy_handle: SharedProxyConfigHandle,
+    /// Optional proxy core exposed through the `/proxy` stream command.
     pub(crate) proxy_http_core: Option<ArachneaProxyCore>,
+    /// Endpoints passed to player resolvers for proxying and rewriting.
     pub(crate) player_resolver_endpoints: PlayerResolverEndpoints,
 }
 
@@ -269,6 +307,12 @@ impl StreamScraperBuildOptions {
     }
 
     /// Overrides the services manifest path.
+    ///
+    /// # Arguments
+    /// * `path` - Manifest path, relative to application resources when not absolute.
+    ///
+    /// # Returns
+    /// The updated options.
     pub fn with_services_config_path(mut self, path: impl Into<String>) -> Self {
         self.services_config_path = path.into();
         self
@@ -292,14 +336,13 @@ impl StreamScraper {
     /// Creates a scraper facade backed by the provided credentials store.
     ///
     /// # Arguments
-    /// * `path` - Path to the services configuration JSON file relative to the application data directory.
     /// * `credentials_store` - Shared credentials persistence used by service resolvers.
     ///
     /// # Returns
-    /// A configured scraper facade.
+    /// A configured scraper facade with in-memory application stores.
     ///
     /// # Errors
-    /// Returns an error if the configuration file cannot be loaded or parsed.
+    /// Panics only if the built-in in-memory store configuration is invalid.
     #[allow(clippy::too_many_arguments)]
     pub fn new(credentials_store: Arc<dyn CredentialsStore>) -> Self {
         Self::new_with_typed_stores(
@@ -323,7 +366,7 @@ impl StreamScraper {
     ///
     /// # Errors
     ///
-    /// Returns an error if the configuration file cannot be loaded or parsed.
+    /// Returns an error if the default in-memory proxy runtime cannot be initialized.
     #[allow(clippy::too_many_arguments)]
     pub fn new_with_typed_stores(
         credentials_store: Arc<dyn CredentialsStore>,
@@ -332,6 +375,15 @@ impl StreamScraper {
         Self::new_with_stores_and_proxy_runtime(credentials_store, stores, Arc::default())
     }
 
+    /// Creates a scraper facade with explicit stores and a shared proxy runtime.
+    ///
+    /// # Arguments
+    /// * `credentials_store` - Shared credentials persistence used by service resolvers.
+    /// * `stores` - Typed persistence stores shared by the application.
+    /// * `proxy_runtime` - Loopback listener retained across scraper rebuilds.
+    ///
+    /// # Returns
+    /// A configured scraper facade with the resolved sources not yet loaded.
     fn new_with_stores_and_proxy_runtime(
         credentials_store: Arc<dyn CredentialsStore>,
         stores: ApplicationStores,
@@ -416,6 +468,15 @@ impl StreamScraper {
     }
 
     /// Creates a scraper facade with optional activation-default synchronization.
+    ///
+    /// # Arguments
+    /// * `options` - Build options describing stores, manifest path, and sizing.
+    /// * `synchronize_activation_defaults` - Whether missing service states are
+    ///   registered before loading sources.
+    ///
+    /// # Errors
+    /// Returns an error when a configured source file cannot be loaded or parsed,
+    /// or when activation-default synchronization fails.
     fn from_options_with_activation_sync(
         options: &StreamScraperBuildOptions,
         synchronize_activation_defaults: bool,
@@ -448,10 +509,13 @@ impl StreamScraper {
         Ok(instance)
     }
 
-    /// Creates a instance of the scraper facade using a file-based credentials store and the default services configuration.
+    /// Creates an instance of the scraper facade using a file-based credentials store and the default services configuration.
     ///
     /// The typed persistence stores are SQLite databases under the default
     /// application data directory.
+    ///
+    /// # Arguments
+    /// * `json_path` - Optional services manifest path; defaults to the bundled manifest.
     ///
     /// # Returns
     /// A configured scraper facade with default configuration.
@@ -469,6 +533,15 @@ impl StreamScraper {
     }
 
     /// Loads the complete service catalog, including sources disabled by default.
+    ///
+    /// # Arguments
+    /// * `json_path` - Optional services manifest path; defaults to the bundled manifest.
+    ///
+    /// # Errors
+    /// Returns an error when the manifest or one of its sources cannot be loaded.
+    ///
+    /// # Returns
+    /// Catalog entries for every declared service.
     pub fn load_service_catalog(
         &self,
         json_path: Option<&str>,
@@ -505,6 +578,9 @@ impl StreamScraper {
     }
 
     /// Replaces the proxy configuration used by this scraper instance.
+    ///
+    /// # Arguments
+    /// * `proxy` - New proxy configuration applied to the shared proxy handle.
     pub fn set_proxy(&self, proxy: HttpProxyConfig) {
         self.proxy_handle.set_proxy(proxy);
     }
@@ -533,6 +609,10 @@ impl StreamScraper {
         }
     }
 
+    /// Adds the public HTTP proxy path to scraper runtime parameters when configured.
+    ///
+    /// # Arguments
+    /// * `params` - Query parameters to enrich in place.
     fn enrich_runtime_params(&self, params: &mut HashMap<String, String>) {
         if let Some(proxy_public_path) = self
             .player_resolver_endpoints
@@ -549,6 +629,14 @@ impl StreamScraper {
     }
 }
 
+/// Normalizes and deduplicates requested proxy country hints.
+///
+/// # Arguments
+/// * `proxy_countries` - Raw country hints.
+///
+/// # Returns
+/// Uppercase two-letter ISO codes in request order, excluding invalid and
+/// duplicate values.
 fn normalize_proxy_countries(proxy_countries: Vec<String>) -> Vec<String> {
     let mut normalized = Vec::new();
     for country in proxy_countries {
@@ -564,6 +652,14 @@ fn normalize_proxy_countries(proxy_countries: Vec<String>) -> Vec<String> {
 }
 
 /// Groups the category filters sent by category requests.
+///
+/// # Arguments
+/// * `source` - Single-source filter legacy shape.
+/// * `sources` - Multi-source filters.
+///
+/// # Returns
+/// The explicit source list when present, otherwise the single source wrapped
+/// in a list, or an empty list when both are empty.
 pub(crate) fn category_sources_from_request(
     source: HashMap<String, String>,
     sources: Vec<HashMap<String, String>>,
@@ -579,6 +675,13 @@ pub(crate) fn category_sources_from_request(
     }
 }
 
+/// Returns the player resolver registered for a source identifier.
+///
+/// # Arguments
+/// * `source` - Source identifier from a stream token or request.
+///
+/// # Returns
+/// The matching resolver, or `None` when the source is unsupported.
 fn player_resolver_for_source(source: &str) -> Option<&'static dyn PlayerStreamResolver> {
     match source.trim() {
         source if source == ANTENNE_REUNION_RESOLVER.source_id() => Some(&ANTENNE_REUNION_RESOLVER),
@@ -593,6 +696,13 @@ fn player_resolver_for_source(source: &str) -> Option<&'static dyn PlayerStreamR
     }
 }
 
+/// Returns the player resolver declaring a resolver identifier.
+///
+/// # Arguments
+/// * `resolver_id` - Resolver identifier from a stream request.
+///
+/// # Returns
+/// The matching resolver, or `None` when the identifier is unsupported.
 fn player_resolver_for_id(resolver_id: &str) -> Option<&'static dyn PlayerStreamResolver> {
     let resolver_id = resolver_id.trim();
     [
@@ -613,6 +723,9 @@ fn player_resolver_for_id(resolver_id: &str) -> Option<&'static dyn PlayerStream
 ///
 /// Scrapers may emit only a resolver descriptor for an embedded player. Keeping a
 /// web link alongside it lets all API consumers open the original player page.
+///
+/// # Arguments
+/// * `node` - Scraper data tree to inspect and enrich in place.
 fn populate_stream_resolver_web_links(node: &mut ScraperDataNode) {
     for child in node.children.values_mut() {
         populate_stream_resolver_web_links(child);

@@ -8,6 +8,11 @@ use super::ProxyInventory;
 use crate::core::{Destination, ProxyRecord, ProxyRepository};
 
 /// Writes `records` through the typed proxy repository.
+///
+/// # Arguments
+/// * `persistence` - Repository used to load and persist dynamic proxy records.
+/// * `records` - Proxy records to merge or persist; endpoint identity is host and port.
+///
 #[cfg(feature = "persistence")]
 async fn persist_proxy_records(
     persistence: &Arc<dyn ProxyRepository>,
@@ -19,6 +24,10 @@ async fn persist_proxy_records(
 impl ProxyInventory {
     /// Persists records through one transaction committed after the whole
     /// batch has been written into the namespace cache.
+    ///
+    /// # Arguments
+    /// * `records` - Proxy records to merge or persist; endpoint identity is host and port.
+    ///
     #[cfg(feature = "persistence")]
     pub(super) async fn persist_records(&self, records: &[ProxyRecord]) {
         let Some(persistence) = &self.persistence else {
@@ -57,6 +66,12 @@ impl ProxyInventory {
 
     /// Persists acceptance without letting the repository's conservative failure
     /// merge restore the superseded exclusion. Both writes use the latest state.
+    ///
+    /// # Arguments
+    /// * `record` - Proxy record whose endpoint and runtime evidence are inspected or updated.
+    /// * `destination` - Final origin used for capability checks and destination-specific exclusions.
+    /// * `accepted_at` - Time of same-origin acceptance; only strictly older eligible failures are cleared.
+    ///
     #[cfg(feature = "persistence")]
     pub(super) async fn persist_accepted_record(
         &self,
@@ -92,6 +107,10 @@ impl ProxyInventory {
 
     /// Deletes the persisted record of an endpoint key, if persistence is
     /// configured.
+    ///
+    /// # Arguments
+    /// * `key` - Endpoint identity used to locate the stored proxy record.
+    ///
     #[cfg(feature = "persistence")]
     pub(super) async fn delete_persisted_record(&self, key: &crate::core::ProxyKey) {
         let Some(persistence) = &self.persistence else {
@@ -105,6 +124,9 @@ impl ProxyInventory {
 
     /// Imports cached records for `country` from the persistence store into
     /// the in-memory inventory.
+    ///
+    /// # Arguments
+    /// * `country` - ISO alpha-2 country code associated with the requested inventory partition.
     ///
     /// # Returns
     ///

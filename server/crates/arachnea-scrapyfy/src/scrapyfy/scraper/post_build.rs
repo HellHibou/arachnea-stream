@@ -27,6 +27,10 @@ pub enum ScraperPostBuild {
 
 impl ScraperPostBuild {
     /// Validates one post-build configuration before scraper execution.
+    ///
+    /// # Arguments
+    ///
+    /// * `owner` - Owning entry name included in post-build validation errors.
     pub fn validate(&self, owner: &str) -> Result<()> {
         match self {
             Self::MathFormula { target, expression } => {
@@ -67,6 +71,10 @@ impl ScraperPostBuild {
     }
 
     /// Applies one post-build transformation to an assembled object entry.
+    ///
+    /// # Arguments
+    ///
+    /// * `node` - Entry result node whose child fields are inspected or removed.
     pub fn apply(&self, node: &mut ScraperDataNode) {
         match self {
             Self::MathFormula { target, expression } => {
@@ -104,6 +112,11 @@ impl ScraperPostBuild {
     }
 }
 
+/// Splits a `>`-delimited node path, trimming and discarding empty segments.
+///
+/// # Arguments
+///
+/// * `path` - Child-field path using `>` separators or its already split segments.
 fn path_segments(path: &str) -> Vec<&str> {
     path.split('>')
         .map(str::trim)
@@ -111,6 +124,12 @@ fn path_segments(path: &str) -> Vec<&str> {
         .collect()
 }
 
+/// Looks up the first scalar value along a child path, returning `None` when absent.
+///
+/// # Arguments
+///
+/// * `node` - Entry result node whose child fields are inspected or removed.
+/// * `path` - Child-field path using `>` separators or its already split segments.
 fn lookup_scalar<'a>(node: &'a ScraperDataNode, path: &str) -> Option<&'a str> {
     path_segments(path)
         .into_iter()
@@ -118,6 +137,12 @@ fn lookup_scalar<'a>(node: &'a ScraperDataNode, path: &str) -> Option<&'a str> {
         .and_then(ScraperDataNode::value_as_string)
 }
 
+/// Removes an existing child path without creating missing intermediate nodes.
+///
+/// # Arguments
+///
+/// * `node` - Entry result node whose child fields are inspected or removed.
+/// * `path` - Child-field path using `>` separators or its already split segments.
 fn remove_path(node: &mut ScraperDataNode, path: &[&str]) {
     let Some((last, parent_path)) = path.split_last() else {
         return;

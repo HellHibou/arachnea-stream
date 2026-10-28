@@ -21,7 +21,7 @@ pub struct ArachneaRequestBuilder {
 impl ArachneaRequestBuilder {
     /// Adds or replaces one header.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `name`: Header name.
     /// - `value`: Header value.
@@ -36,7 +36,10 @@ impl ArachneaRequestBuilder {
 
     /// Adds or replaces multiple headers.
     ///
-    /// # Parameters
+    /// Each name in `headers` replaces any value already set for that name on
+    /// the builder. Other existing headers are preserved.
+    ///
+    /// # Arguments
     ///
     /// - `headers`: Header map merged into this request.
     ///
@@ -50,7 +53,7 @@ impl ArachneaRequestBuilder {
 
     /// Sets the execution mode for this request.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `mode`: Predefined request mode.
     ///
@@ -64,7 +67,7 @@ impl ArachneaRequestBuilder {
 
     /// Sets a raw request body.
     ///
-    /// # Parameters
+    /// # Arguments
     ///
     /// - `body`: Body bytes.
     ///
@@ -78,13 +81,20 @@ impl ArachneaRequestBuilder {
 
     /// Serializes and sets a JSON request body.
     ///
-    /// # Parameters
+    /// The method also sets `Content-Type: application/json`. It does not add
+    /// an `Accept` header.
+    ///
+    /// # Arguments
     ///
     /// - `value`: Serializable JSON value.
     ///
     /// # Returns
     ///
-    /// The updated request builder or a JSON serialization error.
+    /// The updated request builder.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Json` when `value` cannot be serialized.
     pub fn json<T: Serialize>(mut self, value: &T) -> Result<Self, ArachneaHttpError> {
         let body =
             serde_json::to_vec(value).map_err(|err| ArachneaHttpError::Json(err.to_string()))?;
@@ -132,6 +142,19 @@ pub struct RequestOptions {
 
 impl RequestOptions {
     /// Builds the next request options in a redirect chain.
+    ///
+    /// For `301`, `302`, and `303` responses, methods other than `GET` and
+    /// `HEAD` are rewritten to `GET`; the body and `Content-Type` header are
+    /// then removed. Other redirect statuses preserve the method and body.
+    ///
+    /// # Arguments
+    ///
+    /// - `url`: Absolute target URL of the next redirect hop.
+    /// - `status`: Redirect status returned by the previous hop.
+    ///
+    /// # Returns
+    ///
+    /// Updated options for the next hop.
     pub(super) fn for_redirect(mut self, url: String, status: StatusCode) -> Self {
         if should_rewrite_redirect_to_get(status, &self.method) {
             self.method = Method::GET;
