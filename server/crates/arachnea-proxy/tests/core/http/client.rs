@@ -1,4 +1,5 @@
 use super::*;
+use std::collections::HashMap;
 use tokio::io::{AsyncWriteExt, DuplexStream};
 
 async fn response_stream(response: &[u8]) -> DuplexStream {

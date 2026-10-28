@@ -1,87 +1,33 @@
-use std::collections::HashMap;
-use std::pin::Pin;
+//! Proxy selection, connection setup, response classification and redirect orchestration.
 
-use crate::core::http::body_readers::{
-    ChunkedBodyReader, ContentLengthBodyReader, UntilEofBodyReader,
+mod request;
+mod response_body;
+mod response_head;
+mod types;
+
+use response_body::{
+    process_response_body, read_buffered_response_body, select_body_reader,
+    transfer_encoding_is_chunked,
 };
+#[cfg(test)]
+use response_head::read_headers_only;
+use response_head::{
+    header_value_case_insensitive, parse_status, remove_header_case_insensitive,
+    send_request_and_read_head,
+};
+pub use types::{ProxiedHttpRequest, ProxiedHttpResponse, ProxiedResponseBody, SimpleHttpResponse};
+
 use crate::core::{
-    ArachneaProxyCore, ClientContext, ConnectRequest, Destination, HttpRequestTargetForm,
-    ProxyError, ProxyStream, Result,
+    ArachneaProxyCore, ConnectRequest, Destination, HttpRequestTargetForm, ProxyError, ProxyStream,
+    Result,
 };
-use crate::http::actions::{apply_post_actions, PostActionContext, ProxyHttpPostActionConfig};
 use bytes::Bytes;
 use futures::StreamExt;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_util::io::ReaderStream;
 
 #[cfg(feature = "performance-diagnostics")]
 use super::performance_diagnostics::{classified_response, MediaRequestDiagnostics};
-
-/// Minimal HTTP response returned by the core convenience client.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct SimpleHttpResponse {
-    /// Numeric HTTP status code.
-    pub status: u16,
-    /// Raw response bytes including headers and body.
-    pub bytes: Vec<u8>,
-}
-
-/// Response body returned by the proxied HTTP client.
-pub enum ProxiedResponseBody {
-    /// Entire body loaded in memory, required for body-transforming post-actions.
-    Buffered(Vec<u8>),
-    /// Body decoded incrementally from the upstream connection.
-    Streamed(Pin<Box<dyn futures::Stream<Item = std::io::Result<Bytes>> + Send>>),
-}
-
-/// Full proxied HTTP response with parsed headers and body.
-pub struct ProxiedHttpResponse {
-    /// Original response decision, computed before post-actions.
-    pub response_decision: super::response_classifier::ProxyResponseDecision,
-    /// Exact route used by the final response, including after redirects.
-    pub selection_token: Option<crate::core::ProxySelectionToken>,
-    /// Numeric HTTP status code.
-    pub status: u16,
-    /// Response headers.
-    pub headers: HashMap<String, String>,
-    /// Response body, buffered only when transformations require it.
-    pub body: ProxiedResponseBody,
-}
-
-/// Input for a proxied HTTP request through the Arachnea proxy core.
-#[derive(Clone, Debug)]
-pub struct ProxiedHttpRequest {
-    /// Code-injected policy, taking precedence over serialized policies.
-    pub response_classifier: Option<super::response_classifier::ProxyResponsePolicy>,
-    /// Absolute target URL (http or https scheme only).
-    pub url: String,
-    /// HTTP method (GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS).
-    pub method: String,
-    /// Request headers.
-    pub headers: HashMap<String, String>,
-    /// Request cookies to send as Cookie header.
-    pub cookies: HashMap<String, String>,
-    /// Request body bytes.
-    pub body: Vec<u8>,
-    /// Request-local proxy context used by routing parameter handlers.
-    pub client_context: ClientContext,
-    /// Post-response actions to apply to the response.
-    pub post_actions: Vec<ProxyHttpPostActionConfig>,
-    /// Whether the caller requires a fully buffered response body.
-    ///
-    /// This must be enabled when `post_actions` is non-empty. Buffered response
-    /// acceptance is committed only after the complete body has been received.
-    pub buffer_response_body: bool,
-    /// Whether only response headers should be read (e.g. HEAD requests).
-    pub headers_only: bool,
-    /// Request context for action variable substitution.
-    pub context: PostActionContext,
-    /// Whether the target TLS certificate must be validated.
-    pub verify_tls: bool,
-    /// Optional maximum number of upstream redirects to follow before returning
-    /// the final allowed 3xx response.
-    pub follow_redirects: Option<usize>,
-}
 
 /// Minimal HTTP client that uses `ArachneaProxyCore` for connections.
 #[derive(Clone)]
@@ -366,80 +312,17 @@ impl SimpleHttpClient {
 
         #[cfg(feature = "performance-diagnostics")]
         diagnostics.next_phase("request_preparation");
-        // Build request headers
-        let mut header_lines = Vec::new();
-        let method = request.method.to_ascii_uppercase();
-        let send_body = !request.body.is_empty() && method != "GET" && method != "HEAD";
-
-        // First line
-        header_lines.push(format!("{method} {request_target} HTTP/1.1"));
-
-        // Host header
-        let host_header = if port == 80 || port == 443 {
-            host.to_string()
-        } else {
-            format!("{}:{}", host, port)
-        };
-        header_lines.push(format!("Host: {}", host_header));
-
-        // Connection: close to simplify response parsing
-        header_lines.push("Connection: close".to_string());
-
-        // Apply caller headers (excluding non-transferable ones)
-        let non_transferable = [
-            "connection",
-            "content-length",
-            "transfer-encoding",
-            "host",
-            "proxy-authorization",
-            "proxy-connection",
-        ];
-        for (name, value) in &request.headers {
-            if !non_transferable.contains(&name.to_ascii_lowercase().as_str()) {
-                header_lines.push(format!("{}: {}", name, value));
-            }
-        }
-
-        // Cookies
-        if !request.cookies.is_empty() {
-            let cookie_str = request
-                .cookies
-                .iter()
-                .map(|(k, v)| format!("{}={}", k, v))
-                .collect::<Vec<_>>()
-                .join("; ");
-            header_lines.push(format!("Cookie: {}", cookie_str));
-        }
-
-        // Content-Length if body is present
-        if send_body {
-            header_lines.push(format!("Content-Length: {}", request.body.len()));
-        }
-
-        // Authorization from proxy if applicable
-        if let Some(auth) = &stream.proxy_authorization {
-            header_lines.push(format!("Proxy-Authorization: {}", auth));
-        }
-
-        let mut request_bytes = header_lines.join("\r\n").into_bytes();
-        request_bytes.extend_from_slice(b"\r\n\r\n");
-
-        // Determine the target form for the request
-        let request_to_send = if stream.target_form == HttpRequestTargetForm::AbsoluteForm {
-            // Replace the request-target with the absolute URL
-            let first_line_end = request_bytes
-                .windows(2)
-                .position(|window| window == b"\r\n")
-                .unwrap_or(request_bytes.len());
-            let mut absolute_request: Vec<u8> =
-                format!("{method} {} HTTP/1.1", request.url).into_bytes();
-            if let Some(rest) = request_bytes.get(first_line_end..) {
-                absolute_request.extend_from_slice(rest);
-            }
-            absolute_request
-        } else {
-            request_bytes
-        };
+        let request::PreparedRequest {
+            bytes: request_to_send,
+            send_body,
+        } = request::prepare(
+            &request,
+            host,
+            port,
+            &request_target,
+            &stream.target_form,
+            stream.proxy_authorization.as_deref(),
+        );
 
         let metadata = stream.stream.metadata().clone();
 
@@ -684,308 +567,6 @@ impl SimpleHttpClient {
             headers,
             body,
         })
-    }
-}
-
-/// Reads a response body that must be buffered for post-response processing.
-///
-/// # Arguments
-/// * `stream` - Connected stream from which HTTP or proxy-protocol bytes are read or written.
-/// * `headers` - HTTP headers inspected or updated by this operation.
-/// * `is_chunked` - Whether the response declares chunked transfer encoding.
-/// * `tolerate_dechunked_bodies` - Whether to retry raw-body interpretation when chunk framing is already removed.
-///
-async fn read_buffered_response_body<S>(
-    stream: S,
-    headers: &HashMap<String, String>,
-    is_chunked: bool,
-    tolerate_dechunked_bodies: bool,
-) -> Result<Vec<u8>>
-where
-    S: AsyncRead + Send + Unpin + 'static,
-{
-    if is_chunked && tolerate_dechunked_bodies {
-        // Inspect only the first line before choosing strict framing or compatibility mode.
-        let mut reader = BufReader::new(stream);
-        let mut prefix = Vec::new();
-        while prefix.len() < crate::PROXY_MEDIA_CHUNK_PREFIX_LIMIT {
-            let mut byte = [0];
-            if reader.read(&mut byte).await? == 0 {
-                break;
-            }
-            prefix.push(byte[0]);
-            if byte[0] == b'\n' {
-                break;
-            }
-        }
-        let framed = prefix.strip_suffix(b"\r\n").is_some_and(|line| {
-            std::str::from_utf8(line)
-                .ok()
-                .and_then(|line| line.split(';').next())
-                .and_then(|size| usize::from_str_radix(size.trim(), 16).ok())
-                .is_some()
-        });
-        let stream = std::io::Cursor::new(prefix).chain(reader);
-        let mut body = Vec::new();
-        if framed {
-            ChunkedBodyReader::new(stream)
-                .read_to_end(&mut body)
-                .await?;
-        } else {
-            tracing::warn!(
-                "upstream retained Transfer-Encoding: chunked without chunk framing; using raw body"
-            );
-            UntilEofBodyReader::new(stream)
-                .read_to_end(&mut body)
-                .await?;
-        }
-        return Ok(body);
-    }
-
-    let reader = select_body_reader(stream, headers);
-    let reader_stream = ReaderStream::new(reader);
-    let mut body = Vec::new();
-    futures::pin_mut!(reader_stream);
-    while let Some(chunk) = reader_stream.next().await {
-        body.extend_from_slice(&chunk?);
-    }
-    Ok(body)
-}
-
-/// Writes the HTTP request and reads only the response headers.
-///
-/// # Arguments
-/// * `stream` - Connected stream from which HTTP or proxy-protocol bytes are read or written.
-/// * `request_head` - Serialized request line and headers, including the terminating empty line.
-/// * `body` - HTTP body bytes to send or transform.
-/// * `send_body` - Whether this request method permits sending the supplied body.
-///
-async fn send_request_and_read_head<S>(
-    stream: &mut S,
-    request_head: &[u8],
-    body: &[u8],
-    send_body: bool,
-) -> Result<(u16, HashMap<String, String>)>
-where
-    S: AsyncRead + AsyncWrite + Unpin,
-{
-    stream.write_all(request_head).await?;
-    if send_body {
-        stream.write_all(body).await?;
-    }
-    stream.flush().await?;
-
-    let header_bytes = read_headers_only(stream).await?;
-    parse_response_head(&header_bytes)
-}
-
-/// Parses raw HTTP response header bytes into status code and headers.
-///
-/// # Arguments
-/// * `raw_header_bytes` - Response bytes containing the status line and header block.
-///
-fn parse_response_head(raw_header_bytes: &[u8]) -> Result<(u16, HashMap<String, String>)> {
-    let header_end = raw_header_bytes
-        .windows(4)
-        .position(|window| window == b"\r\n\r\n")
-        .ok_or_else(|| {
-            ProxyError::Protocol("http response has no header terminator".to_string())
-        })?;
-
-    let header_section = &raw_header_bytes[..header_end];
-
-    let status_line_end = header_section
-        .windows(2)
-        .position(|window| window == b"\r\n")
-        .ok_or_else(|| ProxyError::Protocol("http response has no status line".to_string()))?;
-
-    let status_line = std::str::from_utf8(&header_section[..status_line_end])
-        .map_err(|_| ProxyError::Protocol("http response status line is not utf-8".to_string()))?;
-
-    let mut parts = status_line.splitn(3, ' ');
-    let _version = parts.next();
-    let status_code = parts
-        .next()
-        .ok_or_else(|| ProxyError::Protocol("http response has no status code".to_string()))?
-        .parse::<u16>()
-        .map_err(|_| ProxyError::Protocol("http status code is invalid".to_string()))?;
-
-    let mut headers = HashMap::new();
-    let header_text = &header_section[status_line_end + 2..];
-    let header_text = std::str::from_utf8(header_text)
-        .map_err(|_| ProxyError::Protocol("http response headers are not utf-8".to_string()))?;
-
-    for line in header_text.lines() {
-        if let Some((name, value)) = line.split_once(':') {
-            let name = name.trim().to_string();
-            let value = value.trim().to_string();
-            if !name.is_empty() && !value.is_empty() {
-                headers.entry(name).or_insert(value);
-            }
-        }
-    }
-
-    Ok((status_code, headers))
-}
-
-/// Applies post-response actions to a buffered body and updates invalidated headers.
-///
-/// # Arguments
-/// * `body` - HTTP body bytes to send or transform.
-/// * `headers` - HTTP headers inspected or updated by this operation.
-/// * `status_code` - HTTP status passed to post-response transformations.
-/// * `post_actions` - Post-response transformations to apply after body decoding.
-/// * `context` - Request metadata available when resolving replacement variables.
-///
-fn process_response_body(
-    body: Vec<u8>,
-    headers: &mut HashMap<String, String>,
-    status_code: u16,
-    post_actions: &[ProxyHttpPostActionConfig],
-    context: &PostActionContext,
-) -> Result<Vec<u8>> {
-    let original_len = body.len();
-    let new_body = apply_post_actions(status_code, headers, body, post_actions, context)?;
-
-    if new_body.len() != original_len {
-        remove_header_case_insensitive(headers, "content-length");
-        remove_header_case_insensitive(headers, "etag");
-        remove_header_case_insensitive(headers, "content-md5");
-        remove_header_case_insensitive(headers, "digest");
-        headers.insert("Content-Length".to_string(), new_body.len().to_string());
-    }
-
-    Ok(new_body)
-}
-
-/// Returns one matching header value using ASCII-insensitive name comparison.
-///
-/// # Arguments
-/// * `headers` - HTTP headers inspected or updated by this operation.
-/// * `wanted` - Header name matched without regard to ASCII case.
-fn header_value_case_insensitive<'a>(
-    headers: &'a HashMap<String, String>,
-    wanted: &str,
-) -> Option<&'a String> {
-    headers
-        .iter()
-        .find(|(name, _)| name.eq_ignore_ascii_case(wanted))
-        .map(|(_, value)| value)
-}
-
-/// Removes one matching header using ASCII-insensitive name comparison.
-///
-/// # Arguments
-/// * `headers` - HTTP headers inspected or updated by this operation.
-/// * `wanted` - Header name matched without regard to ASCII case.
-fn remove_header_case_insensitive(headers: &mut HashMap<String, String>, wanted: &str) {
-    if let Some(name) = headers
-        .keys()
-        .find(|name| name.eq_ignore_ascii_case(wanted))
-        .cloned()
-    {
-        headers.remove(&name);
-    }
-}
-
-/// Parses the status code from an HTTP response.
-///
-/// # Arguments
-///
-/// - `bytes`: Raw HTTP response bytes starting with a status line.
-///
-/// # Returns
-///
-/// Numeric HTTP status code.
-///
-/// # Errors
-///
-/// Returns an error when the response has no valid status line or status code.
-fn parse_status(bytes: &[u8]) -> Result<u16> {
-    let line_end = bytes
-        .windows(2)
-        .position(|window| window == b"\r\n")
-        .ok_or_else(|| ProxyError::Protocol("http response has no status line".to_string()))?;
-    let line = std::str::from_utf8(&bytes[..line_end])
-        .map_err(|_| ProxyError::Protocol("http response status is not utf-8".to_string()))?;
-    let mut parts = line.split_whitespace();
-    let _version = parts.next();
-    let status = parts
-        .next()
-        .ok_or_else(|| ProxyError::Protocol("http response has no status code".to_string()))?
-        .parse::<u16>()
-        .map_err(|_| ProxyError::Protocol("http status code is invalid".to_string()))?;
-    Ok(status)
-}
-
-/// Selects an appropriate body reader based on response headers.
-///
-/// # Arguments
-/// * `stream` - Connected stream from which HTTP or proxy-protocol bytes are read or written.
-/// * `headers` - HTTP headers inspected or updated by this operation.
-///
-fn select_body_reader<S: AsyncRead + Send + Unpin + 'static>(
-    stream: S,
-    headers: &HashMap<String, String>,
-) -> Box<dyn AsyncRead + Send + Unpin> {
-    // Check for chunked transfer encoding
-    if transfer_encoding_is_chunked(headers) {
-        return Box::new(ChunkedBodyReader::new(stream));
-    }
-
-    // Check for content-length
-    if let Some(cl) = header_value_case_insensitive(headers, "content-length") {
-        if let Ok(length) = cl.parse::<usize>() {
-            return Box::new(ContentLengthBodyReader::new(stream, length));
-        }
-    }
-
-    // Default to reading until EOF
-    Box::new(UntilEofBodyReader::new(stream))
-}
-
-/// Returns whether transfer encoding includes chunked coding.
-///
-/// # Arguments
-/// * `headers` - HTTP headers inspected or updated by this operation.
-///
-fn transfer_encoding_is_chunked(headers: &HashMap<String, String>) -> bool {
-    header_value_case_insensitive(headers, "transfer-encoding").is_some_and(|value| {
-        value
-            .split(',')
-            .any(|part| part.trim().eq_ignore_ascii_case("chunked"))
-    })
-}
-
-/// Reads only the response headers from the stream.
-///
-/// # Arguments
-/// * `stream` - Connected stream from which HTTP or proxy-protocol bytes are read or written.
-///
-async fn read_headers_only<S>(stream: &mut S) -> Result<Vec<u8>>
-where
-    S: AsyncRead + AsyncWrite + Unpin,
-{
-    let mut headers = Vec::new();
-    let mut byte = [0u8; 1];
-
-    loop {
-        let n = stream.read(&mut byte).await?;
-        if n == 0 {
-            return Err(ProxyError::Protocol(
-                "http response ended before the header terminator".to_string(),
-            ));
-        }
-
-        headers.push(byte[0]);
-        if headers.ends_with(b"\r\n\r\n") {
-            return Ok(headers);
-        }
-        if headers.len() > crate::PROXY_MEDIA_MAX_RESPONSE_HEADER_BYTES {
-            return Err(ProxyError::Protocol(
-                "response headers exceed 64KB limit".to_string(),
-            ));
-        }
     }
 }
 

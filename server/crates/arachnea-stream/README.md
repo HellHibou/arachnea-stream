@@ -4,6 +4,16 @@
 
 `src/stream_scraper.rs` remains the public facade. Private modules under `src/stream_scraper/` implement catalog operations, playback, persistence setup and controller registration. `src/stream_resolver/` separates HTML fallback fetching, literal redirect recognition and conversion of extracted metadata. TF1 and RTLplay authentication/media/license helpers stay in private modules under their provider directories. Existing public import paths and controller commands remain available.
 
+M6 authentication, API-key discovery and session caches live in
+`src/services/m6play_resolver/authentication.rs`; replay metadata, manifest
+selection, storyboards and chapters live in its `media.rs` module. RMC/BFM Play
+uses private `authentication.rs`, `playback.rs` and `payload.rs` modules under
+`src/services/rmcbfmplay_resolver/` for Cognito sessions and authenticated BFF
+requests, manifest/DRM selection, and JSON traversal/diagnostics respectively.
+The parent resolver files retain replay/live orchestration and provider constants.
+Moving these helpers preserves cache lifetimes, login locks, request order,
+playback selection and tracing targets.
+
 Constants used by only one service resolver are documented at the beginning of its `src/services/*_resolver.rs` file; private child modules reuse those definitions. Constants genuinely shared by several service resolvers stay in `src/lib.rs`, alongside application and generic facade constants. The common user-agent, diagnostic preview limit and license-token length are defined once there. Defaults, endpoint identifiers, timeouts, token lifetimes, persisted store names and encryption-key bytes retain their values. The executable imports its configuration path and credentials key from the library; those constants are public because the binary is a separate Rust crate. Mutable session/license caches stay with their owners.
 
 Existing unit suites mirror `src/stream_resolver.rs` and `src/stream_scraper.rs` under crate-root `tests/`. Shared test-only helpers live under `tests/support/`, with conditional `#[path]` loading. `autotests = false` prevents Cargo from also treating the mirrored files as integration targets requiring public-only access. The Scrapyfy development dependency still enables `test-support`.
@@ -65,6 +75,7 @@ make endpoint eviction and preference cleanup a single transaction.
 - Own the `arachnea` backend executable entry point in `src/main.rs`.
 - Own the stream facade in `src/stream_scraper.rs`.
 - Own player resolver services in `src/services/`.
+- Own episode and player identities, resolved embed URLs and any associated cache policies. `arachnea-http` provides generic browser operations; the removed, unused `ResolvedIframeCache` is not part of the active resolution flow.
 - Depend on `arachnea-core` for controller and persistence primitives.
 - Supply the Tauri context, embedded frontend assets, custom URI scheme, and API prefix to `arachnea-core`.
 - Depend on `arachnea-scrapyfy` for generic scraper query execution.

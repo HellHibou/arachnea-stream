@@ -8,7 +8,7 @@ This README is the design and usage home for the HTTP crate. Remaining work is t
 
 - `src/client.rs` owns the public client facade. Private modules under `src/client/` handle request/response types, execution, proxy runtime ownership, URLs, Cloudflare refresh and reusable browser sessions. Existing public paths under `arachnea_http::client` remain available through reexports.
 - `src/config.rs` owns configuration types; `src/config/builder.rs` owns construction and validation.
-- `src/engine/chaser_cf/` separates challenge observation from page sessions. `src/engine/tauri_cloudflare/` separates application-owned windows from the standalone event loop. Engine and platform feature gates remain in effect.
+- `src/engine/chaser_cf/` separates challenge observation, page sessions and the private `session_cache.rs` implementation of typed session persistence, expiration and cookie conversion. Its existing cache tests mirror that module under `tests/engine/chaser_cf/session_cache.rs`. `src/engine/tauri_cloudflare/` separates application-owned windows from the standalone event loop. Engine and platform feature gates remain in effect.
 - `src/lib.rs` centralizes documented constants and relevant defaults, preserving their values and existing public constant paths. Mutable caches and registries stay with their owners.
 - Crate-owned JavaScript assets and Rust format templates live under `resources/chaser_cf/` and `resources/tauri_cloudflare/`. They are included at compile time; deployment does not require copying these directories. Format templates retain Rust placeholder and brace escaping.
 - Existing tests mirror source paths under crate-root `tests/`; shared mocks live under `tests/support/`. Private-access suites are loaded using conditional `#[path]` declarations. `autotests = false` prevents Cargo from also discovering these files as incompatible integration targets.
@@ -158,6 +158,12 @@ let response = client
 - Redirect responses are processed by the facade so intermediate `Set-Cookie` headers are stored before the next request is sent.
 
 ## Browser Page Sessions
+
+Browser APIs provide generic navigation, DOM interactions, in-page requests and
+session management. Episode and player identities, resolved embed URLs and their
+cache policies belong to `arachnea-stream`. The unused `ResolvedIframeCache`
+API has been removed from both `arachnea_http::browser` and the crate root; no
+compatibility reexport is provided.
 
 `ArachneaHttpClient::page_navigate(PageNavigationRequest)` navigates a persistent
 browser page and can return its stable HTML source. `ArachneaHttpClient::page_click(PageNavigationRequest, PageClickRequest)` navigates, clicks a CSS-selected element, then returns the rendered HTML when a result selector appears. `ArachneaHttpClient::page_fetch(PageNavigationRequest, PageFetchRequest)` navigates that same kind of page to a source URL, then executes one JavaScript `fetch()` inside it. Sessions are scoped to origin, user-agent profile, and proxy route; they are bounded by `BrowserSessionConfig` and evicted after inactivity.

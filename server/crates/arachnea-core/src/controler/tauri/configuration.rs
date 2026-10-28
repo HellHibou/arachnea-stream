@@ -1,7 +1,8 @@
 //! Application-owned context and configuration for the Tauri controller.
 
-use super::{
-    normalize_api_prefix, normalize_web_scheme, DEFAULT_TAURI_API_PREFIX, DEFAULT_TAURI_WEB_SCHEME,
+use crate::{
+    TAURI_CONTROLLER_DEFAULT_API_PREFIX as DEFAULT_TAURI_API_PREFIX,
+    TAURI_CONTROLLER_DEFAULT_WEB_SCHEME as DEFAULT_TAURI_WEB_SCHEME,
 };
 
 /// Presentation used for public frontend links opened in a new browsing context.
@@ -79,5 +80,43 @@ impl TauriControlerConfiguration {
     pub fn api_prefix(mut self, api_prefix: impl Into<String>) -> Self {
         self.api_prefix = normalize_api_prefix(&api_prefix.into());
         self
+    }
+}
+
+/// Normalizes a Tauri web scheme by removing protocol suffixes and slashes.
+///
+/// # Arguments
+/// * `web_scheme` - The web scheme to normalize.
+///
+/// # Returns
+/// The normalized scheme, or the default scheme if the input is empty.
+fn normalize_web_scheme(web_scheme: &str) -> String {
+    let normalized = web_scheme
+        .trim()
+        .trim_end_matches("://")
+        .trim_end_matches('/')
+        .to_string();
+
+    if normalized.is_empty() {
+        DEFAULT_TAURI_WEB_SCHEME.to_string()
+    } else {
+        normalized
+    }
+}
+
+/// Normalizes a Tauri API prefix by trimming slashes and adding surrounding slashes.
+///
+/// # Arguments
+/// * `api_prefix` - The API prefix to normalize.
+///
+/// # Returns
+/// The normalized prefix with surrounding slashes, or the default prefix if empty.
+fn normalize_api_prefix(api_prefix: &str) -> String {
+    let normalized = api_prefix.trim().trim_matches('/');
+
+    if normalized.is_empty() {
+        DEFAULT_TAURI_API_PREFIX.to_string()
+    } else {
+        format!("/{normalized}/")
     }
 }

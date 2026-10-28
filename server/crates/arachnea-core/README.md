@@ -11,13 +11,14 @@
 
 ## Source organization and defaults
 
+- `src/controler/mod.rs` is a facade of declarations and compatibility reexports. `contracts.rs` holds request/response types, `service.rs` the backend trait, and `registration.rs` typed callbacks, serialization and conditional validation. `application.rs` constructs the selected backend from application-owned context/assets; `macros.rs` preserves call-site Tauri context generation. `rest_settings.rs` resolves command-line/persisted/default precedence.
 - `src/controler/rest/service.rs` retains REST route registration and lifecycle orchestration. Its private `service/snapshot.rs` module holds supervisor configuration snapshots; `service/responses.rs` adapts JSON, streamed responses, headers and peer addresses.
-- `src/controler/tauri/configuration.rs` holds the browsing mode and application-owned Tauri configuration. Their existing imports through `controler::tauri` remain available.
+- `src/controler/tauri/mod.rs` reexports the backend's public configuration, service and embedded assets. Private `service.rs`, `dispatcher.rs`, `assets.rs` and `runtime.rs` own state/registration, main-thread dispatch, frontend mounts and native launch. `ipc.rs` routes invocations and administration windows; `protocol.rs` routes custom-scheme requests and selects frontend assets; `stream_response.rs` runs binary callbacks and buffers their responses off the UI thread. Existing `configuration.rs`, `tabs.rs` and `windows.rs` retain their roles; scheme/API normalization lives with configuration. Public imports through `controler::tauri` remain available.
 - `src/lib.rs` centralizes constants and relevant defaults for controllers, logging, persistence and encoding. Public constants retain their historical module import paths through reexports. Runtime configuration overrides and all default values are preserved.
 - Application-option defaults (`arachnea-core`, `api`) remain distinct from the Tauri controller fallbacks (`arachnea`, `/api/`). Likewise, different window roles and shutdown phases have independent constants even when their current numeric values match.
 - Format versions, the Base62 alphabet, and AES-GCM nonce size are compatibility invariants, not ordinary tuning settings. SQLite constants remain gated by `sqlite-persistence`, and platform-specific constants retain their platform gates. Mutable counters and registries stay with their owners.
 - `resources/log_window.html` contains the unchanged embedded log-window page, included by its crate-root constant at compile time.
-- `tests/` mirrors exact source paths and filenames, including `tests/controler/mod.rs`, `tests/crypt/mod.rs`, and `tests/persistence/typed_store.rs`. Conditional module declarations load unit tests with private access; shared temporary-directory helpers live in `tests/support/`. Existing test names and scenarios are preserved.
+- `tests/` mirrors exact source paths and filenames, including `tests/controler/rest_settings.rs`, `tests/crypt/mod.rs`, and `tests/persistence/typed_store/{memory,file}.rs`. Conditional module declarations load unit tests with private access; shared temporary-directory and entity helpers live in `tests/support/`. Existing test names and scenarios are preserved.
 
 From the server workspace, run `cargo test -p arachnea-core --no-default-features`
 for the memory/file backends and doctests, or
@@ -27,6 +28,18 @@ Application data path callers must first call
 identifier; the resource path helpers do not require this data-directory setup.
 
 ## Notes
+
+`src/persistence/typed_store.rs` retains the entity/key/query/store contracts and
+reexports the existing public types. Its private `typed_store/schema.rs` module
+owns field declarations and table configuration; `document.rs` owns value
+encoding, validation, reading and expiration. `memory.rs` and `file.rs` implement
+the existing storage backends. Public paths and persisted representations remain
+unchanged.
+
+`src/persistence/sqlite_store.rs` owns the public SQLite types and CRUD operations.
+Its private `sqlite_store/schema.rs` module reconciles tables, columns and indexes;
+`sqlite_store/conversion.rs` converts entity values and reads SQLite rows.
+Public import paths and the `sqlite-persistence` feature gate remain unchanged.
 
 SQLite persistence has two levels: `SqliteStoreConfig` identifies a physical
 database opened by `SqliteDatabase::open(config, data_root)`, and

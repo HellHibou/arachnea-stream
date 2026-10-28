@@ -196,59 +196,6 @@ fn test_manager_reuses_existing_after_get_or_create() {
     assert!(h1.ptr_eq(&h2));
 }
 
-// --- ResolvedIframeCache tests ---
-
-#[test]
-fn test_resolved_iframe_cache_get_miss() {
-    let cache = ResolvedIframeCache::new(10, Duration::from_secs(60));
-    assert_eq!(cache.get("https://episode", "p1", "f1", "t1"), None);
-}
-
-#[test]
-fn test_resolved_iframe_cache_insert_and_get() {
-    let mut cache = ResolvedIframeCache::new(10, Duration::from_secs(60));
-    cache.insert("https://episode", "p1", "f1", "t1", "https://embed".into());
-    assert_eq!(
-        cache.get("https://episode", "p1", "f1", "t1"),
-        Some("https://embed")
-    );
-}
-
-#[test]
-fn test_resolved_iframe_cache_eviction() {
-    let mut cache = ResolvedIframeCache::new(2, Duration::from_secs(60));
-    cache.insert("ep1", "p1", "f1", "t1", "url1".into());
-    cache.insert("ep2", "p2", "f2", "t2", "url2".into());
-    cache.insert("ep3", "p3", "f3", "t3", "url3".into());
-    assert_eq!(cache.len(), 2);
-    assert_eq!(cache.get("ep1", "p1", "f1", "t1"), None);
-}
-
-#[test]
-fn test_resolved_iframe_cache_ttl() {
-    let mut cache = ResolvedIframeCache::new(10, Duration::from_nanos(1));
-    cache.insert("ep", "p", "f", "t", "url".into());
-    std::thread::sleep(Duration::from_nanos(100));
-    assert_eq!(cache.get("ep", "p", "f", "t"), None);
-}
-
-#[test]
-fn test_resolved_iframe_cache_invalidate() {
-    let mut cache = ResolvedIframeCache::new(10, Duration::from_secs(60));
-    cache.insert("ep", "p", "f", "t", "url".into());
-    cache.invalidate("ep", "p", "f", "t");
-    assert_eq!(cache.get("ep", "p", "f", "t"), None);
-}
-
-#[test]
-fn test_resolved_iframe_cache_clear() {
-    let mut cache = ResolvedIframeCache::new(10, Duration::from_secs(60));
-    cache.insert("ep1", "p1", "f1", "t1", "url1".into());
-    cache.insert("ep2", "p2", "f2", "t2", "url2".into());
-    cache.clear();
-    assert!(cache.is_empty());
-}
-
 #[test]
 fn test_turnstile_token_state_transition() {
     let mut state = TurnstileTokenState::Pending;

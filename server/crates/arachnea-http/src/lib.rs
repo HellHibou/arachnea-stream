@@ -82,7 +82,7 @@ pub use browser::{
     BrowserPageSession, BrowserSessionConfig, BrowserSessionHandle, BrowserSessionKey,
     BrowserSessionManager, BrowserSessionMetadata, PageClickRequest, PageClickResponse,
     PageFetchRequest, PageFetchResponse, PageNavigationRequest, PageNavigationResponse,
-    ResolvedIframeCache, TurnstileTokenState,
+    TurnstileTokenState,
 };
 
 pub use client::{

@@ -1,4 +1,6 @@
 use super::*;
+use crate::chaser_session::memory_session_store;
+use std::collections::HashMap;
 
 fn waf_session(expires_at: u64) -> WafSession {
     let mut headers = HashMap::new();

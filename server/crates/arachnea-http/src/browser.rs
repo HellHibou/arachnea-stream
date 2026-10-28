@@ -1,16 +1,13 @@
 //! Reusable browser session management and in-page HTTP fetch execution.
 //!
 //! This module defines the contracts for maintaining persistent browser page
-//! contexts and executing JavaScript `fetch()`/XHR calls inside them. It is
-//! designed to support flows like PapaDuStream's `getxfield` POST which
-//! requires a Turnstile callback token obtained in the page context.
+//! contexts and executing JavaScript `fetch()`/XHR calls inside them, including
+//! requests requiring a Turnstile callback token obtained in the page context.
 //!
 //! # Security
 //!
 //! - Cookie values, Turnstile tokens, and sensitive request headers are never
 //!   logged, stored persistently, or included in diagnostic output.
-//! - The resolved-iframe cache stores only the final embed URL, not the
-//!   Turnstile token, session cookies, or intermediate request data.
 //! - Browser sessions are scoped to a single origin and are never shared
 //!   across different origins or proxy routes.
 //! - Token values are held in memory only. They are single-use by default and
@@ -705,170 +702,6 @@ impl std::fmt::Debug for TurnstileTokenState {
             Self::Consumed => formatter.write_str("Consumed"),
             Self::Rejected => formatter.write_str("Rejected"),
         }
-    }
-}
-
-/// Bounded in-memory cache for resolved iframe embed URLs.
-///
-/// Avoids repeating server round-trips (e.g. `getxfield` POSTs) for the same
-/// player and episode. Entries are evicted by TTL or when the cache exceeds
-/// its configured capacity. No Turnstile tokens, cookies, or intermediate
-/// session data are stored in this cache.
-#[derive(Debug)]
-pub struct ResolvedIframeCache {
-    entries: HashMap<IframeCacheKey, IframeCacheEntry>,
-    capacity: usize,
-    ttl: Duration,
-}
-
-/// Internal cache key for a resolved iframe.
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
-struct IframeCacheKey {
-    episode_url: String,
-    player_id: String,
-    player_field: String,
-    player_type: String,
-}
-
-/// Internal cache entry with creation timestamp.
-#[derive(Debug, Clone)]
-struct IframeCacheEntry {
-    embed_url: String,
-    created_at: Instant,
-}
-
-impl ResolvedIframeCache {
-    /// Creates a new bounded iframe embed cache.
-    ///
-    /// # Arguments
-    ///
-    /// * `capacity` — Maximum number of entries before the oldest are evicted.
-    /// * `ttl` — Entry time-to-live since creation.
-    pub fn new(capacity: usize, ttl: Duration) -> Self {
-        Self {
-            entries: HashMap::with_capacity(capacity),
-            capacity,
-            ttl,
-        }
-    }
-
-    /// Returns a cached embed URL if a fresh entry exists.
-    ///
-    /// Returns `None` when the entry is absent, expired, or evicted. Expired
-    /// entries are not removed by this lookup.
-    ///
-    /// # Arguments
-    ///
-    /// - `episode_url`: Episode page URL.
-    /// - `player_id`: Player identifier.
-    /// - `player_field`: Player field name.
-    /// - `player_type`: Player type discriminator.
-    ///
-    /// # Returns
-    ///
-    /// The cached embed URL while it is within its TTL.
-    pub fn get(
-        &self,
-        episode_url: &str,
-        player_id: &str,
-        player_field: &str,
-        player_type: &str,
-    ) -> Option<&str> {
-        let key = IframeCacheKey {
-            episode_url: episode_url.to_owned(),
-            player_id: player_id.to_owned(),
-            player_field: player_field.to_owned(),
-            player_type: player_type.to_owned(),
-        };
-        let entry = self.entries.get(&key)?;
-        if entry.created_at.elapsed() > self.ttl {
-            return None;
-        }
-        Some(&entry.embed_url)
-    }
-
-    /// Inserts or replaces a resolved embed URL.
-    ///
-    /// When the cache is at capacity the oldest entry (by creation time) is
-    /// evicted before insertion. Replacing an entry resets its creation time.
-    ///
-    /// # Arguments
-    ///
-    /// - `episode_url`: Episode page URL.
-    /// - `player_id`: Player identifier.
-    /// - `player_field`: Player field name.
-    /// - `player_type`: Player type discriminator.
-    /// - `embed_url`: Resolved embed URL to cache.
-    pub fn insert(
-        &mut self,
-        episode_url: &str,
-        player_id: &str,
-        player_field: &str,
-        player_type: &str,
-        embed_url: String,
-    ) {
-        if self.entries.len() >= self.capacity {
-            if let Some(oldest_key) = self
-                .entries
-                .iter()
-                .min_by_key(|(_, e)| e.created_at)
-                .map(|(k, _)| k.clone())
-            {
-                self.entries.remove(&oldest_key);
-            }
-        }
-        let key = IframeCacheKey {
-            episode_url: episode_url.to_owned(),
-            player_id: player_id.to_owned(),
-            player_field: player_field.to_owned(),
-            player_type: player_type.to_owned(),
-        };
-        self.entries.insert(
-            key,
-            IframeCacheEntry {
-                embed_url,
-                created_at: Instant::now(),
-            },
-        );
-    }
-
-    /// Invalidates one specific cache entry by its composite key.
-    ///
-    /// # Arguments
-    ///
-    /// - `episode_url`: Episode page URL.
-    /// - `player_id`: Player identifier.
-    /// - `player_field`: Player field name.
-    /// - `player_type`: Player type discriminator.
-    pub fn invalidate(
-        &mut self,
-        episode_url: &str,
-        player_id: &str,
-        player_field: &str,
-        player_type: &str,
-    ) {
-        let key = IframeCacheKey {
-            episode_url: episode_url.to_owned(),
-            player_id: player_id.to_owned(),
-            player_field: player_field.to_owned(),
-            player_type: player_type.to_owned(),
-        };
-        self.entries.remove(&key);
-    }
-
-    /// Removes all cached entries.
-    pub fn clear(&mut self) {
-        self.entries.clear();
-    }
-
-    /// Number of entries currently in the cache.
-    pub fn len(&self) -> usize {
-        self.entries.len()
-    }
-
-    /// Whether the cache is empty.
-    pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
     }
 }
 

@@ -61,9 +61,14 @@ fn normalizes_static_proxy_countries() {
     );
     #[cfg(feature = "arachnea-proxy")]
     {
+        use arachnea_http::HttpProxyConfig;
+
         let handle = SharedProxyConfigHandle::new();
         let independent = handle.with_independent_config();
-        assert!(Arc::ptr_eq(&handle.runtime, &independent.runtime));
+        assert!(Arc::ptr_eq(
+            &handle.proxy_runtime(),
+            &independent.proxy_runtime()
+        ));
         assert!(Arc::ptr_eq(&handle.transports, &independent.transports));
         handle.set_proxy(HttpProxyConfig::Disabled);
         assert!(

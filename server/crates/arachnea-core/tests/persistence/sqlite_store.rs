@@ -1,4 +1,5 @@
 use super::super::test_support;
+use super::schema::index_name;
 use super::*;
 use crate::persistence::typed_store::{EntityReader, EntityWriter, Field};
 use std::time::Duration;

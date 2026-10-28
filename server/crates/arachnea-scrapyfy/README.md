@@ -6,7 +6,15 @@ Production code lives under `src/`; existing tests mirror the exact source paths
 
 The unified executor in `scrapyfy/scraper/query_executor.rs` delegates fetching, extraction, entry sub-queries and merging to private modules. The aggregator separates source loading, manifest expansion, execution and feature-gated diagnostics. Query collections separate execution and parameter handling; HTML/JSON conversions and administration settings handlers have dedicated private modules. Public import paths remain available through reexports.
 
-`src/lib.rs` centralizes documented constants and relevant defaults for cache identities, administration, JavaScript, HTTP, concurrency and proxy providers. Values, feature gates, YAML contracts, cache-key encoding and retry policies are preserved. Mutable caches, routing hooks and registries remain with their owning implementations. The rustdoc correction temporarily leaves `scrapyfy/http_client.rs` and `scrapyfy/scraper_data_node.rs` above 1,000 lines. Their size reduction is deferred at the user’s request; see the lot 5 report in `docs/dev-tracking/rustdoc-correction-report.md`.
+The HTTP facade delegates shared proxy routing to `scrapyfy/http_client/proxy.rs`
+and lazy transport construction/versioned caching to `http_client/transport.rs`.
+The node model delegates output type names and serde to
+`scrapyfy/scraper_data_node/output_type.rs`, typed JSON rendering to `render.rs`,
+and raw deserialization/conversion to `raw.rs`. These modules stay private;
+existing public type paths, serialized values, routing and tracing targets are
+preserved. Each Rust file stays within 1,000 lines.
+
+`src/lib.rs` centralizes documented constants and relevant defaults for cache identities, administration, JavaScript, HTTP, concurrency and proxy providers. Values, feature gates, YAML contracts, cache-key encoding and retry policies are preserved. Mutable caches, routing hooks and registries remain with their owning implementations.
 
 From `server/`, run `cargo test -p arachnea-scrapyfy` for the default configuration or `cargo test -p arachnea-scrapyfy --all-features` for all compiled features. Existing tests use temporary manifests, local persistence, checked-in service YAML and local proxy/HTTP fixtures. They do not validate live providers or native browser windows. The localized proxy command below also checks the SQLite-enabled configuration without requiring optional browser engines.
 

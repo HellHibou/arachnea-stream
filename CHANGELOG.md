@@ -81,6 +81,9 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Reduced the controller and Tauri `mod.rs` files to module declarations and compatibility reexports. Separated shared contracts, typed registration, backend construction and REST settings; split native service state, dispatch, assets, runtime setup, IPC, custom-protocol routing and binary response buffering into private modules. The six existing settings tests now mirror `controler/rest_settings.rs`. Existing command/ETag contracts, call-site Tauri context generation, mount precedence, main-thread behavior and tracing targets are preserved.
+- Split typed persistence into private schema, document, memory and file modules with compatibility reexports. Moved the ten existing backend scenarios to their exact source mirrors and shared entity helpers to `tests/support/typed_store.rs`; store contracts and persisted formats remain unchanged.
+- Split SQLite schema reconciliation and entity/SQL conversions into private `sqlite_store/schema.rs` and `sqlite_store/conversion.rs` modules, keeping each file below 1,000 lines and preserving public import paths, feature gates, persistence formats and runtime behavior.
 - Moved the unchanged embedded log-window page to crate-root `resources/log_window.html` and updated its `include_str!` path and documentation. Shared server agent instructions now require crate-owned resource files under `resources/`, with test-only fixtures remaining under `tests/fixtures/`.
 - Moved the five existing unit-test suites into exact source-path mirrors under crate-root `tests/`, with shared temporary-directory helpers in `tests/support/`. Split REST snapshot/reply adaptation and Tauri configuration into private modules, preserving public reexports and runtime behavior. Centralized constants and relevant defaults in `src/lib.rs`, retaining feature/platform gates and distinct controller defaults, and extracted the unchanged log-window HTML as a compile-time asset. All Rust files now fit within 1,000 lines. Corrected the existing data-path doctest to configure its application identifier first and documented the prerequisite; 31 SQLite-enabled unit tests, 22 tests without SQLite, 11 doctests and 132 proxy consumer tests pass, with validation details in `docs/dev-tracking/harmonisation-crates-rust-lot1.md`.
 - Reduced grouped SQLite key reads from 128 to 32 keys per chunk after finite reader/writer comparisons on synthetic 0/69/1,024-entry eviction tables. Shared-connection write medians improve from about 1.6 ms to 0.3 ms in the focused comparison, with less than 1 ms median read overhead; commit serialization, expiration and cancellation semantics stay intact. All 31 core and 132 proxy tests pass; sustained fairness and API gains remain unqualified.
@@ -157,6 +160,7 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Extracted HTTP request/response types, wire request serialization, bounded response-header parsing, and body framing/buffering/post-actions into private client modules. Public paths, proxy selection, TLS/connection/header deadlines, delivery attribution, redirect rules, response classification, lazy stream consumption and feature-gated diagnostic lifetimes remain unchanged.
 - Make performance-only observers, sampled ranking/search counters, provider progress mutexes and phase timers opt-in through the default-off `performance-diagnostics` feature. Default builds omit the media body wrapper and diagnostic allocations while preserving validation, refresh, timeouts, replay and cancellation. Remove duplicate lifecycle summaries; move routine selections, probes, successful tunnels and recoverable failures to DEBUG, preserving operational WARN/ERROR reports.
 - Group proxy diagnostic sources under `src/core/performance_diagnostics/{http,proxy_inventory,proxy_search}.rs` and mirror the existing observer test helper under `tests/core/performance_diagnostics/http.rs`. Explicit module paths preserve private access and feature gates; update crate instructions and documentation to match.
 
@@ -328,6 +332,7 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Split M6 authentication/API-key/session-cache and media helpers, and RMC/BFM Play authentication/BFF, playback and payload helpers into private provider modules. Both parent resolver files and every extracted module stay below 1,000 lines; constants remain provider-owned, with existing login locks, TTLs, request order, DRM/media selection, resolver contracts and tracing targets preserved.
 - Completed the `arachnea-stream` Rust documentation pass: player resolvers, stream facade, catalog/playback/persistence modules, YAML stream resolver, reloadable runtime, administration composition and typed credentials now document arguments, returns and errors consistently. Behavior, signatures, visibility and YAML contracts are unchanged; trait implementations keep their contracts on the trait. Existing live-provider tests remain unchanged.
 - Keep single-service resolver constants at the beginning of their owning resolver files; retain only genuinely shared resolver constants in `lib.rs`, alongside application/facade defaults. Deduplicate the common browser user-agent (including inline occurrences) and diagnostic preview limit while preserving independent provider TTLs, timeout policies and protocol identifiers. Server and Stream agent instructions document this exception. All values remain unchanged.
 
@@ -437,6 +442,7 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Extracted shared proxy routing and lazy transport caching from the HTTP facade, and separated scraper output types, typed JSON rendering and raw node conversion into private modules. Existing public paths, feature gates, serialization, proxy versioning, cookie/session sharing and tracing targets remain unchanged; the facade and node files now fit within 1,000 lines.
 - Harmonized Scrapyfy with fifteen source-mirrored test files and ten support files, preserving `test-support` methods and public helper paths used by Stream. Split query execution, source loading, manifests, HTTP configuration/browser/cookie operations, raw/runtime conversions and administration settings into private modules; isolated provider diagnostics behind their existing feature gates and preserved tracing targets. Centralized 60 documented constants and defaults without changing YAML, cache identities or retry behavior. Every Rust file fits within 1,000 lines. Existing suites pass with all features (80), defaults (75), proxy/SQLite (80), and ten local Stream consumer scenarios; details and platform limits are recorded in `docs/dev-tracking/harmonisation-crates-rust-lot4.md`.
 
 - Forward optional performance diagnostics to HTTP/proxy and gate provider source-query observers. Default builds retain progressive publication and cancellation without profiling state; country-hint forwarding is DEBUG.
@@ -494,6 +500,9 @@ All notable changes to the server workspace are recorded here.
 
 
 #### Changed
+
+- Extracted Chaser-CF's typed session repository, cache expiry policy and cookie conversions into private `engine/chaser_cf/session_cache.rs`, bringing the engine below 1,000 lines. Existing cache tests moved to the exact source mirror; feature gates, solver behavior, cookie headers and session persistence are unchanged.
+- Removed the unused public `ResolvedIframeCache` API from `arachnea_http::browser` and the crate-root reexport, along with its six unit tests. Episode/player identities and resolved embed caching belong to `arachnea-stream`; browser sessions, DOM interactions and Turnstile handling remain generic HTTP responsibilities. No production caller used the cache, so runtime resolution is unchanged.
 
 - Harmonized the HTTP crate layout: existing tests now mirror sources under crate-root `tests/`, shared mocks live in `tests/support/`, and implicit integration discovery is disabled to prevent duplicate incompatible targets. Split the client facade, configuration builder and browser/native engine responsibilities into private modules while preserving public import paths and tracing targets. Centralized 65 documented constants and relevant defaults in `src/lib.rs`; moved eleven unchanged JavaScript scripts/templates to compile-time resources. All Rust files fit within 1,000 lines; 47 all-feature tests, 44 default tests and four doctests pass. Validation and platform limits are recorded in `docs/dev-tracking/harmonisation-crates-rust-lot3.md`.
 
