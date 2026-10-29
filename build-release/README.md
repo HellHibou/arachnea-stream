@@ -101,6 +101,10 @@ targets, the `-app.tar.gz` archive). Pass `--package <name>` to narrow a run:
 
 Artifacts are grouped by family subfolder; each installer and every portable archive get companion `*.sha256` and `*.md5` files (`sha256sum`/`md5sum` format). `CHANGELOG.md` is copied at the release folder root only.
 
+The shared command runner always disables Node's implicit shell. Windows npm
+steps invoke `cmd.exe /d /s /c` with fixed `npm.cmd install` or `npm.cmd run build`
+commands; project paths are passed separately through the working-directory option.
+
 The Windows PowerShell ZIP fallback passes archive paths through dedicated
 child-process environment variables, keeping apostrophes and shell metacharacters
 out of the PowerShell source. Source directory wildcard characters are escaped;

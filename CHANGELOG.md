@@ -25,6 +25,8 @@ All notable changes to the server workspace are recorded here.
 
 - Windows PowerShell ZIP fallback now passes source and destination paths through dedicated child-process environment variables instead of interpolating them into PowerShell code. Apostrophes and shell metacharacters remain path data, source directory wildcard characters are escaped, and archive errors fail the release command.
 
+- The shared release command runner now explicitly disables implicit shells after applying caller options. Windows npm installation and build steps invoke `cmd.exe` with fixed commands and pass project paths separately as working directories.
+
 - The repository-root macOS/Linux `build.sh` wrapper now accepts both quoted
   and unquoted all-platform selectors (`./build.sh '*'` and `./build.sh *`). It
   preserves arguments through `"$@"` and recognizes the complete filename list
@@ -532,6 +534,8 @@ All notable changes to the server workspace are recorded here.
 
 
 - Standalone `arachnea-proxy` builds now enable the proxy controller helpers required by media URL resolution. Shared test-directory initialization prevents the full Scrapyfy suite from reconfiguring an already resolved application root and poisoning its `Once` guard.
+
+- Changing a permanent administrator password now rejects a missing current password explicitly instead of substituting an empty string for Argon2 verification; the unauthorized response remains unchanged.
 
 - Text and binary scraper requests now rotate a dynamically selected proxy once when `arachnea-http` reports a proxy transport failure before an HTTP response, including failures occurring after an HTTP CONNECT tunnel was accepted. If the replacement also fails, both error contexts are retained and no third request is sent.
 - Proxifly country lookups now treat a missing country file (`404`) as an empty proxy list, avoiding the misleading `Invalid JSON payload` error for unsupported countries such as Andorra (`AD`).

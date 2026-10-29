@@ -950,11 +950,11 @@ async function main() {
   if (!options.skipBuild && !options.noFrontendBuild) {
     console.log('\n[release] Building the frontend once for all targets...');
     const isWindows = process.platform === 'win32';
-    // Node >= 20 cannot `spawn` a Windows `.cmd` shim directly (EINVAL); pass
-    // `shell: true` so npm.cmd is resolved through cmd.exe on Windows only.
-    run(isWindows ? 'npm.cmd' : 'npm', ['run', 'build'], {
+    // Windows requires cmd.exe for the npm.cmd shim; keep its command fixed.
+    run(isWindows ? 'cmd.exe' : 'npm', isWindows
+      ? ['/d', '/s', '/c', 'npm.cmd run build']
+      : ['run', 'build'], {
       cwd: resolveFromRelease(config.frontendProject),
-      ...(isWindows ? { shell: true } : {}),
     });
   } else {
     console.log(

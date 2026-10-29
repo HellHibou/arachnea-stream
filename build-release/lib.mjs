@@ -352,10 +352,10 @@ export function defaultSelectors() {
   return selector ? [selector] : [];
 }
 
-/** Runs a command synchronously, inheriting stdio. */
+/** Runs an executable synchronously with separate arguments and no implicit shell. */
 export function run(cmd, args, opts = {}) {
   console.log(`\n$ ${cmd} ${args.join(' ')}`);
-  const result = spawnSync(cmd, args, { stdio: 'inherit', ...opts });
+  const result = spawnSync(cmd, args, { stdio: 'inherit', ...opts, shell: false });
   if (result.error) throw new Error(`Failed to start ${cmd}: ${result.error.message}`);
   if (result.status !== 0) {
     throw new Error(`Command failed (exit ${result.status}): ${cmd} ${args.join(' ')}`);

@@ -378,11 +378,11 @@ async function ensureFrontendDeps() {
   const isWindows = process.platform === 'win32';
   for (const { workspace, dir } of pending) {
     console.log(`\n[install-tools] Installing frontend dependencies in ${workspace}...`);
-    // Node >= 20 cannot `spawn` a Windows `.cmd` shim directly (EINVAL); pass
-    // `shell: true` so npm.cmd is resolved through cmd.exe on Windows only.
-    run(isWindows ? 'npm.cmd' : 'npm', ['install'], {
+    // Windows requires cmd.exe for the npm.cmd shim; keep its command fixed.
+    run(isWindows ? 'cmd.exe' : 'npm', isWindows
+      ? ['/d', '/s', '/c', 'npm.cmd install']
+      : ['install'], {
       cwd: dir,
-      ...(isWindows ? { shell: true } : {}),
     });
   }
 }
