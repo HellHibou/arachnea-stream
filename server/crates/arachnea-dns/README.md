@@ -130,7 +130,7 @@ cargo run -p arachnea-dns --features server --bin arachnea-dns-server -- resolve
 
 - `src/lib.rs`: feature-gated internal constants and existing public module reexports.
 - `src/core/`: reusable resolver core, policies, configuration, cache, transports, recursive resolver, and errors.
-- `src/server/`: server configuration, UDP/TCP listeners, packet handling, and CLI support.
+- `src/server/`: server configuration, UDP/TCP listeners, packet handling, and CLI support. The private listener module is named `runtime` and loads the unchanged `src/server/server.rs` source through `#[path]`; public `server::{Server, run_udp, run_tcp}` and crate-root reexports remain available. Listener events keep the `arachnea_dns::server::server` tracing target for existing log filters, even though their private module metadata now names `runtime`.
 - `tests/core/config.rs`, `tests/core/cache.rs`, `tests/core/resolver.rs`, and `tests/server/config.rs`: existing tests grouped by the exact source file they cover. Conditional path declarations preserve private access and feature gates; function-name filters still work, while qualified test names now follow the owning source module. No tests remain under `src/`.
 - `resources/root_hints.txt`: embedded default root hints.
 - `config-sample/`: TOML examples for supported profiles and transports.

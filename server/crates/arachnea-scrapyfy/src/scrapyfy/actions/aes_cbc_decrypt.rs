@@ -50,13 +50,15 @@ pub(super) fn validate(key: &str, iv: &str) -> Result<()> {
 /// * `key` - AES-128 key containing exactly 16 bytes; strings are interpreted as raw UTF-8, not hexadecimal.
 /// * `iv` - AES-CBC initialization vector; it must contain exactly 16 bytes.
 fn decrypt(value: &str, key: &[u8], iv: &[u8]) -> Option<String> {
-    if key.len() != 16 || iv.len() != 16 || value.len() % 2 != 0 || !value.is_ascii() {
+    if key.len() != 16 || iv.len() != 16 || !value.len().is_multiple_of(2) || !value.is_ascii() {
         return None;
     }
 
     let mut ciphertext = value
         .as_bytes()
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|pair| {
             std::str::from_utf8(pair)
                 .ok()

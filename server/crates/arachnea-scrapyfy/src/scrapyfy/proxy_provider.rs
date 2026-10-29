@@ -27,14 +27,20 @@ use crate::SCRAPER_PROXIES_GROUP_NAME as PROXIES_GROUP_NAME;
 
 use crate::SCRAPER_IP_COUNTRY_GROUP_NAME as IP_COUNTRY_GROUP_NAME;
 
+/// Weak shared lookup jobs indexed by IP address, without extending job lifetimes.
+type GeoLookupJobs = HashMap<IpAddr, WeakShared<BoxFuture<'static, Option<String>>>>;
+
+/// Cached optional country results and their observation times, indexed by IP address.
+type GeoLookupCache = HashMap<IpAddr, (tokio::time::Instant, Option<String>)>;
+
 /// Dynamic proxy provider with an owned snapshot of the configured sources.
 ///
 /// The snapshot remains valid even when the application replaces its aggregator.
 pub struct ScrapyfyProxyDataProvider {
     scraper_agregator: Arc<ScraperAgregator>,
-    geo_jobs: Arc<Mutex<HashMap<IpAddr, WeakShared<BoxFuture<'static, Option<String>>>>>>,
+    geo_jobs: Arc<Mutex<GeoLookupJobs>>,
     geo_slots: Arc<Semaphore>,
-    geo_cache: Arc<Mutex<HashMap<IpAddr, (tokio::time::Instant, Option<String>)>>>,
+    geo_cache: Arc<Mutex<GeoLookupCache>>,
 }
 
 #[derive(Default)]
@@ -175,8 +181,8 @@ impl ScrapyfyProxyDataProvider {
                         if let Some(known) = resolved.get(&ip) {
                             record.country = known.clone();
                             if record.country.as_deref() == Some(country.as_str()) { ready.push(record); }
-                        } else if pending.contains_key(&ip) {
-                            pending.get_mut(&ip).unwrap().push(record);
+                        } else if let Some(records) = pending.get_mut(&ip) {
+                            records.push(record);
                         } else if requested.len() < 20 {
                             requested.insert(ip);
                             pending.insert(ip, vec![record]);

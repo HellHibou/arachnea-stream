@@ -80,7 +80,7 @@ impl SharedProxyConfigHandle {
             anyhow::bail!("cannot publish loopback server without an Arachnea proxy core");
         };
         let route = self.runtime.register(
-            core.clone(),
+            core.as_ref().clone(),
             arachnea_proxy::core::ClientContext::new(),
             true,
         )?;
@@ -117,7 +117,7 @@ impl SharedProxyConfigHandle {
                     match self
                         .runtime
                         .register(
-                            core.clone(),
+                            core.as_ref().clone(),
                             arachnea_proxy::core::ClientContext::new(),
                             true,
                         )
@@ -159,7 +159,7 @@ impl SharedProxyConfigHandle {
     #[cfg(feature = "arachnea-proxy")]
     pub fn enable_system_proxy(&self) -> Result<()> {
         let proxy_core = ArachneaProxyCore::new(UsageProfile::SystemRelay.config())?;
-        self.set_proxy(HttpProxyConfig::Arachnea(proxy_core));
+        self.set_proxy(HttpProxyConfig::Arachnea(Box::new(proxy_core)));
         Ok(())
     }
 

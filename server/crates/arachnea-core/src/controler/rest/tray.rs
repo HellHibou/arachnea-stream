@@ -335,7 +335,7 @@ impl ServerTrayHandle for ServerTrayHandleImpl {
             .expect("tray app handle poisoned")
             .clone()
         {
-            let _ = app.exit(0);
+            app.exit(0);
         }
     }
 
@@ -623,7 +623,7 @@ pub fn spawn_tauri_server_tray(
     {
         // macOS requires the event loop on the (process) main thread, which a
         // background thread cannot provide. Route to the blocking runner.
-        return run_tauri_server_tray_on_main_thread(context, icon, configuration);
+        run_tauri_server_tray_on_main_thread(context, icon, configuration)
     }
 
     #[cfg(not(target_os = "macos"))]

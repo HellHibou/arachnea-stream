@@ -2,6 +2,36 @@
 
 use super::*;
 
+/// Outgoing request values with their existing ownership.
+pub(super) struct FetchRequest<'a> {
+    /// Existing owned HTTP method, moved into the request.
+    pub(super) method: http::Method,
+    /// Borrowed URL to fetch.
+    pub(super) url: &'a str,
+    /// Borrowed outgoing headers.
+    pub(super) headers: &'a HashMap<String, String>,
+    /// Borrowed optional request body.
+    pub(super) body: Option<&'a str>,
+}
+
+/// Borrowed response parsing and preprocessing settings.
+pub(super) struct FetchResponseOptions<'a> {
+    /// Whether JSON parsing extracts Next.js data.
+    pub(super) extract_next_data: bool,
+    /// Existing response parser kind.
+    pub(super) scraper_type: ScraperType,
+    /// Statuses mapped to parser-specific empty responses.
+    pub(super) empty_on_statuses: &'a [u16],
+    /// Ordered borrowed response transformations.
+    pub(super) pre_processes: &'a [PreProcessAction],
+    /// Query name retained in preprocessing errors.
+    pub(super) query_name: &'a str,
+    /// Base URL exposed to preprocessing templates.
+    pub(super) base_url: &'a str,
+    /// Borrowed runtime preprocessing parameters.
+    pub(super) params: &'a HashMap<String, String>,
+}
+
 /// Fetches a single URL using the configured HTTP method, headers, and body.
 ///
 /// Dispatches on `extract_next_data` for JSON queries; HTML always returns
@@ -9,18 +39,9 @@ use super::*;
 ///
 /// # Arguments
 ///
-/// * `client` - The HTTP client to use for the request.
-/// * `method` - HTTP method (GET or POST).
-/// * `url` - The URL to fetch.
-/// * `headers` - HTTP headers to include in the request.
-/// * `body` - Optional request body.
-/// * `extract_next_data` - Whether to parse the response as Next.js `__NEXT_DATA__`.
-/// * `scraper_type` - Parser kind: HTML, JSON, text or static.
-/// * `empty_on_statuses` - HTTP statuses whose bodies are replaced with an empty response of the scraper type.
-/// * `pre_processes` - Response transformations declared by the query.
-/// * `query_name` - Query name used in pre-processing diagnostics.
-/// * `base_url` - Source base URL exposed as `{base_url}` to pre-processing templates.
-/// * `params` - Runtime parameters exposed to pre-processing templates.
+/// * `client` - HTTP client used for the request.
+/// * `request` - Existing owned method and borrowed URL, headers and body.
+/// * `options` - Borrowed parser, status and preprocessing/template settings.
 ///
 /// # Returns
 ///
@@ -32,18 +53,24 @@ use super::*;
 /// a missing Next.js payload, or malformed JSON when JSON parsing is required.
 pub(super) async fn fetch_single(
     client: &HttpClient,
-    method: http::Method,
-    url: &str,
-    headers: &HashMap<String, String>,
-    body: Option<&str>,
-    extract_next_data: bool,
-    scraper_type: ScraperType,
-    empty_on_statuses: &[u16],
-    pre_processes: &[PreProcessAction],
-    query_name: &str,
-    base_url: &str,
-    params: &HashMap<String, String>,
+    request: FetchRequest<'_>,
+    options: FetchResponseOptions<'_>,
 ) -> Result<FetchedResponse> {
+    let FetchRequest {
+        method,
+        url,
+        headers,
+        body,
+    } = request;
+    let FetchResponseOptions {
+        extract_next_data,
+        scraper_type,
+        empty_on_statuses,
+        pre_processes,
+        query_name,
+        base_url,
+        params,
+    } = options;
     let response = client.send_for_request(method, url, headers, body).await?;
     if empty_on_statuses.contains(&response.status().as_u16()) {
         return Ok(empty_response(scraper_type));
@@ -579,18 +606,22 @@ pub(super) async fn fetch_responses(
                     )?)
                 } else {
                     fetch_single(
-                        &client,
-                        method,
-                        &url,
-                        &headers,
-                        body.as_deref(),
-                        extract_next_data,
-                        scraper_type,
-                        &query.http_config().empty_on_statuses,
-                        query.pre_processes(),
-                        query.name(),
-                        query.base_url(),
-                        context.params,
+                        client,
+                        FetchRequest {
+                            method,
+                            url: &url,
+                            headers: &headers,
+                            body: body.as_deref(),
+                        },
+                        FetchResponseOptions {
+                            extract_next_data,
+                            scraper_type,
+                            empty_on_statuses: &query.http_config().empty_on_statuses,
+                            pre_processes: query.pre_processes(),
+                            query_name: query.name(),
+                            base_url: query.base_url(),
+                            params: context.params,
+                        },
                     )
                     .await?
                 };

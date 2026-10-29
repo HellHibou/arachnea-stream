@@ -96,9 +96,9 @@ impl ArachneaProxyCore {
         domain_group: &[String],
     ) -> Result<ProxyNode> {
         let inventory = self.proxy_inventory.as_ref().ok_or_else(|| {
-            ProxyError::RouteUnavailable(format!(
-                "dynamic proxy inventory not configured for requested countries"
-            ))
+            ProxyError::RouteUnavailable(
+                "dynamic proxy inventory not configured for requested countries".to_string(),
+            )
         })?;
         let record = inventory
             .select_any_for_destination_with_domain_group(
@@ -113,9 +113,10 @@ impl ArachneaProxyCore {
             search.start_origin(&record.authority(), destination)?;
         }
         record.try_to_node().ok_or_else(|| {
-            ProxyError::RouteUnavailable(format!(
+            ProxyError::RouteUnavailable(
                 "dynamic proxy selected for requested countries has no resolved protocol"
-            ))
+                    .to_string(),
+            )
         })
     }
 

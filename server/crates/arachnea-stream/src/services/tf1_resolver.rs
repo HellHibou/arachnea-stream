@@ -14,14 +14,11 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Instant;
 
 use arachnea_core::persistence::CredentialsStore;
-use arachnea_scrapyfy::{
-    ArachneaHttpError, HttpClient, ScraperAgregator, ScraperHttpConfig,
-    ScraperQueryCollectionParameter,
-};
+use arachnea_scrapyfy::{ArachneaHttpError, HttpClient, ScraperAgregator, ScraperHttpConfig};
 
 use crate::services::player_resolver::{
-    normalize_stream_kind, Chapter, PlayerResolverEndpoints, PlayerStreamResolver,
-    ProxiedStreamResponse, ResolvedPlayerImageTitle, ResolvedPlayerStream,
+    normalize_stream_kind, Chapter, PlayerResolverEndpoints, PlayerStreamRequest,
+    PlayerStreamResolver, ProxiedStreamResponse, ResolvedPlayerImageTitle, ResolvedPlayerStream,
 };
 
 use crate::PLAYER_ERROR_BODY_PREVIEW_LENGTH;
@@ -109,12 +106,15 @@ impl PlayerStreamResolver for Tf1Resolver {
         &self,
         scraper_agregator: &ScraperAgregator,
         credentials_store: &dyn CredentialsStore,
-        resolver: &str,
-        target: &str,
-        _service_parameters: &[ScraperQueryCollectionParameter],
-        proxy_countries: &[String],
+        request: PlayerStreamRequest<'_>,
         endpoints: &PlayerResolverEndpoints,
     ) -> Result<ResolvedPlayerStream> {
+        let PlayerStreamRequest {
+            resolver,
+            target,
+            service_parameters: _service_parameters,
+            proxy_countries,
+        } = request;
         match resolver.trim() {
             "tf1-video" => {
                 resolve_replay_stream(
@@ -642,7 +642,7 @@ fn proxied_tf1_storyboard_vtt_url(
     vtt_url: &str,
     proxy_countries: &[String],
 ) -> String {
-    let actions = [ReplaceAll::new(
+    let actions = [ReplaceAll::config(
         r"(?m)^\s*(/[^#\r\n]+)(#xywh=\d+,\d+,\d+,\d+)",
         "{base_url}$1$2",
         None,

@@ -106,7 +106,7 @@ impl ScraperAdminSettings {
             }
         }
         let block_kib = self.effective_block_kib();
-        if block_kib % 4 != 0 {
+        if !block_kib.is_multiple_of(4) {
             bail!("`{CACHE_BLOCK_SIZE_KEY}` must be a multiple of 4 K, got `{block_kib}` K.");
         }
         let disk_kib = self.effective_disk_kib();

@@ -432,7 +432,7 @@ fn nsec_proofs(response: &Message) -> Vec<NsecProof> {
     {
         use hickory_proto::dnssec::rdata::DNSSECRData;
 
-        return response
+        response
             .name_servers()
             .iter()
             .filter_map(|record| match record.data() {
@@ -444,7 +444,7 @@ fn nsec_proofs(response: &Message) -> Vec<NsecProof> {
                 RData::DNSSEC(DNSSECRData::NSEC3(_)) => None,
                 _ => None,
             })
-            .collect();
+            .collect()
     }
 
     #[cfg(not(feature = "dnssec"))]

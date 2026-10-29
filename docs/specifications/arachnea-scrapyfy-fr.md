@@ -2,7 +2,25 @@
 
 Les valeurs par défaut et les constantes de contrat sont centralisées dans `server/crates/arachnea-scrapyfy/src/lib.rs`. Des modules privés séparent l’exécution des requêtes, la configuration HTTP et les conversions entre représentations YAML et runtime ; cette organisation conserve les champs YAML, valeurs sérialisées et ordre d’exécution décrits ici. Les tests existants reproduisent les chemins des sources sous `tests/`, à la racine du crate ; les helpers partagés restent disponibles avec la fonctionnalité `test-support`.
 
+Le nettoyage mécanique Rust du 29 octobre 2026 conserve les limites de boucles JavaScript, l’ordre de parcours des éléments calculés, la sélection des requêtes et tous les champs YAML ; il ne modifie ni le schéma ni le contrat d’exécution.
+
+Le lot suivant dérive les mêmes valeurs par défaut des options applicatives et simplifie une durée de vie privée inutile ; les champs YAML, la priorité des surcharges et l’exécution des requêtes restent inchangés.
+
+Des vues Rust privées regroupent les règles de proxy des URL relatives aux parents, la configuration du regroupement par en-têtes, les réglages de récupération et les options d’agrégation. Elles organisent uniquement les entrées existantes : les champs YAML, les valeurs par défaut, la forme des réponses, l’ordre de parcours et de prétraitement ainsi que le comportement de validation et de cache décrits ici restent inchangés.
+
+Le constructeur Rust `ScraperAgregator::default()` délègue à `new()` avec la même initialisation conditionnée par les fonctionnalités. Cet ajout pratique à l’API Rust ne change ni les valeurs par défaut YAML, ni l’analyse de la configuration, ni l’exécution des requêtes.
+
+La migration des constructeurs Rust regroupe les entrées programmatiques d’endpoint, de concurrence et de métadonnées dans `QueryEndpoint`, `JsonQueryConcurrency` et `CollectionMetadata` ; les fabriques de proxy utilisent `ReplaceAll::config`. Seule l’API Rust change : aucun champ YAML, nom d’action sérialisé, défaut, règle de validation ou comportement d’extraction décrit ici n’est modifié.
+
+La configuration Rust du proxy intégré possède désormais son cœur dans une boîte : les constructions directes utilisent `HttpProxyConfig::Arachnea(Box::new(core))`. La construction et le clonage de cette variante ajoutent une allocation ; les champs YAML, valeurs par défaut, routages et résultats des requêtes restent inchangés.
+
 ## 1. Structure générale du fichier
+
+Les méthodes d’exécution Rust regroupent les entrées de réponse empruntées dans
+`ActionResponse` et les options de sélection des sources et des résultats dans
+`ScraperAggregationOptions`. Ces modifications de l’API programmatique conservent
+les champs YAML, noms d’actions sérialisés, valeurs par défaut, erreurs des
+variables dynamiques, ordre des sources et comportement du cache.
 
 Un fichier YAML décrit une **collection de requêtes** pour une source de données. La structure racine est :
 
@@ -94,6 +112,8 @@ Les paramètres sont résolus séquentiellement dans l'ordre de déclaration YAM
 Les placeholders non déclarés sont préservés au chargement de la collection afin d'être fournis par l'appelant à l'exécution. Un placeholder requis mais absent provoque alors une erreur contextuelle lors de la résolution de la requête, et non au chargement du YAML.
 
 Le préfixe `@` est réservé aux variables dynamiques produites pendant l'extraction d'une requête. Ces variables ne sont pas des paramètres de collection et se référencent avec la syntaxe `{@nom}`. Les paramètres standards ne doivent pas utiliser de nom commençant par `@`.
+
+Pour les entrées textuelles, le chargement parcourt les entrées imbriquées sans réécrire ni valider les paramètres des actions. Ces paramètres sont résolus à l’exécution des actions ; les options communes des requêtes conservent leur résolution au niveau de la collection pendant le chargement.
 
 ```yaml
 parameters:
@@ -1061,6 +1081,10 @@ permet aux règles ReplaceAll de préserver les options proxy héritées dans le
 
 `proxy_follow_redirects` est opt-in. Le proxy suit chaque hop après lecture de ses seuls headers, avant de relayer le corps du hop terminal. `false` (ou l’absence de la clé) conserve le comportement 3xx ; `0` est invalide.
 
+L'encodage des options de redirection dans les URL proxy générées nécessite la
+feature Cargo `arachnea-proxy`. Le helper interne de conversion JSON est compilé
+avec cette feature ; le parsing et la validation YAML restent disponibles sans elle.
+
 ### `resolve_url_from_parent`
 Résout les URLs relatives par rapport à un ancêtre de l'URL de la page.
 
@@ -1224,7 +1248,9 @@ Décode chaque valeur en Base64 (alphabet standard). Les valeurs non décodables
 
 ### `hex_decode`
 Décode chaque valeur hexadécimale en texte UTF-8. Les valeurs comportant des caractères non
-hexadécimaux, un nombre impair de chiffres ou des octets UTF-8 invalides sont supprimées.
+hexadécimaux, un nombre impair de chiffres ou des octets UTF-8 invalides sont supprimées. Les espaces
+en début et fin de valeur sont retirés avant la validation des paires ASCII complètes ; une paire
+incomplète est rejetée. Les chiffres hexadécimaux ASCII peuvent être en majuscules ou en minuscules.
 
 ```yaml
 - type: hex_decode
@@ -1232,7 +1258,9 @@ hexadécimaux, un nombre impair de chiffres ou des octets UTF-8 invalides sont s
 
 ### `aes_cbc_decrypt`
 Déchiffre chaque valeur hexadécimale avec AES-128-CBC, une clé et un IV UTF-8 de 16 octets.
-Les valeurs malformées, invalides ou dont le texte déchiffré n'est pas UTF-8 sont supprimées.
+Les espaces en début et fin du texte chiffré sont retirés avant la validation des paires
+hexadécimales ASCII complètes. Les longueurs impaires, les données hexadécimales ou le remplissage
+PKCS#7 invalides et les textes déchiffrés non UTF-8 sont supprimés.
 
 ```yaml
 - type: aes_cbc_decrypt

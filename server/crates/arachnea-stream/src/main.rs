@@ -27,12 +27,18 @@ fn configuration_path() -> std::path::PathBuf {
     std::path::PathBuf::from(application::get_application_data_path(CONFIGURATION_PATH))
 }
 
+/// Parsed settings needed only when starting the backend controller.
+struct RuntimeOptions {
+    /// Effective options after command-line overrides.
+    options: SrcapyfyApplicationOptions,
+    /// Persisted core settings captured before command-line overrides.
+    configuration: CoreApplicationOptions,
+}
+
 /// Result of parsing command line arguments.
 enum CliAction {
-    Run {
-        options: SrcapyfyApplicationOptions,
-        configuration: CoreApplicationOptions,
-    },
+    /// Start the controller with the parsed settings.
+    Run(Box<RuntimeOptions>),
     RefreshIpCountries,
     ExitSuccess,
 }
@@ -92,10 +98,10 @@ fn parse_runtime_options() -> Result<CliAction> {
         }
     }
 
-    Ok(CliAction::Run {
+    Ok(CliAction::Run(Box::new(RuntimeOptions {
         options,
         configuration,
-    })
+    })))
 }
 
 /// Builds the effective application options reported by the administration API.
@@ -169,10 +175,13 @@ async fn main() -> Result<()> {
     arachnea_core::logger::init_logger();
 
     let (mut options, configuration) = match parse_runtime_options() {
-        Ok(CliAction::Run {
-            options,
-            configuration,
-        }) => (options, configuration),
+        Ok(CliAction::Run(runtime)) => {
+            let RuntimeOptions {
+                options,
+                configuration,
+            } = *runtime;
+            (options, configuration)
+        }
         Ok(CliAction::RefreshIpCountries) => {
             return refresh_ip_countries_cli().await;
         }
@@ -191,7 +200,7 @@ async fn main() -> Result<()> {
     // typed `arachnea-services` SQLite store; the activation overrides,
     // Cloudflare sessions and proxy inventory live in the same typed stores.
     let stores = arachnea_stream::stream_scraper::sqlite_application_stores(
-        &application::get_application_data_path(""),
+        application::get_application_data_path(""),
     )?;
     let typed_credentials_store = Arc::new(TypedServiceCredentialsStore::new(
         Arc::clone(&stores.source_enabled),

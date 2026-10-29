@@ -54,7 +54,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let core =
         ArachneaProxyCore::new(ProxyConfig::default())?.with_parameter_handler(country_handler);
     let loopback = ArachneaRquestLoopback::start(core).await?;
-    let countries = serde_json::to_string(&[country.clone()])?;
+    let countries = serde_json::to_string(std::slice::from_ref(&country))?;
     let client = loopback
         .client_with_parameters([(PROXY_HEADER_PARAMETER_COUNTRIES, countries.as_str())])?;
     let response = client.get(&url).send().await?;

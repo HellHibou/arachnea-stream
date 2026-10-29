@@ -105,8 +105,10 @@ impl ArachneaProxyCore {
                 .or(self.search_context.clone())
                 .or_else(|| {
                     self.proxy_inventory.as_ref().map(|_| {
-                        let mut limits = crate::core::ProxySearchLimits::default();
-                        limits.extension = std::time::Duration::ZERO;
+                        let limits = crate::core::ProxySearchLimits {
+                            extension: std::time::Duration::ZERO,
+                            ..Default::default()
+                        };
                         crate::core::ProxySearchContext::new(limits)
                     })
                 });
@@ -162,7 +164,7 @@ impl ArachneaProxyCore {
                         return Ok(stream);
                     }
                     Err(error)
-                        if retry_budget.map_or(true, |limit| attempt < limit)
+                        if retry_budget.is_none_or(|limit| attempt < limit)
                             && !resolved_chain.pool_selections.is_empty() =>
                     {
                         let proxy_names: Vec<&str> = resolved_chain
@@ -230,8 +232,10 @@ impl ArachneaProxyCore {
                 .or(self.search_context.clone())
                 .or_else(|| {
                     self.proxy_inventory.as_ref().map(|_| {
-                        let mut limits = crate::core::ProxySearchLimits::default();
-                        limits.extension = std::time::Duration::ZERO;
+                        let limits = crate::core::ProxySearchLimits {
+                            extension: std::time::Duration::ZERO,
+                            ..Default::default()
+                        };
                         crate::core::ProxySearchContext::new(limits)
                     })
                 });
@@ -324,7 +328,7 @@ impl ArachneaProxyCore {
                         });
                     }
                     Err(error)
-                        if retry_budget.map_or(true, |limit| attempt < limit)
+                        if retry_budget.is_none_or(|limit| attempt < limit)
                             && !resolved_chain.pool_selections.is_empty() =>
                     {
                         let proxy_names: Vec<&str> = resolved_chain

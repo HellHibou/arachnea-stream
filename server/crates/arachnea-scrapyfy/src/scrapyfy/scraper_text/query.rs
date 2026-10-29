@@ -63,10 +63,7 @@ impl TextScraperQuery {
     ///
     /// # Arguments
     ///
-    /// * `name` - Query identifier used to look up this query in a collection.
-    /// * `base_url` - Base URL of the source, also available as `{base_url}` in templates.
-    /// * `media_types` - Content type result.
-    /// * `query_url` - URL template used to build the request.
+    /// * `endpoint` - Borrowed endpoint strings and owned media types for this query.
     /// * `row_delimiter` - Delimiter splitting the body into rows.
     /// * `field_delimiter` - Optional delimiter splitting each row into fields.
     /// * `result_item_field` - Optional group field hoisted to top level.
@@ -76,15 +73,18 @@ impl TextScraperQuery {
     ///
     /// Returns an error if any entry fails validation.
     pub fn try_new(
-        name: &str,
-        base_url: &str,
-        media_types: Vec<String>,
-        query_url: &str,
+        endpoint: QueryEndpoint<'_>,
         row_delimiter: &str,
         field_delimiter: Option<String>,
         result_item_field: Option<String>,
         scraper_entries: Vec<crate::scrapyfy::scraper_text::entry::TextScraperEntry>,
     ) -> Result<Self> {
+        let QueryEndpoint {
+            name,
+            base_url,
+            media_types,
+            query_url,
+        } = endpoint;
         for entry in &scraper_entries {
             entry.validate()?;
         }
@@ -306,10 +306,12 @@ impl TryFrom<TextScraperQueryRaw> for TextScraperQuery {
             .collect::<Result<Vec<_>>>()?;
 
         let mut query = TextScraperQuery::try_new(
-            &name,
-            &resolved_base_url,
-            media_types,
-            &query_url,
+            QueryEndpoint {
+                name: &name,
+                base_url: &resolved_base_url,
+                media_types,
+                query_url: &query_url,
+            },
             &row_delimiter,
             field_delimiter,
             result_item_field,

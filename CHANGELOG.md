@@ -81,6 +81,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Simplified ASCII-insensitive content-type checks, route-pair capacity calculation, API-prefix matching, log token splitting and private SQLite fixture path arguments. Header precedence, route order, log matching and stored paths are unchanged.
+- Simplified default mode selection, snapshot loopback detection and the tray shutdown call, preserving the existing controller defaults and lifecycle.
 - Reduced the controller and Tauri `mod.rs` files to module declarations and compatibility reexports. Separated shared contracts, typed registration, backend construction and REST settings; split native service state, dispatch, assets, runtime setup, IPC, custom-protocol routing and binary response buffering into private modules. The six existing settings tests now mirror `controler/rest_settings.rs`. Existing command/ETag contracts, call-site Tauri context generation, mount precedence, main-thread behavior and tracing targets are preserved.
 - Split typed persistence into private schema, document, memory and file modules with compatibility reexports. Moved the ten existing backend scenarios to their exact source mirrors and shared entity helpers to `tests/support/typed_store.rs`; store contracts and persisted formats remain unchanged.
 - Split SQLite schema reconciliation and entity/SQL conversions into private `sqlite_store/schema.rs` and `sqlite_store/conversion.rs` modules, keeping each file below 1,000 lines and preserving public import paths, feature gates, persistence formats and runtime behavior.
@@ -98,6 +100,11 @@ All notable changes to the server workspace are recorded here.
 
 #### Fixed
 
+- The exported controller macro now resolves `ApplicationMode` through its defining crate, so callers no longer need that type imported at their crate root. Simplified URL-query fallback construction and made existing SQLite test lock scopes and single cancellation polling explicit without changing assertions.
+- Removed the obsolete debug/desktop default-mode paragraph attached to controller options; runtime mode selection is unchanged.
+- Removed redundant terminal returns in macOS controller shutdown/tray paths and derived `ApplicationMode::Default` with the existing `Server` default, without changing lifecycle or mode selection.
+- Separated the debug-resource-path paragraph from the preceding rustdoc list, resolving its `doc_lazy_continuation` warning without changing behavior.
+- Compile the typed-query predicate accessor only with `sqlite-persistence`, matching its sole SQLite consumer and avoiding dead-code warnings in minimal builds.
 - SQLite column/index metadata and managed-index cleanup are scoped to each table, preventing schema reconciliation from modifying other tables in a shared store. Schema changes commit transactionally.
 - Shared SQLite tables now use unambiguous, reserved-prefix managed index names: table `a_b` / column `name` no longer collides with table `a` / column `b_name`. Opening a table replaces its previous managed index names without changing records or external indexes; existing fixtures cover collision, reopening and reconciliation.
 - REST route registration now builds a balanced Warp filter tree instead of a linear chain. Registration priority and client ACL checks are preserved, while polling depth grows logarithmically; this reduces stack pressure during nested proxy/TLS operations implicated in macOS debug stack-overflow reports.
@@ -108,6 +115,10 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Renamed the private listener module to `runtime` through an explicit path to the existing `server/server.rs` file. Public `server`/crate-root reexports are preserved; all eight listener events retain the legacy `arachnea_dns::server::server` tracing target through a feature-gated crate constant.
+- Use `clamp` for negative-cache TTLs with the same fixed 1–300 second bounds, preserving expiration and cache policy.
+- Simplified blank-line printing in examples and copied the existing `Copy` DNSSEC state directly, preserving output and profile settings.
+- Return DNSSEC NSEC proofs as the branch result directly, preserving the feature-disabled fallback and proof extraction behavior.
 - Moved the eleven existing DNS test scenarios out of `src/` into exact source-path mirrors for core configuration, cache, resolution and server configuration, preserving function names, assertions and feature gates while updating module-qualified test names. Centralized 46 internal defaults and operational limits in `src/lib.rs` without changing values, resolver decision order, per-core cache defaults, TLS policy, listener exposure or public configuration contracts. Updated the README and server CLI commands; all-feature/default/minimal-core/minimal-server suites pass (11/9/8/10 tests), four isolated transport configurations compile, all eight TOML samples validate, and three proxy DNS integration tests pass. Details are recorded in `docs/dev-tracking/harmonisation-crates-rust-lot2.md`.
 - Corrected the `arachnea-dns` rustdoc contracts: normalized 101 `# Parameters` sections to `# Arguments` or to field descriptions on enum variants, documented which configuration fields and policy actions are declared but not enforced, clarified DNSSEC, ODoH, NXDOMAIN and Smart DNS limits, stale-cache and ACL behavior, and removed a duplicated `encode_answer` block. No signature or runtime behavior changed; `cargo doc` passes for default, `core`, `server` and `--all-features`.
 
@@ -160,6 +171,14 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Breaking Rust API change: renamed `ReplaceAll::new` to `ReplaceAll::config`, preserving its arguments, returned action configuration and allocation/serialization behavior. Migrated all six repository call sites; `ordered` is unchanged and the README documents external caller migration.
+- Renamed the private server implementation module to `runtime` without moving its source or changing public `server::ProxyServer` paths. The existing fragmented-reader fixture now stores its poll interval as `NonZeroUsize` and uses `is_multiple_of`, preserving the interval of three and its assertions.
+- Grouped the three private long-signature helpers into borrowed country-routing and ranking context views plus scalar provider-batch counts. Public URL helpers, routing/header order, debug fields and diagnostic feature gates are preserved; no new cloning or allocation is introduced.
+- Select the configured DNS resolution mode with an explicit match, preserving lazy transport-based fallback selection and the existing hostname policy.
+- Combined equivalent target-backoff conditions without changing short-circuit order and borrowed the existing country string in the routing example instead of cloning it.
+- Initialize overridden search/server settings directly and derive the existing `Unknown` defaults for runtime status and availability hints. Simplified retry predicates, Basic credential early exits and redundant fixture defaults without changing values, serialization, routing or authentication rules.
+- Removed redundant borrows, formatting and closures in body readers, proxy URL construction and probes; simplified empty-body checks and existing fixture arguments without changing routing, errors or transport behavior.
+- Box only the optional selection token carried by `ProxyError::RequestAttempt`, reducing the shared error size without adding an allocation to successful requests. Adapt error constructors and the existing correlation fixture; preserve source chains, delivery evidence, token ownership/identity and retry behavior. This changes the public field to `Option<Box<ProxySelectionToken>>`; the README documents caller migration.
 - Extracted HTTP request/response types, wire request serialization, bounded response-header parsing, and body framing/buffering/post-actions into private client modules. Public paths, proxy selection, TLS/connection/header deadlines, delivery attribution, redirect rules, response classification, lazy stream consumption and feature-gated diagnostic lifetimes remain unchanged.
 - Make performance-only observers, sampled ranking/search counters, provider progress mutexes and phase timers opt-in through the default-off `performance-diagnostics` feature. Default builds omit the media body wrapper and diagnostic allocations while preserving validation, refresh, timeouts, replay and cancellation. Remove duplicate lifecycle summaries; move routine selections, probes, successful tunnels and recoverable failures to DEBUG, preserving operational WARN/ERROR reports.
 - Group proxy diagnostic sources under `src/core/performance_diagnostics/{http,proxy_inventory,proxy_search}.rs` and mirror the existing observer test helper under `tests/core/performance_diagnostics/http.rs`. Explicit module paths preserve private access and feature gates; update crate instructions and documentation to match.
@@ -238,6 +257,7 @@ All notable changes to the server workspace are recorded here.
 
 #### Fixed
 
+- Removed redundant terminal returns from DNS-enabled proxy core constructors, keeping DNS initialization, inventory ownership and error propagation unchanged.
 - Restored Proxy rustdoc after the module refactoring: standardized argument sections, completed public and internal parameter descriptions, documented probe/selection ownership and error contracts, and repaired the feature-gated loopback-runtime link. Clarified strict versus relaxed selection, affinity replacement, configured DNS error propagation, backend-dependent batch guarantees and explicit redirect budgets. Runtime code, APIs and feature gates are unchanged; strict documentation builds and the existing doctest pass with default and full features.
 
 
@@ -328,10 +348,22 @@ All notable changes to the server workspace are recorded here.
 
 #### Fixed
 
+- Initialize application data before constructing resolver test fixtures so they also run in isolation, and add an atomic suffix to prevent temporary-directory collisions between concurrent fixtures. Update the existing home-entry test helper to traverse nested subsections, matching current Anime-Sama home output without changing production scraping.
 - Wiflix `search` now returns results again. The AJAX POST to `/index.php?controller=ajax&mod=search` is gated by a JavaScript bot shield: the homepage runs `document.cookie = "h_check=" + (10+15)`, so the request must send `Cookie: h_check=25` itself — no server-side `Set-Cookie` exists to collect — together with a non-empty `Accept-Language` and `Referer`. A missing or different cookie answers the 18-byte `Bot shield active.` page, and `h_check=25` without `Accept-Language` answers `403` with an empty body. The query body is now declared with `request_body_actions` (the former `request_body` key was silently ignored, so the POST was empty), and `div.fast-search-result` cards are extracted again for films and series.
 
 #### Changed
 
+- Box successful playback payloads in both private result enums and forward the same box through direct/HTML resolution. Add one allocation per returned stream, preserving untagged JSON and existing error/fallback behavior. Migrate direct in-process proxy configuration to the boxed HTTP variant.
+
+- Box the private CLI run payload as one pair of persisted/effective settings, adding one allocation only for ordinary startup while retaining help, refresh, argument validation and settings precedence.
+
+- Grouped protected playback descriptor inputs in a borrowed internal `PlayerStreamRequest` and migrated all eight provider implementations plus dispatch. Credentials, routing, authentication, DRM and stream result behavior remain unchanged.
+
+- Documented the manual execution of previously ignored/filtered live tests: the default Anime-Sama checks pass, while the exhaustive suite reproduces four FranceTV/Arte/LN24 harness-contract failures. Retained its ignore attribute and all assertions pending a scoped correction.
+- Simplified borrowed filename fallbacks in the existing live-test helper, preserving source names and fallback behavior.
+- Simplified RTLplay cookie selection, final non-empty URL segment lookup and live-test entry URL initialization, preserving selected cookies, slug values and fallback behavior.
+- Initialize administration target settings and resolver fixture endpoints directly, preserving default fields, override sources and public proxy paths.
+- Simplified store-path arguments and RTLplay result field initialization, preserving ownership and resolved values.
 - Split M6 authentication/API-key/session-cache and media helpers, and RMC/BFM Play authentication/BFF, playback and payload helpers into private provider modules. Both parent resolver files and every extracted module stay below 1,000 lines; constants remain provider-owned, with existing login locks, TTLs, request order, DRM/media selection, resolver contracts and tracing targets preserved.
 - Completed the `arachnea-stream` Rust documentation pass: player resolvers, stream facade, catalog/playback/persistence modules, YAML stream resolver, reloadable runtime, administration composition and typed credentials now document arguments, returns and errors consistently. Behavior, signatures, visibility and YAML contracts are unchanged; trait implementations keep their contracts on the trait. Existing live-provider tests remain unchanged.
 - Keep single-service resolver constants at the beginning of their owning resolver files; retain only genuinely shared resolver constants in `lib.rs`, alongside application/facade defaults. Deduplicate the common browser user-agent (including inline occurrences) and diagnostic preview limit while preserving independent provider TTLs, timeout policies and protocol identifiers. Server and Stream agent instructions document this exception. All values remain unchanged.
@@ -422,6 +454,7 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Implemented `Default` for `ScraperAgregator` by delegating to `new()`, preserving feature-gated proxy initialization, independent in-memory stores and current defaults. Existing construction call sites are unchanged.
 - Added `--proxy-server-port` / `proxy-server-port`: absent or zero allocates and logs an automatic port; a nonzero port is required exactly. Aggregator clients and provider snapshots share the runtime while keeping independent routing contexts. Port changes require restart.
 
 - Localized proxy lot 3 adds inherited `http.proxy_response_classifier` configuration and code injection, replacing duplicated status checks with the early correlated decision. Injected policies survive derived clients; unclassified 4xx/5xx no longer establish accepted preferences. Existing retry counts are unchanged.
@@ -442,6 +475,17 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Migrate in-process HTTP proxy configuration to the boxed public variant. Preserve existing core clone points without intermediate boxes; configuration clones now allocate a box for the in-process variant. YAML and query contracts are unchanged.
+
+- Breaking Rust execution API change: added borrowed `ActionResponse` and `ScraperAggregationOptions` inputs to the fallible action and aggregated-query methods. Migrated all workspace callers and documented the argument mapping; the legacy action wrapper, YAML contracts, error handling, ordering and cache behavior are preserved without new allocations.
+
+- Breaking Rust constructor API change: added public `QueryEndpoint`, `JsonQueryConcurrency` and `CollectionMetadata` parameter types, and grouped the JSON/text query and collection constructor inputs. Migrated internal conversions and the unchanged short JSON `new` wrapper; preserve validation order, explicit limits, ownership and existing allocation sites. README migration guidance documents the argument mapping; YAML schemas and runtime behavior are unchanged.
+- Grouped four private URL resolution, header grouping, fetching and aggregation helpers into borrowed policy/request views. The existing HTTP method still moves into the request; public APIs, YAML contracts, source order, validation/cache paths and action/post-process behavior remain unchanged.
+- Named the private weak geo-lookup registry and country-cache map types with transparent aliases. Marked text-entry collection parameters as reserved during recursive traversal and corrected its documentation: entry action placeholders resolve at execution time, with no load-time substitution added.
+- Simplified fixed-divisor hex/cache validation, preserved parent-row precedence with explicit JSON context matching, and replaced duplicate pending-proxy lookups with direct mutable access. Country lookup limits, deferred jobs, insertion/allocation conditions and YAML contracts are unchanged.
+- Simplified hexadecimal pair iteration, private manifest path borrowing and visited checks, redundant selector branches and existing collection-test helpers. Validation, import/selector order, first-match lookup and lexical report sorting are preserved.
+- Derive the existing field-by-field application and test-option defaults and elide a redundant private helper lifetime, preserving option values and YAML execution.
+- Simplified redundant query borrows, closures, iterator conversions and the JavaScript timeout cast, preserving query dispatch, evaluation order, computed values and YAML contracts.
 - Extracted shared proxy routing and lazy transport caching from the HTTP facade, and separated scraper output types, typed JSON rendering and raw node conversion into private modules. Existing public paths, feature gates, serialization, proxy versioning, cookie/session sharing and tracing targets remain unchanged; the facade and node files now fit within 1,000 lines.
 - Harmonized Scrapyfy with fifteen source-mirrored test files and ten support files, preserving `test-support` methods and public helper paths used by Stream. Split query execution, source loading, manifests, HTTP configuration/browser/cookie operations, raw/runtime conversions and administration settings into private modules; isolated provider diagnostics behind their existing feature gates and preserved tracing targets. Centralized 60 documented constants and defaults without changing YAML, cache identities or retry behavior. Every Rust file fits within 1,000 lines. Existing suites pass with all features (80), defaults (75), proxy/SQLite (80), and ten local Stream consumer scenarios; details and platform limits are recorded in `docs/dev-tracking/harmonisation-crates-rust-lot4.md`.
 
@@ -473,6 +517,10 @@ All notable changes to the server workspace are recorded here.
 
 #### Fixed
 
+- Corrected and reactivated the existing ignored `resolve_request_headers` doctest with public imports, complete local inputs, the supported JSON pointer and the actual map return type. All 17 workspace doctests pass; runtime behavior is unchanged.
+- Removed redundant terminal returns from proxy-enabled aggregator constructors, preserving the corresponding builds without proxy support and all initialization behavior.
+- Fixed thirteen `doc_lazy_continuation` warnings by indenting continued argument descriptions in administration, URL actions, regex post-processing and HTML/JSON extraction rustdoc. Runtime code and YAML contracts are unchanged.
+- Compile the private redirect-policy JSON helper only with `arachnea-proxy`, matching its consumer and removing the warning from builds without proxy support. YAML parsing and runtime behavior are unchanged.
 - Restored Scrapyfy rustdoc after module extraction: completed parameter contracts, documented shared client/context ownership, cache and typed-result behavior, corrected obsolete executor/storage references and repaired public/private documentation links. Clarified duplicate-variable and output-conversion rules in both YAML specifications without changing schema, APIs or runtime behavior.
 
 
@@ -501,6 +549,13 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Breaking Rust proxy configuration API change: `HttpProxyConfig::Arachnea` now owns `Box<ArachneaProxyCore>`. Direct callers box owned cores; `proxy_core(core)` keeps its signature. Construction and variant cloning allocate a box, preserving contained-core clone semantics, routing and loopback lifecycle; owned-core consumers clone the contained value without an intermediate box.
+
+- Box the private application-owned Tauri solver session while passing it through the main-thread result, adding one allocation on successful interactive session creation. The observer still receives the owned session; standalone solving, ordinary requests, proxy readiness and cleanup remain unchanged.
+
+- Grouped the scalar settings of five private Tauri/Wry solver functions into `CloudflareSolveOptions`. Public engine APIs, request/proxy ownership, timing and window lifecycle are preserved; no new heap allocation or module move is introduced.
+- Simplified existing Rquest fixture error assertions and removed a search-limit struct update that supplied no fields; tested delivery and retry expectations are unchanged.
+- Box only `ArachneaHttpError::ProxyAttempt.selection` when constructing attributed failures, preserving successful response metadata and existing error/retry semantics. The public field becomes `Option<Box<ProxySelectionToken>>` under the same feature gate; constructors and migration guidance are updated.
 - Extracted Chaser-CF's typed session repository, cache expiry policy and cookie conversions into private `engine/chaser_cf/session_cache.rs`, bringing the engine below 1,000 lines. Existing cache tests moved to the exact source mirror; feature gates, solver behavior, cookie headers and session persistence are unchanged.
 - Removed the unused public `ResolvedIframeCache` API from `arachnea_http::browser` and the crate-root reexport, along with its six unit tests. Episode/player identities and resolved embed caching belong to `arachnea-stream`; browser sessions, DOM interactions and Turnstile handling remain generic HTTP responsibilities. No production caller used the cache, so runtime resolution is unchanged.
 
@@ -525,6 +580,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Fixed
 
+- Removed a duplicate example import attribute and simplified a session-test string conversion, preserving the fixture value.
+- Removed redundant terminal returns from proxy runtime initialization and engine configuration, preserving enabled/disabled feature branches and existing error propagation.
 - Remove DEBUG dumps of the shared cookie cache and raw request body, retaining only body-size metadata and existing redacted headers. This prevents those diagnostics from exposing session values or payload credentials during transport qualification; request behavior is unchanged.
 
 - Retain a fully consumed redirect transport only after the facade confirms a valid HTTP(S) redirect within its follow quota and the response policy explicitly permits it. Keep pending ownership private and request-bound, preserve public response cloning and business classification, and exclude custom callbacks by default, including TF1. Existing HTTP/proxy scenarios cover content rejection, inspection failures, invalid/unfollowed redirects, quotas, incomplete bodies and cancellation.
@@ -624,6 +681,10 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Documented the three remaining long-signature execution interface migrations, including two public Scrapyfy APIs and Stream's internal resolver trait. The proposal uses borrowed parameter structures and awaits confirmation; the eight-diagnostic inventory remains unchanged.
+- Documented a four-diagnostic public-constructor migration proposal with explicit Rust API compatibility tradeoffs, unchanged YAML/runtime requirements and validation steps. Implementation awaits confirmation; the current 12-diagnostic inventory is unchanged.
+- Documented the next seven-function private Proxy/Scrapyfy argument-grouping proposal, its ownership/feature-gate invariants and validation plan in the Rust validation report. Implementation awaits confirmation; runtime code and the 23-diagnostic inventory are unchanged.
+- Recorded the October 28 Rust validation matrix, minimal-feature checks, existing test-helper fixes and the complete 491-diagnostic Clippy inventory under `docs/dev-tracking/`. Tracked the remaining Clippy cleanup in `docs/TODO.md`; compiler checks and strict rustdoc are clean, while strict Clippy remains a separate outstanding cleanup.
 - Added a detailed six-crate Rust documentation correction plan with an exploratory inventory, parameter documentation rules, staged execution, validation coverage and acceptance criteria. Linked the pending work from `docs/TODO.md`; Rust implementation remains unchanged.
 
 - Archived the crate harmonization lot 0 baseline: initial Git state, Cargo targets and feature declarations, oversized-source inventory, 316 statically identified test functions, and preexisting validation findings. Preserved staged changes and left Rust sources and agent instructions unchanged.
@@ -634,6 +695,9 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Updated the remaining test-exclusion report with exact final-suite filters, per-test coverage, prior live results, exhaustive harness failure causes and evidence limits. The report makes no fresh provider-health claim and changes no test code or exclusion policy.
+
+- Consolidated the Rust validation report with completed corrections, the 491 → 477 → 467 Clippy progression, all 53 remaining lint categories, review priorities and verification limits, using the existing inventory without rerunning Rust checks.
 - Updated shared server agent instructions for responsibility-based Rust file splitting, feature-gated performance diagnostics, crate-root constants and relevant defaults, and exact test/source path mirroring with Cargo discovery checks. Added Scrapyfy/Stream guidance preserving cross-crate `test-support` helpers; Rust migrations remain tracked separately.
 - Specified the requested generic sibling-host proxy priority: preserve exact-origin preferences, then consider eligible accepted endpoints from the same registrable domain with scheme/port isolation, public/private suffix boundaries and durable history restoration. Keep candidates unaccepted on the new origin, preserve content callbacks and avoid per-request history scans. This supersedes resolver-specific affinity as the proposed next implementation; selection and persistence changes await confirmation, with no runtime modifications.
 

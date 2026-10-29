@@ -34,7 +34,7 @@ async fn main() -> Result<()> {
     for ip in core.resolve_ip(&domain).await? {
         println!(" - {ip}");
     }
-    println!("");
+    println!();
 
     // Resolve A records
     let answer = core

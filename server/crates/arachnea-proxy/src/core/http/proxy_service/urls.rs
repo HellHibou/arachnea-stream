@@ -120,7 +120,7 @@ pub(super) fn encode_proxy_path(
 
     let port_segment = match port {
         Some(p) => format!(":{}", p),
-        _none => format!(""),
+        _none => String::new(),
     };
 
     let opts_segment = if opts_encoded.is_empty() {
@@ -273,9 +273,11 @@ pub fn proxied_url_with_countries(
     proxied_url_with_countries_and_internal_options(
         media_locator,
         http_proxy_public_path,
-        countries,
-        None,
-        &[],
+        CountryRoutingPolicy {
+            countries,
+            proxy_affinity: None,
+            proxy_rejection_statuses: &[],
+        },
         actions,
         headers,
         false,
@@ -306,9 +308,11 @@ pub fn proxied_url_with_countries_and_policy(
     proxied_url_with_countries_and_internal_options(
         media_locator,
         http_proxy_public_path,
-        countries,
-        proxy_affinity,
-        proxy_rejection_statuses,
+        CountryRoutingPolicy {
+            countries,
+            proxy_affinity,
+            proxy_rejection_statuses,
+        },
         actions,
         headers,
         false,
@@ -338,9 +342,11 @@ pub fn proxied_url_with_countries_and_insecure_tls(
     proxied_url_with_countries_and_internal_options(
         media_locator,
         http_proxy_public_path,
-        countries,
-        None,
-        &[],
+        CountryRoutingPolicy {
+            countries,
+            proxy_affinity: None,
+            proxy_rejection_statuses: &[],
+        },
         actions,
         headers,
         insecure_tls,
@@ -369,9 +375,11 @@ pub fn proxied_url_with_countries_and_options(
     proxied_url_with_countries_and_internal_options(
         media_locator,
         http_proxy_public_path,
-        countries,
-        None,
-        &[],
+        CountryRoutingPolicy {
+            countries,
+            proxy_affinity: None,
+            proxy_rejection_statuses: &[],
+        },
         actions,
         headers,
         false,
@@ -379,29 +387,41 @@ pub fn proxied_url_with_countries_and_options(
     )
 }
 
+/// Borrowed country-routing policy for the private proxy URL encoder.
+struct CountryRoutingPolicy<'a> {
+    /// Allowed country codes, canonicalized at the existing encoding boundary.
+    countries: &'a [String],
+    /// Optional existing affinity key.
+    proxy_affinity: Option<&'a str>,
+    /// Origin statuses that exclude the selected endpoint for its destination.
+    proxy_rejection_statuses: &'a [u16],
+}
+
 /// Adds country routing headers before encoding proxy URL options.
 ///
 /// # Arguments
 /// * `media_locator` - Media URL to wrap; non-HTTP(S) locators are returned trimmed and unchanged.
-/// * `http_proxy_public_path` - Optional controller proxy base path; an absent or blank path disables wrapping.
-/// * `countries` - Allowed ISO alpha-2 country codes.
-/// * `proxy_affinity` - Optional opaque affinity key for reusing an eligible endpoint across related requests.
-/// * `proxy_rejection_statuses` - Origin HTTP statuses that exclude the selected endpoint for that destination.
-/// * `actions` - Configured response and redirect actions to inspect or encode.
-/// * `headers` - HTTP headers inspected or updated by this operation.
-/// * `insecure_tls` - Whether these request options explicitly allow skipping upstream TLS verification.
-/// * `follow_redirects` - Optional boolean or numeric redirect policy serialized into the proxy options.
+/// * `media_locator` - Media URL to wrap; non-HTTP(S) locators remain trimmed and unchanged.
+/// * `http_proxy_public_path` - Optional controller proxy base path.
+/// * `options` - Borrowed countries, affinity and rejection-status policy.
+/// * `actions` - Configured response and redirect actions.
+/// * `headers` - Existing HTTP headers.
+/// * `insecure_tls` - Whether these request options permit skipping TLS verification.
+/// * `follow_redirects` - Owned redirect policy serialized into proxy options.
 fn proxied_url_with_countries_and_internal_options(
     media_locator: &str,
     http_proxy_public_path: Option<&str>,
-    countries: &[String],
-    proxy_affinity: Option<&str>,
-    proxy_rejection_statuses: &[u16],
+    options: CountryRoutingPolicy<'_>,
     actions: &[ProxyHttpActionConfig],
     headers: &[(&str, &str)],
     insecure_tls: bool,
     follow_redirects: Option<serde_json::Value>,
 ) -> String {
+    let CountryRoutingPolicy {
+        countries,
+        proxy_affinity,
+        proxy_rejection_statuses,
+    } = options;
     let countries = crate::core::canonical_proxy_countries(countries);
     let mut all_headers = headers.to_vec();
     let encoded_countries = (!countries.is_empty())

@@ -459,7 +459,7 @@ pub(super) fn encode_query_value(value: &str) -> String {
 pub(super) fn rtlplay_player_cookies(cookies: &HashMap<String, String>) -> HashMap<String, String> {
     cookies
         .iter()
-        .filter_map(|(name, value)| {
+        .filter(|(name, _)| {
             matches!(
                 name.as_str(),
                 "lfvp_device_id"
@@ -467,8 +467,8 @@ pub(super) fn rtlplay_player_cookies(cookies: &HashMap<String, String>) -> HashM
                     | "lfvp_access_token"
                     | "lfvp_auth.redirect_uri"
             )
-            .then(|| (name.clone(), value.clone()))
         })
+        .map(|(name, value)| (name.clone(), value.clone()))
         .collect()
 }
 

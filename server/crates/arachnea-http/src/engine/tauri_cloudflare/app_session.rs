@@ -10,15 +10,7 @@ use super::*;
 /// - `context`: Main-thread context that may contain a Tauri `AppHandle`.
 /// - `url`: Cloudflare-protected URL to load.
 /// - `user_agent`: Optional browser user-agent override.
-/// - `timeout`: Maximum solve duration for the Wry path.
-/// - `poll_interval`: Cookie polling interval for the Wry path.
-/// - `clearance_stabilization`: Delay required after clearance before closing.
-/// - `window_width`: Initial window width.
-/// - `window_height`: Initial window height.
-/// - `devtools`: Whether to open developer tools when the build permits it.
-/// - `auto_close_after_clearance`: Whether the Wry path closes automatically.
-/// - `incognito`: Whether to use an incognito webview.
-/// - `collect_page_source`: Whether to capture page HTML after solving.
+/// - `options`: Solve timing, window settings and post-clearance collection policy.
 /// - `proxy`: Optional native webview proxy configuration.
 ///
 /// # Returns
@@ -33,46 +25,16 @@ pub(super) fn start_cloudflare_solve_on_main_thread(
     context: &mut MainThreadContext,
     url: &str,
     user_agent: Option<&str>,
-    timeout: Duration,
-    poll_interval: Duration,
-    clearance_stabilization: Duration,
-    window_width: f64,
-    window_height: f64,
-    devtools: bool,
-    auto_close_after_clearance: bool,
-    incognito: bool,
-    collect_page_source: bool,
+    options: CloudflareSolveOptions,
     proxy: Option<&WebviewProxy>,
 ) -> Result<MainThreadSolveStart, ArachneaHttpError> {
     if let Some(app_handle) = context.resource::<tauri::AppHandle<tauri::Wry>>().cloned() {
-        return create_tauri_app_solve_session(
-            app_handle,
-            url,
-            user_agent,
-            window_width,
-            window_height,
-            devtools,
-            incognito,
-            proxy,
-        )
-        .map(MainThreadSolveStart::TauriApp);
+        return create_tauri_app_solve_session(app_handle, url, user_agent, options, proxy)
+            .map(|session| MainThreadSolveStart::TauriApp(Box::new(session)));
     }
 
-    solve_cloudflare_with_wry_event_loop(
-        url,
-        user_agent,
-        timeout,
-        poll_interval,
-        clearance_stabilization,
-        window_width,
-        window_height,
-        devtools,
-        auto_close_after_clearance,
-        incognito,
-        collect_page_source,
-        proxy,
-    )
-    .map(MainThreadSolveStart::Completed)
+    solve_cloudflare_with_wry_event_loop(url, user_agent, options, proxy)
+        .map(MainThreadSolveStart::Completed)
 }
 
 /// Creates an application-owned Tauri solve window and registers its listeners.
@@ -86,10 +48,7 @@ pub(super) fn start_cloudflare_solve_on_main_thread(
 /// - `app_handle`: Owning Tauri application handle.
 /// - `url`: Cloudflare-protected URL to load.
 /// - `user_agent`: Optional browser user-agent override.
-/// - `window_width`: Initial window width.
-/// - `window_height`: Initial window height.
-/// - `devtools`: Whether to open developer tools when the build permits it.
-/// - `incognito`: Whether to use an incognito webview.
+/// - `options`: Window dimensions, developer tools and incognito policy.
 /// - `proxy`: Optional native webview proxy configuration.
 ///
 /// # Returns
@@ -105,12 +64,16 @@ pub(super) fn create_tauri_app_solve_session(
     app_handle: tauri::AppHandle<tauri::Wry>,
     url: &str,
     user_agent: Option<&str>,
-    window_width: f64,
-    window_height: f64,
-    devtools: bool,
-    incognito: bool,
+    options: CloudflareSolveOptions,
     proxy: Option<&WebviewProxy>,
 ) -> Result<TauriAppSolveSession, ArachneaHttpError> {
+    let CloudflareSolveOptions {
+        window_width,
+        window_height,
+        devtools,
+        incognito,
+        ..
+    } = options;
     let parsed_url =
         Url::parse(url).map_err(|err| ArachneaHttpError::InvalidUrl(err.to_string()))?;
     let current_url = Arc::new(Mutex::new(url.to_string()));
@@ -248,13 +211,7 @@ pub(super) fn create_tauri_app_solve_session(
 /// - `session`: Live application-owned solve session.
 /// - `url`: Target URL.
 /// - `user_agent`: Optional browser user-agent override.
-/// - `timeout`: Maximum solve duration.
-/// - `poll_interval`: Cookie polling interval.
-/// - `clearance_stabilization`: Minimum stable delay after a post-clearance
-///   page load; raised to the Tauri-specific minimum.
-/// - `auto_close_after_clearance`: Whether to return immediately once the page
-///   is stable. When `false`, the loop keeps the window open.
-/// - `collect_page_source`: Whether to capture page HTML after solving.
+/// - `options`: Solve timing, window settings and post-clearance collection policy.
 ///
 /// # Returns
 ///
@@ -269,12 +226,16 @@ pub(super) async fn solve_cloudflare_with_tauri_app_session(
     mut session: TauriAppSolveSession,
     url: &str,
     user_agent: Option<&str>,
-    timeout: Duration,
-    poll_interval: Duration,
-    clearance_stabilization: Duration,
-    auto_close_after_clearance: bool,
-    collect_page_source: bool,
+    options: CloudflareSolveOptions,
 ) -> Result<WrySolveResult, ArachneaHttpError> {
+    let CloudflareSolveOptions {
+        timeout,
+        poll_interval,
+        clearance_stabilization,
+        auto_close_after_clearance,
+        collect_page_source,
+        ..
+    } = options;
     let started_at = Instant::now();
     if let Some(ready) = session.proxy_ready.take() {
         let result = match tokio::time::timeout(timeout, ready).await {

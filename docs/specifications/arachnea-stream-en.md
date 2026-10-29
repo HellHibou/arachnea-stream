@@ -1,5 +1,7 @@
 # arachnea-stream YAML format specification
 
+Private Rust playback result enums box successful streams once and forward the same box through resolution. This preserves the untagged JSON union, field names, metadata, URL ordering and iframe fallback. Failed attempts and terminal errors add no stream box. The public Rust in-process proxy configuration now uses `HttpProxyConfig::Arachnea(Box::new(core))`; its construction and cloning allocate a box without changing YAML or frontend contracts.
+
 ## 1. Overview
 
 An arachnea-stream collection declares a streaming source (legal platform or
@@ -368,7 +370,7 @@ Common structure used in `sections[].entries`, `search.entries`,
 | `img/logo > link` | `string` | no | Logo URL |
 
 > **Note**: `execute_query_async` can inject `source` when its
-> `source_field_name` parameter is `Some("source")`. Queries that do not request
+> `ScraperAggregationOptions::source_field_name` field is `Some("source")`. Queries that do not request
 > this injection, including `search`, must extract `source` in YAML on the
 > result row or on every `MediaItem` to preserve an openable card.
 
@@ -1124,7 +1126,7 @@ shared resolver constants and application defaults remain in `src/lib.rs`. These
 preserve public imports, controller commands and YAML result contracts. Each catalog method:
 
 1. Builds a `HashMap<String, String>` of parameters
-2. Calls `agregator.execute_query_async("arachnea-stream", "<query_name>", …)`
+2. Calls `agregator.execute_query_async(context, query_parameters, "arachnea-stream", "<query_name>", params, options)`, with borrowed `ScraperAggregationOptions`
 3. Returns raw or merged rows
 
 On the frontend, normalisers in `front/src/services/rustify.ts` transform

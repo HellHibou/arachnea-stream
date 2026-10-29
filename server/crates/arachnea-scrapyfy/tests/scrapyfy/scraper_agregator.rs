@@ -45,7 +45,7 @@ async fn replacement_preserves_shared_proxy_history_during_active_response() -> 
                 "host": "127.0.0.1", "port": address.port(), "country": "BE", "protocol": "Http",
                 "status": "ok", "http_forwarding": "available", "https_tunnel": "available"
             }))?;
-            old.proxy_repository.save_many(&[proxy.clone()]).await?;
+            old.proxy_repository.save_many(std::slice::from_ref(&proxy)).await?;
             let inventory = ProxyInventory::new(InventoryConfig::default(), None, None)
                 .with_proxy_repository(old.proxy_repository.clone())
                 .with_preference_repository(old.proxy_preferences.clone());
@@ -101,12 +101,14 @@ async fn execute_query_async_keeps_successes_in_config_order() {
             "test",
             "probe",
             &HashMap::new(),
-            None,
-            None,
-            None,
-            None,
-            None,
-            "probe",
+            crate::ScraperAggregationOptions {
+                source_params: None,
+                scrapper_list: None,
+                query_media_type_filter: None,
+                fields_filters: None,
+                source_field_name: None,
+                operation: "probe",
+            },
         )
         .await;
 
@@ -136,7 +138,7 @@ async fn execute_query_async_preserves_partial_success_and_error_code() {
     let failing_url = "not-a-valid-url";
     let (aggregator, dir) = setup_aggregator_sources(&[
         ("success", &static_source("success", "kept")),
-        ("failure", &failing_html_source("failure", &failing_url)),
+        ("failure", &failing_html_source("failure", failing_url)),
     ]);
 
     let result = aggregator
@@ -146,12 +148,14 @@ async fn execute_query_async_preserves_partial_success_and_error_code() {
             "test",
             "probe",
             &HashMap::new(),
-            None,
-            None,
-            None,
-            None,
-            None,
-            "probe",
+            crate::ScraperAggregationOptions {
+                source_params: None,
+                scrapper_list: None,
+                query_media_type_filter: None,
+                fields_filters: None,
+                source_field_name: None,
+                operation: "probe",
+            },
         )
         .await;
 
@@ -214,7 +218,7 @@ async fn execute_query_async_preserves_partial_success_and_error_code() {
             ));
         aggregator
             .get_proxy_handle()
-            .set_proxy(HttpProxyConfig::Arachnea(core));
+            .set_proxy(HttpProxyConfig::Arachnea(Box::new(core)));
         let result = tokio::time::timeout(
             std::time::Duration::from_secs(10),
             aggregator.execute_query_async(
@@ -223,12 +227,14 @@ async fn execute_query_async_preserves_partial_success_and_error_code() {
                 "test",
                 "probe",
                 &HashMap::new(),
-                None,
-                None,
-                None,
-                None,
-                None,
-                "get_entry",
+                crate::ScraperAggregationOptions {
+                    source_params: None,
+                    scrapper_list: None,
+                    query_media_type_filter: None,
+                    fields_filters: None,
+                    source_field_name: None,
+                    operation: "get_entry",
+                },
             ),
         )
         .await
@@ -251,8 +257,8 @@ async fn execute_query_async_preserves_partial_success_and_error_code() {
 async fn execute_query_async_reports_all_failed_sources_in_config_order() {
     let failing_url = "not-a-valid-url";
     let (aggregator, dir) = setup_aggregator_sources(&[
-        ("first", &failing_html_source("first", &failing_url)),
-        ("second", &failing_html_source("second", &failing_url)),
+        ("first", &failing_html_source("first", failing_url)),
+        ("second", &failing_html_source("second", failing_url)),
     ]);
 
     let result = aggregator
@@ -262,12 +268,14 @@ async fn execute_query_async_reports_all_failed_sources_in_config_order() {
             "test",
             "probe",
             &HashMap::new(),
-            None,
-            None,
-            None,
-            None,
-            None,
-            "probe",
+            crate::ScraperAggregationOptions {
+                source_params: None,
+                scrapper_list: None,
+                query_media_type_filter: None,
+                fields_filters: None,
+                source_field_name: None,
+                operation: "probe",
+            },
         )
         .await;
 
@@ -295,12 +303,14 @@ async fn execute_query_async_reports_pre_execution_error_without_source() {
             "missing",
             "probe",
             &HashMap::new(),
-            None,
-            None,
-            None,
-            None,
-            None,
-            "probe",
+            crate::ScraperAggregationOptions {
+                source_params: None,
+                scrapper_list: None,
+                query_media_type_filter: None,
+                fields_filters: None,
+                source_field_name: None,
+                operation: "probe",
+            },
         )
         .await;
 

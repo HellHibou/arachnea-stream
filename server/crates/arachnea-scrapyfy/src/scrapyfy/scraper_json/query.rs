@@ -300,13 +300,17 @@ impl JsonScraperQuery {
         sub_queries: Vec<Box<dyn ScraperQuery>>,
     ) -> Self {
         Self::try_new(
-            name,
-            base_url,
-            media_types,
-            query_url,
-            4,
-            4,
-            8,
+            QueryEndpoint {
+                name,
+                base_url,
+                media_types,
+                query_url,
+            },
+            JsonQueryConcurrency {
+                sibling_sub_query_concurrency: crate::JSON_DEFAULT_SIBLING_SUB_QUERY_CONCURRENCY,
+                sub_query_context_concurrency: crate::JSON_DEFAULT_SUB_QUERY_CONTEXT_CONCURRENCY,
+                sub_query_fetch_concurrency: crate::JSON_DEFAULT_SUB_QUERY_FETCH_CONCURRENCY,
+            },
             HashMap::new(),
             row_pointer,
             scraper_entries,
@@ -359,36 +363,38 @@ impl JsonScraperQuery {
     ///
     /// # Arguments
     ///
-    /// * `name` - Query identifier used to look up this query in a collection.
-    /// * `base_url` - Base URL of the source, also available as `{base_url}` in templates.
-    /// * `media_types` - Content type result.
-    /// * `query_url` - URL template used to build the request.
-    /// * `sibling_sub_query_concurrency` - Max number of sibling sub-queries executed together.
-    /// * `sub_query_context_concurrency` - Max number of sub-query contexts executed together.
-    /// * `sub_query_fetch_concurrency` - Max number of follow-up HTTP requests executed together.
+    /// * `endpoint` - Borrowed endpoint strings and owned media types for this query.
+    /// * `concurrency` - Explicit positive sibling, context and fetch concurrency limits.
     /// * `filters` - Row-filter rules applied to the extracted JSON context.
     /// * `row_pointer` - JSON pointer-like path matching each result row.
     /// * `scraper_entries` - Field extractors executed for every matched row.
     /// * `sub_queries` - Polymorphic sub-queries attached to this query. Each
-    /// element is stored as `Box<dyn ScraperQuery>`; callers typically
-    /// pass `Vec<JsonScraperSubQuery>` values boxed individually.
+    ///   element is stored as `Box<dyn ScraperQuery>`; callers typically
+    ///   pass `Vec<JsonScraperSubQuery>` values boxed individually.
     ///
     /// # Errors
     ///
-    /// Returns an error if `row_pointer` is empty.
+    /// Returns an error if `row_pointer` is empty or any concurrency limit is zero.
+    /// The row pointer is validated before the concurrency limits.
     pub fn try_new(
-        name: &str,
-        base_url: &str,
-        media_types: Vec<String>,
-        query_url: &str,
-        sibling_sub_query_concurrency: usize,
-        sub_query_context_concurrency: usize,
-        sub_query_fetch_concurrency: usize,
+        endpoint: QueryEndpoint<'_>,
+        concurrency: JsonQueryConcurrency,
         filters: HashMap<String, Vec<String>>,
         row_pointer: &str,
         scraper_entries: Vec<JsonScraperEntry>,
         sub_queries: Vec<Box<dyn ScraperQuery>>,
     ) -> Result<Self> {
+        let QueryEndpoint {
+            name,
+            base_url,
+            media_types,
+            query_url,
+        } = endpoint;
+        let JsonQueryConcurrency {
+            sibling_sub_query_concurrency,
+            sub_query_context_concurrency,
+            sub_query_fetch_concurrency,
+        } = concurrency;
         if row_pointer.trim().is_empty() {
             anyhow::bail!("Invalid row pointer for {}: pointer cannot be empty", name);
         }

@@ -534,17 +534,26 @@ pub fn validate_request_actions(
 /// * `params` - Runtime template parameters.
 /// * `context_request_url` - URL of the parent request for action pipelines.
 ///
-/// # Example
+/// # Examples
 ///
-/// ```ignore
+/// ```
+/// use arachnea_scrapyfy::scrapyfy::{
+///     query_helpers::resolve_request_headers,
+///     scraper_json::query::ScraperRequestHeader,
+///     scraper_html::entry::HtmlScraperSelectMode,
+/// };
+/// use std::collections::HashMap;
+///
+/// let context_json = serde_json::json!({"auth": {"token": "Bearer example-token"}});
+/// let params = HashMap::new();
 /// let headers = vec![ScraperRequestHeader {
 ///     name: "Authorization".to_string(),
-///     pointer: Some("auth.token".to_string()),
+///     pointer: Some("/auth/token".to_string()),
 ///     select: HtmlScraperSelectMode::First,
 ///     actions: vec![],
 /// }];
-/// let resolved = resolve_request_headers(&headers, &context_json, &params, "https://example.com")?;
-/// // resolved = {"Authorization": "Bearer xxx"}
+/// let resolved = resolve_request_headers(&headers, &context_json, &params, "https://example.com");
+/// assert_eq!(resolved.get("Authorization").map(String::as_str), Some("Bearer example-token"));
 /// ```
 pub fn resolve_request_headers(
     headers: &[crate::scrapyfy::scraper::config::ScraperRequestHeader],

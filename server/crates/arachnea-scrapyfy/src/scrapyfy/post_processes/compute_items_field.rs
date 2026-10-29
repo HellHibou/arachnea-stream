@@ -214,11 +214,7 @@ pub(super) fn apply(
         return Ok(());
     };
 
-    for (source_item, source_item_values) in source_node
-        .items
-        .iter_mut()
-        .zip(computed_values.into_iter())
-    {
+    for (source_item, source_item_values) in source_node.items.iter_mut().zip(computed_values) {
         if let Some(nested_source) = nested_source {
             let Some(nested_node) = get_node_mut(source_item, nested_source) else {
                 continue;
@@ -237,10 +233,8 @@ pub(super) fn apply(
                 }
                 ComputedTargetValues::Single(None) => {}
                 ComputedTargetValues::Many(computed_values) => {
-                    for (nested_item, computed_value) in nested_node
-                        .items
-                        .iter_mut()
-                        .zip(computed_values.into_iter())
+                    for (nested_item, computed_value) in
+                        nested_node.items.iter_mut().zip(computed_values)
                     {
                         let Some(computed_value) = computed_value else {
                             continue;

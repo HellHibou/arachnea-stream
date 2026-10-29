@@ -8,10 +8,11 @@ use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 
 use arachnea_core::persistence::CredentialsStore;
-use arachnea_scrapyfy::{HttpClient, ScraperAgregator, ScraperQueryCollectionParameter};
+use arachnea_scrapyfy::{HttpClient, ScraperAgregator};
 
 use crate::services::player_resolver::{
-    PlayerResolverEndpoints, PlayerStreamResolver, ProxiedStreamResponse, ResolvedPlayerStream,
+    PlayerResolverEndpoints, PlayerStreamRequest, PlayerStreamResolver, ProxiedStreamResponse,
+    ResolvedPlayerStream,
 };
 
 /// Stable source identifier for RTBF Auvio routing and credentials.
@@ -74,12 +75,15 @@ impl PlayerStreamResolver for RtbfAuvioResolver {
         &self,
         scraper_agregator: &ScraperAgregator,
         credentials_store: &dyn CredentialsStore,
-        resolver: &str,
-        target: &str,
-        _service_parameters: &[ScraperQueryCollectionParameter],
-        _proxy_countries: &[String],
+        request: PlayerStreamRequest<'_>,
         endpoints: &PlayerResolverEndpoints,
     ) -> Result<ResolvedPlayerStream> {
+        let PlayerStreamRequest {
+            resolver,
+            target,
+            service_parameters: _service_parameters,
+            proxy_countries: _proxy_countries,
+        } = request;
         match resolver.trim() {
             "rtbf-auvio-live" | "rtbf-auvio-video" => {
                 resolve_redbee_stream(

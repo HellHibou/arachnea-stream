@@ -87,12 +87,14 @@ impl ScrapyfyIpCountryDataProvider {
                     IP_COUNTRY_GROUP_NAME,
                     "resolve_ip_country",
                     &params,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    "resolve_ip_country",
+                    crate::ScraperAggregationOptions {
+                        source_params: None,
+                        scrapper_list: None,
+                        query_media_type_filter: None,
+                        fields_filters: None,
+                        source_field_name: None,
+                        operation: "resolve_ip_country",
+                    },
                 )
                 .await;
 
@@ -149,12 +151,14 @@ impl IpCountryDataProvider for ScrapyfyIpCountryDataProvider {
                 IP_COUNTRY_GROUP_NAME,
                 "resolve_ip_country",
                 &params,
-                None,
-                None,
-                None,
-                None,
-                None,
-                "resolve_ip_country",
+                crate::ScraperAggregationOptions {
+                    source_params: None,
+                    scrapper_list: None,
+                    query_media_type_filter: None,
+                    fields_filters: None,
+                    source_field_name: None,
+                    operation: "resolve_ip_country",
+                },
             )
             .await
             .data;
@@ -185,12 +189,14 @@ impl IpCountryDataProvider for ScrapyfyIpCountryDataProvider {
                 IP_COUNTRY_GROUP_NAME,
                 "resolve_current_country",
                 &HashMap::new(),
-                None,
-                None,
-                None,
-                None,
-                None,
-                "resolve_current_country",
+                crate::ScraperAggregationOptions {
+                    source_params: None,
+                    scrapper_list: None,
+                    query_media_type_filter: None,
+                    fields_filters: None,
+                    source_field_name: None,
+                    operation: "resolve_current_country",
+                },
             )
             .await
             .data;

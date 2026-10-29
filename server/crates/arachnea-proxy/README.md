@@ -20,6 +20,39 @@ when they govern different phases; media response header limits are independent
 of inbound proxy server limits. Diagnostic counters remain with their owning
 modules rather than in the constants section.
 
+Private URL encoding borrows its country-routing policy without changing the
+public helper signatures or encoded fields. Inventory diagnostic helpers receive
+borrowed ranking context and scalar preparation counts. Their types, imports
+and construction remain behind `performance-diagnostics`, so default builds do
+not construct diagnostic views. These argument groupings introduce no new
+allocation or clone and preserve normalization, log fields and event order.
+
+## ReplaceAll Rust factory migration (Unreleased)
+
+Rename `ReplaceAll::new(pattern, replacement, content_types)` calls to
+`ReplaceAll::config(pattern, replacement, content_types)`. This factory returns
+`ProxyHttpActionConfig`, retaining the exact argument types, configuration fields,
+allocation behavior and delegation to `with_order(None, ...)`. The old `new`
+name is removed; direct external Rust callers must update it.
+`ReplaceAll::ordered` keeps its existing name and signature. Serialized action
+names, YAML rules, execution ordering and replacement behavior are unchanged.
+
+## Compact attributed errors
+
+`ProxyError::RequestAttempt.selection` is
+`Option<Box<ProxySelectionToken>>`. Only a failed attempt carrying an actual
+selection allocates this box. Successful route selection and response metadata
+retain their existing token representation, so this change adds no token
+allocation to successful requests. A missing selection adds no token allocation.
+
+This is a Rust source API change for callers constructing or extracting that
+public field: convert an owned `Option<ProxySelectionToken>` with
+`selection.map(Box::new)`, borrow the token with `selection.as_deref()`, or move
+it out of a present box with `*token`. Borrowed method calls continue to work
+through dereferencing. The `Result<T>` alias, variant names, delivery evidence,
+error messages and `Error::source()` chains are preserved. `ConnectorError`
+continues to wrap `ProxyError` by value and benefits from its smaller size.
+
 ## Shared response classification (localized proxy lot 3)
 
 `core::http::response_classifier` exposes a client-independent response view,
@@ -606,6 +639,8 @@ configured, both use that core; otherwise both fall back to
 `tokio::net::lookup_host` and the system resolver.
 
 ## Useful Paths
+
+The private server implementation is named `runtime` and uses `#[path = "server.rs"]` to load the existing `src/server/server.rs` file. Public `server::ProxyServer` imports and the source/test directory layout are unchanged; other listener modules and their tracing targets are unchanged.
 
 - `src/core/`: routing, proxy chains, destinations, policies, transports, proxy pools, and errors.
 - `src/core/config/`: one module per public configuration type with its defaults and associated methods, plus private validation and system-environment helpers. Existing configuration imports remain available through the core and crate reexports.

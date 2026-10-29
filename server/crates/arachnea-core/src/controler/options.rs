@@ -19,19 +19,14 @@ pub use crate::DEFAULT_TAURI_WEB_SCHEME;
 pub use crate::DEFAULT_TAURI_API_PREFIX;
 
 /// Runtime mode the application controller runs under.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub enum ApplicationMode {
     /// Desktop application mode backed by the Tauri controller.
     Desktop,
 
     /// Headless HTTP server mode backed by the REST controller.
+    #[default]
     Server,
-}
-
-impl Default for ApplicationMode {
-    fn default() -> Self {
-        return ApplicationMode::Server;
-    }
 }
 
 /// Provenance of one effective runtime setting.
@@ -89,11 +84,6 @@ impl std::fmt::Display for ServerNetworkMode {
         })
     }
 }
-
-/// Default runtime mode used when no CLI mode flag is provided.
-///
-/// In release builds the backend defaults to server mode; in debug builds it
-/// defaults to desktop mode.
 
 /// Runtime and persisted options used by the application controller.
 ///

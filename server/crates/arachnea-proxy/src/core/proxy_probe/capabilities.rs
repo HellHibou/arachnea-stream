@@ -43,7 +43,7 @@ pub(super) async fn tcp_connect(
     let stream = time::timeout(timeout, TcpStream::connect((host, port)))
         .await
         .map_err(|_| ProxyError::Timeout("tcp connect to proxy"))?
-        .map_err(|e| ProxyError::Io(e))?;
+        .map_err(ProxyError::Io)?;
     let latency_ms = start.elapsed().as_millis() as u64;
     Ok((latency_ms, stream))
 }
@@ -351,8 +351,7 @@ impl ProxyProbe {
                                 error.at_phase(crate::core::ProxyObservationPhase::DestinationHttp)
                             }
                         });
-                    let authentication_required =
-                        result.as_ref().is_err_and(|error| is_auth_required(error));
+                    let authentication_required = result.as_ref().is_err_and(is_auth_required);
                     let result = result.map(|_| ());
                     self.observe(
                         crate::core::ProxyObservationPhase::ProxyProtocol,
@@ -392,9 +391,8 @@ impl ProxyProbe {
                         result.is_ok(),
                         None,
                     );
-                    let authentication_required = result
-                        .as_ref()
-                        .is_err_and(|error| is_socks5_auth_required(error));
+                    let authentication_required =
+                        result.as_ref().is_err_and(is_socks5_auth_required);
                     let result = if result.is_ok() {
                         let url = self.config.http_probe_url.as_deref().unwrap();
                         self.exchange_probe(

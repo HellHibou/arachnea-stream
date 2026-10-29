@@ -131,8 +131,10 @@ queries:
 "#;
 
     let (agregator, temp_dir) = setup_resolver_sources(&[("html", html_resolver)]);
-    let mut endpoints = crate::services::player_resolver::PlayerResolverEndpoints::default();
-    endpoints.http_proxy_public_path = Some("/api/proxy".to_string());
+    let endpoints = crate::services::player_resolver::PlayerResolverEndpoints {
+        http_proxy_public_path: Some("/api/proxy".to_string()),
+        ..Default::default()
+    };
     let resolver = StreamResolver::new(&agregator, &endpoints);
 
     let can_resolve = block_on(resolver.can_resolve_html("html-resolver", &url, html_body))
@@ -239,8 +241,10 @@ queries:
 "#;
 
     let (agregator, temp_dir) = setup_resolver_sources(&[("subtitles", resolver_yaml)]);
-    let mut endpoints = crate::services::player_resolver::PlayerResolverEndpoints::default();
-    endpoints.http_proxy_public_path = Some("/api/http-proxy".to_string());
+    let endpoints = crate::services::player_resolver::PlayerResolverEndpoints {
+        http_proxy_public_path: Some("/api/http-proxy".to_string()),
+        ..Default::default()
+    };
     let resolver = StreamResolver::new(&agregator, &endpoints);
 
     let result = block_on(resolver.get_stream(&url)).expect("resolver should return a stream");

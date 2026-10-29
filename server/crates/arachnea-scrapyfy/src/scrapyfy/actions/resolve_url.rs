@@ -16,7 +16,7 @@ use arachnea_proxy::http::proxy_service::proxied_url_with_countries_and_options;
 ///
 /// * `texts` - Values produced by previous actions in the pipeline.
 /// * `request_url` - Final URL used to fetch the current page; used as the
-/// resolution base for relative paths.
+///   resolution base for relative paths.
 /// * `params` - Runtime parameters available to query templates and action pipelines.
 /// * `proxy` - Whether HTTP(S) results should use the configured public proxy route.
 /// * `proxy_headers` - Extra proxy-request headers resolved from runtime parameters and the request origin.
@@ -72,20 +72,28 @@ pub(super) fn apply(
         .collect()
 }
 
+/// Borrowed proxy policy used by ancestor-relative URL resolution.
+pub(super) struct ParentUrlProxyPolicy<'a> {
+    /// Whether resolved HTTP(S) URLs use the public proxy route.
+    pub(super) proxy: bool,
+    /// Borrowed extra proxy-request header templates.
+    pub(super) proxy_headers: &'a HashMap<String, String>,
+    /// Borrowed post-response replacement rules.
+    pub(super) proxy_replace_all: &'a [ProxyReplaceAllConfig],
+    /// Borrowed redirect-following policy.
+    pub(super) proxy_follow_redirects: Option<&'a ProxyFollowRedirects>,
+}
+
 /// Applies the `resolve_url_from_parent` scraper action by resolving every
 /// value against an ancestor directory of `request_url`.
 ///
 /// # Arguments
 ///
-/// * `texts` - Values produced by previous actions in the pipeline.
-/// * `request_url` - Final URL used to fetch the current page.
-/// * `params` - Runtime parameters available to query templates and action pipelines.
-/// * `levels` - Number of trailing path segments to remove from
-/// `request_url` before joining the relative value.
-/// * `proxy` - Whether HTTP(S) results should use the configured public proxy route.
-/// * `proxy_headers` - Extra proxy-request headers resolved from runtime parameters and the request origin.
-/// * `proxy_replace_all` - Post-response replacement rules attached to the generated proxy URL.
-/// * `proxy_follow_redirects` - Optional redirect-following policy attached to the generated proxy URL.
+/// * `texts` - Owned values from earlier actions.
+/// * `request_url` - Final page URL used to resolve ancestor-relative values.
+/// * `params` - Runtime template parameters.
+/// * `levels` - Number of trailing path segments to remove before joining.
+/// * `options` - Borrowed proxy flag, headers, replacement and redirect policy.
 ///
 /// # Returns
 ///
@@ -97,11 +105,14 @@ pub(super) fn apply_from_parent(
     request_url: &str,
     params: &HashMap<String, String>,
     levels: usize,
-    proxy: bool,
-    proxy_headers: &HashMap<String, String>,
-    proxy_replace_all: &[ProxyReplaceAllConfig],
-    proxy_follow_redirects: Option<&ProxyFollowRedirects>,
+    options: ParentUrlProxyPolicy<'_>,
 ) -> Vec<String> {
+    let ParentUrlProxyPolicy {
+        proxy,
+        proxy_headers,
+        proxy_replace_all,
+        proxy_follow_redirects,
+    } = options;
     let base_url = Url::parse(request_url)
         .ok()
         .and_then(|url| ancestor_base_url(&url, levels));
@@ -212,7 +223,7 @@ fn resolved_url_string(
                 let actions = proxy_replace_all
                     .iter()
                     .map(|replacement| {
-                        ReplaceAll::new(
+                        ReplaceAll::config(
                             &replacement.pattern,
                             &replacement.replacement,
                             replacement.content_types.clone(),

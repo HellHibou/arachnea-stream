@@ -18,11 +18,12 @@ use serde_json::Value;
 use std::collections::HashMap;
 
 use arachnea_core::persistence::CredentialsStore;
-use arachnea_scrapyfy::{ScraperAgregator, ScraperHttpConfig, ScraperQueryCollectionParameter};
+use arachnea_scrapyfy::{ScraperAgregator, ScraperHttpConfig};
 
 use crate::services::player_resolver::{
     normalize_stream_kind, proxy_drm_today_license_request, save_drm_today_license_proxy_url,
-    PlayerResolverEndpoints, PlayerStreamResolver, ProxiedStreamResponse, ResolvedPlayerStream,
+    PlayerResolverEndpoints, PlayerStreamRequest, PlayerStreamResolver, ProxiedStreamResponse,
+    ResolvedPlayerStream,
 };
 
 /// M6/6play login endpoint.
@@ -117,12 +118,15 @@ impl PlayerStreamResolver for M6PlayResolver {
         &self,
         scraper_agregator: &ScraperAgregator,
         credentials_store: &dyn CredentialsStore,
-        resolver: &str,
-        target: &str,
-        _service_parameters: &[ScraperQueryCollectionParameter],
-        proxy_countries: &[String],
+        request: PlayerStreamRequest<'_>,
         endpoints: &PlayerResolverEndpoints,
     ) -> Result<ResolvedPlayerStream> {
+        let PlayerStreamRequest {
+            resolver,
+            target,
+            service_parameters: _service_parameters,
+            proxy_countries,
+        } = request;
         match resolver.trim() {
             "m6play-video" => {
                 resolve_replay_stream(
@@ -397,12 +401,12 @@ fn stream_headers() -> Vec<ProxyHttpActionConfig> {
             PROXY_HEADER_PARAMETER_COUNTRIES,
             REMOVE_HEADER_ACTION_HEADER,
         ]),
-        ReplaceAll::new(
+        ReplaceAll::config(
             r#"initialization="/m6web/"#,
             r#"initialization="{proxy}/{base_url}/m6web/"#,
             None,
         ),
-        ReplaceAll::new(
+        ReplaceAll::config(
             r#"media="/m6web/"#,
             r#"media="{proxy}/{base_url}/m6web/"#,
             None,

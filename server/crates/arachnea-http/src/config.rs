@@ -23,8 +23,11 @@ pub enum HttpProxyConfig {
     Network(String),
     /// Route requests through an in-process `arachnea-proxy` core when the
     /// selected engine supports direct connector integration.
+    ///
+    /// The box owns a core value; cloning this variant allocates a new box and
+    /// clones the core while retaining its existing shared internal handles.
     #[cfg(feature = "arachnea-proxy")]
-    Arachnea(ArachneaProxyCore),
+    Arachnea(Box<ArachneaProxyCore>),
 }
 
 impl HttpProxyConfig {

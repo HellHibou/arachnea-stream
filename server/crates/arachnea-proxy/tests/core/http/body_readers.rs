@@ -1,12 +1,12 @@
 use super::*;
-use std::pin::pin;
+use std::{num::NonZeroUsize, pin::pin};
 use tokio::io::AsyncReadExt;
 
 struct Piecewise {
     data: Vec<u8>,
     pos: usize,
     step: usize,
-    pend_every: usize,
+    pend_every: NonZeroUsize,
     calls: usize,
     already_pending: bool,
 }
@@ -18,7 +18,7 @@ impl AsyncRead for Piecewise {
     ) -> Poll<io::Result<()>> {
         let this = self.as_mut().get_mut();
         this.calls += 1;
-        if !this.already_pending && this.calls % this.pend_every == 0 {
+        if !this.already_pending && this.calls.is_multiple_of(this.pend_every.get()) {
             this.already_pending = true;
             cx.waker().wake_by_ref();
             return Poll::Pending;
@@ -50,7 +50,7 @@ async fn chunked_fragmented_lossy() {
         data: raw.clone(),
         pos: 0,
         step: 7,
-        pend_every: 3,
+        pend_every: NonZeroUsize::new(3).expect("fixture poll interval must be nonzero"),
         calls: 0,
         already_pending: false,
     };

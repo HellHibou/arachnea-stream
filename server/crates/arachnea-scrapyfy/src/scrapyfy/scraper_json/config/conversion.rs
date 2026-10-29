@@ -69,13 +69,17 @@ impl TryFrom<JsonScraperQueryRaw> for JsonScraperQuery {
         JsonScraperQuery::validate_request_actions(&name, &request_url_actions)?;
 
         let mut query = JsonScraperQuery::try_new(
-            &name,
-            &resolved_base_url,
-            media_types,
-            &query_url,
-            sibling_sub_query_concurrency,
-            sub_query_context_concurrency,
-            sub_query_fetch_concurrency,
+            QueryEndpoint {
+                name: &name,
+                base_url: &resolved_base_url,
+                media_types,
+                query_url: &query_url,
+            },
+            JsonQueryConcurrency {
+                sibling_sub_query_concurrency,
+                sub_query_context_concurrency,
+                sub_query_fetch_concurrency,
+            },
             filters,
             &row_pointer,
             entries,

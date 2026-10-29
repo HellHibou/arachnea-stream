@@ -337,9 +337,11 @@ impl StaticScraperEntryRaw {
                     &None,
                     values,
                     params,
-                    "",
-                    None,
-                    None,
+                    crate::ActionResponse {
+                        request_url: "",
+                        response_body: None,
+                        response_json: None,
+                    },
                     Some(dynamic_variables),
                 )?;
             }

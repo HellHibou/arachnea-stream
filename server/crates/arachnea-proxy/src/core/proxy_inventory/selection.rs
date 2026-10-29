@@ -8,7 +8,9 @@ use futures::{stream, FutureExt, StreamExt};
 use tokio::sync::Mutex;
 
 #[cfg(feature = "performance-diagnostics")]
-use super::performance_diagnostics::{self, CandidateDiagnostic, NEXT_RANKING_ID};
+use super::performance_diagnostics::{
+    self, CandidateDiagnostic, RankingDiagnosticContext, NEXT_RANKING_ID,
+};
 use super::ProxyInventory;
 use crate::core::{
     Destination, ProbeMode, ProxyCapabilityStatus, ProxyError, ProxyRecord, ProxySearchContext,
@@ -619,13 +621,15 @@ impl ProxyInventory {
 
         #[cfg(feature = "performance-diagnostics")]
         self.log_ranked_candidates(
-            diagnostics_enabled,
-            ranking_id,
-            search.as_ref(),
+            RankingDiagnosticContext {
+                diagnostics_enabled,
+                ranking_id,
+                search: search.as_ref(),
+                destination,
+                require_https,
+                now,
+            },
             &candidates,
-            destination,
-            require_https,
-            now,
             rank,
         );
         let candidates: Vec<ProxyRecord> = candidates.into_iter().cloned().collect();

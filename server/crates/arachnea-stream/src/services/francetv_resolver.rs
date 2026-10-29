@@ -17,8 +17,8 @@ use arachnea_scrapyfy::{
 };
 
 use crate::services::player_resolver::{
-    Chapter, PlayerResolverEndpoints, PlayerStreamResolver, ProxiedStreamResponse,
-    ResolvedPlayerStream,
+    Chapter, PlayerResolverEndpoints, PlayerStreamRequest, PlayerStreamResolver,
+    ProxiedStreamResponse, ResolvedPlayerStream,
 };
 
 use crate::PLAYER_DEFAULT_USER_AGENT as USER_AGENT;
@@ -86,12 +86,15 @@ impl PlayerStreamResolver for FrancetvResolver {
         &self,
         scraper_agregator: &ScraperAgregator,
         _credentials_store: &dyn CredentialsStore,
-        resolver: &str,
-        target: &str,
-        service_parameters: &[ScraperQueryCollectionParameter],
-        proxy_countries: &[String],
+        request: PlayerStreamRequest<'_>,
         endpoints: &PlayerResolverEndpoints,
     ) -> Result<ResolvedPlayerStream> {
+        let PlayerStreamRequest {
+            resolver,
+            target,
+            service_parameters,
+            proxy_countries,
+        } = request;
         match resolver.trim() {
             "francetv-video" => {
                 resolve_francetv_stream(
@@ -843,7 +846,7 @@ async fn proxy_francetv_license_request(
 fn stream_headers() -> Vec<ProxyHttpActionConfig> {
     let hls_content_types = hls_manifest_content_types();
 
-    vec![ReplaceAll::new(
+    vec![ReplaceAll::config(
         r#"#EXT-X-(SESSION-)?KEY:([^\r\n]*?)URI="(https://[^/"]+/keys/[^"]+\.key)""#,
         r#"#EXT-X-${1}KEY:${2}URI="{proxy_inherited}/${3}""#,
         Some(hls_content_types.clone()),

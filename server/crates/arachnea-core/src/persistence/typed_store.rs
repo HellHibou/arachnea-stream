@@ -140,6 +140,7 @@ impl<E: PersistentEntity> Default for EntityQuery<E> {
         Self::new()
     }
 }
+#[cfg(feature = "sqlite-persistence")]
 impl<E: PersistentEntity> EntityQuery<E> {
     /// Returns the conjunction of equality predicates as `(field, value)` pairs.
     pub(crate) fn predicates(&self) -> &[(String, StoredValue)] {

@@ -223,7 +223,7 @@ impl ArachneaProxyCore {
         {
             let dns_core =
                 Self::default_arachnea_dns_core_for_proxy_profile(&config.as_config().profile)?;
-            return Self::from_resolved_with_arachnea_dns(config, dns_core);
+            Self::from_resolved_with_arachnea_dns(config, dns_core)
         }
 
         #[cfg(not(feature = "arachnea-dns"))]
@@ -268,9 +268,7 @@ impl ArachneaProxyCore {
         {
             let dns_core =
                 Self::default_arachnea_dns_core_for_proxy_profile(&config.as_config().profile)?;
-            return Self::from_resolved_with_arachnea_dns_and_inventory(
-                config, dns_core, inventory,
-            );
+            Self::from_resolved_with_arachnea_dns_and_inventory(config, dns_core, inventory)
         }
 
         #[cfg(not(feature = "arachnea-dns"))]

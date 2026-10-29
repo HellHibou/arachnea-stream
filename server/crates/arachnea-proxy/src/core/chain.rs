@@ -366,17 +366,20 @@ impl ProxyNode {
     /// Configured DNS resolution behavior, including `send_hostname`
     /// compatibility when the explicit mode is absent.
     pub fn effective_name_resolution(&self) -> ProxyNameResolutionMode {
-        self.dns_resolution.clone().unwrap_or_else(|| {
-            if !self.send_hostname {
-                ProxyNameResolutionMode::Local
-            } else if matches!(self.kind, TransportKind::Socks5 | TransportKind::TorSocks) {
-                ProxyNameResolutionMode::ProxyThenLocalFallback
-            } else if matches!(self.kind, TransportKind::Socks4 | TransportKind::ProxyPool) {
-                ProxyNameResolutionMode::Local
-            } else {
-                ProxyNameResolutionMode::ProxyOnly
+        match &self.dns_resolution {
+            Some(mode) => mode.clone(),
+            None => {
+                if !self.send_hostname {
+                    ProxyNameResolutionMode::Local
+                } else if matches!(self.kind, TransportKind::Socks5 | TransportKind::TorSocks) {
+                    ProxyNameResolutionMode::ProxyThenLocalFallback
+                } else if matches!(self.kind, TransportKind::Socks4 | TransportKind::ProxyPool) {
+                    ProxyNameResolutionMode::Local
+                } else {
+                    ProxyNameResolutionMode::ProxyOnly
+                }
             }
-        })
+        }
     }
 
     /// Sets TLS verification behavior for TLS-based upstream transports.

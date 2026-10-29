@@ -173,6 +173,18 @@ impl PlayerResolverEndpoints {
     }
 }
 
+/// Borrowed YAML descriptor inputs for one protected playback request.
+pub(crate) struct PlayerStreamRequest<'a> {
+    /// Resolver identifier selected by the YAML descriptor.
+    pub resolver: &'a str,
+    /// Source-specific video, channel or content identifier.
+    pub target: &'a str,
+    /// Collection parameters defined by the descriptor.
+    pub service_parameters: &'a [ScraperQueryCollectionParameter],
+    /// Countries selected for outbound routing.
+    pub proxy_countries: &'a [String],
+}
+
 /// Common contract implemented by source-specific protected playback resolvers.
 #[async_trait]
 pub(crate) trait PlayerStreamResolver: Send + Sync {
@@ -187,10 +199,7 @@ pub(crate) trait PlayerStreamResolver: Send + Sync {
     /// # Arguments
     /// * `scraper_agregator` - Aggregator used to create HTTP clients.
     /// * `credentials_store` - Store providing source-specific credentials.
-    /// * `resolver` - Resolver identifier selected by the YAML descriptor.
-    /// * `target` - Source-specific video, channel or content identifier.
-    /// * `service_parameters` - Collection parameters defined by the descriptor.
-    /// * `proxy_countries` - Countries selected for outbound routing.
+    /// * `request` - Borrowed resolver identifier, target, descriptor parameters and routing countries.
     /// * `endpoints` - Public endpoint settings used to build proxy URLs.
     ///
     /// # Errors
@@ -203,10 +212,7 @@ pub(crate) trait PlayerStreamResolver: Send + Sync {
         &self,
         scraper_agregator: &ScraperAgregator,
         credentials_store: &dyn CredentialsStore,
-        resolver: &str,
-        target: &str,
-        service_parameters: &[ScraperQueryCollectionParameter],
-        proxy_countries: &[String],
+        request: PlayerStreamRequest<'_>,
         endpoints: &PlayerResolverEndpoints,
     ) -> Result<ResolvedPlayerStream>;
 

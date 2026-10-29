@@ -598,7 +598,7 @@ fn rust_log_mentions_target(target: &str) -> bool {
     if let Ok(rust_log) = env::var("RUST_LOG") {
         let t = target.trim().to_lowercase();
         rust_log
-            .split(|c| c == ',' || c == ' ')
+            .split([',', ' '])
             .map(|s| s.trim().to_lowercase())
             .any(|token| {
                 token == t

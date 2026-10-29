@@ -121,11 +121,13 @@ async fn http_proxy_relays_absolute_request() {
 async fn http_proxy_does_not_challenge_without_password_env() {
     let target = spawn_http_target().await;
     let core = ArachneaProxyCore::new(ProxyConfig::default()).unwrap();
-    let mut server_config = ServerConfig::default();
-    server_config.authentication = ProxyAuthConfig {
-        username: Some("tester".to_string()),
-        password_env: None,
-        realm: "Arachnea Test".to_string(),
+    let server_config = ServerConfig {
+        authentication: ProxyAuthConfig {
+            username: Some("tester".to_string()),
+            password_env: None,
+            realm: "Arachnea Test".to_string(),
+        },
+        ..Default::default()
     };
     let config = Arc::new(server_config);
     let (mut client, server_side) = duplex(16 * 1024);

@@ -572,15 +572,17 @@ impl ScraperPostProcess {
             } => {
                 group_items_by_header::apply(
                     root,
-                    source,
-                    target,
-                    is_header_field,
-                    label_field,
-                    entries_field,
-                    skip_fields,
-                    first_label.as_deref(),
-                    remove_item_fields,
-                    *remove_source,
+                    group_items_by_header::HeaderGroupingOptions {
+                        source,
+                        target,
+                        is_header_field,
+                        label_field,
+                        entries_field,
+                        skip_fields,
+                        first_label: first_label.as_deref(),
+                        remove_item_fields,
+                        remove_source: *remove_source,
+                    },
                 );
                 Ok(())
             }

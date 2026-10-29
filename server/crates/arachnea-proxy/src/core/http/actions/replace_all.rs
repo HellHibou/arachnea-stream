@@ -23,14 +23,14 @@ use crate::REPLACE_ALL_ACTION_HEADER_LOWER;
 pub struct ReplaceAll;
 
 impl ReplaceAll {
-    /// Creates a ReplaceAll action without an explicit execution order.
+    /// Creates a ReplaceAll action configuration without an explicit execution order.
     ///
     /// # Arguments
     /// * `pattern` - Regular expression stored in the action; compilation happens when the action is built.
     /// * `replacement` - Replacement template, with request-context variables resolved when the action runs.
     /// * `content_types` - Optional media-type allowlist; `None` uses the built-in textual content-type policy.
     ///
-    pub fn new(
+    pub fn config(
         pattern: impl Into<String>,
         replacement: impl Into<String>,
         content_types: Option<Vec<String>>,
@@ -302,7 +302,7 @@ impl super::ProxyHttpPostAction for ReplaceAllAction {
         let encoding = detect_encoding(content_type);
         let (decoded, encoding_used, had_errors) = encoding.decode(&body);
 
-        if had_errors && decoded.len() == 0 {
+        if had_errors && decoded.is_empty() {
             // Decoding failed completely, leave body unchanged
             tracing::debug!(
                 "ReplaceAll: unable to decode body with {}, leaving unchanged",

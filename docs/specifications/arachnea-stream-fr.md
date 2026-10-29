@@ -1,5 +1,7 @@
 # Spécification du format YAML arachnea-stream
 
+Les enums Rust privées des résultats de lecture placent chaque flux réussi dans une boîte, transmise sans recréation pendant la résolution. L’union JSON sans tag, les champs, métadonnées, ordre des URL et replis iframe restent inchangés ; les tentatives échouées et erreurs terminales n’ajoutent aucune boîte de flux. La configuration publique Rust du proxy intégré utilise désormais `HttpProxyConfig::Arachnea(Box::new(core))` : sa construction et son clonage allouent une boîte sans changer les contrats YAML ou frontend.
+
 ## 1. Aperçu
 
 Une collection arachnea-stream déclare une source de streaming (plateforme
@@ -375,8 +377,8 @@ Structure commune utilisée dans `sections[].entries`, `search.entries`,
 | `img/preview > link` | `string` | non | URL d'aperçu |
 | `img/logo > link` | `string` | non | URL du logo |
 
-> **Note** : `execute_query_async` peut injecter `source` lorsque son paramètre
-> `source_field_name` vaut `Some("source")`. Les requêtes qui ne demandent pas
+> **Note** : `execute_query_async` peut injecter `source` lorsque le champ
+> `ScraperAggregationOptions::source_field_name` vaut `Some("source")`. Les requêtes qui ne demandent pas
 > cette injection, notamment `search`, doivent extraire `source` dans le YAML
 > sur la ligne de résultat ou sur chaque `MediaItem` afin de conserver une carte
 > ouvrable.
@@ -1133,7 +1135,7 @@ ces frontières conservent les imports publics, commandes et contrats de résult
 Chaque méthode de catalogue :
 
 1. Construit une `HashMap<String, String>` de paramètres
-2. Appelle `agregator.execute_query_async("arachnea-stream", "<nom_requete>", …)`
+2. Appelle `agregator.execute_query_async(context, query_parameters, "arachnea-stream", "<nom_requete>", params, options)`, avec les options empruntées de `ScraperAggregationOptions`
 3. Retourne les lignes brutes ou fusionnées
 
 Côté frontend, les normalisateurs dans `front/src/services/rustify.ts`

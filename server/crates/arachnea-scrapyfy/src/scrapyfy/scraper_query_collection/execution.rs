@@ -28,7 +28,7 @@ impl ScraperQueryDefinition {
                     base_url, params, mappings,
                 );
                 (
-                    &*query as &dyn crate::scrapyfy::scraper::query_trait::ScraperQuery,
+                    query as &dyn crate::scrapyfy::scraper::query_trait::ScraperQuery,
                     query.result_item_field(),
                     execution_params,
                 )
@@ -40,7 +40,7 @@ impl ScraperQueryDefinition {
                     base_url, params, mappings,
                 );
                 (
-                    &*query as &dyn crate::scrapyfy::scraper::query_trait::ScraperQuery,
+                    query as &dyn crate::scrapyfy::scraper::query_trait::ScraperQuery,
                     query.result_item_field(),
                     execution_params,
                 )
@@ -51,7 +51,7 @@ impl ScraperQueryDefinition {
                 let execution_params =
                     crate::scrapyfy::query_helpers::resolve_nested_template_params(params);
                 (
-                    &*query as &dyn crate::scrapyfy::scraper::query_trait::ScraperQuery,
+                    query as &dyn crate::scrapyfy::scraper::query_trait::ScraperQuery,
                     query.result_item_field(),
                     execution_params,
                 )
@@ -63,7 +63,7 @@ impl ScraperQueryDefinition {
                     base_url, params, mappings,
                 );
                 (
-                    &*query as &dyn crate::scrapyfy::scraper::query_trait::ScraperQuery,
+                    query as &dyn crate::scrapyfy::scraper::query_trait::ScraperQuery,
                     query.result_item_field(),
                     execution_params,
                 )
@@ -141,7 +141,7 @@ impl ScraperQueryDefinition {
                     base_url, params, mappings,
                 );
                 (
-                    &*query as &dyn crate::scrapyfy::scraper::query_trait::ScraperQuery,
+                    query as &dyn crate::scrapyfy::scraper::query_trait::ScraperQuery,
                     query.result_item_field(),
                     execution_params,
                 )
@@ -153,7 +153,7 @@ impl ScraperQueryDefinition {
                     base_url, params, mappings,
                 );
                 (
-                    &*query as &dyn crate::scrapyfy::scraper::query_trait::ScraperQuery,
+                    query as &dyn crate::scrapyfy::scraper::query_trait::ScraperQuery,
                     query.result_item_field(),
                     execution_params,
                 )
@@ -162,7 +162,7 @@ impl ScraperQueryDefinition {
                 let execution_params =
                     crate::scrapyfy::query_helpers::resolve_nested_template_params(params);
                 (
-                    &*query as &dyn crate::scrapyfy::scraper::query_trait::ScraperQuery,
+                    query as &dyn crate::scrapyfy::scraper::query_trait::ScraperQuery,
                     query.result_item_field(),
                     execution_params,
                 )
@@ -174,7 +174,7 @@ impl ScraperQueryDefinition {
                     base_url, params, mappings,
                 );
                 (
-                    &*query as &dyn crate::scrapyfy::scraper::query_trait::ScraperQuery,
+                    query as &dyn crate::scrapyfy::scraper::query_trait::ScraperQuery,
                     query.result_item_field(),
                     execution_params,
                 )

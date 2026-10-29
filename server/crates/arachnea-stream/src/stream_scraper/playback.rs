@@ -45,12 +45,14 @@ impl StreamScraper {
                 STREAM_SERVICE_GROUP_NAME,
                 "get_players",
                 &params,
-                None,
-                scrapper_list.as_ref(),
-                None,
-                None,
-                Some("source"),
-                "get_players",
+                arachnea_scrapyfy::ScraperAggregationOptions {
+                    source_params: None,
+                    scrapper_list: scrapper_list.as_ref(),
+                    query_media_type_filter: None,
+                    fields_filters: None,
+                    source_field_name: Some("source"),
+                    operation: "get_players",
+                },
             )
             .await;
         let global_etag = result.take_global_etag();
@@ -97,7 +99,7 @@ impl StreamScraper {
     ) -> Result<ScraperAggregationResult<ResolvedStream>> {
         let proxy_countries = normalize_proxy_countries(proxy_countries);
         let resolved = if resolver_id.trim() == SCRAPER_QUERY_STREAM_RESOLVER_ID {
-            ResolvedStream::Stream(
+            ResolvedStream::Stream(Box::new(
                 resolve_scraper_query_stream(
                     &self.scraper_agregator,
                     &self.player_resolver_endpoints,
@@ -107,7 +109,7 @@ impl StreamScraper {
                     proxy_rewrite_manifest_urls.unwrap_or(false),
                 )
                 .await?,
-            )
+            ))
         } else if resolver_id.trim() == GENERIC_STREAM_RESOLVER_ID {
             StreamResolver::new(&self.scraper_agregator, &self.player_resolver_endpoints)
                 .get_stream(&target)
@@ -120,19 +122,21 @@ impl StreamScraper {
                 .query_collection_parameters(STREAM_SERVICE_GROUP_NAME, resolver.source_id())
                 .unwrap_or(&[]);
 
-            ResolvedStream::Stream(
+            ResolvedStream::Stream(Box::new(
                 resolver
                     .get_stream(
                         &self.scraper_agregator,
                         self.credentials_store.as_ref(),
-                        &resolver_id,
-                        &target,
-                        service_parameters,
-                        &proxy_countries,
+                        crate::services::player_resolver::PlayerStreamRequest {
+                            resolver: &resolver_id,
+                            target: &target,
+                            service_parameters,
+                            proxy_countries: &proxy_countries,
+                        },
                         &self.player_resolver_endpoints,
                     )
                     .await?,
-            )
+            ))
         };
 
         Ok(ScraperAggregationResult::ok(resolved))

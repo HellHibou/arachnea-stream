@@ -18,18 +18,21 @@ pub(super) fn block_on<F: std::future::Future>(future: F) -> F::Output {
 }
 
 pub(super) fn unique_temp_dir() -> PathBuf {
+    static NEXT_DIRECTORY: AtomicUsize = AtomicUsize::new(0);
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("system time should be after UNIX_EPOCH")
         .as_nanos();
     std::env::temp_dir().join(format!(
-        "arachnea-stream-hoster-test-{}-{}",
+        "arachnea-stream-hoster-test-{}-{}-{}",
         std::process::id(),
-        nanos
+        nanos,
+        NEXT_DIRECTORY.fetch_add(1, Ordering::Relaxed)
     ))
 }
 
 pub(super) fn setup_resolver_sources(sources: &[(&str, &str)]) -> (ScraperAgregator, PathBuf) {
+    configure_test_application_data_dir();
     let dir = unique_temp_dir();
     std::fs::create_dir_all(&dir).expect("test service dir should be created");
 

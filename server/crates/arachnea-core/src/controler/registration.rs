@@ -63,8 +63,7 @@ fn query_string_to_json_value(query: &str) -> Result<Value, String> {
     let mut object = Map::new();
 
     for (key, raw_value) in pairs {
-        let value =
-            serde_json::from_str::<Value>(&raw_value).unwrap_or_else(|_| Value::String(raw_value));
+        let value = serde_json::from_str::<Value>(&raw_value).unwrap_or(Value::String(raw_value));
 
         match object.get_mut(&key) {
             Some(existing) => {

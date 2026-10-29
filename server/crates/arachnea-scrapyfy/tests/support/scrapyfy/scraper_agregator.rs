@@ -17,13 +17,11 @@ impl ScraperAgregator {
         group_name: &str,
         name: &str,
     ) -> Option<&ScraperQueryCollection> {
-        for entry in &self.queries_collection.get(group_name)?.services {
-            if entry.name() == name {
-                return Some(entry);
-            }
-        }
-
-        None
+        self.queries_collection
+            .get(group_name)?
+            .services
+            .iter()
+            .find(|entry| entry.name() == name)
     }
 }
 

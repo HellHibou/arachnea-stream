@@ -57,7 +57,6 @@ async fn concurrent_country_loads_wait_for_one_provider_refresh() -> AnyResult<(
             let search = ProxySearchContext::new(crate::core::ProxySearchLimits {
                 target: Duration::from_millis(10),
                 extension: Duration::ZERO,
-                ..Default::default()
             });
             search.scope(inventory.select("BE", true)).await
         })
@@ -492,7 +491,6 @@ async fn concurrent_country_loads_wait_for_one_provider_refresh() -> AnyResult<(
         let timed = ProxySearchContext::new(crate::core::ProxySearchLimits {
             target: Duration::from_millis(30),
             extension: Duration::from_millis(60),
-            ..Default::default()
         });
         if engaged {
             timed.start_origin("endpoint", &destination)?;
@@ -516,7 +514,6 @@ async fn concurrent_country_loads_wait_for_one_provider_refresh() -> AnyResult<(
     let margin = ProxySearchContext::new(crate::core::ProxySearchLimits {
         target: Duration::from_millis(30),
         extension: Duration::from_millis(60),
-        ..Default::default()
     });
     margin.start_origin("endpoint", &destination)?;
     margin
@@ -530,7 +527,6 @@ async fn concurrent_country_loads_wait_for_one_provider_refresh() -> AnyResult<(
     let accepted = ProxySearchContext::new(crate::core::ProxySearchLimits {
         target: Duration::from_millis(30),
         extension: Duration::from_millis(60),
-        ..Default::default()
     });
     accepted.start_origin("endpoint", &destination)?;
     accepted

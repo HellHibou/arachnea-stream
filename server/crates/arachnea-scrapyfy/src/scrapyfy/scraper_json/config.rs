@@ -25,7 +25,9 @@ use crate::scrapyfy::scraper_html::entry::{
 };
 use crate::scrapyfy::scraper_json::entry::JsonScraperEntryRaw;
 use crate::scrapyfy::scraper_json::query::{JsonScraperQuery, JsonScraperSubQuery};
-use crate::scrapyfy::{HttpClient, ScraperAction, ScraperHttpConfig};
+use crate::scrapyfy::{
+    HttpClient, JsonQueryConcurrency, QueryEndpoint, ScraperAction, ScraperHttpConfig,
+};
 
 // ---------------------------------------------------------------------------
 // Default-value helpers
@@ -332,15 +334,6 @@ impl EntrySubQueryRaw {
                     ::scraper::Selector::parse(&row_selector).map_err(|e| {
                         anyhow::anyhow!("Invalid row_selector '{}': {}", row_selector, e)
                     })?;
-                let row_selector = if row_selector.starts_with('.') || row_selector.starts_with('#')
-                {
-                    row_selector
-                } else if row_selector.starts_with("//") {
-                    row_selector
-                } else {
-                    row_selector
-                };
-
                 let query = crate::scrapyfy::scraper_html::query::HtmlScraperQuery {
                     name: "html-sub-query".to_string(),
                     base_url: base_url.to_string(),
@@ -429,13 +422,20 @@ impl EntrySubQueryRaw {
                 } = common;
 
                 let mut query = crate::scrapyfy::scraper_json::query::JsonScraperQuery::try_new(
-                    "json-sub-query",
-                    base_url,
-                    Vec::new(), // no media_types
-                    "",         // no query_url (URL comes from request_pointer)
-                    4,
-                    4,
-                    8,
+                    QueryEndpoint {
+                        name: "json-sub-query",
+                        base_url,
+                        media_types: Vec::new(),
+                        query_url: "", // The URL comes from request_pointer.
+                    },
+                    JsonQueryConcurrency {
+                        sibling_sub_query_concurrency:
+                            crate::JSON_DEFAULT_SIBLING_SUB_QUERY_CONCURRENCY,
+                        sub_query_context_concurrency:
+                            crate::JSON_DEFAULT_SUB_QUERY_CONTEXT_CONCURRENCY,
+                        sub_query_fetch_concurrency:
+                            crate::JSON_DEFAULT_SUB_QUERY_FETCH_CONCURRENCY,
+                    },
                     filters,
                     &row_pointer,
                     entries,

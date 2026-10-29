@@ -12,6 +12,28 @@ pub(super) fn validate() -> Result<(), anyhow::Error> {
     Ok(())
 }
 
+/// Borrowed configuration for one header-delimited grouping operation.
+pub(super) struct HeaderGroupingOptions<'a> {
+    /// Path of the flat source items.
+    pub(super) source: &'a str,
+    /// Path receiving grouped sections.
+    pub(super) target: &'a str,
+    /// Path of the header-row flag.
+    pub(super) is_header_field: &'a str,
+    /// Path of the label on header rows.
+    pub(super) label_field: &'a str,
+    /// Path of entries within each section.
+    pub(super) entries_field: &'a str,
+    /// Boolean paths whose flagged items are dropped.
+    pub(super) skip_fields: &'a [String],
+    /// Optional label for items preceding a header.
+    pub(super) first_label: Option<&'a str>,
+    /// Paths stripped from copied entries.
+    pub(super) remove_item_fields: &'a [String],
+    /// Whether to remove the source after grouping.
+    pub(super) remove_source: bool,
+}
+
 /// Groups flat items into labeled sections delimited by header rows.
 ///
 /// Items are consumed in display order. An item flagged by `is_header_field`
@@ -23,30 +45,20 @@ pub(super) fn validate() -> Result<(), anyhow::Error> {
 ///
 /// # Arguments
 ///
-/// * `root` - Root node that owns the source group and receives the target
-///   group.
-/// * `source` - `>`-delimited path of the flat source items.
-/// * `target` - `>`-delimited path that receives the grouped sections.
-/// * `is_header_field` - `>`-delimited path of the boolean header flag.
-/// * `label_field` - `>`-delimited path of the section label on header rows.
-/// * `entries_field` - `>`-delimited path of the entries array written inside
-///   each section.
-/// * `skip_fields` - Boolean field paths; items where any is true are dropped.
-/// * `first_label` - Optional label for items preceding the first header row.
-/// * `remove_item_fields` - Field paths stripped from every copied entry.
-/// * `remove_source` - When true, the source field is removed after grouping.
-pub(super) fn apply(
-    root: &mut ScraperDataNode,
-    source: &str,
-    target: &str,
-    is_header_field: &str,
-    label_field: &str,
-    entries_field: &str,
-    skip_fields: &[String],
-    first_label: Option<&str>,
-    remove_item_fields: &[String],
-    remove_source: bool,
-) {
+/// * `root` - Mutable root owning the source and receiving grouped sections.
+/// * `options` - Borrowed grouping paths, filters, label and removal policy.
+pub(super) fn apply(root: &mut ScraperDataNode, options: HeaderGroupingOptions<'_>) {
+    let HeaderGroupingOptions {
+        source,
+        target,
+        is_header_field,
+        label_field,
+        entries_field,
+        skip_fields,
+        first_label,
+        remove_item_fields,
+        remove_source,
+    } = options;
     let mut sections: Vec<ScraperDataNode> = Vec::new();
     let mut current_label: Option<String> = None;
     let mut current_entries: Vec<ScraperDataNode> = Vec::new();

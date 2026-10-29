@@ -247,26 +247,25 @@ pub(super) fn get_entry(get_entry_url: Option<String>, yaml_file: &str) -> Resul
             let get_entry_url = get_entry_url.clone();
             let yaml_file_inner = yaml_file_owned.clone();
             Box::pin(async move {
-                let entry_url;
-                if get_entry_url.is_none() {
+                let entry_url = if get_entry_url.is_none() {
                     // We need to pass a source name to load_entry_url_from_home
                     // For now, extract it from yaml_file
                     let yaml_path = Path::new(&yaml_file_inner);
                     let source_name = yaml_path
                         .file_stem()
-                        .unwrap_or_else(|| yaml_path.as_os_str())
+                        .unwrap_or(yaml_path.as_os_str())
                         .to_string_lossy();
-                    entry_url = load_entry_url_from_home(scraper, &source_name).await?;
+                    load_entry_url_from_home(scraper, &source_name).await?
                 } else {
-                    entry_url = get_entry_url.clone().unwrap();
-                }
+                    get_entry_url.clone().unwrap()
+                };
 
                 println!("Entry URL: {}", entry_url);
                 // Use yaml_file without extension as source
                 let yaml_path = Path::new(&yaml_file_inner);
                 let source_name = yaml_path
                     .file_stem()
-                    .unwrap_or_else(|| yaml_path.as_os_str())
+                    .unwrap_or(yaml_path.as_os_str())
                     .to_string_lossy();
                 let entry_result = scraper
                     .get_entry(
@@ -326,12 +325,7 @@ pub(super) async fn load_entry_url_from_home(
         .cloned()
         .ok_or_else(|| anyhow::anyhow!("Missing section in load_home response"))?;
 
-    let entry = if let Some(entry) = section
-        .children
-        .get("entries")
-        .and_then(|entries| entries.items.first())
-        .cloned()
-    {
+    let entry = if let Some(entry) = first_section_entry(&section).cloned() {
         entry
     } else {
         let section_url = section
@@ -366,4 +360,21 @@ pub(super) async fn load_entry_url_from_home(
         .ok_or_else(|| anyhow::anyhow!("Missing link in load_home entry"))?;
 
     Ok(entry_url)
+}
+
+/// Finds the first entry in a section or its nested subsections.
+///
+/// # Arguments
+/// * `section` - Home section whose entries follow the current scraper schema.
+fn first_section_entry(section: &ScraperDataNode) -> Option<&ScraperDataNode> {
+    section
+        .children
+        .get("entries")
+        .and_then(|entries| entries.items.first())
+        .or_else(|| {
+            section
+                .children
+                .get("subsections")
+                .and_then(|subsections| subsections.items.iter().find_map(first_section_entry))
+        })
 }

@@ -42,21 +42,20 @@ pub struct TextScraperEntryRaw {
 }
 
 impl TextScraperEntryRaw {
-    /// Resolves collection-level placeholders used by actions in this entry tree.
+    /// Traverses child entries while retaining the collection parameter context.
+    ///
+    /// Entry actions are not rewritten or validated by this load-time traversal;
+    /// their placeholders are resolved when actions execute.
     ///
     /// # Arguments
     ///
-    /// * `params` - Collection-level template parameters.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if a required placeholder is missing from `params`.
+    /// * `_params` - Reserved collection parameter context forwarded to children.
     pub(crate) fn resolve_collection_params(
         &mut self,
-        params: &HashMap<String, String>,
+        _params: &HashMap<String, String>,
     ) -> Result<()> {
         for entry in &mut self.entries {
-            entry.resolve_collection_params(params)?;
+            entry.resolve_collection_params(_params)?;
         }
         Ok(())
     }
@@ -134,9 +133,11 @@ impl TextScraperEntry {
                         &None,
                         values,
                         params,
-                        request_url,
-                        None,
-                        None,
+                        crate::ActionResponse {
+                            request_url,
+                            response_body: None,
+                            response_json: None,
+                        },
                         Some(dynamic_variables),
                     )?;
                 }

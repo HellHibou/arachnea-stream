@@ -115,7 +115,7 @@ async fn concurrent_http_responses_keep_endpoint_tokens_and_pinned_reconnects() 
             (crate::core::ProxyError::Io(std::io::Error::from(std::io::ErrorKind::ConnectionReset)), crate::core::ProxyObservationPhase::Tunnel, "connection_reset"),
         ] {
             let wrapped = crate::core::ProxyError::RequestAttempt {
-                selection: Some(diagnostic.clone()),
+                selection: Some(Box::new(diagnostic.clone())),
                 delivery: crate::core::ProxyRequestDelivery::NotSent,
                 source: Box::new(error.at_phase(phase)),
             };
@@ -154,7 +154,7 @@ async fn concurrent_http_responses_keep_endpoint_tokens_and_pinned_reconnects() 
             crate::core::ProxyError::Timeout("TLS timeout").at_phase(crate::core::ProxyObservationPhase::ProxyTls),
             crate::core::ProxyError::Tls("timeout text is not evidence".into()).at_phase(crate::core::ProxyObservationPhase::Tunnel),
         ].into_iter().enumerate() {
-            let target = Destination::host_port(&format!("ambiguous-{index}.example"), 443).with_protocol(crate::core::ApplicationProtocol::Https);
+            let target = Destination::host_port(format!("ambiguous-{index}.example"), 443).with_protocol(crate::core::ApplicationProtocol::Https);
             let token = crate::core::ProxySelectionToken::new(inventory.clone(), accepted.authority(), target.clone());
             token.record_transport_failure(&error).await;
             let records = inventory.all_records().await;

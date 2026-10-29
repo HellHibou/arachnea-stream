@@ -198,7 +198,7 @@ impl PreparedProxyRuntime {
                     Some(Arc::new(
                         ArachneaRquestLoopback::start_on_runtime(
                             runtime,
-                            core.clone(),
+                            core.as_ref().clone(),
                             definitions,
                             context,
                             true,
@@ -213,10 +213,10 @@ impl PreparedProxyRuntime {
                 }
                 _ => None,
             };
-            return Ok(Self {
+            Ok(Self {
                 pinned_clients: config.proxy_transport_pool.clone().unwrap_or_default(),
                 loopback_proxy,
-            });
+            })
         }
 
         #[cfg(not(feature = "arachnea-proxy"))]

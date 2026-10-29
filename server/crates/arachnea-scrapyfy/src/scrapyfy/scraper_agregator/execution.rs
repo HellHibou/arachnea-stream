@@ -2,6 +2,26 @@
 
 use super::*;
 
+/// Borrowed selection, validation and cache policy for one private aggregation pass.
+pub(super) struct QueryPassOptions<'a> {
+    /// Borrowed per-source parameter overrides.
+    source_params: Option<&'a ScraperSourceParams>,
+    /// Borrowed selected-source list, preserving the existing container type.
+    scrapper_list: Option<&'a Vec<String>>,
+    /// Borrowed media-type filter.
+    query_media_type_filter: Option<&'a Vec<String>>,
+    /// Borrowed root-field filters.
+    fields_filters: Option<&'a HashMap<String, Vec<String>>>,
+    /// Optional output source metadata key.
+    source_field_name: Option<&'a str>,
+    /// Existing logical operation name for error correlation.
+    operation: &'a str,
+    /// Borrowed client per-source validators.
+    client_fragments: Option<&'a HashMap<String, String>>,
+    /// Existing cache interaction for this pass.
+    server_cache_interaction: ServerCacheInteraction,
+}
+
 impl ScraperAgregator {
     /// Streams unconditional proxy-source batches in completion order.
     /// This discovery-only path leaves ordinary aggregation, ordering and caching unchanged.
@@ -89,21 +109,10 @@ impl ScraperAgregator {
     ///
     /// # Arguments
     ///
-    /// * `group_name` - Group name whose sources should be queried.
-    /// * `query_name` - Name of the query to execute on every configured source.
-    /// * `params` - Runtime values passed to each source-specific query template.
-    /// * `source_params` - Optional per-source parameter overrides merged into `params`.
-    /// * `scrapper_list` - Optional list of source names to execute. When `None`, every
-    ///   configured source in the group is queried.
-    /// * `query_media_type_filter` - Filter on media_type query.
-    /// * `fields_filters` - Root fields filter list or None.
-    /// * `source_field_name` - Optional metadata key used to store the originating source name.
-    /// * `operation` - Logical operation name used in error correlation codes.
-    /// * `client_fragments` - Optional per-source validator fragments provided by the
-    ///   client (source name → fragment). When set for a source, conditional headers
-    ///   are applied to that source's root request and unchanged content skips parsing.
-    /// * `server_cache_interaction` - How this pass interacts with the server-side
-    ///   cache (`None`, `Validate` or `ForceRefresh`). See [`ServerCacheInteraction`].
+    /// * `group_name` - Group whose sources are queried.
+    /// * `query_name` - Query executed on each selected source.
+    /// * `params` - Borrowed runtime template values.
+    /// * `options` - Borrowed selectors/overrides, output metadata, validators and cache policy.
     ///
     /// The returned entries are already tree-shaped when fields include `>` in their names.
     ///
@@ -116,15 +125,18 @@ impl ScraperAgregator {
         group_name: &str,
         query_name: &str,
         params: &HashMap<String, String>,
-        source_params: Option<&ScraperSourceParams>,
-        scrapper_list: Option<&Vec<String>>,
-        query_media_type_filter: Option<&Vec<String>>,
-        fields_filters: Option<&HashMap<String, Vec<String>>>,
-        source_field_name: Option<&str>,
-        operation: &str,
-        client_fragments: Option<&HashMap<String, String>>,
-        server_cache_interaction: ServerCacheInteraction,
+        options: QueryPassOptions<'_>,
     ) -> ScraperAggregationResult<Vec<HashMap<String, ScraperDataNode>>> {
+        let QueryPassOptions {
+            source_params,
+            scrapper_list,
+            query_media_type_filter,
+            fields_filters,
+            source_field_name,
+            operation,
+            client_fragments,
+            server_cache_interaction,
+        } = options;
         let Some(query_service) = self.queries_collection.get(group_name) else {
             let code = ERROR_CODE_GEN.next_code();
             let message = format!("query group `{group_name}` not found");
@@ -447,13 +459,8 @@ impl ScraperAgregator {
     /// * `group_name` - Group name whose sources should be queried.
     /// * `query_name` - Name of the query to execute on every configured source.
     /// * `params` - Runtime values passed to each source-specific query template.
-    /// * `source_params` - Optional per-source parameter overrides merged into `params`.
-    /// * `scrapper_list` - Optional list of source names to execute. When `None`, every
-    ///   configured source in the group is queried.
-    /// * `query_media_type_filter` - Filter on media_type query.
-    /// * `fields_filters` - Root fields filter list or None.
-    /// * `source_field_name` - Optional metadata key used to store the originating source name.
-    /// * `operation` - Logical operation name used in error correlation codes.
+    /// * `options` - Borrowed source overrides, selection filters, source metadata key
+    ///   and operation name used in error correlation codes.
     pub async fn execute_query_async(
         &self,
         context: &RequestControlerContext,
@@ -461,13 +468,16 @@ impl ScraperAgregator {
         group_name: &str,
         query_name: &str,
         params: &HashMap<String, String>,
-        source_params: Option<&ScraperSourceParams>,
-        scrapper_list: Option<&Vec<String>>,
-        query_media_type_filter: Option<&Vec<String>>,
-        fields_filters: Option<&HashMap<String, Vec<String>>>,
-        source_field_name: Option<&str>,
-        operation: &str,
+        options: ScraperAggregationOptions<'_>,
     ) -> ScraperAggregationResult<Vec<HashMap<String, ScraperDataNode>>> {
+        let ScraperAggregationOptions {
+            source_params,
+            scrapper_list,
+            query_media_type_filter,
+            fields_filters,
+            source_field_name,
+            operation,
+        } = options;
         let cache_type = query_parameters.cache_type;
         let client_flow = cache_type.sends_client_etag();
         let server_cache_enabled = cache_type.uses_server_cache();
@@ -478,14 +488,16 @@ impl ScraperAgregator {
                     group_name,
                     query_name,
                     params,
-                    source_params,
-                    scrapper_list,
-                    query_media_type_filter,
-                    fields_filters,
-                    source_field_name,
-                    operation,
-                    None,
-                    ServerCacheInteraction::None,
+                    QueryPassOptions {
+                        source_params,
+                        scrapper_list,
+                        query_media_type_filter,
+                        fields_filters,
+                        source_field_name,
+                        operation,
+                        client_fragments: None,
+                        server_cache_interaction: ServerCacheInteraction::None,
+                    },
                 )
                 .await;
         }
@@ -528,17 +540,19 @@ impl ScraperAgregator {
                 group_name,
                 query_name,
                 params,
-                source_params,
-                scrapper_list,
-                query_media_type_filter,
-                fields_filters,
-                source_field_name,
-                operation,
-                client_fragments.as_ref(),
-                if server_cache_enabled {
-                    ServerCacheInteraction::Validate
-                } else {
-                    ServerCacheInteraction::None
+                QueryPassOptions {
+                    source_params,
+                    scrapper_list,
+                    query_media_type_filter,
+                    fields_filters,
+                    source_field_name,
+                    operation,
+                    client_fragments: client_fragments.as_ref(),
+                    server_cache_interaction: if server_cache_enabled {
+                        ServerCacheInteraction::Validate
+                    } else {
+                        ServerCacheInteraction::None
+                    },
                 },
             )
             .await;
@@ -642,17 +656,19 @@ impl ScraperAgregator {
                         group_name,
                         query_name,
                         params,
-                        source_params,
-                        Some(&remote_needed),
-                        query_media_type_filter,
-                        fields_filters,
-                        source_field_name,
-                        operation,
-                        None,
-                        if server_cache_enabled {
-                            ServerCacheInteraction::ForceRefresh
-                        } else {
-                            ServerCacheInteraction::None
+                        QueryPassOptions {
+                            source_params,
+                            scrapper_list: Some(&remote_needed),
+                            query_media_type_filter,
+                            fields_filters,
+                            source_field_name,
+                            operation,
+                            client_fragments: None,
+                            server_cache_interaction: if server_cache_enabled {
+                                ServerCacheInteraction::ForceRefresh
+                            } else {
+                                ServerCacheInteraction::None
+                            },
                         },
                     )
                     .await;

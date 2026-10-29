@@ -9,8 +9,8 @@ pub enum ProxyError {
     /// Business-request failure correlated with its actual route and delivery evidence.
     #[error("proxy request failed ({delivery:?}): {source}")]
     RequestAttempt {
-        /// Actual selected endpoint, when route selection completed.
-        selection: Option<super::ProxySelectionToken>,
+        /// Actual selected endpoint, boxed only on failure when route selection completed.
+        selection: Option<Box<super::ProxySelectionToken>>,
         /// Delivery evidence at the failing I/O boundary.
         delivery: super::ProxyRequestDelivery,
         /// Original contextual transport error.

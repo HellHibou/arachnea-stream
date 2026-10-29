@@ -32,8 +32,8 @@ struct FetchedEmbedHtml {
 enum ResolveAttemptResult {
     /// No stream was produced; the search may continue with the next service.
     NoStream,
-    /// A playable stream was produced for the requested URL.
-    Stream(ResolvedPlayerStream),
+    /// A playable stream whose box is forwarded into the final response.
+    Stream(Box<ResolvedPlayerStream>),
     /// The hoster reported a business error that must stop the search.
     /// The message is the normalized `error_message` value from the YAML entry.
     TerminalError(String),
@@ -61,8 +61,8 @@ pub use crate::SCRAPER_QUERY_STREAM_RESOLVER_ID;
 #[derive(Serialize)]
 #[serde(untagged)]
 pub(crate) enum ResolvedStream {
-    /// Resolved media stream with URL list and metadata.
-    Stream(ResolvedPlayerStream),
+    /// Owned media stream with URL list and metadata, serialized without a wrapper.
+    Stream(Box<ResolvedPlayerStream>),
     /// Iframe fallback preserving the original URL for the embed player.
     EmbedLink {
         /// The iframe URL to render.
@@ -247,12 +247,14 @@ impl<'a> StreamResolver<'a> {
                 STREAM_RESOLVER_GROUP_NAME,
                 RESOLVE_STREAM_QUERY_NAME,
                 &params,
-                None,
-                Some(&vec![service_name.to_string()]),
-                None,
-                None,
-                None,
-                "resolve_stream",
+                arachnea_scrapyfy::ScraperAggregationOptions {
+                    source_params: None,
+                    scrapper_list: Some(&vec![service_name.to_string()]),
+                    query_media_type_filter: None,
+                    fields_filters: None,
+                    source_field_name: None,
+                    operation: "resolve_stream",
+                },
             )
             .await
             .data;
@@ -284,7 +286,7 @@ impl<'a> StreamResolver<'a> {
             false,
         );
 
-        Ok(ResolveAttemptResult::Stream(stream))
+        Ok(ResolveAttemptResult::Stream(Box::new(stream)))
     }
 
     /// Builds common runtime parameters for resolver queries.
@@ -408,12 +410,14 @@ pub(crate) async fn resolve_scraper_query_stream(
             crate::stream_scraper::STREAM_SERVICE_GROUP_NAME,
             RESOLVE_STREAM_QUERY_NAME,
             &params,
-            None,
-            Some(&sources),
-            None,
-            None,
-            None,
-            RESOLVE_STREAM_QUERY_NAME,
+            arachnea_scrapyfy::ScraperAggregationOptions {
+                source_params: None,
+                scrapper_list: Some(&sources),
+                query_media_type_filter: None,
+                fields_filters: None,
+                source_field_name: None,
+                operation: RESOLVE_STREAM_QUERY_NAME,
+            },
         )
         .await
         .data;
@@ -510,7 +514,7 @@ fn proxy_resolved_stream(
         .proxy_insecure_tls_hosts(group_name, service_name)
         .unwrap_or_default();
     let actions: Vec<ProxyHttpActionConfig> = if rewrite_manifest_urls {
-        vec![ReplaceAll::new(
+        vec![ReplaceAll::config(
             r"(?m)^(https?://[^\r\n]+)",
             "{proxy_inherited}/$1",
             Some(hls_manifest_content_types()),

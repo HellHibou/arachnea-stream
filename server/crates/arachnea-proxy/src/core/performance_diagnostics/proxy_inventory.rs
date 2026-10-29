@@ -13,6 +13,34 @@ use crate::PROXY_RANKING_DIAGNOSTIC_LIMIT as RANKING_DIAGNOSTIC_LIMIT;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
+/// Borrowed ranking context for the bounded diagnostic sample.
+pub(super) struct RankingDiagnosticContext<'a> {
+    /// DEBUG guard captured when selection began.
+    pub(super) diagnostics_enabled: bool,
+    /// Existing process-local ranking identity.
+    pub(super) ranking_id: u64,
+    /// Borrowed active search, when present.
+    pub(super) search: Option<&'a ProxySearchContext>,
+    /// Borrowed exact business origin.
+    pub(super) destination: Option<&'a Destination>,
+    /// Requested HTTPS capability.
+    pub(super) require_https: bool,
+    /// Original selection freshness reference.
+    pub(super) now: SystemTime,
+}
+
+/// Existing provider preparation counters, copied only for diagnostics.
+pub(super) struct ProviderBatchCounts {
+    /// Records received before deduplication.
+    pub(super) loaded_count: usize,
+    /// Prepared records requiring capability checks.
+    pub(super) pending_probe_count: usize,
+    /// Duplicate provider records.
+    pub(super) duplicate_count: usize,
+    /// Records already represented in the cache.
+    pub(super) cached_count: usize,
+}
+
 /// Counts cached capability and exclusion states for diagnostic snapshots.
 #[derive(Clone, Copy, Debug, Default)]
 struct SelectionStats {
@@ -339,24 +367,23 @@ impl ProxyInventory {
     ///
     /// # Arguments
     /// - `diagnostics_enabled`: DEBUG guard captured when selection began.
-    /// - `ranking_id`: Process-local ranking identity.
-    /// - `search`: Active request search, when any.
-    /// - `candidates`: Already sorted candidate snapshots.
-    /// - `destination`: Exact business origin.
-    /// - `require_https`: Requested capability.
-    /// - `now`: Selection's original freshness reference.
-    /// - `rank`: Business comparator's capability rank.
+    /// * `options` - Existing DEBUG guard, ranking identity and borrowed selection context.
+    /// * `candidates` - Already sorted candidate snapshots.
+    /// * `rank` - Unchanged business capability-rank function.
     pub(super) fn log_ranked_candidates(
         &self,
-        diagnostics_enabled: bool,
-        ranking_id: u64,
-        search: Option<&crate::core::ProxySearchContext>,
+        options: RankingDiagnosticContext<'_>,
         candidates: &[&ProxyRecord],
-        destination: Option<&Destination>,
-        require_https: bool,
-        now: SystemTime,
         rank: impl Fn(&ProxyRecord) -> i32,
     ) {
+        let RankingDiagnosticContext {
+            diagnostics_enabled,
+            ranking_id,
+            search,
+            destination,
+            require_https,
+            now,
+        } = options;
         if diagnostics_enabled {
             for (position, candidate) in
                 candidates.iter().take(RANKING_DIAGNOSTIC_LIMIT).enumerate()
@@ -448,22 +475,23 @@ impl ProxyInventory {
     ///
     /// # Arguments
     /// - `country`: Country whose provider is being refreshed.
-    /// - `records`: Prepared records awaiting merge.
-    /// - `existing`: Cached records observed before preparation.
-    /// - `loaded_count`: Number received before deduplication.
-    /// - `pending_probe_count`: Prepared records requiring capability checks.
-    /// - `duplicate_count`: Duplicate provider records.
-    /// - `cached_count`: Records already represented in the cache.
+    /// * `country` - Country whose provider is being refreshed.
+    /// * `records` - Prepared records awaiting merge.
+    /// * `existing` - Cached records observed before preparation.
+    /// * `counts` - Existing loaded, probe, duplicate and cached counts.
     pub(super) fn log_prepared_provider_batch(
         &self,
         country: &str,
         records: &[ProxyRecord],
         existing: &std::collections::HashMap<String, ProxyRecord>,
-        loaded_count: usize,
-        pending_probe_count: usize,
-        duplicate_count: usize,
-        cached_count: usize,
+        counts: ProviderBatchCounts,
     ) {
+        let ProviderBatchCounts {
+            loaded_count,
+            pending_probe_count,
+            duplicate_count,
+            cached_count,
+        } = counts;
         {
             let new_endpoint_count = records
                 .iter()

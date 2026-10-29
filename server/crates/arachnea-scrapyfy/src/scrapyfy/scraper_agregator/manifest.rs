@@ -56,7 +56,7 @@ pub fn resolve_manifest_sources(
 /// Returns errors when a manifest cannot be opened or decoded, or a source/import path cannot be resolved. Duplicate and cyclic imports are skipped with a warning.
 pub(super) fn resolve_manifest_sources_recursive(
     config_path: &Path,
-    manifest_rel_dir: &PathBuf,
+    manifest_rel_dir: &Path,
     visited: &mut Vec<String>,
     import_chain: &mut Vec<String>,
     resolved: &mut Vec<ScraperAggregatorSourceEntry>,
@@ -64,7 +64,7 @@ pub(super) fn resolve_manifest_sources_recursive(
     // A manifest already imported by another branch, or a cycle back onto the
     // current import chain, is skipped with a warning so resolution terminates.
     let manifest_identity = format!("{}", config_path.display());
-    if visited.iter().any(|seen| *seen == manifest_identity) {
+    if visited.contains(&manifest_identity) {
         tracing::warn!(target: "arachnea_scrapyfy::scrapyfy::scraper_agregator",
             config_path = %config_path.display(),
             import_chain = %import_chain.join(" -> "),

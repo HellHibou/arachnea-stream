@@ -88,11 +88,12 @@ impl AdminRuntimeAdapter for StreamAdminRuntimeAdapter {
     fn target_server_settings(&self) -> Option<CoreApplicationOptions> {
         let rest_server = self.rest_server.as_ref()?;
         let target = rest_server.target_settings()?;
-        let mut settings = CoreApplicationOptions::default();
-        settings.server_port = Some(target.server_port);
-        settings.network_mode = Some(target.network_mode);
-        settings.entrypoint_root = target.entrypoint_root;
-        Some(settings)
+        Some(CoreApplicationOptions {
+            server_port: Some(target.server_port),
+            network_mode: Some(target.network_mode),
+            entrypoint_root: target.entrypoint_root,
+            ..Default::default()
+        })
     }
 
     fn apply_server_settings(&self) -> AdminServerSettingsReport {

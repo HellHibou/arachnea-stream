@@ -56,7 +56,7 @@ impl RestServiceSnapshot {
 
     /// Returns the dynamic settings describing this snapshot.
     pub(crate) fn initial_settings(&self) -> RestServerSettings {
-        let network_mode = if self.server_ip.map_or(true, |ip| ip.is_loopback()) {
+        let network_mode = if self.server_ip.is_none_or(|ip| ip.is_loopback()) {
             ServerNetworkMode::Local
         } else if self.allowed_networks.is_empty() {
             ServerNetworkMode::Public

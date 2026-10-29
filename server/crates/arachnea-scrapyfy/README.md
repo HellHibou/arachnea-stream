@@ -6,6 +6,8 @@ Production code lives under `src/`; existing tests mirror the exact source paths
 
 The unified executor in `scrapyfy/scraper/query_executor.rs` delegates fetching, extraction, entry sub-queries and merging to private modules. The aggregator separates source loading, manifest expansion, execution and feature-gated diagnostics. Query collections separate execution and parameter handling; HTML/JSON conversions and administration settings handlers have dedicated private modules. Public import paths remain available through reexports.
 
+Private helpers borrow URL proxy policy, header-grouping configuration, fetch request/response settings and aggregation-pass options through named views. The fetch request owns only the HTTP method that was already moved into the request. Public APIs, YAML fields, parsing/preprocessing order, source selection, validators and cache interactions remain unchanged; these views introduce no new heap allocation or collection/string clones.
+
 The HTTP facade delegates shared proxy routing to `scrapyfy/http_client/proxy.rs`
 and lazy transport construction/versioned caching to `http_client/transport.rs`.
 The node model delegates output type names and serde to
@@ -30,9 +32,88 @@ cargo test --offline -p arachnea-scrapyfy --lib --features arachnea-proxy,sqlite
 
 ## Rust API contracts
 
+### Proxy configuration migration (Unreleased)
+
+Direct Rust construction of the reexported in-process proxy variant now uses
+`HttpProxyConfig::Arachnea(Box::new(core))`. The HTTP builder's `proxy_core(core)`
+argument is unchanged. Constructing or cloning this variant allocates one box;
+cloning still clones the contained core with its existing shared handles and
+copied scalar settings. This also applies when Scrapyfy clones HTTP configuration
+for derived clients. Owned-core consumers clone `core.as_ref()` at the existing
+clone points without allocating an intermediate box. YAML proxy fields, query
+behavior, routing and loopback lifecycle are unchanged. See the HTTP README for
+owned and borrowed pattern-match migration guidance.
+
+### Execution method migration (Unreleased)
+
+Two public execution methods now take borrowed parameter structures, exported
+from both `arachnea_scrapyfy` and `arachnea_scrapyfy::scrapyfy`. External Rust
+callers must migrate; the old long signatures are removed.
+
+| Method | New arguments, in order, after `self` |
+| --- | --- |
+| `ScraperAction::apply_with_dynamic_variables` | `selected`, `texts`, `params`, `ActionResponse`, `dynamic_variables` |
+| `ScraperAgregator::execute_query_async` | `context`, `query_parameters`, `group_name`, `query_name`, `params`, `ScraperAggregationOptions` |
+
+Move the action's old response arguments into
+`ActionResponse { request_url, response_body, response_json }`. Keep the same
+optional response values and dynamic-variable store. The legacy `apply` method
+retains its signature and fallback behavior. The fallible method still reports
+duplicate-variable and extraction errors without rolling back earlier inserts.
+
+Move the aggregator's last six arguments into
+`ScraperAggregationOptions { source_params, scrapper_list,
+query_media_type_filter, fields_filters, source_field_name, operation }`.
+Keep all supplied values, including `None`, unchanged; these structures add no
+defaults or validation. Vector and map references remain borrowed as before.
+The owned `QueryParameters` argument stays separate.
+
+These structures add no heap allocation or cloning. Source order, result shaping,
+cache modes, ETags, conditional responses and error correlation remain unchanged.
+YAML fields, serialized actions and HTTP/frontend contracts are unchanged.
+
+### Constructor migration (Unreleased)
+
+Direct Rust constructor calls now use three public parameter types, available
+from both `arachnea_scrapyfy` and `arachnea_scrapyfy::scrapyfy`. This is a Rust
+source API change; YAML, HTTP/frontend contracts and serialized formats remain
+unchanged. Update calls as follows:
+
+| Constructor | New arguments, in order |
+| --- | --- |
+| `JsonScraperQuery::try_new` | `QueryEndpoint`, `JsonQueryConcurrency`, `filters`, `row_pointer`, `scraper_entries`, `sub_queries` |
+| `TextScraperQuery::try_new` | `QueryEndpoint`, `row_delimiter`, `field_delimiter`, `result_item_field`, `scraper_entries` |
+| `ScraperQueryCollection::new` | `CollectionMetadata`, `parameters`, `proxy_insecure_tls_hosts`, `parameter_defaults`, `queries` |
+
+Move the old `name`, `base_url`, `media_types` and `query_url` arguments into
+`QueryEndpoint { name, base_url, media_types, query_url }`. The three strings stay
+borrowed until construction copies them at the existing points; `media_types`
+still moves into the query. Move the old sibling/context/fetch limits into
+`JsonQueryConcurrency { sibling_sub_query_concurrency,
+sub_query_context_concurrency, sub_query_fetch_concurrency }`. Supply the same
+explicit limits; zero still fails, after row-pointer validation. These parameter
+types introduce no new defaults or normalization.
+
+For a collection, move `name`, `title`, `logo` and `description` into
+`CollectionMetadata { name, title, logo, description }`. The strings remain
+borrowed inputs and the existing multilingual map moves into the collection.
+Query insertion order and all other constructor statements are preserved;
+no additional string/collection clone or heap allocation is introduced.
+The existing seven-argument `JsonScraperQuery::new` convenience API is unchanged;
+its internal delegation still uses the same 4/4/8 concurrency defaults.
+
+Proxy replacement configuration calls also migrate from `ReplaceAll::new` to
+`ReplaceAll::config` with identical arguments and return values; see the Proxy
+README. `ReplaceAll::ordered` is unchanged. The old long signatures and factory
+name are removed, so external direct callers must migrate.
+
+`ScraperAgregator::default()` delegates to `ScraperAgregator::new()`. It performs the same empty-aggregator construction, independent in-memory-store setup and feature-gated proxy initialization. Existing callers of `new()` retain their behavior and cost.
+
 `HttpClient::new` keeps its base-URL argument for compatibility and does not use it. Derived clients share routing, local-country and session-store handles. Cookie isolation creates a separate cookie cache; it does not create separate routing configuration. Ordinary textual HTTP requests attach a body only for POST; an omitted POST body uses the URL query string. Binary request helpers attach any supplied body independently of the method. Browser-page fetches use their own request-body and token configuration.
 
 Source-scoped controller parameters omit JSON nulls, preserve strings and convert numbers, booleans, arrays and objects into their JSON text. Later entries for the same source overwrite matching parameter names. Server-cache reads and writes are best-effort and degrade to misses or skipped writes, while explicitly requesting the underlying cache handle can return an initialization error. Source-record batch writes inherit transactional guarantees from their typed-store backend.
+
+Text-entry collection loading currently traverses nested entries without rewriting or validating their action placeholders. Those placeholders resolve when actions execute; common query settings retain their load-time collection resolution. The collection parameter argument on the entry traversal is reserved for that shared interface.
 
 ## Direct fallback diagnostics
 

@@ -234,9 +234,9 @@ impl AdminState {
     /// * `settings` - Effective runtime settings of the running server.
     /// * `groups` - Declared service stores, in display order.
     /// * `source_enabled` - Typed store holding the `arachnea-services`
-    /// records, qualified by `(service_store_id, source_id)`.
+    ///   records, qualified by `(service_store_id, source_id)`.
     /// * `adapter` - Application adapter for persisted settings, hot apply,
-    /// credentials, and runtime rebuilds.
+    ///   credentials, and runtime rebuilds.
     /// * `cli_scraper` - Command-line scraper overrides, which take precedence over persisted settings.
     ///
     /// # Errors

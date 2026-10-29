@@ -12,8 +12,10 @@ fn default_server_config_is_loopback_safe() {
 /// Verifies that public listeners require an ACL unless explicitly allowed.
 #[test]
 fn public_bind_without_acl_is_rejected() {
-    let mut config = ServerConfig::default();
-    config.listen_http = Some(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 8080)));
+    let mut config = ServerConfig {
+        listen_http: Some(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 8080))),
+        ..Default::default()
+    };
     config.network.allow_clients.clear();
     assert!(config.validate().is_err());
 }
@@ -21,19 +23,23 @@ fn public_bind_without_acl_is_rejected() {
 /// Verifies that HTTPS listeners accept complete PEM certificate pairs.
 #[test]
 fn https_listener_accepts_pem_certificate_pair() {
-    let mut config = ServerConfig::default();
-    config.listen_https = Some(SocketAddr::from((Ipv4Addr::LOCALHOST, 8443)));
-    config.tls_cert_pem_path = Some(PathBuf::from("server-cert.pem"));
-    config.tls_key_pem_path = Some(PathBuf::from("server-key.pem"));
+    let config = ServerConfig {
+        listen_https: Some(SocketAddr::from((Ipv4Addr::LOCALHOST, 8443))),
+        tls_cert_pem_path: Some(PathBuf::from("server-cert.pem")),
+        tls_key_pem_path: Some(PathBuf::from("server-key.pem")),
+        ..Default::default()
+    };
     assert!(config.validate().is_ok());
 }
 
 /// Verifies that HTTPS listeners reject incomplete TLS path pairs.
 #[test]
 fn https_listener_rejects_partial_tls_pairs() {
-    let mut config = ServerConfig::default();
-    config.listen_https = Some(SocketAddr::from((Ipv4Addr::LOCALHOST, 8443)));
-    config.tls_cert_pem_path = Some(PathBuf::from("server-cert.pem"));
+    let config = ServerConfig {
+        listen_https: Some(SocketAddr::from((Ipv4Addr::LOCALHOST, 8443))),
+        tls_cert_pem_path: Some(PathBuf::from("server-cert.pem")),
+        ..Default::default()
+    };
     assert!(config.validate().is_err());
 }
 

@@ -371,29 +371,44 @@ pub struct ScraperQueryCollection {
     yaml_hash: String,
 }
 
+/// Source identity and display metadata supplied to a query collection constructor.
+///
+/// Identity strings are borrowed until construction; the existing multilingual
+/// description map moves into the collection without cloning.
+pub struct CollectionMetadata<'a> {
+    /// Collection identifier, typically matching the source ID.
+    pub name: &'a str,
+    /// Human-readable source title.
+    pub title: &'a str,
+    /// Source logo URL or resource path.
+    pub logo: &'a str,
+    /// Source descriptions indexed by language code.
+    pub description: HashMap<String, String>,
+}
+
 impl ScraperQueryCollection {
     /// Builds a query collection indexed by query name.
     ///
     /// # Arguments
     ///
-    /// * `name` - Collection name, typically matching the source identifier.
-    /// * `title` - Human-readable title for the source.
-    /// * `logo` - Logo URL or path for the source.
-    /// * `description` - Multi-language description map.
+    /// * `metadata` - Borrowed source identity strings and owned multilingual descriptions.
     /// * `parameters` - Collection-level default parameters merged into every execution.
     /// * `proxy_insecure_tls_hosts` - Exact host allowlist eligible for an explicit proxy TLS-verification bypass.
     /// * `parameter_defaults` - Resolved and action-processed parameter defaults indexed by name.
     /// * `queries` - Query definitions indexed by their individual names.
     pub fn new(
-        name: &str,
-        title: &str,
-        logo: &str,
-        description: HashMap<String, String>,
+        metadata: CollectionMetadata<'_>,
         parameters: Vec<ScraperQueryCollectionParameter>,
         proxy_insecure_tls_hosts: Vec<String>,
         parameter_defaults: HashMap<String, String>,
         queries: Vec<ScraperQueryDefinition>,
     ) -> Self {
+        let CollectionMetadata {
+            name,
+            title,
+            logo,
+            description,
+        } = metadata;
         let mut collection = Self {
             name: name.to_string(),
             title: title.to_string(),
@@ -798,10 +813,12 @@ impl TryFrom<ScraperQueryCollectionRaw> for ScraperQueryCollection {
             .collect::<Result<Vec<_>>>()?;
 
         Ok(ScraperQueryCollection::new(
-            &id,
-            &title,
-            &logo,
-            description,
+            CollectionMetadata {
+                name: &id,
+                title: &title,
+                logo: &logo,
+                description,
+            },
             parameters,
             proxy_insecure_tls_hosts,
             parameter_defaults,

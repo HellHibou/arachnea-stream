@@ -609,7 +609,7 @@ impl ArachneaHttpClient {
                     .loopback
                     .rebind(selected.core.clone())
                     .map_err(|error| ArachneaHttpError::ProxyAttempt {
-                        selection: selected.selection_token.clone(),
+                        selection: selected.selection_token.clone().map(Box::new),
                         delivery: arachnea_proxy::core::ProxyRequestDelivery::NotSent,
                         source: Box::new(ArachneaHttpError::Proxy(error.to_string())),
                     })?;
@@ -630,7 +630,7 @@ impl ArachneaHttpClient {
                 )
                 .await
                 .map_err(|error| ArachneaHttpError::ProxyAttempt {
-                    selection: selected.selection_token.clone(),
+                    selection: selected.selection_token.clone().map(Box::new),
                     delivery: arachnea_proxy::core::ProxyRequestDelivery::NotSent,
                     source: Box::new(ArachneaHttpError::Proxy(error.to_string())),
                 })?;

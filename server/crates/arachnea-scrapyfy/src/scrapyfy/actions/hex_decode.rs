@@ -19,13 +19,15 @@ pub(super) fn apply(texts: Vec<String>) -> Vec<String> {
 ///
 /// * `value` - Even-length ASCII hexadecimal text expected to decode as UTF-8.
 fn decode(value: &str) -> Option<String> {
-    if value.len() % 2 != 0 || !value.is_ascii() {
+    if !value.len().is_multiple_of(2) || !value.is_ascii() {
         return None;
     }
 
     let bytes = value
         .as_bytes()
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|pair| {
             std::str::from_utf8(pair)
                 .ok()

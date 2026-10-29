@@ -403,7 +403,7 @@ impl RestControlerService {
         let mut level = self.routes.clone();
         // Boxing erases types, but polling a linear chain still grows the stack.
         while level.len() > 1 {
-            let mut next = Vec::with_capacity((level.len() + 1) / 2);
+            let mut next = Vec::with_capacity(level.len().div_ceil(2));
             let mut routes = level.into_iter();
             while let Some(left) = routes.next() {
                 next.push(match routes.next() {
@@ -449,8 +449,8 @@ impl RestControlerService {
     fn make_base_filter(&self, use_api: bool, last_path: &str) -> BoxedFilter<()> {
         let mut path = self.entrypoint_root.clone();
 
-        if use_api && self.entrypoint_api.is_some() {
-            path.push(self.entrypoint_api.as_ref().unwrap().clone());
+        if let (true, Some(api)) = (use_api, &self.entrypoint_api) {
+            path.push(api.clone());
         }
 
         if !last_path.is_empty() {
@@ -866,7 +866,6 @@ impl ControlerService for RestControlerService {
 
             let _ = main_thread_thread.join();
             supervisor.join_server();
-            return;
         }
 
         #[cfg(not(target_os = "macos"))]

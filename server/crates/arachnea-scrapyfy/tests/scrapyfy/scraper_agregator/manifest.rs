@@ -35,7 +35,7 @@ fn resolve_manifest_sources_expands_recursive_imports_in_depth_first_order() {
     let resolved = resolve_manifest_sources(dir.join("services.json"))
         .expect("manifest with imports should resolve");
     let paths: Vec<String> = resolved.iter().map(|s| s.path.to_string()).collect();
-    let expected: Vec<String> = vec![
+    let expected: Vec<String> = [
         "dark-stream/anime-sama.yaml",
         "dark-stream/coflix.yaml",
         "legal-stream/rtlplay-be.yaml",

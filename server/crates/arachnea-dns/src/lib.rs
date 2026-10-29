@@ -223,6 +223,10 @@ pub(crate) const DNS_RECURSIVE_UPSTREAM_PORT: u16 = 53;
 #[cfg(feature = "core")]
 pub(crate) const DNS_FORWARDER_UDP_BUFFER_BYTES: usize = 4096;
 
+/// Stable tracing target for DNS listener events, preserving existing log filters.
+#[cfg(feature = "server")]
+pub(crate) const DNS_SERVER_LOG_TARGET: &str = "arachnea_dns::server::server";
+
 /// Receive buffer size in bytes for incoming DNS UDP requests.
 #[cfg(feature = "server")]
 pub(crate) const DNS_SERVER_UDP_BUFFER_BYTES: usize = 4096;

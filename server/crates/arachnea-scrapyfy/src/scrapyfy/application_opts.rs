@@ -5,6 +5,7 @@ use arachnea_core::controler::options::{CoreApplicationOptions, SettingSource};
 use std::collections::BTreeMap;
 
 /// Runtime options parsed from command line arguments.
+#[derive(Default)]
 pub struct SrcapyfyApplicationOptions {
     /// Core application options shared by all Arachnea backends.
     pub application_option: CoreApplicationOptions,
@@ -100,20 +101,6 @@ impl SrcapyfyApplicationOptions {
             anyhow::bail!("`--cache-block-size` must be smaller than the memory cache size.");
         }
         Ok(Some(config))
-    }
-}
-
-impl Default for SrcapyfyApplicationOptions {
-    fn default() -> Self {
-        Self {
-            application_option: CoreApplicationOptions::default(),
-            current_country: None,
-            proxy_server_port: None,
-            cache_max_disk_bytes: None,
-            cache_max_memory_bytes: None,
-            cache_block_size_bytes: None,
-            cli_scraper: ScraperAdminSettings::default(),
-        }
     }
 }
 

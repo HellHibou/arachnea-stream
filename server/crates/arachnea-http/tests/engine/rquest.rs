@@ -54,9 +54,9 @@ async fn keep_alive_tls_503_keeps_exact_selection_and_positive_phases() -> anyho
         let country_client = crate::client::ArachneaHttpClient::new(
             ArachneaHttpConfig::builder()
                 .proxy_runtime(shared_runtime.clone())
-                .proxy(crate::config::HttpProxyConfig::Arachnea(
+                .proxy(crate::config::HttpProxyConfig::Arachnea(Box::new(
                     ArachneaProxyCore::new(UsageProfile::SystemRelay.config())?,
-                ))
+                )))
                 .build()?,
         )
         .await?;
@@ -182,8 +182,7 @@ async fn keep_alive_tls_503_keeps_exact_selection_and_positive_phases() -> anyho
                     &redirects,
                 )
                 .await
-                .err()
-                .expect("fixture must reject setup or close before headers");
+                .expect_err("fixture must reject setup or close before headers");
             let ArachneaHttpError::ProxyAttempt {
                 delivery, source, ..
             } = error
@@ -295,7 +294,7 @@ async fn keep_alive_tls_503_keeps_exact_selection_and_positive_phases() -> anyho
             headers: Default::default(), body: None,
         };
         let search = ProxySearchContext::new(ProxySearchLimits {
-            target: Duration::from_millis(100), extension: Duration::from_millis(300), ..Default::default()
+            target: Duration::from_millis(100), extension: Duration::from_millis(300),
         });
         search.start_origin(token.endpoint(), token.destination())?;
         let (first, first_decision, _) = search.scope(search.origin(engine.send_for_proxy(request(), Some(token.clone()), None, "https://localhost/content", &[]))).await??;
@@ -391,7 +390,7 @@ async fn keep_alive_tls_503_keeps_exact_selection_and_positive_phases() -> anyho
         let error = body_search.scope(engine.send_for_proxy(EngineRequest {
             method: ::http::Method::GET, url: "http://body.example/content".into(),
             headers: Default::default(), body: None,
-        }, Some(token.clone()), None, "http://body.example/content", &[])).await.err().expect("truncated body must fail");
+        }, Some(token.clone()), None, "http://body.example/content", &[])).await.expect_err("truncated body must fail");
         assert!(matches!(&error, ArachneaHttpError::ProxyAttempt { delivery: ProxyRequestDelivery::ResponseReceived, .. }));
         assert!(!proxy_retry_allowed("GET", false, ProxyRequestDelivery::ResponseReceived, false));
         let next_search = ProxySearchContext::default();

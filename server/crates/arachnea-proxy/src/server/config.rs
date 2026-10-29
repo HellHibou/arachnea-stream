@@ -60,14 +60,21 @@ impl Default for ServerConfig {
     /// Creates loopback-only listener defaults.
     fn default() -> Self {
         Self {
-            listen_http: Some(SocketAddr::from((Ipv4Addr::LOCALHOST, crate::PROXY_SERVER_DEFAULT_HTTP_PORT))),
-            listen_socks: Some(SocketAddr::from((Ipv4Addr::LOCALHOST, crate::PROXY_SERVER_DEFAULT_SOCKS_PORT))),
+            listen_http: Some(SocketAddr::from((
+                Ipv4Addr::LOCALHOST,
+                crate::PROXY_SERVER_DEFAULT_HTTP_PORT,
+            ))),
+            listen_socks: Some(SocketAddr::from((
+                Ipv4Addr::LOCALHOST,
+                crate::PROXY_SERVER_DEFAULT_SOCKS_PORT,
+            ))),
             listen_https: None,
             tls_cert_der_path: None,
             tls_key_der_path: None,
             tls_cert_pem_path: None,
             tls_key_pem_path: None,
-            allow_unsafe_public_bind_without_acl: crate::PROXY_SERVER_DEFAULT_ALLOW_UNSAFE_PUBLIC_BIND,
+            allow_unsafe_public_bind_without_acl:
+                crate::PROXY_SERVER_DEFAULT_ALLOW_UNSAFE_PUBLIC_BIND,
             max_http_header_bytes: crate::PROXY_SERVER_DEFAULT_MAX_HTTP_HEADER_BYTES,
             authentication: ProxyAuthConfig::default(),
             network: NetworkConfig::default(),

@@ -39,10 +39,11 @@ pub struct ProxyDeclaration {
 }
 
 /// Runtime health status determined by the last probe.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProxyRuntimeStatus {
     /// Not yet probed.
+    #[default]
     Unknown,
     /// The proxy responded correctly to the last probe.
     Ok,
@@ -50,12 +51,6 @@ pub enum ProxyRuntimeStatus {
     Ko,
     /// The proxy requires authentication that the dynamic pool cannot provide.
     AuthenticationRequired,
-}
-
-impl Default for ProxyRuntimeStatus {
-    fn default() -> Self {
-        Self::Unknown
-    }
 }
 
 /// Runtime validation state of one proxy capability.
@@ -76,10 +71,11 @@ pub enum ProxyCapabilityStatus {
 /// This hint must never override the runtime [`ProxyRuntimeStatus`]. It may
 /// only be used as a tie-breaker between two proxies that are already
 /// functionally equivalent.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProxyAvailabilityHint {
     /// No availability information from the source.
+    #[default]
     Unknown,
     /// Low availability according to the source.
     Low,
@@ -87,12 +83,6 @@ pub enum ProxyAvailabilityHint {
     Medium,
     /// High availability according to the source.
     High,
-}
-
-impl Default for ProxyAvailabilityHint {
-    fn default() -> Self {
-        Self::Unknown
-    }
 }
 
 /// Reason why a proxy failed for a specific destination.

@@ -471,8 +471,8 @@ pub(super) fn build_sub_query_params(
 /// * `node` - Entry node whose nested values are flattened into parameters.
 /// * `map` - Destination parameter map populated with flattened node values.
 /// * `path` - Accumulated child path used as the flattened parameter name.
-pub(super) fn collect_entry_values_recursive<'a>(
-    node: &'a ScraperDataNode,
+pub(super) fn collect_entry_values_recursive(
+    node: &ScraperDataNode,
     map: &mut HashMap<String, Vec<String>>,
     path: &[&str],
 ) {
@@ -656,17 +656,21 @@ pub(super) async fn fetch_and_extract_for_entry_sub_query(
     } else {
         fetch_single(
             &client,
-            method,
-            url,
-            &headers,
-            body.as_deref(),
-            sub_query.extract_next_data(),
-            sub_query.scraper_type(),
-            &sub_query.http_config().empty_on_statuses,
-            sub_query.pre_processes(),
-            sub_query.name(),
-            sub_query.base_url(),
-            params,
+            FetchRequest {
+                method,
+                url,
+                headers: &headers,
+                body: body.as_deref(),
+            },
+            FetchResponseOptions {
+                extract_next_data: sub_query.extract_next_data(),
+                scraper_type: sub_query.scraper_type(),
+                empty_on_statuses: &sub_query.http_config().empty_on_statuses,
+                pre_processes: sub_query.pre_processes(),
+                query_name: sub_query.name(),
+                base_url: sub_query.base_url(),
+                params,
+            },
         )
         .await?
     };

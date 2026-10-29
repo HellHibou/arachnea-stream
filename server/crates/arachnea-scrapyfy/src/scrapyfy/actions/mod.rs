@@ -47,6 +47,16 @@ pub use crate::HTTP_PROXY_PUBLIC_PATH_PARAM;
 // `GetDateSources` directly.
 pub use get_date::{GetDateSource, GetDateSources};
 
+/// Borrowed response inputs available to one extraction action.
+pub struct ActionResponse<'a> {
+    /// Current response URL used as the base for URL and header templates.
+    pub request_url: &'a str,
+    /// Current response text exposed to extraction actions, when available.
+    pub response_body: Option<&'a str>,
+    /// Parsed response supplied to JSON-aware actions, when available.
+    pub response_json: Option<&'a serde_json::Value>,
+}
+
 /// One `ReplaceAll` post-response action attached to a URL generated through the public proxy.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProxyReplaceAllConfig {
@@ -74,6 +84,7 @@ pub enum ProxyFollowRedirects {
 
 impl ProxyFollowRedirects {
     /// Encodes enabled redirect following as `true` or a positive limit; disabled settings return `None`.
+    #[cfg(feature = "arachnea-proxy")]
     pub(crate) fn as_json_value(&self) -> Option<serde_json::Value> {
         match self {
             Self::Default(true) => Some(serde_json::Value::Bool(true)),
@@ -432,9 +443,11 @@ impl ScraperAction {
             selected,
             texts.clone(),
             params,
-            request_url,
-            response_body,
-            response_json,
+            crate::ActionResponse {
+                request_url,
+                response_body,
+                response_json,
+            },
             None,
         )
         .unwrap_or(texts)
@@ -452,9 +465,7 @@ impl ScraperAction {
     /// * `selected` - Optional selected HTML element available to the action.
     /// * `texts` - Values produced by earlier actions in the pipeline.
     /// * `params` - Runtime parameters available to query templates and action pipelines.
-    /// * `request_url` - URL of the current response, used as the base for URL and header templates.
-    /// * `response_body` - Current response text exposed to extraction actions.
-    /// * `response_json` - Optional parsed JSON response supplied to JSON-aware actions.
+    /// * `response` - Borrowed URL, response text and parsed JSON available to this action.
     /// * `dynamic_variables` - Shared dynamic variables in the reserved `@` namespace, scoped to this execution.
     ///
     /// # Errors
@@ -466,11 +477,14 @@ impl ScraperAction {
         selected: &Option<scraper::ElementRef<'_>>,
         texts: Vec<String>,
         params: &HashMap<String, String>,
-        request_url: &str,
-        response_body: Option<&str>,
-        response_json: Option<&serde_json::Value>,
+        response: ActionResponse<'_>,
         dynamic_variables: Option<&Mutex<crate::scrapyfy::query_helpers::DynamicTemplateVariables>>,
     ) -> Result<Vec<String>> {
+        let ActionResponse {
+            request_url,
+            response_body,
+            response_json,
+        } = response;
         let values = match self {
             ScraperAction::GetText => get_text::apply(selected, texts),
             ScraperAction::GetHtml => get_html::apply(selected, texts),
@@ -544,10 +558,12 @@ impl ScraperAction {
                 request_url,
                 params,
                 *levels,
-                *proxy,
-                proxy_headers,
-                proxy_replace_all,
-                proxy_follow_redirects.as_ref(),
+                resolve_url::ParentUrlProxyPolicy {
+                    proxy: *proxy,
+                    proxy_headers,
+                    proxy_replace_all,
+                    proxy_follow_redirects: proxy_follow_redirects.as_ref(),
+                },
             ),
             ScraperAction::GetUrlHost => get_url_host::apply(texts),
             ScraperAction::BuildNextjsDataUrl {

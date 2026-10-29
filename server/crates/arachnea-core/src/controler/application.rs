@@ -109,9 +109,7 @@ pub fn create_application_controler_from_config(
     options: options::CoreApplicationOptions,
     desktop: DesktopApplicationConfig,
 ) -> Box<dyn ControlerService> {
-    let application_mode = options
-        .application_mode
-        .unwrap_or(ApplicationMode::default());
+    let application_mode = options.application_mode.unwrap_or_default();
 
     let mut controler: Box<dyn ControlerService> = if application_mode == ApplicationMode::Server {
         let server_port = options.server_port.unwrap_or(DEFAULT_SERVER_PORT);

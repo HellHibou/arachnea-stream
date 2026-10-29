@@ -82,7 +82,7 @@ impl RquestEngine {
         }
         use arachnea_proxy::core::ProxyRequestDelivery;
         let failure = |delivery, reason| ArachneaHttpError::ProxyAttempt {
-            selection: selection.clone(),
+            selection: selection.clone().map(Box::new),
             delivery,
             source: Box::new(ArachneaHttpError::Proxy(reason)),
         };
@@ -234,7 +234,7 @@ impl RquestEngine {
                     token.finish_discovery();
                 }
                 ArachneaHttpError::ProxyAttempt {
-                    selection: selection.clone(),
+                    selection: selection.clone().map(Box::new),
                     delivery: arachnea_proxy::core::ProxyRequestDelivery::ResponseReceived,
                     source: Box::new(ArachneaHttpError::Proxy(error.to_string())),
                 }
@@ -309,7 +309,7 @@ impl RquestEngine {
                 token.finish_discovery();
             }
             ArachneaHttpError::ProxyAttempt {
-                selection: selection.clone(),
+                selection: selection.clone().map(Box::new),
                 delivery: arachnea_proxy::core::ProxyRequestDelivery::ResponseReceived,
                 source: Box::new(ArachneaHttpError::Proxy(error.to_string())),
             }

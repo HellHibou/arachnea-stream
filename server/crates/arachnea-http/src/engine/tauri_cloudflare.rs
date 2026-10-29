@@ -90,6 +90,31 @@ struct WrySolveResult {
     body: Bytes,
 }
 
+/// Scalar settings shared by the private Wry and Tauri solve paths.
+///
+/// Runtime handles and borrowed request data remain separate from these settings.
+#[derive(Clone, Copy)]
+struct CloudflareSolveOptions {
+    /// Maximum time to wait for challenge completion, including native proxy readiness.
+    timeout: Duration,
+    /// Interval between cookie jar inspections.
+    poll_interval: Duration,
+    /// Delay required after clearance; app sessions apply their existing minimum.
+    clearance_stabilization: Duration,
+    /// Initial logical window width.
+    window_width: f64,
+    /// Initial logical window height.
+    window_height: f64,
+    /// Whether to open developer tools when allowed by the build.
+    devtools: bool,
+    /// Whether to close automatically once the page is stable after clearance.
+    auto_close_after_clearance: bool,
+    /// Whether to request a non-persistent data store; proxy use still forces it.
+    incognito: bool,
+    /// Whether to capture the final page HTML in addition to solver headers.
+    collect_page_source: bool,
+}
+
 /// Tauri desktop app solve session for interactive Cloudflare verification.
 ///
 /// Holds a reference to an existing Tauri WebviewWindow and the state needed
@@ -134,7 +159,7 @@ enum MainThreadSolveStart {
     /// Solve completed synchronously via the standalone Wry event loop.
     Completed(WrySolveResult),
     /// Solve started as a Tauri desktop app session that needs async polling.
-    TauriApp(TauriAppSolveSession),
+    TauriApp(Box<TauriAppSolveSession>),
 }
 
 /// Interactive Cloudflare solver backed by a Tauri-compatible Wry WebView.
@@ -387,15 +412,17 @@ impl HttpEngine for TauriCloudflareSolverEngine {
         let result = solve_cloudflare_interactive(
             &request.url,
             self.user_agent.as_deref(),
-            self.timeout,
-            self.poll_interval,
-            self.clearance_stabilization,
-            self.window_width,
-            self.window_height,
-            self.devtools,
-            self.auto_close_after_clearance,
-            self.incognito,
-            request.method == Method::GET,
+            CloudflareSolveOptions {
+                timeout: self.timeout,
+                poll_interval: self.poll_interval,
+                clearance_stabilization: self.clearance_stabilization,
+                window_width: self.window_width,
+                window_height: self.window_height,
+                devtools: self.devtools,
+                auto_close_after_clearance: self.auto_close_after_clearance,
+                incognito: self.incognito,
+                collect_page_source: request.method == Method::GET,
+            },
             self.proxy
                 .as_ref()
                 .map_err(|message| ArachneaHttpError::InvalidConfiguration(message.clone()))?
@@ -507,15 +534,17 @@ impl TauriCloudflareSolverEngine {
         let headers = solve_cloudflare_interactive(
             &request.url,
             self.user_agent.as_deref(),
-            self.timeout,
-            self.poll_interval,
-            self.clearance_stabilization,
-            self.window_width,
-            self.window_height,
-            self.devtools,
-            self.auto_close_after_clearance,
-            self.incognito,
-            false,
+            CloudflareSolveOptions {
+                timeout: self.timeout,
+                poll_interval: self.poll_interval,
+                clearance_stabilization: self.clearance_stabilization,
+                window_width: self.window_width,
+                window_height: self.window_height,
+                devtools: self.devtools,
+                auto_close_after_clearance: self.auto_close_after_clearance,
+                incognito: self.incognito,
+                collect_page_source: false,
+            },
             self.proxy
                 .as_ref()
                 .map_err(|message| ArachneaHttpError::InvalidConfiguration(message.clone()))?
@@ -606,17 +635,7 @@ impl TauriCloudflareSolverEngine {
 ///
 /// - `url`: Absolute URL to load in the WebView.
 /// - `user_agent`: Optional user-agent override applied to the WebView.
-/// - `timeout`: Maximum time to wait for manual challenge completion.
-/// - `poll_interval`: Interval between cookie jar inspections.
-/// - `clearance_stabilization`: Delay after `cf_clearance` appears before
-///   closing the WebView.
-/// - `window_width`: Initial logical window width.
-/// - `window_height`: Initial logical window height.
-/// - `devtools`: Whether the WebView devtools should open automatically.
-/// - `auto_close_after_clearance`: Whether the WebView should close
-///   automatically after the stabilization delay.
-/// - `incognito`: Whether the WebView should use a non-persistent data store.
-/// - `collect_page_source`: Whether the final page HTML should be collected.
+/// - `options`: Solve timing, window settings and post-clearance collection policy.
 /// - `proxy`: Optional native webview proxy configuration.
 ///
 /// # Returns
@@ -630,15 +649,7 @@ impl TauriCloudflareSolverEngine {
 async fn solve_cloudflare_interactive(
     url: &str,
     user_agent: Option<&str>,
-    timeout: Duration,
-    poll_interval: Duration,
-    clearance_stabilization: Duration,
-    window_width: f64,
-    window_height: f64,
-    devtools: bool,
-    auto_close_after_clearance: bool,
-    incognito: bool,
-    collect_page_source: bool,
+    options: CloudflareSolveOptions,
     proxy: Option<&WebviewProxy>,
 ) -> Result<WrySolveResult, ArachneaHttpError> {
     if let Some(dispatcher) = global_main_thread_dispatcher() {
@@ -654,15 +665,7 @@ async fn solve_cloudflare_interactive(
                     context,
                     &task_url,
                     task_user_agent.as_deref(),
-                    timeout,
-                    poll_interval,
-                    clearance_stabilization,
-                    window_width,
-                    window_height,
-                    devtools,
-                    auto_close_after_clearance,
-                    incognito,
-                    collect_page_source,
+                    options,
                     task_proxy.as_ref(),
                 );
                 let _ = sender.send(result);
@@ -678,33 +681,16 @@ async fn solve_cloudflare_interactive(
             MainThreadSolveStart::TauriApp(session) => {
                 solve_cloudflare_with_tauri_app_session(
                     dispatcher,
-                    session,
+                    *session,
                     &url,
                     user_agent.as_deref(),
-                    timeout,
-                    poll_interval,
-                    clearance_stabilization,
-                    auto_close_after_clearance,
-                    collect_page_source,
+                    options,
                 )
                 .await
             }
         }
     } else {
-        solve_cloudflare_with_wry_event_loop(
-            url,
-            user_agent,
-            timeout,
-            poll_interval,
-            clearance_stabilization,
-            window_width,
-            window_height,
-            devtools,
-            auto_close_after_clearance,
-            incognito,
-            collect_page_source,
-            proxy,
-        )
+        solve_cloudflare_with_wry_event_loop(url, user_agent, options, proxy)
     }
 }
 

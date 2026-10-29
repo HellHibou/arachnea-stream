@@ -8,12 +8,11 @@ use std::time::Instant;
 use url::Url;
 
 use arachnea_core::persistence::CredentialsStore;
-use arachnea_scrapyfy::{
-    HttpClient, ScraperAgregator, ScraperHttpConfig, ScraperQueryCollectionParameter,
-};
+use arachnea_scrapyfy::{HttpClient, ScraperAgregator, ScraperHttpConfig};
 
 use crate::services::player_resolver::{
-    PlayerResolverEndpoints, PlayerStreamResolver, ProxiedStreamResponse, ResolvedPlayerStream,
+    PlayerResolverEndpoints, PlayerStreamRequest, PlayerStreamResolver, ProxiedStreamResponse,
+    ResolvedPlayerStream,
 };
 
 use crate::PLAYER_DEFAULT_USER_AGENT as TV5MONDEPLUS_USER_AGENT;
@@ -60,12 +59,15 @@ impl PlayerStreamResolver for Tv5mondeplusResolver {
         &self,
         scraper_agregator: &ScraperAgregator,
         _credentials_store: &dyn CredentialsStore,
-        resolver: &str,
-        target: &str,
-        _service_parameters: &[ScraperQueryCollectionParameter],
-        proxy_countries: &[String],
+        request: PlayerStreamRequest<'_>,
         endpoints: &PlayerResolverEndpoints,
     ) -> Result<ResolvedPlayerStream> {
+        let PlayerStreamRequest {
+            resolver,
+            target,
+            service_parameters: _service_parameters,
+            proxy_countries,
+        } = request;
         if resolver.trim() != "tv5mondeplus-video" {
             bail!(
                 "Unsupported player resolver `{}` for source `{}`.",

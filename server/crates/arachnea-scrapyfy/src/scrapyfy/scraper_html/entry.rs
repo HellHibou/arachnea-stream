@@ -306,9 +306,11 @@ impl HtmlScraperEntry {
                             &selected,
                             values,
                             params,
-                            request_url,
-                            response_body,
-                            None,
+                            crate::ActionResponse {
+                                request_url,
+                                response_body,
+                                response_json: None,
+                            },
                             Some(dynamic_variables),
                         )?;
                     }
@@ -549,9 +551,9 @@ impl HtmlScraperEntry {
     ///
     /// * `name` - Output field name used in the extracted metadata map.
     /// * `selector_template` - Original template string kept for serialization.
-    /// This is the raw selector as it appeared in the YAML configuration.
+    ///   This is the raw selector as it appeared in the YAML configuration.
     /// * `resolved_selector` - Resolved CSS selector compiled at construction time.
-    /// This is the selector after any template placeholders have been resolved.
+    ///   This is the selector after any template placeholders have been resolved.
     /// * `output_type` - Declared scalar or container type governing the result shape.
     /// * `select` - Whether to use the first match or all matches.
     /// * `actions` - Ordered extraction steps executed on the selected node.
@@ -590,9 +592,9 @@ impl HtmlScraperEntry {
     ///
     /// * `name` - Group name used to build the output path.
     /// * `selector_template` - Original template string kept for serialization.
-    /// This is the raw selector as it appeared in the YAML configuration.
+    ///   This is the raw selector as it appeared in the YAML configuration.
     /// * `resolved_selector` - Resolved CSS selector compiled at construction time.
-    /// This is the selector after any template placeholders have been resolved.
+    ///   This is the selector after any template placeholders have been resolved.
     /// * `output_type` - Declared scalar or container type governing the result shape.
     /// * `select` - Whether to use the first match or all matches.
     /// * `entries` - Child entries applied to each matched element.

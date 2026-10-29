@@ -31,6 +31,22 @@ use arachnea_proxy::core::{ArachneaProxyCore, ProxyRecord};
 /// Runtime parameters grouped by source name for one aggregated query execution.
 pub type ScraperSourceParams = HashMap<String, HashMap<String, String>>;
 
+/// Borrowed source selection and result metadata for one aggregated query.
+pub struct ScraperAggregationOptions<'a> {
+    /// Per-source parameter overrides merged into the shared runtime parameters.
+    pub source_params: Option<&'a ScraperSourceParams>,
+    /// Source names to execute, or every configured source in the group when absent.
+    pub scrapper_list: Option<&'a Vec<String>>,
+    /// Optional media types used to select queries.
+    pub query_media_type_filter: Option<&'a Vec<String>>,
+    /// Optional root field filters grouped by field name.
+    pub fields_filters: Option<&'a HashMap<String, Vec<String>>>,
+    /// Optional metadata key used to store the originating source name.
+    pub source_field_name: Option<&'a str>,
+    /// Logical operation name used in error correlation codes.
+    pub operation: &'a str,
+}
+
 /// Entry for one source in the aggregator config.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScraperAggregatorSourceEntry {
@@ -132,6 +148,14 @@ impl ScraperRuntimeOptions {
     }
 }
 
+impl Default for ScraperAgregator {
+    /// Creates the same empty aggregator as [`Self::new`], including its
+    /// feature-gated proxy setup and independent in-memory stores.
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ScraperAgregator {
     /// Creates an empty aggregator with default proxy setup.
     ///
@@ -141,10 +165,10 @@ impl ScraperAgregator {
     pub fn new() -> Self {
         #[cfg(feature = "arachnea-proxy")]
         {
-            return Self::new_with_typed_stores(
+            Self::new_with_typed_stores(
                 memory_proxy_store().expect("in-memory proxy store is valid"),
                 memory_session_store().expect("in-memory Cloudflare session store is valid"),
-            );
+            )
         }
         #[cfg(not(feature = "arachnea-proxy"))]
         Self::new_with_typed_stores(
@@ -227,7 +251,7 @@ impl ScraperAgregator {
                     "Dynamic proxy core created with scrapyfy provider for country routing"
                 );
                 self.proxy_handle
-                    .set_proxy(HttpProxyConfig::Arachnea(core.clone()));
+                    .set_proxy(HttpProxyConfig::Arachnea(Box::new(core.clone())));
                 self.proxy_core = Some(core);
             }
             Err(error) => {
@@ -285,11 +309,11 @@ impl ScraperAgregator {
     pub fn new_with_proxy_handle(proxy_handle: SharedProxyConfigHandle) -> Self {
         #[cfg(feature = "arachnea-proxy")]
         {
-            return Self::new_with_proxy_handle_and_typed_stores(
+            Self::new_with_proxy_handle_and_typed_stores(
                 proxy_handle,
                 memory_proxy_store().expect("in-memory proxy store is valid"),
                 memory_session_store().expect("in-memory Cloudflare session store is valid"),
-            );
+            )
         }
         #[cfg(not(feature = "arachnea-proxy"))]
         Self::new_with_proxy_handle_and_typed_stores(
@@ -488,7 +512,7 @@ impl ScraperAgregator {
             } else {
                 proxy_core.clone()
             };
-            handle.set_proxy(HttpProxyConfig::Arachnea(proxy_core));
+            handle.set_proxy(HttpProxyConfig::Arachnea(Box::new(proxy_core)));
             return HttpClient::with_http_config_proxy_handle_and_local_country_and_session_store(
                 http_config,
                 handle,

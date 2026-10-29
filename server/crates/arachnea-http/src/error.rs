@@ -8,8 +8,8 @@ pub enum ArachneaHttpError {
     #[cfg(feature = "arachnea-proxy")]
     #[error("proxy attempt failed ({delivery:?}): {source}")]
     ProxyAttempt {
-        /// Route actually used by the failed attempt.
-        selection: Option<arachnea_proxy::core::ProxySelectionToken>,
+        /// Route actually used by the failed attempt, boxed only on failure.
+        selection: Option<Box<arachnea_proxy::core::ProxySelectionToken>>,
         /// Best available evidence about business-request delivery.
         delivery: arachnea_proxy::core::ProxyRequestDelivery,
         /// Original failure, retained for existing error-chain consumers.

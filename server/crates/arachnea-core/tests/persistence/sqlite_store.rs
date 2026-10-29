@@ -133,21 +133,22 @@ async fn expired_entries_are_filtered_and_purged() -> anyhow::Result<()> {
     assert!(grouped[2].is_none());
     assert_eq!(grouped[1].as_ref().unwrap().authority, "fresh:1");
     assert_eq!(grouped[3].as_ref().unwrap().authority, "fresh:1");
-    let connection = store
-        .database
-        .connection
-        .lock()
-        .map_err(|_| lock_poisoned())?;
-    let stale: i64 = connection.query_row(
-        &format!(
-            "SELECT COUNT(*) FROM \"{}\" WHERE authority = 'stale:1'",
-            store.table
-        ),
-        [],
-        |row| row.get(0),
-    )?;
-    assert_eq!(stale, 0);
-    drop(connection);
+    {
+        let connection = store
+            .database
+            .connection
+            .lock()
+            .map_err(|_| lock_poisoned())?;
+        let stale: i64 = connection.query_row(
+            &format!(
+                "SELECT COUNT(*) FROM \"{}\" WHERE authority = 'stale:1'",
+                store.table
+            ),
+            [],
+            |row| row.get(0),
+        )?;
+        assert_eq!(stale, 0);
+    }
     assert!(store.get(&"stale:1".to_string()).await?.is_none());
     let found = store.find(&EntityQuery::<TestEntity>::new()).await?;
     assert_eq!(found.len(), 1);
@@ -169,7 +170,8 @@ async fn expired_entries_are_filtered_and_purged() -> anyhow::Result<()> {
             .lock()
             .map_err(|_| lock_poisoned())?;
         let mut pending = Box::pin(store.get_many(&cancelled_keys));
-        assert!(futures::poll!(&mut pending).is_pending());
+        let mut context = std::task::Context::from_waker(futures::task::noop_waker_ref());
+        assert!(std::future::Future::poll(pending.as_mut(), &mut context).is_pending());
         drop(pending);
         drop(connection);
     }
@@ -426,11 +428,11 @@ impl PersistentEntity for TestEntityPlain {
     }
 }
 
-fn db_path(dir: &PathBuf) -> PathBuf {
+fn db_path(dir: &std::path::Path) -> PathBuf {
     dir.join("test-inventory.sqlite3")
 }
 
-fn physical_index_exists(dir: &PathBuf, name: &str) -> bool {
+fn physical_index_exists(dir: &std::path::Path, name: &str) -> bool {
     let connection = Connection::open(db_path(dir)).expect("open sqlite database");
     let count: i64 = connection
         .query_row(

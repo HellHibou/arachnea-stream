@@ -96,7 +96,7 @@ pub(super) fn respond(
                     )
                     .header("Content-Type", &content_type);
                 for (name, value) in &headers {
-                    if name.to_ascii_lowercase() != "content-type" {
+                    if !name.eq_ignore_ascii_case("content-type") {
                         builder = builder.header(name.as_str(), value.as_str());
                     }
                 }

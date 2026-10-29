@@ -58,7 +58,7 @@ impl Server {
     /// Returns an error when listener startup or runtime I/O fails.
     pub async fn start(self) -> Result<()> {
         if !self.config.enabled {
-            warn!("server is disabled by configuration");
+            warn!(target: crate::DNS_SERVER_LOG_TARGET, "server is disabled by configuration");
             return Ok(());
         }
 
@@ -135,14 +135,14 @@ async fn run_udp_with_policy(
             .await
             .with_context(|| format!("cannot bind UDP listener on {addr}"))?,
     );
-    info!("DNS UDP listener ready on {}", socket.local_addr()?);
+    info!(target: crate::DNS_SERVER_LOG_TARGET, "DNS UDP listener ready on {}", socket.local_addr()?);
 
     let mut buf = vec![0_u8; crate::DNS_SERVER_UDP_BUFFER_BYTES];
     loop {
         let (len, peer) = socket.recv_from(&mut buf).await?;
         let packet = buf[..len].to_vec();
         if !policy.allows(peer).await {
-            warn!(%peer, "UDP DNS request rejected by ACL or rate limit");
+            warn!(target: crate::DNS_SERVER_LOG_TARGET, %peer, "UDP DNS request rejected by ACL or rate limit");
             continue;
         }
         let socket = Arc::clone(&socket);
@@ -151,10 +151,12 @@ async fn run_udp_with_policy(
             match handle_packet(&core, &packet).await {
                 Ok(response) => {
                     if let Err(error) = socket.send_to(&response, peer).await {
-                        error!(%peer, %error, "failed to send UDP DNS response");
+                        error!(target: crate::DNS_SERVER_LOG_TARGET, %peer, %error, "failed to send UDP DNS response");
                     }
                 }
-                Err(error) => error!(%peer, %error, "failed to handle UDP DNS packet"),
+                Err(error) => {
+                    error!(target: crate::DNS_SERVER_LOG_TARGET, %peer, %error, "failed to handle UDP DNS packet")
+                }
             }
         });
     }
@@ -202,18 +204,18 @@ async fn run_tcp_with_policy(
     let listener = TcpListener::bind(addr)
         .await
         .with_context(|| format!("cannot bind TCP listener on {addr}"))?;
-    info!("DNS TCP listener ready on {}", listener.local_addr()?);
+    info!(target: crate::DNS_SERVER_LOG_TARGET, "DNS TCP listener ready on {}", listener.local_addr()?);
 
     loop {
         let (stream, peer) = listener.accept().await?;
         if !policy.allows(peer).await {
-            warn!(%peer, "TCP DNS connection rejected by ACL or rate limit");
+            warn!(target: crate::DNS_SERVER_LOG_TARGET, %peer, "TCP DNS connection rejected by ACL or rate limit");
             continue;
         }
         let core = Arc::clone(&core);
         tokio::spawn(async move {
             if let Err(error) = handle_tcp_stream(stream, core).await {
-                error!(%peer, %error, "failed to handle TCP DNS stream");
+                error!(target: crate::DNS_SERVER_LOG_TARGET, %peer, %error, "failed to handle TCP DNS stream");
             }
         });
     }

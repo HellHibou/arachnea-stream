@@ -230,6 +230,8 @@ impl ArachneaHttpConfigBuilder {
     ///
     /// Engines that do not expose a direct connector API may fall back to a
     /// loopback proxy compatibility path.
+    /// The configuration boxes the owned core; cloning it allocates another box
+    /// and retains the core's existing clone semantics.
     ///
     /// # Arguments
     ///
@@ -240,7 +242,7 @@ impl ArachneaHttpConfigBuilder {
     /// The updated builder.
     #[cfg(feature = "arachnea-proxy")]
     pub fn proxy_core(mut self, core: ArachneaProxyCore) -> Self {
-        self.config.proxy = HttpProxyConfig::Arachnea(core);
+        self.config.proxy = HttpProxyConfig::Arachnea(Box::new(core));
         self
     }
 

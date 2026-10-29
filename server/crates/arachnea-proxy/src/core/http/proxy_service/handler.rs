@@ -101,9 +101,9 @@ async fn handle_proxy_http_inner(
     let full_url = format!(
         "{}/{}{}{}",
         input.entry_point,
-        &input.path,
+        input.path,
         if input.query.is_empty() { "" } else { "?" },
-        &input.query
+        input.query
     );
     if full_url.len() > MAX_LOCAL_URL_BYTES {
         return Ok(stream_error(414, "URI Too Long"));

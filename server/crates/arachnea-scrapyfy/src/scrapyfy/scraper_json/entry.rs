@@ -160,9 +160,11 @@ impl JsonScraperEntry {
                             &None,
                             values,
                             params,
-                            request_url,
-                            None,
-                            Some(row),
+                            crate::ActionResponse {
+                                request_url,
+                                response_body: None,
+                                response_json: Some(row),
+                            },
                             Some(dynamic_variables),
                         )?;
                     }

@@ -285,7 +285,7 @@ async fn legacy_cache_rejected_until_manual_deletion() -> anyhow::Result<()> {
         rusqlite::params![
             "https://legacy.example.com",
             expires_at_nanos,
-            format!("{legacy_marker}")
+            legacy_marker.to_string()
         ],
     )?;
     drop(connection);

@@ -11,6 +11,35 @@ use crate::scrapyfy::query_helpers::{self, QueryTemplateParamMapping};
 use crate::scrapyfy::scraper_html::entry::HtmlScraperSelectMode;
 use crate::scrapyfy::{PreProcessAction, ScraperAction, ScraperHttpConfig, ScraperPostProcess};
 
+/// Endpoint identity and media types supplied to JSON and text query constructors.
+///
+/// Strings remain borrowed until the constructor copies them into its runtime query;
+/// the existing media-type vector moves into the query without cloning.
+pub struct QueryEndpoint<'a> {
+    /// Query identifier used to find the query within its collection.
+    pub name: &'a str,
+    /// Resolved source base URL, also exposed to templates as `{base_url}`.
+    pub base_url: &'a str,
+    /// Media types produced by the query, moved into the runtime configuration.
+    pub media_types: Vec<String>,
+    /// URL template used to construct requests for this query.
+    pub query_url: &'a str,
+}
+
+/// Explicit concurrency limits for a programmatically constructed JSON query.
+///
+/// Every limit must be greater than zero; the query constructor validates them
+/// after validating its row pointer. No defaults or normalization are applied here.
+#[derive(Clone, Copy)]
+pub struct JsonQueryConcurrency {
+    /// Maximum number of sibling sub-queries executed together.
+    pub sibling_sub_query_concurrency: usize,
+    /// Maximum number of sub-query contexts executed together.
+    pub sub_query_context_concurrency: usize,
+    /// Maximum number of follow-up HTTP requests executed together.
+    pub sub_query_fetch_concurrency: usize,
+}
+
 // ---------------------------------------------------------------------------
 // Default value helpers
 // ---------------------------------------------------------------------------

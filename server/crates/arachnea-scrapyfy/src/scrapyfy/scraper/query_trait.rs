@@ -252,7 +252,7 @@ pub trait ScraperQuery: Send + Sync {
         use std::sync::OnceLock;
         /// Shared empty collection returned by this default query trait accessor.
         static EMPTY: OnceLock<HashMap<String, Vec<String>>> = OnceLock::new();
-        EMPTY.get_or_init(|| HashMap::new())
+        EMPTY.get_or_init(HashMap::new)
     }
 
     /// Returns the target path where query-level sub-query results are

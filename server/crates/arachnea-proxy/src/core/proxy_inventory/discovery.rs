@@ -12,7 +12,9 @@ use crate::core::{Destination, ProxyRecord, ProxySearchContext, Result};
 
 use super::eligibility::is_selection_candidate;
 #[cfg(feature = "performance-diagnostics")]
-use super::performance_diagnostics::{ProviderLoadObservation, ProviderLoadProgress};
+use super::performance_diagnostics::{
+    ProviderBatchCounts, ProviderLoadObservation, ProviderLoadProgress,
+};
 use super::records::prepare_provider_records;
 /// Provider callback that incrementally merges arriving records into the shared inventory.
 struct InventoryBatchSink {
@@ -307,10 +309,12 @@ impl ProxyInventory {
             country,
             &records,
             &existing,
-            loaded_count,
-            _probe_indices.len(),
-            _duplicate_count,
-            _cached_count,
+            ProviderBatchCounts {
+                loaded_count,
+                pending_probe_count: _probe_indices.len(),
+                duplicate_count: _duplicate_count,
+                cached_count: _cached_count,
+            },
         );
         let records_to_persist = self.add_or_update(records).await;
         #[cfg(feature = "performance-diagnostics")]

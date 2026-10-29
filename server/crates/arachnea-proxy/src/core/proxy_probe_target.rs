@@ -214,11 +214,11 @@ impl TargetLease {
             if healthy == Some(false) {
                 state.failures.push_back((now, endpoint));
             }
-            if self.recovery || state.failures.len() >= self.policy.distinct_endpoints {
-                if self.recovery || state.step == 0 {
-                    state.step = (state.step + 1).min(3);
-                    state.until = Some(now + self.policy.backoff[(state.step - 1) as usize]);
-                }
+            if (self.recovery || state.failures.len() >= self.policy.distinct_endpoints)
+                && (self.recovery || state.step == 0)
+            {
+                state.step = (state.step + 1).min(3);
+                state.until = Some(now + self.policy.backoff[(state.step - 1) as usize]);
             }
         }
         self.finished = true;

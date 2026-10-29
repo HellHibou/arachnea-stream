@@ -16,7 +16,7 @@ playback selection and tracing targets.
 
 Constants used by only one service resolver are documented at the beginning of its `src/services/*_resolver.rs` file; private child modules reuse those definitions. Constants genuinely shared by several service resolvers stay in `src/lib.rs`, alongside application and generic facade constants. The common user-agent, diagnostic preview limit and license-token length are defined once there. Defaults, endpoint identifiers, timeouts, token lifetimes, persisted store names and encryption-key bytes retain their values. The executable imports its configuration path and credentials key from the library; those constants are public because the binary is a separate Rust crate. Mutable session/license caches stay with their owners.
 
-Existing unit suites mirror `src/stream_resolver.rs` and `src/stream_scraper.rs` under crate-root `tests/`. Shared test-only helpers live under `tests/support/`, with conditional `#[path]` loading. `autotests = false` prevents Cargo from also treating the mirrored files as integration targets requiring public-only access. The Scrapyfy development dependency still enables `test-support`.
+Existing unit suites mirror `src/stream_resolver.rs` and `src/stream_scraper.rs` under crate-root `tests/`. Shared test-only helpers live under `tests/support/`, with conditional `#[path]` loading. `autotests = false` prevents Cargo from also treating the mirrored files as integration targets requiring public-only access. The Scrapyfy development dependency still enables `test-support`. Resolver fixture setup configures the application data directory before building the runtime, allowing isolated test execution. An atomic suffix keeps concurrent fixture directories distinct even when clock timestamps coincide. The live entry helper searches section entries and nested subsections before using a deferred section link.
 
 From `server/`, list all scenarios with `cargo test -p arachnea-stream --all-features -- --list`. Run the local resolver and static metadata scenarios without contacting providers:
 
@@ -29,6 +29,14 @@ cargo test -p arachnea-stream --all-features -- \
 ```
 
 This runs ten local tests and retains the existing ignored `test_all_services` scenario. The four filtered scenarios and `test_all_services` require live providers and, where applicable, credentials. They remain available for targeted manual execution. Omitting `--all-features` verifies the same local scenarios without optional performance diagnostics. Native GUI behavior and live provider compatibility require separate validation.
+
+The 2026-10-29 manual review passed the four default Anime-Sama live scenarios.
+The exhaustive test was also executed and failed four source/query checks:
+FranceTV/Arte field-uniformity assumptions, undeclared LN24 search and section-only
+LN24 home-entry discovery. Its ignore attribute remains until the harness is
+aligned with explicit query/field contracts and category navigation. Details and
+commands: `docs/dev-tracking/ignored-tests-review-2026-10-29.md` at repository root.
+
 
 
 ## Direct fallback when a country proxy is unavailable
@@ -80,6 +88,12 @@ make endpoint eviction and preference cleanup a single transaction.
 - Supply the Tauri context, embedded frontend assets, custom URI scheme, and API prefix to `arachnea-core`.
 - Depend on `arachnea-scrapyfy` for generic scraper query execution.
 
+Protected playback dispatch passes a borrowed internal `PlayerStreamRequest`
+containing the resolver identifier, target, service parameters and proxy countries.
+All eight provider implementations share this input contract; aggregator, credentials
+store and endpoint settings remain separate. This grouping introduces no allocation
+or change to authentication, DRM, routing or returned streams.
+
 ## Application Assets
 
 Tauri application assets live in this crate:
@@ -90,7 +104,26 @@ Tauri application assets live in this crate:
 
 The crate build script runs Tauri build helpers from this crate root so these files remain the source of truth. `src/main.rs` passes the generated Tauri context and embedded assets into the generic Tauri controller implemented by `arachnea-core`.
 
+The private `ResolveAttemptResult::Stream` and `ResolvedStream::Stream` variants
+own boxed player streams. Successful YAML resolution allocates after proxy
+shaping and forwards that same box through direct/HTML fallback result handling.
+Protected-provider and explicit scraper-query results are boxed once at the
+facade boundary. Failed attempts, terminal errors and iframe fallback add no
+stream box. The untagged JSON union, field names and omitted fields are unchanged.
+This adds one allocation per successfully returned stream; no runtime speedup is
+claimed.
+
+Stream's direct in-process proxy configuration now uses
+`HttpProxyConfig::Arachnea(Box::new(core))`. Cloning that variant allocates a fresh
+box while preserving the core's existing clone behavior; see the HTTP README.
+
 ## Commands
+
+The private CLI parser boxes both parsed option values together only for an
+ordinary backend startup and moves them out before controller setup. Help,
+country refresh and parsing errors retain their existing paths. This adds one
+startup allocation; persisted settings and command-line overrides remain distinct
+and retain their original precedence.
 
 The `load_home` REST/Tauri command accepts optional exact `sources` identifiers.
 Omission selects all loaded sources; `[]` returns an empty success without

@@ -2,7 +2,24 @@
 
 Implementation defaults and stable contract constants are centralized in `server/crates/arachnea-scrapyfy/src/lib.rs`. Private modules separate query execution, request configuration and raw/runtime conversions; this organization preserves the YAML fields, serialized values and execution order described here. Existing tests mirror source paths under the crate-root `tests/` directory; shared helpers remain available through the `test-support` feature.
 
+The 2026-10-29 mechanical Rust cleanup preserves JavaScript loop limits, computed-item iteration order, query dispatch and all YAML fields; it introduces no schema or execution-contract changes.
+
+The subsequent default-initialization cleanup derives the same application option defaults and elides an unused private helper lifetime; YAML fields, override precedence and query execution are unchanged.
+
+Private Rust views group ancestor-URL proxy policy, header-grouping configuration, fetch settings and aggregation options. They only organize existing inputs: YAML fields, defaults, response shape, traversal/preprocessing order and validation/cache behavior described here are unchanged.
+
+The Rust `ScraperAgregator::default()` constructor delegates to `new()` with the same feature-gated initialization. This additive Rust convenience does not change YAML defaults, parsing or query behavior.
+
+The Rust constructor migration groups programmatic endpoint, concurrency and collection metadata inputs into `QueryEndpoint`, `JsonQueryConcurrency` and `CollectionMetadata`; proxy factories use `ReplaceAll::config`. These are Rust API changes only: no YAML field, serialized action name, default, validation rule or extraction behavior described here changes.
+
+The Rust in-process proxy configuration now boxes its owned core. This changes direct Rust construction to `HttpProxyConfig::Arachnea(Box::new(core))` and adds an allocation when constructing or cloning that variant; YAML proxy fields, defaults, routing and query results remain unchanged.
+
 ## 1. General file structure
+
+The Rust execution methods group borrowed response inputs into `ActionResponse`
+and source-selection/result options into `ScraperAggregationOptions`. These
+programmatic API changes preserve all YAML fields, serialized action names,
+defaults, dynamic-variable error handling, source ordering and cache behavior.
 
 A YAML file describes a **query collection** for a data source. The root structure is:
 
@@ -92,6 +109,8 @@ List of default collection parameters. Each parameter has:
 Parameters are resolved sequentially in YAML declaration order. A parameter can reference previous parameters via `{placeholder}`.
 
 Undeclared placeholders are preserved while loading the collection so callers can provide them at execution time. A required placeholder that remains absent then produces a contextual error while resolving the request, rather than while loading the YAML.
+
+For text entries, loading traverses nested entries without rewriting or validating action placeholders. Those placeholders resolve when the entry actions execute; shared query settings still receive collection-level resolution during loading.
 
 The `@` prefix is reserved for dynamic variables produced while a request is extracted. These variables are not collection parameters and are referenced with the `{@name}` syntax. Standard parameters must not use names starting with `@`.
 
@@ -1062,6 +1081,10 @@ ReplaceAll rules to preserve inherited proxy options in rewritten URLs.
 
 `proxy_follow_redirects` is opt-in. Redirect hops are followed by the proxy after reading only their response headers, before the terminal body is relayed. `false` (or omission) preserves the 3xx response behavior. `0` is invalid.
 
+Encoding redirect options into generated proxy URLs requires the `arachnea-proxy`
+Cargo feature. The internal JSON conversion helper is compiled with that feature;
+YAML parsing and validation remain available without it.
+
 ### `resolve_url_from_parent`
 Resolves relative URLs against an ancestor of the page URL.
 
@@ -1225,7 +1248,9 @@ Decodes each value from Base64 (standard alphabet). Non-decodable values are kep
 
 ### `hex_decode`
 Decodes each hexadecimal value into UTF-8 text. Values containing non-hexadecimal characters, an
-odd number of digits, or invalid UTF-8 bytes are discarded.
+odd number of digits, or invalid UTF-8 bytes are discarded. Leading and trailing whitespace is
+trimmed before validating complete ASCII digit pairs; an incomplete pair is rejected. ASCII
+hexadecimal digits may be uppercase or lowercase.
 
 ```yaml
 - type: hex_decode
@@ -1233,7 +1258,9 @@ odd number of digits, or invalid UTF-8 bytes are discarded.
 
 ### `aes_cbc_decrypt`
 Decrypts each hexadecimal value with AES-128-CBC, a 16-byte UTF-8 key, and a 16-byte UTF-8 IV.
-Malformed or invalid values, and plaintext that is not UTF-8, are discarded.
+Leading and trailing ciphertext whitespace is trimmed before validating complete ASCII hexadecimal
+pairs. Odd lengths, invalid hexadecimal data or PKCS#7 padding, and plaintext that is not UTF-8,
+are discarded.
 
 ```yaml
 - type: aes_cbc_decrypt

@@ -124,10 +124,10 @@ fn resolve_request_headers(
 ///
 /// * `root` - Root node that owns the source group and receives the items.
 /// * `context` - Runtime context providing params, the request URL, and the
-/// shared HTTP client.
+///   shared HTTP client.
 /// * `source` - `>`-delimited path of the source group.
 /// * `request_field` - `>`-delimited path of the field whose values are used
-/// to build the request URLs.
+///   to build the request URLs.
 /// * `request_actions` - Actions applied to the resolved request URLs.
 /// * `request_headers` - Headers attached to every request.
 /// * `request_method` - HTTP method applied to each prepared fetch.
@@ -137,7 +137,7 @@ fn resolve_request_headers(
 /// * `pattern` - Regular expression applied to every response body.
 /// * `entries` - Field definitions used to build each produced item.
 /// * `copy_item_fields` - Field mappings cloned from the source item into
-/// every produced item.
+///   every produced item.
 ///
 /// # Errors
 ///

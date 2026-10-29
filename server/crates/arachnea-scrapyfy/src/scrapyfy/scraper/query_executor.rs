@@ -320,10 +320,11 @@ async fn execute_query_internal(
                         // Use the row value as parent for context_pointer resolution,
                         // not the full response. This matches the legacy behavior
                         // where context_pointer is scoped to the extracted row.
-                        let parent_json = row_value.or_else(|| match &response {
-                            FetchedResponse::Json(v) => Some(v),
+                        let parent_json = match (row_value, &response) {
+                            (Some(value), _) => Some(value),
+                            (None, FetchedResponse::Json(value)) => Some(value),
                             _ => None,
-                        });
+                        };
                         if let Some(parent_json) = parent_json {
                             // Iterate over context rows selected by context_pointer.
                             let context_values: Vec<&Value> =
@@ -433,17 +434,23 @@ async fn execute_query_internal(
                                                 .configured(sibling.http_config().clone());
                                             let response = fetch_single(
                                                 &client,
-                                                method,
-                                                &url,
-                                                &headers,
-                                                body.as_deref(),
-                                                sibling.extract_next_data(),
-                                                sibling.scraper_type(),
-                                                &sibling.http_config().empty_on_statuses,
-                                                sibling.pre_processes(),
-                                                sibling.name(),
-                                                sibling.base_url(),
-                                                context.params,
+                                                FetchRequest {
+                                                    method,
+                                                    url: &url,
+                                                    headers: &headers,
+                                                    body: body.as_deref(),
+                                                },
+                                                FetchResponseOptions {
+                                                    extract_next_data: sibling.extract_next_data(),
+                                                    scraper_type: sibling.scraper_type(),
+                                                    empty_on_statuses: &sibling
+                                                        .http_config()
+                                                        .empty_on_statuses,
+                                                    pre_processes: sibling.pre_processes(),
+                                                    query_name: sibling.name(),
+                                                    base_url: sibling.base_url(),
+                                                    params: context.params,
+                                                },
                                             )
                                             .await?;
                                             let fetched_json = match &response {
@@ -544,10 +551,11 @@ async fn execute_query_internal(
                 }
                 // Default: generic unified execution path (for sub-queries without
                 // context_pointer).
-                let parent_json = row_value.or_else(|| match &response {
-                    FetchedResponse::Json(v) => Some(v),
+                let parent_json = match (row_value, &response) {
+                    (Some(value), _) => Some(value),
+                    (None, FetchedResponse::Json(value)) => Some(value),
                     _ => None,
-                });
+                };
                 let sub_context = QueryContext {
                     params: context.params,
                     dynamic_template_variables: context.dynamic_template_variables,

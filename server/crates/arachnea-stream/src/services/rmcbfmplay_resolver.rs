@@ -12,11 +12,11 @@ use serde_json::Value;
 use std::collections::HashMap;
 
 use arachnea_core::persistence::CredentialsStore;
-use arachnea_scrapyfy::{HttpClient, ScraperAgregator, ScraperQueryCollectionParameter};
+use arachnea_scrapyfy::{HttpClient, ScraperAgregator};
 
 use crate::services::player_resolver::{
-    proxy_drm_today_license_request, PlayerResolverEndpoints, PlayerStreamResolver,
-    ProxiedStreamResponse, ResolvedPlayerStream,
+    proxy_drm_today_license_request, PlayerResolverEndpoints, PlayerStreamRequest,
+    PlayerStreamResolver, ProxiedStreamResponse, ResolvedPlayerStream,
 };
 
 use crate::PLAYER_DEFAULT_USER_AGENT as USER_AGENT;
@@ -62,12 +62,15 @@ impl PlayerStreamResolver for RmcBfmPlayResolver {
         &self,
         scraper_agregator: &ScraperAgregator,
         credentials_store: &dyn CredentialsStore,
-        resolver: &str,
-        target: &str,
-        _service_parameters: &[ScraperQueryCollectionParameter],
-        proxy_countries: &[String],
+        request: PlayerStreamRequest<'_>,
         endpoints: &PlayerResolverEndpoints,
     ) -> Result<ResolvedPlayerStream> {
+        let PlayerStreamRequest {
+            resolver,
+            target,
+            service_parameters: _service_parameters,
+            proxy_countries,
+        } = request;
         let target = target.trim();
         if target.is_empty() {
             bail!("Missing RMC BFM Play playback target.");

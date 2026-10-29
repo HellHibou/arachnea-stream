@@ -249,7 +249,7 @@ impl<R: AsyncRead + Unpin> ChunkedBodyReader<R> {
             let avail = self.read_buf.len().min(remaining);
             if avail > 0 {
                 self.decoded
-                    .extend_from_slice(&self.read_buf.drain(..avail).as_slice());
+                    .extend_from_slice(self.read_buf.drain(..avail).as_slice());
                 let new_remaining = remaining - avail;
                 if new_remaining == 0 {
                     self.state = ChunkedState::ChunkCrLf;

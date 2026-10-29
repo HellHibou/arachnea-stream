@@ -102,7 +102,7 @@ fn build_context(timeout_ms: u64) -> Result<JsContext> {
         .build()
         .map_err(|e| anyhow::anyhow!("Failed to create JS context: {}", e))?;
 
-    let loop_limit = (timeout_ms as u64) * crate::JS_LOOP_ITERATIONS_PER_MS;
+    let loop_limit = timeout_ms * crate::JS_LOOP_ITERATIONS_PER_MS;
     ctx.runtime_limits_mut()
         .set_loop_iteration_limit(loop_limit.max(DEFAULT_LOOP_LIMIT));
 

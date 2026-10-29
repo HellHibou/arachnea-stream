@@ -206,7 +206,7 @@ impl UsageProfile {
             UsageProfile::Secure(upstreams, dnssec_state) => {
                 config.resolver.mode = ResolutionMode::Forwarder;
                 config.resolver.allow_insecure_fallback = false;
-                config.security.dnssec = dnssec_state.clone();
+                config.security.dnssec = *dnssec_state;
                 config.upstreams = upstreams.clone();
             }
             UsageProfile::Advanced => {}

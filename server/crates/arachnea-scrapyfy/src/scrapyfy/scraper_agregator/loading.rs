@@ -228,8 +228,7 @@ impl ScraperAgregator {
                 anyhow::anyhow!("Failed to read source file: {}: {error}", path)
             })?;
             let source_yaml_hash = arachnea_core::crypt::hash62_64(&source_bytes);
-            let mut collection =
-                ScraperQueryCollection::from_file_with(path, |reader| parse(reader))?;
+            let mut collection = ScraperQueryCollection::from_file_with(path, &parse)?;
             collection.set_yaml_hash(source_yaml_hash);
             collection.set_runtime_handles_with_session_store(
                 self.proxy_handle.clone(),

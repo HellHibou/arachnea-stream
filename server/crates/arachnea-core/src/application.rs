@@ -164,6 +164,7 @@ fn init_app_root() -> PathBuf {
 /// - deb/rpm: `/usr/lib/<product name>/` next to the `/usr/bin` executable,
 /// - macOS bundles: `Contents/Resources/` (Tauri bundler layout),
 /// - fallback: the executable directory.
+///
 /// In debug builds, the server workspace directory is used directly.
 ///
 /// # Arguments

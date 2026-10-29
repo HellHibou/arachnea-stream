@@ -42,7 +42,9 @@ pub use http_client::{
 
 /// Text extraction and normalization actions.
 pub mod actions;
-pub use actions::{GetDateSource, GetDateSources, ScraperAction, HTTP_PROXY_PUBLIC_PATH_PARAM};
+pub use actions::{
+    ActionResponse, GetDateSource, GetDateSources, ScraperAction, HTTP_PROXY_PUBLIC_PATH_PARAM,
+};
 
 /// Post-process transformations applied after raw extraction.
 pub mod post_processes;
@@ -75,6 +77,7 @@ pub use scraper_text::query::{TextScraperQuery, TextScraperQueryRaw};
 
 /// Shared traits, spec types, and execution engine for scraper queries.
 pub(crate) mod scraper;
+pub use scraper::config::{JsonQueryConcurrency, QueryEndpoint};
 
 /// Shared helpers for query URL formatting and filtering.
 pub mod query_helpers;
@@ -86,8 +89,8 @@ pub use local_country::SharedLocalCountry;
 /// Query collection models and file loading helpers.
 pub mod scraper_query_collection;
 pub use scraper_query_collection::{
-    ScraperQueryCollection, ScraperQueryCollectionParameter, ScraperQueryCollectionRaw,
-    ScraperServiceCredentials,
+    CollectionMetadata, ScraperQueryCollection, ScraperQueryCollectionParameter,
+    ScraperQueryCollectionRaw, ScraperServiceCredentials,
 };
 
 /// Proxy data provider placeholder for dynamic proxy loading.
@@ -117,8 +120,8 @@ pub use admin_settings::{
 /// Multi-source query aggregator.
 pub mod scraper_agregator;
 pub use scraper_agregator::{
-    resolve_manifest_sources, ScraperAgregator, ScraperQueryService, ScraperRuntimeOptions,
-    ScraperSourceParams,
+    resolve_manifest_sources, ScraperAggregationOptions, ScraperAgregator, ScraperQueryService,
+    ScraperRuntimeOptions, ScraperSourceParams,
 };
 /// Source activation policy contracts and persistence-backed implementation.
 pub mod source_enabled;

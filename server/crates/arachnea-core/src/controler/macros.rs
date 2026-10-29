@@ -38,7 +38,7 @@ macro_rules! create_application_controler {
         // Tauri context is handed to the one component that will consume it.
         let is_server = match &options.application_mode {
             ::std::option::Option::Some(mode) => {
-                ::core::matches!(mode, crate::ApplicationMode::Server)
+                ::core::matches!(mode, $crate::controler::options::ApplicationMode::Server)
             }
             ::std::option::Option::None => {
                 #[cfg(not(debug_assertions))]

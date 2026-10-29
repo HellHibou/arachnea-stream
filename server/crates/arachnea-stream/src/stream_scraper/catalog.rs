@@ -62,12 +62,14 @@ impl StreamScraper {
                 STREAM_SERVICE_GROUP_NAME,
                 "search",
                 &params,
-                Some(&source_params),
-                scrapper_list.as_ref(),
-                media,
-                None,
-                None,
-                "search",
+                arachnea_scrapyfy::ScraperAggregationOptions {
+                    source_params: Some(&source_params),
+                    scrapper_list: scrapper_list.as_ref(),
+                    query_media_type_filter: media,
+                    fields_filters: None,
+                    source_field_name: None,
+                    operation: "search",
+                },
             )
             .await;
         let global_etag = result.take_global_etag();
@@ -112,12 +114,14 @@ impl StreamScraper {
                 STREAM_SERVICE_GROUP_NAME,
                 "get_entry",
                 &params,
-                None,
-                Some(&scrapper_list),
-                None,
-                None,
-                None,
-                "get_entry",
+                arachnea_scrapyfy::ScraperAggregationOptions {
+                    source_params: None,
+                    scrapper_list: Some(&scrapper_list),
+                    query_media_type_filter: None,
+                    fields_filters: None,
+                    source_field_name: None,
+                    operation: "get_entry",
+                },
             )
             .await;
         let global_etag = result.take_global_etag();
@@ -177,12 +181,14 @@ impl StreamScraper {
                 STREAM_SERVICE_GROUP_NAME,
                 "get_season",
                 &params,
-                None,
-                Some(&scrapper_list),
-                None,
-                None,
-                None,
-                "get_season",
+                arachnea_scrapyfy::ScraperAggregationOptions {
+                    source_params: None,
+                    scrapper_list: Some(&scrapper_list),
+                    query_media_type_filter: None,
+                    fields_filters: None,
+                    source_field_name: None,
+                    operation: "get_season",
+                },
             )
             .await;
         let global_etag = result.take_global_etag();
@@ -224,12 +230,14 @@ impl StreamScraper {
                 STREAM_SERVICE_GROUP_NAME,
                 "list_lives",
                 &params,
-                None,
-                None,
-                None,
-                None,
-                Some("source"),
-                "list_lives",
+                arachnea_scrapyfy::ScraperAggregationOptions {
+                    source_params: None,
+                    scrapper_list: None,
+                    query_media_type_filter: None,
+                    fields_filters: None,
+                    source_field_name: Some("source"),
+                    operation: "list_lives",
+                },
             )
             .await;
         let global_etag = result.take_global_etag();
@@ -274,12 +282,14 @@ impl StreamScraper {
                 STREAM_SERVICE_GROUP_NAME,
                 "get_live",
                 &params,
-                None,
-                Some(&scrapper_list),
-                None,
-                None,
-                None,
-                "get_live",
+                arachnea_scrapyfy::ScraperAggregationOptions {
+                    source_params: None,
+                    scrapper_list: Some(&scrapper_list),
+                    query_media_type_filter: None,
+                    fields_filters: None,
+                    source_field_name: None,
+                    operation: "get_live",
+                },
             )
             .await;
         let global_etag = result.take_global_etag();
@@ -358,12 +368,14 @@ impl StreamScraper {
                 STREAM_SERVICE_GROUP_NAME,
                 "load_home",
                 &params,
-                None,
-                selection.as_ref(),
-                None,
-                None,
-                Some("source"),
-                "load_home",
+                arachnea_scrapyfy::ScraperAggregationOptions {
+                    source_params: None,
+                    scrapper_list: selection.as_ref(),
+                    query_media_type_filter: None,
+                    fields_filters: None,
+                    source_field_name: Some("source"),
+                    operation: "load_home",
+                },
             )
             .await;
         result.errors.extend(errors);
@@ -403,12 +415,14 @@ impl StreamScraper {
                 STREAM_SERVICE_GROUP_NAME,
                 "service_stream_metadata",
                 &params,
-                None,
-                None,
-                None,
-                None,
-                None,
-                "service_stream_metadata",
+                arachnea_scrapyfy::ScraperAggregationOptions {
+                    source_params: None,
+                    scrapper_list: None,
+                    query_media_type_filter: None,
+                    fields_filters: None,
+                    source_field_name: None,
+                    operation: "service_stream_metadata",
+                },
             )
             .await;
         for row in &mut result.data {
@@ -501,12 +515,14 @@ impl StreamScraper {
                 STREAM_SERVICE_GROUP_NAME,
                 "get_category",
                 &params,
-                Some(&source_params),
-                Some(&scrapper_list),
-                None,
-                None,
-                Some("source"),
-                "get_category",
+                arachnea_scrapyfy::ScraperAggregationOptions {
+                    source_params: Some(&source_params),
+                    scrapper_list: Some(&scrapper_list),
+                    query_media_type_filter: None,
+                    fields_filters: None,
+                    source_field_name: Some("source"),
+                    operation: "get_category",
+                },
             )
             .await;
         let global_etag = result.take_global_etag();
@@ -570,12 +586,14 @@ impl StreamScraper {
                 STREAM_SERVICE_GROUP_NAME,
                 "get_section",
                 &params,
-                Some(&source_params),
-                scrapper_list.as_ref(),
-                None,
-                None,
-                Some("source"),
-                "get_section",
+                arachnea_scrapyfy::ScraperAggregationOptions {
+                    source_params: Some(&source_params),
+                    scrapper_list: scrapper_list.as_ref(),
+                    query_media_type_filter: None,
+                    fields_filters: None,
+                    source_field_name: Some("source"),
+                    operation: "get_section",
+                },
             )
             .await;
         let global_etag = result.take_global_etag();
@@ -658,12 +676,14 @@ impl StreamScraper {
                 STREAM_SERVICE_GROUP_NAME,
                 "get_recommendations",
                 &params,
-                Some(&source_params),
-                scrapper_list.as_ref(),
-                None,
-                None,
-                Some("source"),
-                "get_recommendations",
+                arachnea_scrapyfy::ScraperAggregationOptions {
+                    source_params: Some(&source_params),
+                    scrapper_list: scrapper_list.as_ref(),
+                    query_media_type_filter: None,
+                    fields_filters: None,
+                    source_field_name: Some("source"),
+                    operation: "get_recommendations",
+                },
             )
             .await;
         let global_etag = result.take_global_etag();
@@ -727,12 +747,14 @@ impl StreamScraper {
                 STREAM_SERVICE_GROUP_NAME,
                 "get_banners",
                 &params,
-                None,
-                scrapper_list.as_ref(),
-                None,
-                None,
-                Some("source"),
-                "get_banners",
+                arachnea_scrapyfy::ScraperAggregationOptions {
+                    source_params: None,
+                    scrapper_list: scrapper_list.as_ref(),
+                    query_media_type_filter: None,
+                    fields_filters: None,
+                    source_field_name: Some("source"),
+                    operation: "get_banners",
+                },
             )
             .await;
         let global_etag = result.take_global_etag();

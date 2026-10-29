@@ -411,7 +411,7 @@ impl StreamScraper {
             let core = core.with_fallback_direct(true);
             agregator
                 .get_proxy_handle()
-                .set_proxy(HttpProxyConfig::Arachnea(core.clone()));
+                .set_proxy(HttpProxyConfig::Arachnea(Box::new(core.clone())));
             agregator.set_proxy_core(core);
         }
         let proxy_handle = agregator.get_proxy_handle();
@@ -526,7 +526,7 @@ impl StreamScraper {
     pub fn from_json(json_path: Option<&str>) -> Result<Self> {
         let options = StreamScraperBuildOptions::new(
             FileCredentialsStore::default().as_arc(),
-            sqlite_application_stores(&arachnea_core::application::get_application_data_path(""))?,
+            sqlite_application_stores(arachnea_core::application::get_application_data_path(""))?,
         )
         .with_services_config_path(json_path.unwrap_or(DEFAULT_SERVICES_CONFIG_PATH));
         Self::from_options(&options)

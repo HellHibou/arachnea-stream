@@ -19,8 +19,8 @@ use arachnea_scrapyfy::{
 
 use crate::services::player_resolver::{
     normalize_stream_kind, proxy_drm_today_license_request, save_drm_today_license_proxy_url,
-    Chapter, PlayerResolverEndpoints, PlayerStreamResolver, ProxiedStreamResponse,
-    ResolvedPlayerStream,
+    Chapter, PlayerResolverEndpoints, PlayerStreamRequest, PlayerStreamResolver,
+    ProxiedStreamResponse, ResolvedPlayerStream,
 };
 
 /// Stable source identifier for RTLplay routing and credentials.
@@ -166,12 +166,15 @@ impl PlayerStreamResolver for RtlPlayResolver {
         &self,
         scraper_agregator: &ScraperAgregator,
         credentials_store: &dyn CredentialsStore,
-        resolver: &str,
-        target: &str,
-        service_parameters: &[ScraperQueryCollectionParameter],
-        _proxy_countries: &[String],
+        request: PlayerStreamRequest<'_>,
         endpoints: &PlayerResolverEndpoints,
     ) -> Result<ResolvedPlayerStream> {
+        let PlayerStreamRequest {
+            resolver,
+            target,
+            service_parameters,
+            proxy_countries: _proxy_countries,
+        } = request;
         match resolver.trim() {
             "rtlplay-video" => {
                 let api_version = RtlPlayApiVersion::from_parameters(service_parameters)?;

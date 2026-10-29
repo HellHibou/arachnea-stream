@@ -51,7 +51,7 @@ impl RestControlerService {
                     .status(StatusCode::from_u16(status).unwrap_or(StatusCode::OK))
                     .header("content-type", "application/json");
                 for (name, header_value) in &headers {
-                    if name.to_ascii_lowercase() != "content-type" {
+                    if !name.eq_ignore_ascii_case("content-type") {
                         builder = builder.header(name.as_str(), header_value.as_str());
                     }
                 }
@@ -108,7 +108,7 @@ impl RestControlerService {
                 builder = builder.header("content-type", &content_type);
 
                 for (name, value) in &headers {
-                    if name.to_ascii_lowercase() != "content-type" {
+                    if !name.eq_ignore_ascii_case("content-type") {
                         builder = builder.header(name.as_str(), value.as_str());
                     }
                 }

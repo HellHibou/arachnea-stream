@@ -14,12 +14,13 @@ impl StreamResolver<'_> {
     /// terminal error or yields no stream.
     ///
     /// # Returns
-    /// The resolved stream, or `None` when no service recognizes the document.
+    /// The existing stream box forwarded from the successful attempt, or `None`
+    /// when no service recognizes the document.
     pub(super) async fn resolve_from_fetched_html(
         &self,
         url: &str,
         source_names: &[String],
-    ) -> Result<Option<ResolvedPlayerStream>> {
+    ) -> Result<Option<Box<ResolvedPlayerStream>>> {
         let fetched = self.fetch_embed_html(url).await?;
 
         for name in source_names {
@@ -215,12 +216,14 @@ impl StreamResolver<'_> {
                 STREAM_RESOLVER_GROUP_NAME,
                 CAN_RESOLVE_HTML_QUERY_NAME,
                 &params,
-                None,
-                Some(&vec![service_name.to_string()]),
-                None,
-                None,
-                None,
-                "can_resolve_html",
+                arachnea_scrapyfy::ScraperAggregationOptions {
+                    source_params: None,
+                    scrapper_list: Some(&vec![service_name.to_string()]),
+                    query_media_type_filter: None,
+                    fields_filters: None,
+                    source_field_name: None,
+                    operation: "can_resolve_html",
+                },
             )
             .await
             .data;
@@ -256,12 +259,14 @@ impl StreamResolver<'_> {
                 STREAM_RESOLVER_GROUP_NAME,
                 CAN_RESOLVE_URL_QUERY_NAME,
                 &params,
-                None,
-                Some(&vec![service_name.to_string()]),
-                None,
-                None,
-                None,
-                "can_resolve_url",
+                arachnea_scrapyfy::ScraperAggregationOptions {
+                    source_params: None,
+                    scrapper_list: Some(&vec![service_name.to_string()]),
+                    query_media_type_filter: None,
+                    fields_filters: None,
+                    source_field_name: None,
+                    operation: "can_resolve_url",
+                },
             )
             .await
             .data;

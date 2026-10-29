@@ -8,14 +8,52 @@ This README is the design and usage home for the HTTP crate. Remaining work is t
 
 - `src/client.rs` owns the public client facade. Private modules under `src/client/` handle request/response types, execution, proxy runtime ownership, URLs, Cloudflare refresh and reusable browser sessions. Existing public paths under `arachnea_http::client` remain available through reexports.
 - `src/config.rs` owns configuration types; `src/config/builder.rs` owns construction and validation.
-- `src/engine/chaser_cf/` separates challenge observation, page sessions and the private `session_cache.rs` implementation of typed session persistence, expiration and cookie conversion. Its existing cache tests mirror that module under `tests/engine/chaser_cf/session_cache.rs`. `src/engine/tauri_cloudflare/` separates application-owned windows from the standalone event loop. Engine and platform feature gates remain in effect.
+- `src/engine/chaser_cf/` separates challenge observation, page sessions and the private `session_cache.rs` implementation of typed session persistence, expiration and cookie conversion. Its existing cache tests mirror that module under `tests/engine/chaser_cf/session_cache.rs`. `src/engine/tauri_cloudflare/` separates application-owned windows from the standalone event loop. Five private solver functions share a scalar `CloudflareSolveOptions` value for timing, window and page-collection settings; request/proxy data and runtime handles retain their separate ownership. This grouping adds no heap allocation and preserves the public engine API, native proxy readiness, clearance rules and window lifecycle. Engine and platform feature gates remain in effect.
 - `src/lib.rs` centralizes documented constants and relevant defaults, preserving their values and existing public constant paths. Mutable caches and registries stay with their owners.
 - Crate-owned JavaScript assets and Rust format templates live under `resources/chaser_cf/` and `resources/tauri_cloudflare/`. They are included at compile time; deployment does not require copying these directories. Format templates retain Rust placeholder and brace escaping.
 - Existing tests mirror source paths under crate-root `tests/`; shared mocks live under `tests/support/`. Private-access suites are loaded using conditional `#[path]` declarations. `autotests = false` prevents Cargo from also discovering these files as incompatible integration targets.
 
 From `server/`, run `cargo test -p arachnea-http` for the default configuration or `cargo test -p arachnea-http --all-features` for all compiled engines and proxy coverage. The existing suites use mocks, persistence fixtures and local transport fixtures; they do not qualify live Cloudflare solving or native GUI behavior across platforms.
 
+The private Tauri main-thread dispatch result boxes a successfully created
+application-owned solve session and moves it out before asynchronous observation.
+This adds one allocation on that interactive solver path; standalone solving and
+ordinary HTTP requests retain their existing allocation paths. Proxy readiness,
+listener cleanup and polling are unchanged.
+
 ## Design Contract
+
+### In-process proxy configuration migration (Unreleased)
+
+With `arachnea-proxy`, the public Rust variant now owns
+`HttpProxyConfig::Arachnea(Box<ArachneaProxyCore>)`. Update direct construction
+from `HttpProxyConfig::Arachnea(core)` to
+`HttpProxyConfig::Arachnea(Box::new(core))`. Borrow the core with `as_ref()` or
+normal deref coercions; use `*core` to recover its owned value from a matched box.
+The builder `ArachneaHttpConfig::builder().proxy_core(core)` keeps its existing
+argument type and boxes internally.
+
+Construction allocates one box. Derived `Clone` allocates a fresh box and clones
+the contained core, preserving copied scalar settings and shared internal
+handles. When a downstream API needs an owned core, use `core.as_ref().clone()`
+to clone that value without constructing an intermediate box. This does not
+share the whole core through a new `Arc`. Disabled/network modes, routing,
+loopback lifecycle, fallback behavior and feature gates are unchanged. This is a
+Rust source API migration, with no YAML or HTTP response format change.
+
+### Compact attributed errors
+
+With `arachnea-proxy`, `ArachneaHttpError::ProxyAttempt.selection` is
+`Option<Box<arachnea_proxy::core::ProxySelectionToken>>`. The box is allocated
+only while constructing an error with a present selection. Successful requests
+and their response metadata retain the existing token representation and gain
+no additional token allocation from this change.
+
+Callers constructing this public Rust field must wrap owned selections with
+`selection.map(Box::new)`. Use `selection.as_deref()` for a borrowed token or
+`*token` to recover ownership from a present box. Variant names, typed source
+errors, delivery evidence, failure attribution, retry policy and error messages
+remain unchanged. The variant retains its `arachnea-proxy` feature gate.
 
 ### Correlated proxy response policies
 

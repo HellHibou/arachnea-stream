@@ -245,9 +245,9 @@ async fn validated_proxy_is_preferred_only_for_its_destination() {
                 "probe age alone must not invalidate a related-origin hint"
             );
             for separated in [
-                Destination::host_port(&target.host_for_protocol(), 8443)
+                Destination::host_port(target.host_for_protocol(), 8443)
                     .with_protocol(crate::core::ApplicationProtocol::Https),
-                Destination::host_port(&target.host_for_protocol(), 443)
+                Destination::host_port(target.host_for_protocol(), 443)
                     .with_protocol(crate::core::ApplicationProtocol::Http),
             ] {
                 assert!(inventory

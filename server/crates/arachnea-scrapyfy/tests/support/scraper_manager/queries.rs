@@ -39,6 +39,7 @@ struct TestExpectedFields {
 }
 
 /// Test configuration parameters for scraper query tests.
+#[derive(Default)]
 pub struct TestParams {
     /// When enabled, uses mock HTML files instead of making real HTTP requests.
     pub use_mock_file: bool,
@@ -48,16 +49,6 @@ pub struct TestParams {
 
     /// When enabled, logs the full response data in JSON format.
     pub log_response: bool,
-}
-
-impl Default for TestParams {
-    fn default() -> TestParams {
-        TestParams {
-            use_mock_file: false,
-            ignore_entry_not_mapped: false,
-            log_response: false,
-        }
-    }
 }
 
 fn dedup_fields(fields: Vec<String>) -> Vec<String> {
@@ -218,7 +209,7 @@ where
         let mut row_fields = HashSet::new();
         collect_fields(&mut row_fields, &"".to_string(), &row);
         for field in row_fields {
-            let stat_entry = stats.entry(field).or_insert_with(|| StatsTest::new());
+            let stat_entry = stats.entry(field).or_insert_with(StatsTest::new);
             stat_entry.count += 1;
         }
     }
@@ -242,7 +233,7 @@ where
     let mut skipped = 0;
 
     let mut stats_entries: Vec<_> = stats.iter().collect();
-    stats_entries.sort_by(|(left_key, _), (right_key, _)| left_key.cmp(right_key));
+    stats_entries.sort_by_key(|(left_key, _)| *left_key);
 
     for (stat_key, stat_value) in stats_entries {
         let equal_str =
@@ -293,7 +284,7 @@ fn collect_fields(
     row: &HashMap<String, ScraperDataNode>,
 ) {
     for (entry_key, entry_value) in row.iter() {
-        if entry_value.values.len() > 0 {
+        if !entry_value.values.is_empty() {
             fields.insert(format!("{}{}", root, entry_key));
         }
 

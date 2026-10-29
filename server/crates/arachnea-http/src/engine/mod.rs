@@ -156,7 +156,7 @@ pub trait HttpEngine: Send + Sync {
     where
         Self: Sized + 'static,
     {
-        return ArachneaHttpConfig::builder().engine_instance(self).build();
+        ArachneaHttpConfig::builder().engine_instance(self).build()
     }
 }
 

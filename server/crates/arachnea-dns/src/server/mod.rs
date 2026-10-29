@@ -6,11 +6,12 @@
 
 mod config;
 mod dns;
-mod server;
+#[path = "server.rs"]
+mod runtime;
 
 pub use config::{
     FileBlocklist, FileConfig, FileForwarder, FileLocalRecord, FileProfile, NetworkConfig,
     ServerConfig,
 };
 pub use dns::handle_packet;
-pub use server::{run_tcp, run_udp, Server};
+pub use runtime::{run_tcp, run_udp, Server};

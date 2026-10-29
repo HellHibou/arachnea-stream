@@ -305,7 +305,7 @@ impl SimpleHttpClient {
             connect.await
         }
         .map_err(|error| ProxyError::RequestAttempt {
-            selection: selected.selection_token.clone(),
+            selection: selected.selection_token.clone().map(Box::new),
             delivery: crate::core::ProxyRequestDelivery::NotSent,
             source: Box::new(error),
         })?;
@@ -350,7 +350,7 @@ impl SimpleHttpClient {
                     handshake.await
                 }
                 .map_err(|error| ProxyError::RequestAttempt {
-                    selection: selected.selection_token.clone(),
+                    selection: selected.selection_token.clone().map(Box::new),
                     delivery: crate::core::ProxyRequestDelivery::NotSent,
                     source: Box::new(error),
                 })?;
@@ -395,7 +395,7 @@ impl SimpleHttpClient {
             head.await
         }
         .map_err(|error| ProxyError::RequestAttempt {
-            selection: selected.selection_token.clone(),
+            selection: selected.selection_token.clone().map(Box::new),
             delivery: crate::core::ProxyRequestDelivery::PossiblySent,
             source: Box::new(error),
         })?;
@@ -528,7 +528,7 @@ impl SimpleHttpClient {
                     collect.await.map_err(ProxyError::from)
                 };
                 collected.map_err(|error| ProxyError::RequestAttempt {
-                    selection: selected.selection_token.clone(),
+                    selection: selected.selection_token.clone().map(Box::new),
                     delivery: crate::core::ProxyRequestDelivery::ResponseReceived,
                     source: Box::new(error),
                 })?;

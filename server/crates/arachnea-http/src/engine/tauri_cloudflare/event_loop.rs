@@ -12,15 +12,7 @@ use super::*;
 ///
 /// - `url`: Cloudflare-protected URL to load.
 /// - `user_agent`: Optional browser user-agent override.
-/// - `timeout`: Maximum solve duration.
-/// - `poll_interval`: Cookie polling interval.
-/// - `clearance_stabilization`: Delay required after clearance before closing.
-/// - `window_width`: Initial window width.
-/// - `window_height`: Initial window height.
-/// - `devtools`: Whether to open developer tools when the build permits it.
-/// - `auto_close_after_clearance`: Whether to close once clearance is stable.
-/// - `incognito`: Whether to use an incognito webview.
-/// - `collect_page_source`: Whether to capture page HTML after solving.
+/// - `options`: Solve timing, window settings and post-clearance collection policy.
 /// - `proxy`: Optional native webview proxy configuration.
 ///
 /// # Returns
@@ -34,17 +26,20 @@ use super::*;
 pub(super) fn solve_cloudflare_with_wry_event_loop(
     url: &str,
     user_agent: Option<&str>,
-    timeout: Duration,
-    poll_interval: Duration,
-    clearance_stabilization: Duration,
-    window_width: f64,
-    window_height: f64,
-    devtools: bool,
-    auto_close_after_clearance: bool,
-    incognito: bool,
-    collect_page_source: bool,
+    options: CloudflareSolveOptions,
     proxy: Option<&WebviewProxy>,
 ) -> Result<WrySolveResult, ArachneaHttpError> {
+    let CloudflareSolveOptions {
+        timeout,
+        poll_interval,
+        clearance_stabilization,
+        window_width,
+        window_height,
+        devtools,
+        auto_close_after_clearance,
+        incognito,
+        collect_page_source,
+    } = options;
     let mut event_loop = solver_event_loop();
     let window = WindowBuilder::new()
         .with_title("Arachnea Cloudflare verification")

@@ -190,7 +190,7 @@ pub(super) fn select_dash_stream(payload: &Value) -> Option<ResolvedRtlPlayVideo
             manifest_url: manifest_url.to_string(),
             license_url,
             license_token,
-            storyboard_vtt_url: storyboard_vtt_url,
+            storyboard_vtt_url,
             chapters,
         });
     }
@@ -290,8 +290,7 @@ pub(super) fn live_channel_slug_from_url(channel_id: &str) -> Option<String> {
     }
 
     url.path_segments()?
-        .filter(|segment| !segment.is_empty())
-        .last()
+        .rfind(|segment| !segment.is_empty())
         .map(str::to_string)
 }
 
