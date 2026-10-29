@@ -23,6 +23,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Fixed
 
+- Windows PowerShell ZIP fallback now passes source and destination paths through dedicated child-process environment variables instead of interpolating them into PowerShell code. Apostrophes and shell metacharacters remain path data, source directory wildcard characters are escaped, and archive errors fail the release command.
+
 - The repository-root macOS/Linux `build.sh` wrapper now accepts both quoted
   and unquoted all-platform selectors (`./build.sh '*'` and `./build.sh *`). It
   preserves arguments through `"$@"` and recognizes the complete filename list
@@ -82,6 +84,8 @@ All notable changes to the server workspace are recorded here.
 #### Changed
 
 - Reduced grouped SQLite key reads from 128 to 32 keys per chunk after finite reader/writer comparisons on synthetic 0/69/1,024-entry eviction tables. Shared-connection write medians improve from about 1.6 ms to 0.3 ms in the focused comparison, with less than 1 ms median read overhead; commit serialization, expiration and cancellation semantics stay intact. All 31 core and 132 proxy tests pass; sustained fairness and API gains remain unqualified.
+
+- AES-GCM persistence nonces are generated directly with `rand::random()` instead of zero-initializing and then filling a buffer. Both paths retain uniformly random 12-byte nonces from the same thread-local cryptographic generator; encrypted formats remain unchanged.
 
 - Added ordered typed `get_many` reads with scalar backend compatibility and bounded SQLite composite-key queries. SQLite releases its connection lock between chunks, checks expiration before entity decoding and documents partial cleanup/error/cancellation behavior; no cross-call caching or schema migration is introduced.
 
@@ -494,6 +498,8 @@ All notable changes to the server workspace are recorded here.
 ### <u>front-public</u>
 
 #### Fixed
+
+- YouTube URL normalization now requires HTTP(S) and an exact YouTube domain or a dot-separated subdomain. Lookalike domains such as `evilyoutube.com` no longer inherit YouTube trust through the video source allowlist or bypass safe iframe mode.
 
 - Deferred episode players now count as playable when the player looks for the first playable episode of a season: the lookup accepts `players.link` like the other episode selection paths, so episodes whose players are loaded through `get_players` are still auto-selected and navigable.
 - Custom-home ids now use a shared `createUuid()` helper with `getRandomValues()`/`Math.random()` fallbacks, so creation works on plain HTTP LAN hosts where `crypto.randomUUID()` is unavailable.
