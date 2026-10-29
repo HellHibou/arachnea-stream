@@ -1000,7 +1000,10 @@ pub(crate) async fn op_set_admin_password(
 
     let mut persisted = state.adapter().persisted_settings().map_err(admin_err)?;
     if let Some(existing) = persisted.password_hash.as_deref() {
-        let current = input.current_password.as_deref().unwrap_or("");
+        let current = input
+            .current_password
+            .as_deref()
+            .ok_or_else(|| AdminError::unauthorized("Current password is incorrect."))?;
         if !verify_admin_password(current, existing) {
             return Err(AdminError::unauthorized("Current password is incorrect."));
         }

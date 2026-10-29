@@ -1161,7 +1161,7 @@ handler under the same `<operation>` command names.
 | `clear-credentials` | POST | Removes stored service credentials. |
 | `settings` | GET | Effective server port, network mode and root with their provenance. |
 | `update-settings` | POST | Persists port/root/network, then applies them hot to the running server when possible (server mode): answers `applied: true` and `admin_url` when the port or the root changes; otherwise `restart_required: true`. Response detail: `{restart_required, applied, apply_error, admin_url}`. |
-| `set-admin-password` | POST | Sets or changes the permanent administrator password (Argon2id). |
+| `set-admin-password` | POST | Sets or changes the permanent administrator password (Argon2id). When a permanent password is already configured, the current password is required; a missing or incorrect value returns an unauthorized response. |
 | `reload` | POST | Validates and reloads every administrable group; each applicable runtime is swapped atomically. Send the empty JSON object `{}` as its request body. The response retains `{applied, build_error}` for the first group and adds `groups: [{service_store_id, applied, build_error}]` for every group. |
 
 Reloading applies updated proxy (`arachnea-proxies`) and IP-country
