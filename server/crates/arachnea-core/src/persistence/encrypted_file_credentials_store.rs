@@ -164,8 +164,7 @@ impl EncryptedFileCredentialsStore {
             )
         })?;
 
-        let mut nonce = [0u8; AES_GCM_NONCE_SIZE];
-        rand::fill(&mut nonce);
+        let nonce: [u8; AES_GCM_NONCE_SIZE] = rand::random();
 
         let ciphertext = self
             .cipher()?

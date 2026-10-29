@@ -54,6 +54,14 @@ npm run lint:css:fix
 ```
 
 
+## Embedded media security
+
+YouTube embed normalization accepts HTTP(S) URLs on `youtube.com`,
+`youtube-nocookie.com`, their dot-separated subdomains, and the exact `youtu.be`
+short-link host. Lookalike suffix domains are not classified as YouTube and do
+not inherit its trust in `public/video-sources-whitelist.json`. Safe iframe mode
+continues to require an allowlisted source.
+
 ## Source homes
 
 Hero banner navigation displays at most ten indicators in an automatically

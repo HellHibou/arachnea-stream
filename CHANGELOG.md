@@ -23,6 +23,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Fixed
 
+- Windows PowerShell ZIP fallback now passes source and destination paths through dedicated child-process environment variables instead of interpolating them into PowerShell code. Apostrophes and shell metacharacters remain path data, source directory wildcard characters are escaped, and archive errors fail the release command.
+
 - The repository-root macOS/Linux `build.sh` wrapper now accepts both quoted
   and unquoted all-platform selectors (`./build.sh '*'` and `./build.sh *`). It
   preserves arguments through `"$@"` and recognizes the complete filename list
@@ -89,6 +91,8 @@ All notable changes to the server workspace are recorded here.
 - Moved the unchanged embedded log-window page to crate-root `resources/log_window.html` and updated its `include_str!` path and documentation. Shared server agent instructions now require crate-owned resource files under `resources/`, with test-only fixtures remaining under `tests/fixtures/`.
 - Moved the five existing unit-test suites into exact source-path mirrors under crate-root `tests/`, with shared temporary-directory helpers in `tests/support/`. Split REST snapshot/reply adaptation and Tauri configuration into private modules, preserving public reexports and runtime behavior. Centralized constants and relevant defaults in `src/lib.rs`, retaining feature/platform gates and distinct controller defaults, and extracted the unchanged log-window HTML as a compile-time asset. All Rust files now fit within 1,000 lines. Corrected the existing data-path doctest to configure its application identifier first and documented the prerequisite; 31 SQLite-enabled unit tests, 22 tests without SQLite, 11 doctests and 132 proxy consumer tests pass, with validation details in `docs/dev-tracking/harmonisation-crates-rust-lot1.md`.
 - Reduced grouped SQLite key reads from 128 to 32 keys per chunk after finite reader/writer comparisons on synthetic 0/69/1,024-entry eviction tables. Shared-connection write medians improve from about 1.6 ms to 0.3 ms in the focused comparison, with less than 1 ms median read overhead; commit serialization, expiration and cancellation semantics stay intact. All 31 core and 132 proxy tests pass; sustained fairness and API gains remain unqualified.
+
+- AES-GCM persistence nonces are generated directly with `rand::random()` instead of zero-initializing and then filling a buffer. Both paths retain uniformly random 12-byte nonces from the same thread-local cryptographic generator; encrypted formats remain unchanged.
 
 - Added ordered typed `get_many` reads with scalar backend compatibility and bounded SQLite composite-key queries. SQLite releases its connection lock between chunks, checks expiration before entity decoding and documents partial cleanup/error/cancellation behavior; no cross-call caching or schema migration is introduced.
 
@@ -598,6 +602,8 @@ All notable changes to the server workspace are recorded here.
 ### <u>front-public</u>
 
 #### Fixed
+
+- YouTube URL normalization now requires HTTP(S) and an exact YouTube domain or a dot-separated subdomain. Lookalike domains such as `evilyoutube.com` no longer inherit YouTube trust through the video source allowlist or bypass safe iframe mode.
 
 - Deferred episode players now count as playable when the player looks for the first playable episode of a season: the lookup accepts `players.link` like the other episode selection paths, so episodes whose players are loaded through `get_players` are still auto-selected and navigable.
 - Custom-home ids now use a shared `createUuid()` helper with `getRandomValues()`/`Math.random()` fallbacks, so creation works on plain HTTP LAN hosts where `crypto.randomUUID()` is unavailable.

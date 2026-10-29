@@ -101,6 +101,11 @@ targets, the `-app.tar.gz` archive). Pass `--package <name>` to narrow a run:
 
 Artifacts are grouped by family subfolder; each installer and every portable archive get companion `*.sha256` and `*.md5` files (`sha256sum`/`md5sum` format). `CHANGELOG.md` is copied at the release folder root only.
 
+The Windows PowerShell ZIP fallback passes archive paths through dedicated
+child-process environment variables, keeping apostrophes and shell metacharacters
+out of the PowerShell source. Source directory wildcard characters are escaped;
+only its contents are archived. PowerShell archive errors fail the release command.
+
 ```
 releases/release-0.1.0/
   CHANGELOG.md

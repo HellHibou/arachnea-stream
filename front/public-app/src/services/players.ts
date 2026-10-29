@@ -309,6 +309,9 @@ export function resolveYoutubeEmbedUrl(value: string | null): string | null {
       /(https?:\/\/(?:www\.)?(?:youtube(?:-nocookie)?\.com\/[^"'\s<>]+|youtu\.be\/[^"'\s<>]+))/i,
     ) ?? extractAbsoluteUrl(value) ?? resolveProtocolRelativeUrl(value) ?? value
     const url = new URL(candidateUrl)
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      return null
+    }
     const host = url.hostname.toLocaleLowerCase()
 
     if (host === 'youtu.be') {
@@ -316,7 +319,10 @@ export function resolveYoutubeEmbedUrl(value: string | null): string | null {
       return videoId ? `https://www.youtube.com/embed/${videoId}` : null
     }
 
-    if (host.endsWith('youtube.com') || host.endsWith('youtube-nocookie.com')) {
+    if (
+      host === 'youtube.com' || host.endsWith('.youtube.com') ||
+      host === 'youtube-nocookie.com' || host.endsWith('.youtube-nocookie.com')
+    ) {
       if (url.pathname.startsWith('/embed/')) {
         return url.toString()
       }

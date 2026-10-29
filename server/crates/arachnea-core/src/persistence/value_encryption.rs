@@ -10,7 +10,7 @@ use crate::AES_GCM_NONCE_SIZE;
 /// Encrypts one field value with AES-256-GCM.
 ///
 /// The returned string is `base64(nonce || ciphertext)` with a fresh random
-/// 12-byte nonce, so identical plaintexts never produce the same stored value.
+/// 12-byte nonce.
 ///
 /// # Arguments
 /// * `key` - Static AES-256-GCM key used to encrypt the value.
@@ -23,8 +23,7 @@ pub fn encrypt_value(key: &[u8; 32], plaintext: &str) -> Result<String> {
     let cipher = Aes256Gcm::new_from_slice(key)
         .map_err(|_| anyhow!("Invalid AES-GCM value encryption key length."))?;
 
-    let mut nonce = [0u8; AES_GCM_NONCE_SIZE];
-    rand::fill(&mut nonce);
+    let nonce: [u8; AES_GCM_NONCE_SIZE] = rand::random();
 
     let ciphertext = cipher
         .encrypt(Nonce::from_slice(&nonce), plaintext.as_bytes())

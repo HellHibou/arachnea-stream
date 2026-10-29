@@ -574,13 +574,18 @@ export function createZip(srcDir, zipPath) {
     return;
   }
   if (process.platform === 'win32') {
-    const command = [
-      'powershell',
+    run('powershell', [
       '-NoProfile',
+      '-NonInteractive',
       '-Command',
-      `Compress-Archive -Path '${srcDir}\\*' -DestinationPath '${zipPath}' -Force`,
-    ];
-    run(command[0], command.slice(1));
+      "$ErrorActionPreference = 'Stop'; Compress-Archive -Path ([System.Management.Automation.WildcardPattern]::Escape($env:ARACHNEA_ZIP_SOURCE) + '\\*') -DestinationPath $env:ARACHNEA_ZIP_DESTINATION -Force",
+    ], {
+      env: {
+        ...process.env,
+        ARACHNEA_ZIP_SOURCE: srcDir,
+        ARACHNEA_ZIP_DESTINATION: zipPath,
+      },
+    });
     return;
   }
   throw new Error('No zip tool available. Run `node release/install-tools.mjs` or install `zip`.');

@@ -79,6 +79,9 @@ function identifySource(value: string): SourceIdentity | null {
     }
 
     const url = new URL(value, window.location.href)
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      return null
+    }
     const host = url.hostname.toLocaleLowerCase()
     if (isYoutubeHost(host)) {
       return {
