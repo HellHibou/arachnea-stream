@@ -1,22 +1,20 @@
 # Spécification du format YAML arachnea-stream
 
-Les enums Rust privées des résultats de lecture placent chaque flux réussi dans une boîte, transmise sans recréation pendant la résolution. L’union JSON sans tag, les champs, métadonnées, ordre des URL et replis iframe restent inchangés ; les tentatives échouées et erreurs terminales n’ajoutent aucune boîte de flux. La configuration publique Rust du proxy intégré utilise désormais `HttpProxyConfig::Arachnea(Box::new(core))` : sa construction et son clonage allouent une boîte sans changer les contrats YAML ou frontend.
-
 ## 1. Aperçu
 
 Une collection arachnea-stream déclare une source de streaming (plateforme
-légale ou catalogue alternatif). Chaque source définit jusqu'à 10 requêtes qui
+légale ou catalogue alternatif). Chaque source définit des requêtes nommées qui
 produisent des données catalogues structurées — pages d'accueil, catégories,
 recherche, détails d'entrée, épisodes, directs.
 
-Ces requêtes sont consommées par `StreamScraper` (`stream_scraper.rs`) qui
-centralise les appels au moteur `ScraperAgregator` et expose les résultats au
-contrôleur.
+Ces requêtes produisent les données de catalogue et de lecteurs exposées par le
+backend. Le YAML doit mettre en forme la réponse selon les structures décrites
+ci-dessous.
 
 Ce document ne décrit que les champs et conventions propres au format stream.
 La structure générale d'un fichier YAML (`id`, `parameters`, `http`, `queries`,
 `entries`, `actions`, `shared`, etc.) est documentée dans
-`docs/arachnea-scrapyfy-yaml.md`.
+[la spécification YAML commune](arachnea-scrapyfy-fr.md).
 
 ---
 
@@ -62,7 +60,7 @@ directement dans `load_home`, avec les identifiants `top-animes`, `top-dramas` e
 s'appliquent après la suppression du bloc de statistiques par `pre_process` :
 les positions des enfants désignent donc le DOM prétraité.
 
-Chaque source peut implémenter tout ou partie des 11 requêtes suivantes :
+Chaque source peut implémenter tout ou partie des requêtes suivantes :
 
 | Nom de requête | Type | Description |
 |---|---|---|
@@ -75,6 +73,8 @@ Chaque source peut implémenter tout ou partie des 11 requêtes suivantes :
 | `get_entry` | `json` / `html` | Détail d'une entrée (programme) |
 | `get_recommendations` | `json` / `html` | Recommandations différées d'une entrée (voir 5.7.2) |
 | `get_season` | `json` / `html` | Épisodes d'une saison |
+| `get_players` | `json` / `html` | Liste différée de lecteurs |
+| `resolve_stream` | `json` / `html` / `text` | Extraction facultative propre à la source, choisie via `scraper-query` |
 | `list_lives` | `json` / `html` | Liste des chaînes en direct |
 | `get_live` | `json` / `html` | Détail d'un direct (joueur) |
 
@@ -363,7 +363,7 @@ Structure commune utilisée dans `sections[].entries`, `search.entries`,
 | `web-link` | `string` | non | URL publique du contenu |
 | `description` | `string` | non | Synopsis / description |
 | `media-type` | `string` ou `string[]` | non | Type de média (ex: `video/show/serie`). Les formes personnalisées `video/other/<libellé>` et `video/show/other/<libellé>` affichent directement leur libellé dans le frontend. |
-| `duration` | `string` | non | Durée formatée |
+| `duration` | `number` ou `string` numérique | non | Durée formatée |
 | `release-date` | `string` | non | Date de publication (`YYYY-MM-DD`) |
 | `expire` | `string` | non | Date d'expiration |
 | `year` | `number` | non | Année de production ou copyright |
@@ -373,6 +373,7 @@ Structure commune utilisée dans `sections[].entries`, `search.entries`,
 | `language` | `string[]` | non | Variante de `lang` |
 | `label` | `string` | non | Étiquette de substitution (fallback titre) |
 | `rating` | `number` | non | Note / score |
+| `price` | `string` | non | `free`, `premium` ou `<montant> <DEVISE>`, par exemple `2.99 EUR` ; les formats inconnus sont ignorés |
 | `episode > label` | `string` | non | Étiquette d'épisode sur les cartes |
 | `season` | `string` | non | Saison |
 | `tags` | `string[]` | non | Tags |
@@ -381,6 +382,7 @@ Structure commune utilisée dans `sections[].entries`, `search.entries`,
 | `img/portrait > link` | `string` | non | URL portrait |
 | `img/landscape > link` | `string` | non | URL paysage |
 | `img/preview > link` | `string` | non | URL d'aperçu |
+| `img > link` | `string` | non | Image générique de repli |
 | `img/logo > link` | `string` | non | URL du logo |
 
 > **Note** : `execute_query_async` peut injecter `source` lorsque le champ
@@ -542,9 +544,12 @@ Retourne un objet unique avec les métadonnées complètes d'un programme.
 | `year` | `number` | Année |
 | `release-date` | `string` | Date de sortie |
 | `expire` | `string` | Date d'expiration |
-| `duration` | `string` | Durée |
+| `duration` | `number` ou `string` numérique | Durée |
 | `count-season` | `number` | Nombre de saisons |
 | `content-advisor` | `string` | Avertissement (ex: « Déconseillé aux -10 ans ») |
+| `price` | `string` | Indication facultative : `free`, `premium` ou montant décimal et devise de trois lettres majuscules, par exemple `2.99 EUR` |
+| `lang/audio` | `string[]` | Libellés des langues audio |
+| `lang/subtitles` | `string[]` | Libellés de langues de sous-titres ; ce ne sont pas des URL de pistes |
 | `language` | `string[]` | Langues |
 | `subtitles` | `string[]` | Sous-titres |
 | `theme` | `string[]` | Genres |
@@ -561,6 +566,15 @@ Retourne un objet unique avec les métadonnées complètes d'un programme.
 | `img/landscape > link` | `string` | Paysage |
 | `img/logo > link` | `string` | Logo |
 | `img/preview > link` | `string` | Aperçu |
+
+`duration` représente des secondes, y compris sous forme de chaîne numérique.
+Utiliser `normalize_duration` pour les durées textuelles avant sérialisation.
+`price` est une chaîne : point décimal, espace et devise en majuscules ; `2,99 €`
+n'est pas le format canonique. `free` et l'absence de prix n'affichent aucun
+avertissement d'accès. Les champs fournisseurs arbitraires (`morality`, `quality`,
+`hoster-infos`, `server-index`) ne deviennent pas automatiquement des fonctionnalités
+publiques du lecteur. Garder les champs temporaires locaux et les retirer après
+post-traitement.
 
 #### 5.7.1 Saison
 
@@ -663,7 +677,7 @@ une fiche sans ce widget ne publie aucun lien de recommandations.
 | `title` | `string` | Titre de l'épisode |
 | `title/alt` | `string` | Titre alternatif |
 | `description` | `string` | Synopsis |
-| `duration` | `string` | Durée |
+| `duration` | `number` ou `string` numérique | Durée |
 | `release-date` | `string` | Date de diffusion |
 | `expire` | `string` | Date d'expiration |
 | `link` | `string` | Lien de détail |
@@ -863,35 +877,23 @@ La commande binaire `get_drm_license` remplace l'ancienne commande
 `get_stream` pour le proxy de licence DRM. Son chemin public est
 `/api/get_drm_license/{source}/{token}`.
 
-### 5.9.3 Groupe de résolveurs YAML — `arachnea-stream-hoster`
+### 5.9.3 Résolveurs d'hébergeurs externes
 
-Le groupe `arachnea-stream-hoster` contient des résolveurs configurables
-par YAML pour les hébergeurs externes. Chaque fichier YAML déclare au minimum
-`resolve_stream`. Les requêtes de reconnaissance sont optionnelles et servent
-à éviter des requêtes réseau inutiles ou à reconnaître une page déjà chargée.
+Avec `resolver: stream-resolver`, la cible est une URL de lecteur externe. La
+reconnaissance, `resolve_stream`, la réutilisation HTML, les en-têtes proxy, les
+erreurs terminales et les exemples complets sont décrits dans
+[arachnea-stream-hoster](arachnea-stream-hoster-fr.md). Conserver ces YAML dans
+le groupe `arachnea-stream-hoster`.
 
-| Requête | Type | Description |
-|---|---|---|
-| `can_resolve_url` | `static` | Préfiltre optionnel avant tentative directe ; un résultat positif autorise `resolve_stream` à charger l'URL |
-| `can_resolve_html` | `static` / `html` | Reconnaissance optionnelle d'un HTML déjà téléchargé avec les paramètres `{url, origine, html}` ; `{origine}` est le schéma, l'hôte et le port éventuel de l'URL finale après redirections |
-| `resolve_stream` | `html` / `json` / `text` | Extrait le flux média et les métadonnées optionnelles `title`, `image/title > link`, `stream_headers`, `storyboard_vtt_url`, `storyboard` et `subtitles`. Une sortie optionnelle non vide `error_message` signale une erreur métier terminale. |
-
-La façade `StreamResolver` parcourt les YAML actifs dans l'ordre de `services.json`.
-Pour le chemin direct, elle appelle `can_resolve_url` quand la requête existe ; seuls les
-services qui répondent positivement tentent alors `resolve_stream` avec chargement réseau.
-Si aucun flux direct n'est obtenu, le résolveur télécharge la page une seule fois, vérifie
-un `Content-Type` HTML et une taille maximale de 1 Mio, puis appelle `can_resolve_html`
-avec `{url, origine, html}`. Le premier service reconnu relance `resolve_stream` avec ce même
-HTML en mémoire via `input_html`, sans deuxième GET sur la page d'embed. En l'absence de
-service compatible, `get_stream` retourne `{ "embed-link": "<url>" }`.
-
-Lorsque la première entrée d'un `resolve_stream` contient un `error_message` non vide, cette
-valeur est renvoyée comme erreur de `get_stream`. Elle est prioritaire sur `stream_url` : la
-recherche s'arrête immédiatement, sans essayer un autre service ni retourner le fallback iframe.
-Un champ absent ou vide conserve le comportement habituel de poursuite de la recherche.
-
-`stream_headers` est une métadonnée interne du résolveur : elle sert à construire les URLs proxy
-et n'est donc volontairement pas sérialisée dans la réponse JSON de `get_stream`.
+Avec `resolver: scraper-query`, conserver `resolve_stream` dans le YAML de cette
+source de catalogue et définir `resolver > source` avec son ID de collection.
+Ce chemin exécute seulement la requête fixe `resolve_stream` de la source ; il
+ne permet pas d'appeler un nom de requête arbitraire. La cible doit être une URL
+HTTP(S) absolue, exposée comme `{url}` et `{query_url}`. `{proxy_countries}` est un
+tableau JSON sérialisé. Un `error_message` non vide est terminal ; un flux absent
+ou vide est une erreur, sans repli iframe. Utiliser les champs de sortie de flux
+de la spécification hoster. Les URL retournées doivent être HTTP(S). Ce chemin
+ne nécessite pas de requêtes de reconnaissance d'hébergeur.
 
 ---
 
@@ -1125,28 +1127,86 @@ queries:
 
 ---
 
-## 8. Correspondance côté Rust
+## 8. Entrées des opérations et procédure de rédaction
 
-Les résultats sont retournés sous forme d'arbres `ScraperDataNode` et
-sérialisés en JSON. Les conventions de nommage YAML sont conservées telles
-quelles (kebab-case, chemins hiérarchiques avec `>`).
+### Entrées d'exécution
 
-Le point d’entrée côté backend reste `StreamScraper` dans
-`server/crates/arachnea-stream/src/stream_scraper.rs`. Les méthodes de catalogue
-sont implémentées dans le module privé `stream_scraper/catalog.rs` ; la lecture,
-la construction des stores et l’enregistrement possèdent leurs modules privés.
-Les constantes propres à un résolveur de service sont en tête de son fichier ;
-les constantes partagées entre résolveurs et les valeurs par défaut de l’application restent dans `src/lib.rs` ;
-ces frontières conservent les imports publics, commandes et contrats de résultat YAML.
-Chaque méthode de catalogue :
+Toutes les requêtes peuvent utiliser les valeurs par défaut de la collection,
+`{service_id}`, `{service_title}`, `{service_logo}`, `{service_description}` et
+`{source}`. Les entrées suivantes appartiennent à des opérations précises ; ne
+pas supposer qu'elles existent pour les autres opérations :
 
-1. Construit une `HashMap<String, String>` de paramètres
-2. Appelle `agregator.execute_query_async(context, query_parameters, "arachnea-stream", "<nom_requete>", params, options)`, avec les options empruntées de `ScraperAggregationOptions`
-3. Retourne les lignes brutes ou fusionnées
+| Requête | Entrées d'exécution |
+|---|---|
+| `service_stream_metadata`, `load_home`, `list_lives` | Métadonnées et valeurs par défaut ; aucune URL de contenu nécessaire |
+| `search` | `search_query` (texte brut), `search_query_json` (chaîne JSON littérale avec guillemets), `search_terms` (texte encodé URL), `media_types` et `themes` (séparés par des virgules), `page` (au moins 1), paramètres de continuation propres à la source |
+| `get_category` | Descripteurs contenant `name` ou `source` ; les autres clés deviennent des paramètres propres à la source, dont `query_url` s'il est déclaré ; `page` et paramètres de continuation |
+| `get_entry` | `query_url` |
+| `get_season` | `query_url`, `page` (au moins 1) |
+| `get_section`, `get_recommendations` | Lien non vide dans `query_url` et `link`, `page` (au moins 1) |
+| `get_banners`, `get_players` | Lien non vide dans `query_url` et `link` |
+| `get_live` | `channel` — utiliser `{channel}`, sans supposer l'existence de `{query_url}` |
+| `resolve_stream` via `scraper-query` | `url`, `query_url`, `proxy_countries` ; voir 5.9.3 |
 
-Côté frontend, les normalisateurs dans `front/src/services/rustify.ts`
-transforment les champs YAML (kebab-case, chemins `img/poster > link`) en
-objets TypeScript typés.
+Les paramètres de pagination dérivés sont décrits dans la spécification commune.
+Un `page_size` d'exécution ou par défaut est nécessaire pour dériver `offset`.
+Retourner les paramètres de continuation de chaque source sous `source_params` ;
+ne pas construire la requête suivante depuis le curseur d'une autre source.
+Les paramètres de continuation existants sont prioritaires sur les paramètres
+du descripteur de catégorie.
+
+### Construire et vérifier une source
+
+1. Inscrire le YAML sous `server/services/arachnea-stream/`, directement ou via un
+   manifeste importé. Choisir un `id` unique et l'utiliser dans les descripteurs.
+2. Rédiger `service_stream_metadata` comme une ligne statique. Déclarer les types
+   de médias des requêtes de catalogue ; réutiliser une liste ancrée.
+3. Ajouter les opérations prises en charge. Une catégorie `load_home` doit porter
+   le descripteur attendu par `get_category` ; un lien de section doit fonctionner
+   avec `get_section` ; un lien d'entrée avec `get_entry.query_url`.
+4. Utiliser les identités stables du fournisseur pour les sections si disponibles.
+   Ne pas créer de clé stable à partir d'une position ou d'un titre traduit.
+5. Pour une série, choisir des épisodes intégrés ou des liens de saisons. Chaque
+   lien doit fonctionner avec `get_season`. Pour des lecteurs différés, émettre
+   `players_link` et implémenter `get_players`. Ne pas précharger toutes les
+   saisons ou pages de lecteurs depuis l'accueil.
+6. Choisir un média direct, un résolveur natif enregistré, `stream-resolver` pour
+   les hébergeurs externes ou `scraper-query` pour l'extraction YAML de cette
+   source. Inclure la cible et la source nécessaires au chemin choisi. Une page
+   publique n'est pas une URL de média directement lisible.
+7. Utiliser `search_terms` dans les URL et `search_query_json` sans guillemets
+   supplémentaires pour insérer une chaîne JSON dans un corps POST.
+8. Vérifier première page, continuation, résultats vides et médias indisponibles.
+   Les cartes doivent conserver leur source et appeler la bonne opération.
+9. Suivre [la spécification de contrôle des sources](arachnea-stream-source-checks-fr.md)
+   pour les vérifications existantes de métadonnées et en ligne. Le chargement
+   ne qualifie pas la source distante ; distinguer réseau et contrat.
+
+### Exemples de services existants
+
+Ces exemples facultatifs illustrent des modèles propres aux fournisseurs. Le
+contrat complet reste dans ce guide et la spécification commune ; ne pas copier
+une URL, un identifiant ou un sélecteur sans vérifier la réponse de la cible.
+
+- [dark-stream/anime-sama.yaml](../../server/services/arachnea-stream/dark-stream/anime-sama.yaml) — Catalogue HTML et post-traitements.
+- [legal-stream/rtlplay-be.yaml](../../server/services/arachnea-stream/legal-stream/rtlplay-be.yaml) — Extraction des données Next.js.
+- [legal-stream/rtbf-auvio-be.yaml](../../server/services/arachnea-stream/legal-stream/rtbf-auvio-be.yaml) — API JSON et requêtes supplémentaires.
+
+### Requêtes supplémentaires et enveloppes
+
+Une collection peut contenir des requêtes auxiliaires, mais leurs noms ne créent
+pas de commandes publiques. Le `get_episode` actuel de Papadustream V2 n'est pas
+une opération standard de la façade stream. La navigation des épisodes utilise
+les opérations documentées d'entrée, de saison et de lecteurs. Ne pas exiger un
+appel à une commande non documentée.
+
+`>` crée des objets JSON imbriqués ; les noms contenant `/`, comme `img/poster`,
+restent des clés littérales. Le backend enveloppe la sortie dans un résultat
+agrégé contenant `data`, `errors` et les métadonnées de validation applicables.
+Écrire dans le YAML les champs du contenu décrits en section 5 ; ne pas ajouter
+une enveloppe YAML `data` sauf exigence explicite du contrat de contenu.
+Des erreurs partielles peuvent accompagner un résultat ; un contenu vide ne
+prouve pas à lui seul la réussite d'une opération.
 
 ## 9. API d’administration
 

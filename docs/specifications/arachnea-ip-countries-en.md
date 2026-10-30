@@ -9,7 +9,7 @@ consumes to resolve the country code of an IP address.
 
 This document only describes fields specific to the IP-country format. The
 general structure of a YAML file (`id`, `parameters`, `http`, `queries`,
-`entries`, `actions`, etc.) is documented in `arachnea-scrapyfy-yaml.md`.
+`entries`, `actions`, etc.) is documented in [the common YAML specification](arachnea-scrapyfy-en.md).
 
 ---
 
@@ -28,7 +28,7 @@ engine to route results to `ScrapyfyIpCountryDataProvider`.
 ## 3. Output data structure
 
 The `resolve_ip_country` query receives an `ip` parameter (the address to
-resolve) and returns a single JSON object containing at least the country
+resolve) and returns a result row containing at least the country
 code. The following fields are available:
 
 | YAML field | YAML type | Required | Description |
@@ -55,12 +55,8 @@ template:
 query_url: "{base_url}/{ip}"
 ```
 
-Example call from the Rust provider:
-
-```rust
-params.insert("ip".to_string(), ip_str.clone());
-// → Resolves to: http://ip-api.com/json/8.8.8.8
-```
+For example, with `ip=8.8.8.8` and `base_url=http://ip-api.com/json`,
+this requests `http://ip-api.com/json/8.8.8.8`.
 
 ---
 
@@ -109,13 +105,7 @@ Fields extracted by the scraper map to Rust code as follows:
 - The IP address comes from the call parameter, not from the YAML result
 - `source` is set statically in code (e.g. `"ip-api.com"`)
 
-```rust
-IpCountryRecord {
-    ip: *expected_ip,               // from the call parameter
-    country: country.trim().to_ascii_uppercase(),  // normalised
-    source: Some("ip-api.com"),     // set in the provider
-}
-```
+
 
 ---
 
@@ -128,7 +118,8 @@ The collection group used by `ScrapyfyIpCountryDataProvider` is
 
 ### 7.2 Query
 
-The query must be named `resolve_ip_country`. This is the name expected by
+The explicit-address query must be named `resolve_ip_country`. The optional
+outbound-country query is `resolve_current_country` (section 9). These names are expected by
 both `ScrapyfyIpCountryDataProvider` and `ScrapyfyProxyDataProvider` when
 they call the scraper engine.
 
@@ -165,3 +156,60 @@ Persistent file format:
 
 The `source` field is `"resolver"` for entries added during on-the-fly
 resolution, and may be `"ip-api.com"` or other values for bulk refreshes.
+
+## 9. Current outbound-country query
+
+`resolve_current_country` determines the country of the application's public
+outbound connection. It takes **no `ip` input**. Query the provider's endpoint
+for the calling IP rather than interpolating an absent `{ip}`. Return the same
+`country_code` and optional `query_ip` fields as `resolve_ip_country`.
+
+Add this second query to the complete example's `queries` list:
+
+```yaml
+  - name: resolve_current_country
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{base_url}"
+    media_types: [application/arachnea-ip-country]
+    row_pointer: "/"
+    entries:
+      - name: country_code
+        type: string
+        pointer: /countryCode
+      - name: query_ip
+        type: string
+        pointer: /query
+```
+
+The runtime trims and uppercases the extracted country string; it does not
+validate membership in the ISO list here. Emit a nonblank alpha-2 code only.
+Provider failure messages, arbitrary strings and whitespace-only responses are
+not valid countries. `query_ip` is diagnostic: batch records use the requested
+IP and do not validate it against `query_ip`. Do not use that field as a trust check.
+
+## 10. Authoring and validation checklist
+
+1. Place the YAML in `server/services/arachnea-ip-countries/` and register it in
+   `services.json`, using the common specification's manifest format.
+2. Implement `resolve_ip_country` for explicit addresses and
+   `resolve_current_country` if outbound-country detection is needed.
+3. Keep `http.mode: direct` for the reference geolocation provider; routing the
+   detection request through a proxy would observe that proxy's outbound country.
+4. Declare the provider media type on both queries. Use `row_pointer: "/"` for
+   a root object, and a pointer to repeated objects only for an array response.
+5. Confirm that unsupported IPs and provider errors cannot be mistaken for
+   countries. The consumer uses the first row with a non-empty country value.
+6. Declare only parameters actually interpolated by the query. In the reference
+   service, `fields` is declared but is not appended to either URL; its presence
+   alone does not alter the provider's HTTP response.
+7. Check valid YAML, final JSON, manifest activation and live API output separately.
+   Persistence is managed by the application; it is not a service YAML field.
+
+### Existing service examples
+
+These optional examples illustrate provider-specific patterns. The complete
+authoring contract remains in this guide and the common specification; do not
+copy a provider URL, identifier or selector without checking the target response.
+
+- [ip-api.yaml](../../server/services/arachnea-ip-countries/ip-api.yaml) — Explicit-IP and outbound-country queries.

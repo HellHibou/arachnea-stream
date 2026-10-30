@@ -1,25 +1,109 @@
 # arachnea-scrapyfy YAML format specification
 
-Implementation defaults and stable contract constants are centralized in `server/crates/arachnea-scrapyfy/src/lib.rs`. Private modules separate query execution, request configuration and raw/runtime conversions; this organization preserves the YAML fields, serialized values and execution order described here. Existing tests mirror source paths under the crate-root `tests/` directory; shared helpers remain available through the `test-support` feature.
+This is the common reference for writing service YAML. Read it together with the
+specification for the service group you are creating:
 
-The 2026-10-29 mechanical Rust cleanup preserves JavaScript loop limits, computed-item iteration order, query dispatch and all YAML fields; it introduces no schema or execution-contract changes.
+| Responsibility | Specification |
+|---|---|
+| Streaming catalogues, navigation and player descriptors | [arachnea-stream](arachnea-stream-en.md) |
+| External video host recognition and stream extraction | [arachnea-stream-hoster](arachnea-stream-hoster-en.md) |
+| Proxy-list providers | [arachnea-proxies](arachnea-proxies-en.md) |
+| IP and outbound-country providers | [arachnea-ip-countries](arachnea-ip-countries-en.md) |
+| Stream source-check contracts | [Source checks](arachnea-stream-source-checks-en.md) |
 
-The subsequent default-initialization cleanup derives the same application option defaults and elides an unused private helper lifetime; YAML fields, override precedence and query execution are unchanged.
+The common and group specifications form the authoring reference. No source-code
+lookup is required. YAML identifiers and field names are case-sensitive. Copy
+field names exactly, including historical spellings such as `get_attribut` and
+`origine`. Examples containing `...` or alternatives separated by `|` are syntax
+sketches, not complete files. Complete examples are identified explicitly.
 
-Private Rust views group ancestor-URL proxy policy, header-grouping configuration, fetch settings and aggregation options. They only organize existing inputs: YAML fields, defaults, response shape, traversal/preprocessing order and validation/cache behavior described here are unchanged.
+## Select an extraction strategy
 
-The Rust `ScraperAgregator::default()` constructor delegates to `new()` with the same feature-gated initialization. This additive Rust convenience does not change YAML defaults, parsing or query behavior.
+Inspect the target URLs and representative responses before writing extraction
+rules. Identify which requests provide the required content and which links or
+identifiers connect navigation steps. Prefer a stable JSON API or embedded data
+over positional CSS selectors when both expose the same required information.
 
-The Rust constructor migration groups programmatic endpoint, concurrency and collection metadata inputs into `QueryEndpoint`, `JsonQueryConcurrency` and `CollectionMetadata`; proxy factories use `ReplaceAll::config`. These are Rust API changes only: no YAML field, serialized action name, default, validation rule or extraction behavior described here changes.
+| Observed content | YAML strategy |
+|---|---|
+| Fixed metadata or recognition based on an input string | `scraper_type: static` |
+| JSON returned by an endpoint | `scraper_type: json` with a matching `row_pointer` |
+| HTML containing Next.js `__NEXT_DATA__` | `scraper_type: json` with `extract_next_data: true` |
+| Content exposed by HTML elements or attributes | `scraper_type: html` with CSS selectors and actions |
+| Delimited plain-text records | `scraper_type: text` with row and optional field delimiters |
+| Additional data behind links or follow-up endpoints | A documented HTML/JSON sub-query at a supported location |
 
-The Rust in-process proxy configuration now boxes its owned core. This changes direct Rust construction to `HttpProxyConfig::Arachnea(Box::new(core))` and adds an allocation when constructing or cloning that variant; YAML proxy fields, defaults, routing and query results remain unchanged.
+Implement the capabilities actually requested and supported by the source's
+responses. `search` and `get_entry` are catalogue operations, not a baseline for
+hoster, proxy or IP-country services. Use the selected group's operation names,
+runtime inputs and output contract.
+
+Before concluding that YAML cannot express a source, check request headers,
+GET/POST and body construction in section 5, extraction types in sections 6–9,
+browser execution in section 10, actions in section 11 and post-processing in
+section 12. Authentication or an anti-bot challenge alone does not establish
+that a new primitive is needed. Declaring `credentials` describes the account
+requirement; it does not implement a login flow. Browser execution depends on
+the documented runtime support and configuration; it does not guarantee access
+to every protected source. Identify the precise missing operation when the
+existing capabilities cannot express the observed flow.
+
+Existing service YAML is an optional provider-specific example, not a replacement
+for this specification. Reuse only matching patterns and verify them against the
+current target response. The group specifications link relevant examples; reading
+those files is not required to understand the schema or output contract.
+
+## Authoring procedure
+
+1. Select the service group and read its input/output contract.
+2. Choose a unique collection `id` within that group. The file name may differ
+   from the ID; callers use the ID. Choose unique query names within the file.
+3. Declare string parameters in dependency order. Put shared blocks under
+   `shared` and reuse them with YAML anchors and aliases. `shared` is only a YAML
+   reuse convention; it is not an executable query or an output field.
+4. Choose `static`, `html`, `json` or `text` for each query. Define the required
+   fields listed below; do not copy options from another scraper type blindly.
+5. Extract one representative response. Use `type: object[]` for repeated objects
+   and `type: string[]` for repeated scalar values. Set `select: first` explicitly
+   for a scalar when several elements can match.
+6. Apply actions in order, then sub-queries and post-processors as needed. Check
+   the resulting JSON against the group contract, including empty results.
+7. Register the file in `services.json`; loading an unregistered file does not
+   make it available. Keep activation intentional.
+8. Validate loading and run relevant existing checks. For stream source checks,
+   follow the dedicated specification. Successful loading alone does not prove
+   that a remote API, selector or playable URL still works.
+
+## Validate a service
+
+Check the following levels separately and report which ones were actually run:
+
+| Level | What it establishes | What it does not establish |
+|---|---|---|
+| YAML loading and semantic conversion | The configuration is accepted by the loader | That every key has an effect, or remote data is extractable |
+| Manifest registration and activation | Paths, collection IDs, overrides and intended activation select the service | Remote availability |
+| Extracted JSON contract | Output fields, types and cardinalities match the operation | Complete navigation or playable media |
+| Static metadata execution, when present | The metadata query executes and returns its expected payload | Live catalogue, hoster or provider behavior |
+| Live operation execution | The observed request and extraction work for the checked input | Other inputs, later pages or playback unless checked |
+| Playback, for video services | The checked media and required resources are accessible to the player | Continued upstream availability |
+
+Include representative populated and empty responses, absent optional values,
+and continuation or deferred requests when the operation uses them. Successful
+loading may ignore an unknown YAML key; compare the keys with the schema as well
+as validating the JSON. Keep network failures, authentication failures and
+contract failures distinct. Report an unperformed check as unverified.
+
+For streaming catalogues, use [the source-check guide](arachnea-stream-source-checks-en.md)
+for contract authoring, metadata checks and live commands. Its catalogue operations
+do not constitute a hoster or provider test contract. For hosters, validate
+recognition, extracted streams and playback as described in the hoster guide.
+For proxy and IP-country providers, validate their own query inputs, flattened
+rows and country outputs. Use relevant existing checks for each group; access,
+credentials or network limitations can leave live behavior unverified. A failed
+production response is not a reason to weaken its expected contract without
+establishing that the contract itself is incorrect.
 
 ## 1. General file structure
-
-The Rust execution methods group borrowed response inputs into `ActionResponse`
-and source-selection/result options into `ScraperAggregationOptions`. These
-programmatic API changes preserve all YAML fields, serialized action names,
-defaults, dynamic-variable error handling, source ordering and cache behavior.
 
 A YAML file describes a **query collection** for a data source. The root structure is:
 
@@ -53,6 +137,7 @@ The optional proxy_insecure_tls_hosts collection field permits an explicit TLS e
 ### `id` (required)
 Unique source identifier. Used as a search key.
 YAML alias: `name` (interchangeable with `id`).
+The root `parameters` key also accepts the compatibility alias `parametres`.
 
 ```yaml
 id: m6play-fr
@@ -129,7 +214,7 @@ parameters:
 - `service_logo` — collection logo
 - `service_description` — serialised JSON description
 - `page_index` — derived from `page` (`page - 1`)
-- `offset` — derived from `page * page_size`
+- `offset` — derived from `(page - 1) * page_size` when both values are positive
 - `query_separator` — `?`, `&` or `""` depending on the URL
 - `url_fragment` — part after `#` in the resolved `query_url`, only set when the URL carries a non-empty fragment (it is never sent to the server)
 
@@ -180,8 +265,7 @@ protocol and destination. The identifier does not expose the proxy authority,
 and its binding expires after 15 minutes of inactivity.
 
 `proxy_rejection_statuses` lists origin response statuses that invalidate the
-currently selected dynamic proxy for that destination. A matching request is
-retried once with another cached eligible candidate. The list is empty by
+currently selected dynamic proxy for that destination. Retries follow the shared deadline and replay policy described below. The list is empty by
 default and has no effect without an in-process dynamic proxy route. The
 rejection is persisted in the proxy inventory for 24 hours and is scoped to the
 exact scheme, host and port. After an accepted response (2xx by default), the selected proxy
@@ -240,6 +324,22 @@ most two idle transports per route and 32 globally, rejects entries idle for
 retains complete accepted attempts or explicitly permitted followed redirects. Cookies and mutable routing handles remain
 independent. Keep-alive depends on the server; reconnects use the current context.
 Search budgets and replay rules are unchanged; no new YAML setting is introduced.
+
+### HTTP inheritance and defaults
+
+An omitted optional setting inherits its parent. An explicit scalar setting
+replaces the parent, including `proxy_retry_replayable: false`. The lists
+`proxy_countries`, `proxy_domain_group`, `proxy_rejection_statuses` and
+`empty_on_statuses` inherit when omitted **or empty**; a non-empty child list
+replaces its parent. `[]` cannot clear one of these inherited lists.
+`proxy_response_classifier: {type: default}` resets an inherited classifier.
+Browser configuration objects replace the corresponding parent object as a whole.
+
+Without an explicit mode, the HTTP layer uses `auto`. Without an explicit browser
+profile it uses Chrome; a custom `user_agent` takes precedence. Ordinary HTTP
+requests use a 25-second timeout and the redirect default is 16. There is no
+scraper YAML `timeout`, `timeout_ms` or `proxy_country` HTTP field. The
+`exec_js.timeout_ms` option belongs to that action, not to HTTP requests.
 
 ### HTTP modes (`mode`)
 
@@ -404,15 +504,15 @@ row_selector: "div.result-item"     # required: CSS selector for each row
 row_concurrency: 4                  # optional: max parallel rows processed (default: 4)
 input_html: "{html}"                # optional: template resolving to HTML content, bypasses HTTP fetch
 entries: []                         # required: field extractors
-sub_queries: []                     # optional: sub-queries (see section 10)
 ```
 
 When `input_html` is set, the template is resolved with runtime parameters
 (typically `{html}`) and the resulting HTML is used as the response body
 without making an HTTP request. The `query_url` is still used as the
 context URL for actions, headers, and error messages. When the template
-resolves to an empty string or `{html}` is absent from the runtime
-parameters, the normal HTTP fetch path is used.
+resolves to an empty string, the normal HTTP fetch path is used. A missing
+`{html}` is a template error; declare a collection parameter `html` with
+`value: ""` when the same query must support both inline HTML and an ordinary GET.
 
 `input_html` requires at least a `query_url` or a runtime `{url}` parameter
 for context URL resolution.
@@ -436,7 +536,7 @@ entries:
   - name: title
     type: string
     selector: "h2 a"                # optional CSS selector
-    select: first                   # first (default) | all
+    select: first                   # first | all (default)
     actions:                        # optional: action pipeline
       - type: get_text
 
@@ -717,7 +817,10 @@ With a line like `42|Mon Film|1h30`, this produces:
 
 ## 10. Sub-queries (`sub_queries`)
 
-Sub-queries allow chaining additional HTTP requests from extracted values. They are available in `html` and `json` scrapers. A sub-query attached to a field inside an object group runs separately for each extracted object, so its templates use that object's fields and its result replaces only that field's source URL.
+Sub-queries chain additional HTTP requests from extracted values. HTML and JSON
+entries support them. Only JSON root queries expose a sibling `sub_queries` list;
+HTML root queries attach follow-up requests to entries instead. Nested HTML/JSON
+sub-queries can themselves declare `sub_queries`. A sub-query attached to a field inside an object group runs separately for each extracted object, so its templates use that object's fields and its result replaces only that field's source URL.
 
 ### Common structure (`SubQueryCommon`)
 
@@ -849,11 +952,19 @@ submitted.
         selector: "h3"
         actions:
           - type: get_text
-    context_entries:                   # optional: also extract from parent context
-      - name: season
-        type: number
-        pointer: "/season_number"
+    context_entries:                   # optional: HTML entry definitions
+      - name: season_label
+        type: string
+        select: first
+        actions:
+          - type: format_text
+            argument: "{season_label}"
 ```
+
+HTML `context_entries` follow the HTML entry schema (`selector`, `actions`), not
+JSON `pointer` syntax; they are prepended to the fetched HTML entries. Use runtime
+parameters for values carried by the sub-query context. JSON `context_entries`
+use the JSON entry schema and read the parent context row before fetching.
 
 ### JSON sub-query
 
@@ -1133,12 +1244,18 @@ Multiplies numeric values by a factor.
 ```
 
 ### `math_formula`
-Evaluates a math expression for each value. The `{value}` placeholder is replaced by the current value before evaluation. The output list contains one result per input.
+Evaluates each current string as a mathematical expression. It has no `formula`
+configuration field. Build the expression with `format_text` first; `{}` means
+one current input value. Invalid expressions are discarded.
 
 ```yaml
+- type: format_text
+  argument: "{} * 2 + 5"
 - type: math_formula
-  formula: "{value} * 2 + 5"
 ```
+
+Do not confuse this action with group `post_build` math, which takes `target`
+and `expression`, or `compute_items_field`, which operates on object fields.
 
 ### `replace_text`
 Replaces all occurrences of a string with another.
@@ -1311,11 +1428,12 @@ a `regex_find_all` action with `pattern: '^document_write=(.+)$'` and `format: "
 
 The current pipeline value (`text`) is treated as JS code to execute.
 
-Three JS sources can be injected, in this order:
-1. **HTML** (`inject_html_scripts: true`) — extracts inline `<script>` blocks from
-   the HTML `response_body` and executes them
-2. **Hardcoded scripts** (`scripts`) — list of JS strings injected before the main code
-3. **Pipeline text** (`text`) — main JS code from the previous action
+Three JavaScript sources run in this order:
+
+1. **Configured scripts** (`scripts`): helpers and stubs defined in the YAML.
+2. **HTML scripts** (`inject_html_scripts: true`): inline `<script>` blocks from
+   the current `response_body`, in document order. External script URLs are not fetched.
+3. **Pipeline text** (`text`): each current value as JavaScript source.
 
 The injected HTML/configured scripts are limited to the first 50 combined sources; pipeline text is evaluated afterward. `timeout_ms` maps to a loop iteration budget of `max(timeout_ms × 20,000, 10,000,000)`; it is not a wall-clock deadline.
 
@@ -1341,7 +1459,7 @@ Typical usage with Spys.one:
   inject_html_scripts: true
 - type: extract_variables
   pattern: "^([A-Za-z_][A-Za-z0-9_]*)=(\\d+)$"
-  name: "{1}"
+  name: "@{1}"
   value: "{2}"
   on_duplicate: replace
 ```
@@ -1361,9 +1479,77 @@ Radices from 2 through 62 are supported.
 
 ## 12. Post-processing (`post_process`)
 
-Transformations applied after initial field extraction. Available on `html` and `json` queries, and on sub-queries.
+Transformations applied after extraction and sub-queries, in declaration order. The common HTTP query schema accepts them for `html`, `json` and `text`; HTML and JSON sub-queries also support them.
 
 Tagged by `type` in snake_case.
+
+### `remove_fields`
+
+Removes temporary fields from the current result after earlier processors used
+them. Required `fields` is a list of `>`-separated paths. A missing path is ignored.
+This query-level processor and the HTML group `post_build` operation have the same
+name but run at different scopes.
+
+```yaml
+- type: remove_fields
+  fields: [raw_html, internal > token]
+```
+
+### `sort_items`
+
+Sorts an object group in place. All three fields are required:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `source` | string | `>`-separated path to the object group |
+| `field` | string | Non-empty item field path, required even for `reverse` |
+| `method` | string | `asc`, `desc` or `reverse` |
+
+`reverse` reverses extraction order. `asc` and `desc` compare the first scalar
+value of `field`, numerically when both parse as signed integers and otherwise
+lexicographically. Missing values compare as empty strings. A missing source is
+a no-op. Sort before `merge_items_by_field` when duplicate merging must preserve
+this order.
+
+```yaml
+- type: sort_items
+  source: episodes
+  field: episode-number
+  method: asc
+```
+
+### `group_items_by_header`
+
+Turns a flat ordered group containing header rows into sections. It does not
+sort the source. Header rows define labels and are not copied as entries.
+
+| Field | Type | Required / default |
+|---|---|---|
+| `source` | string | Required: flat object group path |
+| `target` | string | Required: output section group path |
+| `is_header_field` | string | Required: boolean field marking a header |
+| `label_field` | string | Required: header field holding the section label |
+| `entries_field` | string | Optional; `entries` |
+| `skip_fields` | string[] | Optional; `[]`; drop an item if any flag is true |
+| `first_label` | string | Optional; without it, drop items before the first header |
+| `remove_item_fields` | string[] | Optional; `[]`; strip these paths from copied entries |
+| `remove_source` | boolean | Optional; `false` |
+
+The output is an array of objects with `label` and the configured `entries_field`.
+Empty sections are omitted. If no section is produced, the target is left
+unchanged. `remove_source: true` removes the source even if no section is produced.
+
+```yaml
+- type: group_items_by_header
+  source: flat_episodes
+  target: seasons
+  is_header_field: is_header
+  label_field: title
+  first_label: "Episodes"
+  skip_fields: [is_advertisement]
+  remove_item_fields: [is_header, is_advertisement]
+  remove_source: true
+```
 
 ### `apply_actions_to_field`
 
@@ -1952,17 +2138,67 @@ queries:
             argument: 60
 ```
 
-## Application-level local proxy option
+## 16. Service registration (`services.json`)
 
-The shared proxy listener is configured outside the YAML request schema through
-`--proxy-server-port` (persisted key `proxy-server-port`). Absent or zero selects
-an automatic port, logged after binding to `127.0.0.1`; a nonzero port is required
-exactly. Source reloads preserve the listener, and a port change requires restart.
-All scraper routing contexts share the listening port while retaining independent
-parameters. Existing YAML `http.proxy_countries` and `http.proxy_affinity` are
-unchanged. Local browser profiles use proxy username `countries=BE,FR` and
-password `local`, with a `407` challenge before routing; `default` / `local`
-selects the application's default route. See the crate README for lifecycle,
-parameter encoding and external-client limitations.
+Place service YAML under `server/services/<group>/`. A group's `services.json`
+is a JSON array. Each entry declares exactly one of `path` or `import`.
 
-Tauri/Wry fallbacks also share this port and retain their routing context; on macOS 14+, they use authenticated SOCKS5 on the same socket without an additional listener.
+```json
+[
+  {"path": "example.yaml", "enabled": true,
+   "parameters": [{"name": "base_url", "value": "https://example.org"}]},
+  {"import": "other-sources/services.json"}
+]
+```
+
+| Entry | Fields and behavior |
+|---|---|
+| Source | Required `path` string; optional `enabled` boolean, default `true`; optional `parameters` array with the same parameter structure as YAML |
+| Import | Required `import` string naming another JSON manifest |
+
+Paths are relative to the manifest that declares them. Imports expand recursively
+in depth-first declaration order. Repeated or cyclic manifest imports are skipped
+with a warning. Invalid or missing JSON manifests are errors. Missing YAML files
+are skipped with a warning; other file access errors fail loading. Keep all paths
+valid rather than relying on that skip behavior.
+
+An administrator activation override takes precedence over the manifest's
+`enabled`. Disabled YAML files are still read and deserialized into the raw
+schema before activation is checked; they must remain valid. Full semantic
+conversion is performed for enabled files.
+
+Manifest parameters replace complete YAML parameter definitions by matching
+`name`, or add new definitions. Runtime query parameters then override defaults;
+source-specific execution parameters can override the common execution parameters.
+**Current limitation:** the manifest parameter merge does not preserve YAML
+parameter order. Avoid dependent parameter action pipelines when manifest overrides
+are used; verify loading with the actual manifest. Do not assume an override of
+`base_url` recomputes a value already substituted at collection loading.
+
+## 17. Execution and output checklist
+
+- HTTP queries require `name`, `scraper_type`, `base_url`, `query_url`, `entries`
+  and their type-specific row locator. Static queries require `name`,
+  `scraper_type: static` and `entries`, without HTTP URLs.
+- Resolve defaults and runtime inputs, then parameter mappings, URLs, headers and
+  body; fetch; preprocess; parse; extract fields and nested groups; run sub-queries;
+  apply ordered post-processors; merge query rows. `result_item_field` finally
+  promotes the selected group's objects into separate result rows.
+- `pre_process`, `post_process`, actions and entries are local ordered pipelines;
+  HTTP inheritance does not automatically copy those pipelines to children.
+- `select` defaults to `all`. A scalar with several extracted values fails JSON
+  conversion. Use `first` deliberately or declare the matching array type.
+- A `>` in a field name creates nested objects. A `/` in a field name is literal:
+  `img/poster > link` produces `{"img/poster":{"link":"..."}}`.
+  JSON pointers use `/`; result-tree paths use `>`; CSS selectors use CSS syntax.
+- Empty leaf values render as `null`, even for declared arrays. Do not treat
+  `null`, `[]`, an absent field and a failed request as interchangeable.
+- Template interpolation does not automatically URL-encode or JSON-escape arbitrary
+  strings. Use inputs documented by the owning service, such as encoded
+  `search_terms` or JSON-escaped `search_query_json`.
+- Unknown YAML fields may be ignored by deserialization. A file that loads may
+  contain a misspelling with no effect. Use only the documented keys.
+- A query name absent from a collection produces no rows through collection
+  execution. Do not advertise a capability just because the caller accepts its name.
+- Validate the JSON result as well as loading. Structural validation cannot prove
+  that a remote site is available, its response still matches, or its media plays.

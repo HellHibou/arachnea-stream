@@ -168,7 +168,7 @@ licenses, without any additional terms or conditions.
 
 The following Codex skills are provided by this project.
 
-- `#build-yaml-source` - Create or update one Arachnea scraper YAML from one or more source URLs by analyzing the target website, reusing patterns from `server/services/*.yaml`, and checking supported scraper capabilities in `server/crates/arachnea-scrapyfy/src/scrapyfy/*`.
+- `#build-yaml-source` - Create or update an Arachnea service YAML from source URLs using the maintained YAML specifications.
 - `#update-readme` - Maintain all Arachnea README.md files by updating Cargo commands, NPM commands, crate summaries, and the list of project-related Codex skills.
 
 ## Documentation

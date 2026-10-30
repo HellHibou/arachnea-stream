@@ -1,26 +1,118 @@
 # Spécification du format YAML arachnea-scrapyfy
 
-Les valeurs par défaut et les constantes de contrat sont centralisées dans `server/crates/arachnea-scrapyfy/src/lib.rs`. Des modules privés séparent l’exécution des requêtes, la configuration HTTP et les conversions entre représentations YAML et runtime ; cette organisation conserve les champs YAML, valeurs sérialisées et ordre d’exécution décrits ici. Les tests existants reproduisent les chemins des sources sous `tests/`, à la racine du crate ; les helpers partagés restent disponibles avec la fonctionnalité `test-support`.
+Ce document est la référence commune pour rédiger les YAML de services. Il se lit
+avec la spécification du groupe de services à créer :
 
-Le nettoyage mécanique Rust du 29 octobre 2026 conserve les limites de boucles JavaScript, l’ordre de parcours des éléments calculés, la sélection des requêtes et tous les champs YAML ; il ne modifie ni le schéma ni le contrat d’exécution.
+| Responsabilité | Spécification |
+|---|---|
+| Catalogues de streaming, navigation et descripteurs de lecteurs | [arachnea-stream](arachnea-stream-fr.md) |
+| Reconnaissance des hébergeurs vidéo externes et extraction des flux | [arachnea-stream-hoster](arachnea-stream-hoster-fr.md) |
+| Fournisseurs de listes de proxys | [arachnea-proxies](arachnea-proxies-fr.md) |
+| Fournisseurs de pays pour une IP et pour la connexion sortante | [arachnea-ip-countries](arachnea-ip-countries-fr.md) |
+| Contrats de contrôle des sources stream | [Contrôles des sources](arachnea-stream-source-checks-fr.md) |
 
-Le lot suivant dérive les mêmes valeurs par défaut des options applicatives et simplifie une durée de vie privée inutile ; les champs YAML, la priorité des surcharges et l’exécution des requêtes restent inchangés.
+Les spécifications commune et spécialisée constituent la référence de rédaction.
+Aucune recherche dans le code source n'est nécessaire. Les identifiants et noms
+YAML sont sensibles à la casse. Copier les noms exactement, y compris les
+orthographes historiques `get_attribut` et `origine`. Les exemples contenant
+`...` ou des alternatives séparées par `|` sont des schémas de syntaxe, pas des
+fichiers complets. Les exemples complets sont explicitement indiqués.
 
-Des vues Rust privées regroupent les règles de proxy des URL relatives aux parents, la configuration du regroupement par en-têtes, les réglages de récupération et les options d’agrégation. Elles organisent uniquement les entrées existantes : les champs YAML, les valeurs par défaut, la forme des réponses, l’ordre de parcours et de prétraitement ainsi que le comportement de validation et de cache décrits ici restent inchangés.
+## Choisir une stratégie d'extraction
 
-Le constructeur Rust `ScraperAgregator::default()` délègue à `new()` avec la même initialisation conditionnée par les fonctionnalités. Cet ajout pratique à l’API Rust ne change ni les valeurs par défaut YAML, ni l’analyse de la configuration, ni l’exécution des requêtes.
+Examiner les URL cibles et des réponses représentatives avant de rédiger les
+règles. Identifier les requêtes qui fournissent le contenu attendu, ainsi que les
+liens ou identifiants reliant les étapes de navigation. Préférer une API JSON
+stable ou des données intégrées aux sélecteurs CSS positionnels si elles exposent
+les mêmes informations nécessaires.
 
-La migration des constructeurs Rust regroupe les entrées programmatiques d’endpoint, de concurrence et de métadonnées dans `QueryEndpoint`, `JsonQueryConcurrency` et `CollectionMetadata` ; les fabriques de proxy utilisent `ReplaceAll::config`. Seule l’API Rust change : aucun champ YAML, nom d’action sérialisé, défaut, règle de validation ou comportement d’extraction décrit ici n’est modifié.
+| Contenu observé | Stratégie YAML |
+|---|---|
+| Métadonnées fixes ou reconnaissance d'une chaîne d'entrée | `scraper_type: static` |
+| JSON retourné par un point d'entrée | `scraper_type: json` avec un `row_pointer` adapté |
+| HTML contenant le `__NEXT_DATA__` de Next.js | `scraper_type: json` avec `extract_next_data: true` |
+| Contenu dans les éléments ou attributs HTML | `scraper_type: html` avec sélecteurs CSS et actions |
+| Enregistrements de texte brut délimité | `scraper_type: text` avec délimiteurs de lignes et, si nécessaire, de champs |
+| Données supplémentaires derrière des liens ou points d'entrée | Sous-requête HTML/JSON documentée à un emplacement pris en charge |
 
-La configuration Rust du proxy intégré possède désormais son cœur dans une boîte : les constructions directes utilisent `HttpProxyConfig::Arachnea(Box::new(core))`. La construction et le clonage de cette variante ajoutent une allocation ; les champs YAML, valeurs par défaut, routages et résultats des requêtes restent inchangés.
+Implémenter les capacités demandées et effectivement exposées par les réponses de
+la source. `search` et `get_entry` sont des opérations de catalogue, pas un socle
+pour les hébergeurs ou fournisseurs de proxys et de pays. Utiliser les noms
+d'opérations, entrées d'exécution et contrats de sortie du groupe choisi.
+
+Avant de conclure que le YAML ne suffit pas, vérifier les en-têtes, GET/POST et
+la construction du corps en section 5, les types d'extraction en sections 6–9,
+l'exécution navigateur en section 10, les actions en section 11 et les
+post-traitements en section 12. Une authentification ou une protection anti-bot
+ne prouve pas à elle seule qu'une nouvelle primitive est nécessaire. Déclarer
+`credentials` décrit le besoin de compte ; cela n'implémente pas la connexion.
+L'exécution navigateur dépend du support et de la configuration documentés ;
+elle ne garantit pas l'accès à toute source protégée. Identifier précisément
+l'opération manquante si les capacités existantes ne permettent pas d'exprimer
+le parcours observé.
+
+Les YAML de services existants sont des exemples facultatifs propres aux
+fournisseurs, pas un remplacement de cette spécification. Réutiliser seulement
+les modèles pertinents et les vérifier avec la réponse actuelle de la cible.
+Les guides de groupes indiquent des exemples utiles ; leur lecture n'est pas
+nécessaire pour comprendre le schéma ou le contrat de sortie.
+
+## Procédure de rédaction
+
+1. Choisir le groupe de services et lire son contrat d'entrée et de sortie.
+2. Choisir un `id` de collection unique dans le groupe. Le nom du fichier peut
+   différer de cet ID ; les appelants utilisent l'ID. Choisir des noms de requêtes
+   uniques dans le fichier.
+3. Déclarer les paramètres de type chaîne dans l'ordre de dépendance. Placer les
+   blocs partagés sous `shared` et les réutiliser avec les ancres et alias YAML.
+   `shared` est une convention de réutilisation YAML, pas une requête exécutable
+   ni un champ de sortie.
+4. Choisir `static`, `html`, `json` ou `text` pour chaque requête. Définir les
+   champs obligatoires indiqués ci-dessous ; ne pas copier aveuglément les options
+   d'un autre type de scraper.
+5. Extraire une réponse représentative. Utiliser `type: object[]` pour les objets
+   répétés et `type: string[]` pour les scalaires répétés. Définir explicitement
+   `select: first` pour un scalaire si plusieurs éléments peuvent correspondre.
+6. Appliquer les actions dans l'ordre, puis les sous-requêtes et post-traitements
+   nécessaires. Vérifier le JSON final selon le contrat du groupe, y compris
+   les résultats vides.
+7. Inscrire le fichier dans `services.json` ; un fichier non inscrit n'est pas
+   rendu disponible par sa seule présence. Choisir son activation délibérément.
+8. Valider le chargement et lancer les contrôles existants pertinents. Pour les
+   contrôles de sources stream, suivre la spécification dédiée. Un chargement
+   réussi ne prouve pas qu'une API distante, un sélecteur ou une URL vidéo fonctionne.
+
+## Valider un service
+
+Vérifier séparément les niveaux suivants et indiquer ceux réellement exécutés :
+
+| Niveau | Ce qu'il établit | Ce qu'il ne prouve pas |
+|---|---|---|
+| Chargement YAML et conversion sémantique | La configuration est acceptée par le chargeur | Que chaque clé a un effet ou que les données distantes sont extractibles |
+| Inscription et activation du manifeste | Les chemins, ID, surcharges et activations voulues sélectionnent le service | La disponibilité distante |
+| Contrat JSON extrait | Les champs, types et cardinalités respectent l'opération | La navigation complète ou la lecture média |
+| Métadonnées statiques, si présentes | La requête s'exécute et retourne le contenu attendu | Le fonctionnement réel du catalogue, de l'hébergeur ou du fournisseur |
+| Opération en ligne | La requête et l'extraction observées fonctionnent pour l'entrée vérifiée | Les autres entrées, pages suivantes ou la lecture si elles ne sont pas vérifiées |
+| Lecture, pour les services vidéo | Le média vérifié et les ressources nécessaires sont accessibles au lecteur | La disponibilité future du fournisseur |
+
+Inclure des réponses représentatives remplies et vides, des valeurs facultatives
+absentes, ainsi que les continuations ou requêtes différées utilisées par
+l'opération. Un chargement réussi peut ignorer une clé YAML inconnue ; comparer
+les clés au schéma en plus de valider le JSON. Distinguer les erreurs réseau,
+d'authentification et de contrat. Indiquer comme non vérifié tout contrôle non
+exécuté.
+
+Pour les catalogues de streaming, suivre [le guide des contrôles de sources](arachnea-stream-source-checks-fr.md)
+pour les contrats, métadonnées et commandes en ligne. Ses opérations de catalogue
+ne constituent pas un contrat de test d'hébergeur ou de fournisseur. Pour les
+hébergeurs, vérifier reconnaissance, flux extraits et lecture selon le guide
+hoster. Pour les fournisseurs de proxys et de pays, vérifier leurs propres
+entrées, lignes aplaties et sorties de pays. Utiliser les contrôles existants
+pertinents ; l'accès, les identifiants ou le réseau peuvent laisser le comportement
+en ligne non vérifié. Une réponse de production échouée ne justifie pas d'affaiblir
+le contrat attendu sans établir que ce contrat est lui-même incorrect.
 
 ## 1. Structure générale du fichier
-
-Les méthodes d’exécution Rust regroupent les entrées de réponse empruntées dans
-`ActionResponse` et les options de sélection des sources et des résultats dans
-`ScraperAggregationOptions`. Ces modifications de l’API programmatique conservent
-les champs YAML, noms d’actions sérialisés, valeurs par défaut, erreurs des
-variables dynamiques, ordre des sources et comportement du cache.
 
 Un fichier YAML décrit une **collection de requêtes** pour une source de données. La structure racine est :
 
@@ -98,6 +190,8 @@ credentials:
 | `signup_url` | chaîne | non | URL publique d'inscription affichée par les clients d'administration. |
 
 ### `parameters` (optionnel)
+
+La clé racine accepte aussi l’alias de compatibilité `parametres`.
 Liste de paramètres par défaut de la collection. Chaque paramètre a :
 
 | Champ | Type | Obligatoire | Description |
@@ -130,7 +224,7 @@ parameters:
 - `service_logo` — logo de la collection
 - `service_description` — description sérialisée en JSON
 - `page_index` — dérivé de `page` (`page - 1`)
-- `offset` — dérivé de `page * page_size`
+- `offset` — dérivé de `(page - 1) * page_size` lorsque les deux valeurs sont positives
 - `query_separator` — `?`, `&` ou `""` selon l'URL
 - `url_fragment` — partie après `#` dans le `query_url` résolu, définie uniquement quand l'URL porte un fragment non vide (elle n'est jamais envoyée au serveur)
 
@@ -148,7 +242,7 @@ http:
   proxy_countries: ["US", "CA"] # optionnel : pays proxy ordonnés
   proxy_domain_group: ["m6.fr", "6play.fr", "6cloud.fr", "bedrock.tech"] # groupe optionnel de domaines
   proxy_affinity: "opaque-session-id" # optionnel : conserve le même proxy admissible
-  proxy_rejection_statuses: [403] # optionnel : change de proxy et réessaie une fois
+  proxy_rejection_statuses: [403] # optionnel : rejet par destination ; reprises selon le budget partagé
   max_redirects: 16             # optionnel : nombre max de redirections (défaut global: 16)
 ```
 `proxy_countries` est normalisé en codes ISO alpha-2 ordonnés et en majuscules,
@@ -177,8 +271,7 @@ pas l'adresse du proxy et sa liaison expire après 15 minutes d'inactivité.
 
 `proxy_rejection_statuses` contient les statuts de réponse de l'origine qui
 invalident le proxy dynamique actuellement sélectionné pour cette destination.
-La requête correspondante est réessayée une fois avec un autre candidat éligible
-déjà en cache. La liste est vide par défaut et reste sans effet sans route proxy
+Les reprises suivent l’échéance partagée et la politique de rejeu décrites ci-dessous. La liste est vide par défaut et reste sans effet sans route proxy
 dynamique intégrée au processus. Le rejet est persisté dans l'inventaire des
 proxys pendant 24 heures et reste limité au triplet exact protocole, hôte et
 port. Après une réponse acceptée (2xx par défaut), le proxy sélectionné devient le candidat
@@ -216,18 +309,50 @@ secondes et au timeout restant ; les octets sont restitués. Un extrait limité,
 indisponible ou insuffisant ne démontre pas l’absence d’un marqueur. Les erreurs
 du handler sont journalisées et inconclusives. Les moteurs sans observation
 précoce corrélée ne produisent pas de préférence ou d’exclusion par déduction.
-La réponse publique HTTP reste matérialisée ; les budgets communs et règles
-de rejeu du lot 5 ne sont pas introduits par cette option.
+La réponse HTTP publique reste matérialisée. Les appels HTTP géolocalisés
+partagent une cible d'acceptation de 120 secondes, avec au plus 15 secondes pour
+terminer une tentative métier déjà engagée. Toutes les couches de reprise partagent
+la même échéance, sans plafond de nombre de précontrôles, validations ou points
+d'entrée métier distincts ; la concurrence reste bornée. Aucun nouveau travail
+ne commence pendant le délai supplémentaire. La collecte du corps accepté utilise
+le délai HTTP ordinaire distinct (25 secondes dans Scrapyfy).
 
-Les appels Rquest géolocalisés peuvent réutiliser un transport inactif compatible
-entre clients dérivés. Chaque appel sélectionne à nouveau sa route et réassocie
-exclusivement le transport au jeton et à l'échéance de la requête courante. Le pool
-conserve au plus 32 transports inactifs et écarte à l'accès ceux qui sont inactifs
-depuis 60 secondes. Seules les tentatives complètes et acceptées y retournent.
-Cookies et configurations de routage mutables restent indépendants. La connexion
-est réutilisée si le serveur la conserve ; sinon elle est rétablie sous le contexte
-courant. Les budgets de recherche et règles de rejeu restent inchangés ; aucune
-nouvelle option YAML n'est introduite.
+GET/HEAD peuvent réessayer après une erreur de transport pertinente ou un rejet
+configuré. Une requête modificatrice dont l'envoi est incertain n'est jamais
+rejouée par défaut, même après un rejet configuré. `proxy_retry_replayable: true`
+garantit explicitement que l'opération et son corps sont rejouables ; cette option
+hérite normalement et `false` remplace le parent. Une erreur prouvée avant envoi
+peut permettre une reprise sans ce drapeau. Un résultat inconclusif ou une erreur
+de collecte du corps ne fait pas changer de proxy. Les moteurs navigateur ou
+personnalisés sans corrélation précoce refusent le mode de recherche HTTP
+géolocalisée à portée limitée ; l'exécution explicite de page reste distincte.
+Les appels Rquest contextuels conservent les préférences par destination et
+peuvent réutiliser des transports inactifs compatibles entre clients dérivés.
+Chaque appel resélectionne sa route et réassocie exclusivement le transport à son
+nouveau jeton et à son échéance. Le pool garde au plus deux transports inactifs
+par route et 32 globalement, et écarte à l'accès ceux inactifs depuis 60 secondes.
+Seules les tentatives complètes acceptées ou les redirections suivies explicitement
+autorisées sont conservées. Cookies et routages mutables restent indépendants.
+La connexion dépend du serveur ; les reconnexions utilisent le contexte courant.
+Les budgets et règles de rejeu restent inchangés ; aucune nouvelle option YAML.
+
+### Héritage HTTP et valeurs par défaut
+
+Une option facultative absente hérite de son parent. Un scalaire explicite
+remplace le parent, y compris `proxy_retry_replayable: false`. Les listes
+`proxy_countries`, `proxy_domain_group`, `proxy_rejection_statuses` et
+`empty_on_statuses` héritent lorsqu'elles sont absentes **ou vides** ; une liste
+enfant non vide remplace celle du parent. `[]` ne permet pas de vider ces listes
+héritées. `proxy_response_classifier: {type: default}` réinitialise une politique
+héritée. Les objets de configuration du navigateur remplacent entièrement
+l'objet parent correspondant.
+
+Sans mode explicite, la couche HTTP utilise `auto`. Sans profil explicite, elle
+utilise Chrome ; un `user_agent` personnalisé est prioritaire. Les requêtes HTTP
+ordinaires utilisent un délai de 25 secondes ; la limite de redirections par
+défaut est 16. Il n'existe pas de champ HTTP de scraper YAML `timeout`,
+`timeout_ms` ou `proxy_country`. L'option `exec_js.timeout_ms` appartient à cette
+action, pas aux requêtes HTTP.
 
 ### Modes HTTP (`mode`)
 
@@ -395,15 +520,15 @@ row_selector: "div.result-item"     # obligatoire : sélecteur CSS pour chaque l
 row_concurrency: 4                  # optionnel : nombre max de lignes traitées en parallèle (défaut: 4)
 input_html: "{html}"                # optionnel : modèle résolu en HTML, contourne la requête HTTP
 entries: []                         # obligatoire : extracteurs de champs
-sub_queries: []                     # optionnel : sous-requêtes (voir section 10)
 ```
 
 Quand `input_html` est défini, le modèle est résolu avec les paramètres
 d'exécution (typiquement `{html}`) et le HTML obtenu est utilisé comme corps
 de réponse sans effectuer de requête HTTP. `query_url` reste utilisé comme
 URL de contexte pour les actions, en-têtes et messages d'erreur. Lorsque le
-modèle se résout en une chaîne vide ou que `{html}` est absent des paramètres
-d'exécution, le chemin de récupération HTTP normal est utilisé.
+modèle se résout en une chaîne vide, la récupération HTTP normale est utilisée.
+Un `{html}` absent est une erreur de modèle ; déclarer un paramètre de collection
+`html` avec `value: ""` si la même requête doit accepter du HTML fourni et un GET.
 
 `input_html` nécessite au moins un `query_url` ou un paramètre d'exécution
 `{url}` pour la résolution de l'URL de contexte.
@@ -428,7 +553,7 @@ entries:
   - name: title
     type: string
     selector: "h2 a"                # sélecteur CSS optionnel
-    select: first                   # first (défaut) | all
+    select: first                   # first | all (défaut)
     actions:                        # optionnel : pipeline d'actions
       - type: get_text
 
@@ -714,6 +839,11 @@ Avec une ligne comme `42|Mon Film|1h30`, cela produit :
 
 Les sous-requêtes permettent d'enchaîner des requêtes HTTP supplémentaires à partir des valeurs extraites. Elles sont disponibles dans les scrapers `html` et `json`. Une sous-requête attachée à un champ dans un groupe d'objets s'exécute séparément pour chaque objet extrait : ses templates utilisent les champs de cet objet et son résultat remplace uniquement l'URL source de ce champ.
 
+Les entrées HTML et JSON acceptent les sous-requêtes. Seules les requêtes racines
+JSON exposent une liste sœur `sub_queries` ; une requête racine HTML doit attacher
+les requêtes supplémentaires à ses entrées. Les sous-requêtes HTML/JSON imbriquées
+peuvent à leur tour déclarer `sub_queries`.
+
 ### Structure commune (`SubQueryCommon`)
 
 ```yaml
@@ -849,10 +979,19 @@ réponse comme rejet de jeton uniquement lorsqu'un jeton a été soumis.
         actions:
           - type: get_text
     context_entries:                   # optionnel : extrait aussi du contexte parent
-      - name: season
-        type: number
-        pointer: "/season_number"
+      - name: season_label
+        type: string
+        select: first
+        actions:
+          - type: format_text
+            argument: "{season_label}"
 ```
+
+Les `context_entries` HTML suivent le schéma d'entrée HTML (`selector`,
+`actions`), pas la syntaxe JSON `pointer` ; elles sont ajoutées avant les entrées
+HTML de la réponse. Utiliser les paramètres d'exécution pour les valeurs du
+contexte de sous-requête. Les `context_entries` JSON suivent le schéma JSON et
+lisent la ligne de contexte parente avant récupération.
 
 ### Sous-requête JSON
 
@@ -1133,12 +1272,20 @@ Multiplie les valeurs numériques par un facteur.
 ```
 
 ### `math_formula`
-Évalue une expression mathématique pour chaque valeur. Le placeholder `{value}` est remplacé par la valeur courante avant évaluation. La liste de sortie contient un résultat par entrée.
+Évalue chaque chaîne courante comme une expression mathématique. Cette action
+n'a pas de champ de configuration `formula`. Construire d'abord l'expression
+avec `format_text` ; `{}` désigne une valeur d'entrée courante. Les expressions
+invalides sont supprimées.
 
 ```yaml
+- type: format_text
+  argument: "{} * 2 + 5"
 - type: math_formula
-  formula: "{value} * 2 + 5"
 ```
+
+Ne pas confondre cette action avec le calcul `post_build` d'un groupe, qui reçoit
+`target` et `expression`, ni avec `compute_items_field`, qui agit sur des champs
+objets.
 
 ### `replace_text`
 Remplace toutes les occurrences d'une chaîne par une autre.
@@ -1312,11 +1459,13 @@ suivi d'une action `regex_find_all` avec `pattern: '^document_write=(.+)$'` et
 
 La valeur courante de la pipeline (`text`) est traitée comme du code JS à exécuter.
 
-Trois sources de JS peuvent être injectées, dans cet ordre :
-1. **HTML** (`inject_html_scripts: true`) — extrait les blocs `<script>` inline du
-   `response_body` HTML de la page et les exécute
-2. **Scripts en dur** (`scripts`) — liste de chaînes JS injectées avant le code principal
-3. **Texte pipeline** (`text`) — JS principal provenant de l'action précédente
+Trois sources JavaScript sont exécutées dans cet ordre :
+
+1. **Scripts configurés** (`scripts`) : fonctions et objets simulés définis en YAML.
+2. **Scripts HTML** (`inject_html_scripts: true`) : blocs `<script>` intégrés du
+   `response_body`, dans l'ordre du document. Les URL de scripts externes ne sont
+   pas récupérées.
+3. **Texte du pipeline** (`text`) : chaque valeur courante comme code JavaScript.
 
 Les scripts injectés depuis le HTML et la configuration sont limités aux 50 premières sources combinées ; le texte du pipeline est évalué ensuite. `timeout_ms` correspond à un budget de boucles de `max(timeout_ms × 20 000, 10 000 000)` ; ce n’est pas une échéance de temps réel.
 
@@ -1342,7 +1491,7 @@ Utilisation typique avec Spys.one :
   inject_html_scripts: true
 - type: extract_variables
   pattern: "^([A-Za-z_][A-Za-z0-9_]*)=(\\d+)$"
-  name: "{1}"
+  name: "@{1}"
   value: "{2}"
   on_duplicate: replace
 ```
@@ -1362,9 +1511,79 @@ Les radices de 2 à 62 sont supportés.
 
 ## 12. Post-traitements (`post_process`)
 
-Transformations appliquées après l'extraction initiale des champs. Disponibles sur les requêtes `html` et `json`, ainsi que sur les sous-requêtes.
+Transformations appliquées après l'extraction et les sous-requêtes, dans l'ordre de déclaration. Le schéma commun HTTP les accepte pour `html`, `json` et `text` ; les sous-requêtes HTML et JSON les acceptent aussi.
 
 Tagguées par `type` en snake_case.
+
+### `remove_fields`
+
+Supprime les champs temporaires du résultat courant après leur utilisation par
+les traitements précédents. `fields`, obligatoire, est une liste de chemins
+séparés par `>`. Un chemin absent est ignoré. Ce post-traitement de requête et
+l'opération HTML `post_build` de même nom agissent à des niveaux différents.
+
+```yaml
+- type: remove_fields
+  fields: [raw_html, internal > token]
+```
+
+### `sort_items`
+
+Trie sur place un groupe d'objets. Les trois champs sont obligatoires :
+
+| Champ | Type | Signification |
+|---|---|---|
+| `source` | string | Chemin du groupe d'objets, séparé par `>` |
+| `field` | string | Chemin non vide du champ de l'élément, obligatoire même pour `reverse` |
+| `method` | string | `asc`, `desc` ou `reverse` |
+
+`reverse` inverse l'ordre d'extraction. `asc` et `desc` comparent la première
+valeur scalaire de `field`, numériquement si les deux valeurs sont des entiers
+signés, sinon lexicographiquement. Les valeurs absentes sont comparées comme des
+chaînes vides. Une source absente ne produit aucun effet. Trier avant
+`merge_items_by_field` si la fusion des doublons doit préserver cet ordre.
+
+```yaml
+- type: sort_items
+  source: episodes
+  field: episode-number
+  method: asc
+```
+
+### `group_items_by_header`
+
+Transforme un groupe ordonné contenant des lignes d'en-tête en sections. Il ne
+trie pas la source. Les en-têtes définissent les libellés et ne sont pas copiés
+comme entrées.
+
+| Champ | Type | Obligatoire / défaut |
+|---|---|---|
+| `source` | string | Obligatoire : chemin du groupe d'objets à plat |
+| `target` | string | Obligatoire : chemin du groupe de sections de sortie |
+| `is_header_field` | string | Obligatoire : champ booléen signalant un en-tête |
+| `label_field` | string | Obligatoire : champ contenant le libellé de l'en-tête |
+| `entries_field` | string | Facultatif ; `entries` |
+| `skip_fields` | string[] | Facultatif ; `[]` ; supprime un élément si l'un des indicateurs est vrai |
+| `first_label` | string | Facultatif ; sans lui, les éléments avant le premier en-tête sont ignorés |
+| `remove_item_fields` | string[] | Facultatif ; `[]` ; chemins retirés des entrées copiées |
+| `remove_source` | boolean | Facultatif ; `false` |
+
+La sortie est un tableau d'objets contenant `label` et le champ `entries_field`
+configuré. Les sections vides sont omises. Si aucune section n'est produite, la
+cible reste inchangée. `remove_source: true` retire la source même si aucune
+section n'est produite.
+
+```yaml
+- type: group_items_by_header
+  source: flat_episodes
+  target: seasons
+  is_header_field: is_header
+  label_field: title
+  first_label: "Episodes"
+  skip_fields: [is_advertisement]
+  remove_item_fields: [is_header, is_advertisement]
+  remove_source: true
+```
 
 ### `apply_actions_to_field`
 
@@ -1955,18 +2174,72 @@ queries:
             argument: 60
 ```
 
-## Option applicative du proxy local
+## 16. Inscription des services (`services.json`)
 
-Le listener partagé se configure hors du schéma YAML des requêtes via
-`--proxy-server-port` (clé persistée `proxy-server-port`). Absent ou nul, le port
-est choisi automatiquement et journalisé après le bind sur `127.0.0.1` ; un port
-non nul est imposé. Le rechargement des sources conserve le listener ; changer le
-port nécessite un redémarrage. Les contextes partagent le port d’écoute et gardent
-leurs paramètres indépendants. Les champs YAML `http.proxy_countries` et
-`http.proxy_affinity` sont inchangés. Un navigateur local utilise l’utilisateur
-proxy `countries=BE,FR` et le mot de passe `local`, avec un challenge `407` avant
-routage ; `default` / `local` sélectionne la route par défaut de l’application.
-Le README du crate précise le cycle de vie, l’encodage des paramètres et les
-limites des clients externes.
+Placer les YAML sous `server/services/<group>/`. Le `services.json` d'un groupe
+est un tableau JSON. Chaque entrée déclare exactement un champ `path` ou `import`.
 
-Les fallbacks Tauri/Wry partagent également ce port et leur contexte de routage ; sur macOS 14+, ils utilisent SOCKS5 authentifié sur le même socket, sans listener supplémentaire.
+```json
+[
+  {"path": "example.yaml", "enabled": true,
+   "parameters": [{"name": "base_url", "value": "https://example.org"}]},
+  {"import": "other-sources/services.json"}
+]
+```
+
+| Entrée | Champs et comportement |
+|---|---|
+| Source | `path` chaîne obligatoire ; `enabled` booléen facultatif, défaut `true` ; `parameters` tableau facultatif ayant la même structure que les paramètres YAML |
+| Import | `import` chaîne obligatoire désignant un autre manifeste JSON |
+
+Les chemins sont relatifs au manifeste qui les déclare. Les imports sont développés
+récursivement en profondeur dans l'ordre de déclaration. Les imports répétés ou
+cycliques sont ignorés avec un avertissement. Un manifeste JSON invalide ou absent
+est une erreur. Un YAML absent est ignoré avec un avertissement ; les autres
+erreurs d'accès font échouer le chargement. Maintenir tous les chemins valides
+sans dépendre de cette tolérance.
+
+Une surcharge d'activation administrateur est prioritaire sur `enabled`. Les YAML
+désactivés sont tout de même lus et désérialisés dans le schéma brut avant le
+contrôle d'activation ; ils doivent rester valides. La conversion sémantique
+complète est réalisée pour les fichiers activés.
+
+Les paramètres du manifeste remplacent les définitions YAML complètes par leur
+`name`, ou en ajoutent. Les paramètres de requête à l'exécution remplacent ensuite
+les valeurs par défaut ; les paramètres d'exécution propres à une source peuvent
+remplacer les paramètres communs. **Limite actuelle :** la fusion des paramètres
+du manifeste ne préserve pas l'ordre YAML. Éviter les pipelines d'actions de
+paramètres dépendants lorsque des surcharges sont utilisées ; vérifier avec le
+manifeste réel. Ne pas supposer qu'une surcharge de `base_url` recalcule une valeur
+déjà substituée au chargement de la collection.
+
+## 17. Liste de contrôle de l'exécution et de la sortie
+
+- Les requêtes HTTP exigent `name`, `scraper_type`, `base_url`, `query_url`,
+  `entries` et le localisateur de lignes propre à leur type. Les requêtes statiques
+  exigent `name`, `scraper_type: static` et `entries`, sans URL HTTP.
+- Résoudre les valeurs par défaut et entrées d'exécution, puis les correspondances
+  de paramètres, URL, en-têtes et corps ; récupérer ; prétraiter ; analyser ;
+  extraire les champs et groupes ; exécuter les sous-requêtes ; appliquer les
+  post-traitements ordonnés ; fusionner les lignes. `result_item_field` promeut
+  enfin les objets du groupe sélectionné en lignes de résultat distinctes.
+- `pre_process`, `post_process`, actions et entrées sont des pipelines locaux
+  ordonnés ; l'héritage HTTP ne les copie pas automatiquement dans les enfants.
+- `select` vaut `all` par défaut. Un scalaire contenant plusieurs valeurs extraites
+  échoue à la conversion JSON. Choisir `first` ou le type tableau approprié.
+- `>` dans un nom crée des objets imbriqués. `/` est littéral dans un nom :
+  `img/poster > link` produit `{"img/poster":{"link":"..."}}`.
+  Les pointeurs JSON utilisent `/`, les chemins du résultat `>`, les sélecteurs CSS
+  leur propre syntaxe.
+- Une feuille vide devient `null`, même avec un type tableau. Ne pas confondre
+  `null`, `[]`, un champ absent et une requête échouée.
+- L'interpolation n'encode pas automatiquement une chaîne arbitraire pour une URL
+  ou pour JSON. Utiliser les entrées du service, telles que `search_terms` encodé
+  ou `search_query_json` échappé pour JSON.
+- Les champs YAML inconnus peuvent être ignorés à la désérialisation. Une faute
+  de frappe peut donc être sans effet malgré un chargement réussi. Utiliser les
+  clés documentées.
+- Un nom de requête absent de la collection ne produit aucune ligne à l'exécution.
+  Ne pas annoncer une capacité uniquement parce qu'un appelant accepte son nom.
+- Vérifier le JSON et le chargement. Une validation structurelle ne prouve ni la
+  disponibilité du site distant, ni la conformité de sa réponse, ni la lecture vidéo.

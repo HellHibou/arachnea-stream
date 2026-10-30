@@ -747,6 +747,15 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Moved YAML extraction-strategy selection, feasibility guidance and per-group validation levels from `build-yaml-source` into the English/French specifications. Placed existing-service examples in their owning group guides and reduced the skill to document routing and agent workflow, avoiding a second technical reference.
+
+
+- Updated `build-yaml-source` to route authors through the common YAML specification and the responsibility-specific stream, hoster, proxy or IP-country guide. Corrected service paths and obsolete capability restrictions, and aligned validation guidance and skill metadata with the specification-first workflow.
+
+
+- Revised the English service YAML authoring specifications, then aligned their French translations: clarified responsibility boundaries, service manifests and parameter precedence, execution/output rules, missing post-processors, operation inputs, outbound-country detection and complete examples. Removed implementation-history preambles and stale specification links. Audited all 41 service collections with the Rust loader and the 21 stream metadata contracts; documented the existing manifest parameter-order limitation.
+
+
 - Updated the remaining test-exclusion report with exact final-suite filters, per-test coverage, prior live results, exhaustive harness failure causes and evidence limits. The report makes no fresh provider-health claim and changes no test code or exclusion policy.
 
 - Consolidated the Rust validation report with completed corrections, the 491 → 477 → 467 Clippy progression, all 53 remaining lint categories, review priorities and verification limits, using the existing inventory without rerunning Rust checks.
@@ -869,6 +878,10 @@ All notable changes to the server workspace are recorded here.
 
 
 ### <u>arachnea-stream-hoster</u>
+
+#### Added
+
+- English and French standalone YAML authoring guides for hoster recognition, direct/HTML resolution order, explicit inline HTML reuse, stream and auxiliary metadata, proxy headers, terminal errors and iframe fallback.
 
 #### Fixed
 

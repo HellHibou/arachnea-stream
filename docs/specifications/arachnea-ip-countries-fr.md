@@ -11,7 +11,7 @@ le code pays d'une adresse IP.
 Ce document ne décrit que les champs propres au format IP-country. La structure
 générale d'un fichier YAML ( `id`, `parameters`, `http`, `queries`,
 `entries`, `actions`, etc. ) est documentée dans
-`spec-arachnea-scrapyfy-yaml.md`.
+[la spécification YAML commune](arachnea-scrapyfy-fr.md).
 
 ---
 
@@ -57,12 +57,8 @@ paramètres d'exécution. Ce paramètre est injecté dans le template
 query_url: "{base_url}/{ip}"
 ```
 
-Exemple d'appel depuis le provider Rust :
-
-```rust
-params.insert("ip".to_string(), ip_str.clone());
-// → Résout en : http://ip-api.com/json/8.8.8.8
-```
+Par exemple, avec `ip=8.8.8.8` et `base_url=http://ip-api.com/json`,
+la requête demande `http://ip-api.com/json/8.8.8.8`.
 
 ---
 
@@ -111,13 +107,7 @@ Les champs extraits par le scraper sont mappés dans le code Rust comme suit :
 - L'adresse IP provient du paramètre d'appel, pas du résultat YAML
 - `source` est défini statiquement dans le code (ex: `"ip-api.com"`)
 
-```rust
-IpCountryRecord {
-    ip: *expected_ip,               // issu du paramètre d'appel
-    country: country.trim().to_ascii_uppercase(),  // normalisé
-    source: Some("ip-api.com"),     // défini dans le provider
-}
-```
+
 
 ---
 
@@ -168,3 +158,64 @@ Format du fichier persistant :
 Le champ `source` vaut `"resolver"` pour les entrées ajoutées lors d'une
 résolution à la volée, et peut valoir `"ip-api.com"` ou autre pour les
 rafraîchissements en masse.
+
+## 9. Requête de pays de la connexion sortante
+
+`resolve_current_country` détermine le pays de la connexion publique sortante de
+l'application. Elle ne reçoit **aucun paramètre `ip`**. Appeler le point d'entrée
+du fournisseur pour l'IP appelante au lieu d'interpoler un `{ip}` absent.
+Retourner les mêmes champs `country_code` et `query_ip` facultatif que
+`resolve_ip_country`.
+
+Ajouter cette seconde requête à la liste `queries` de l'exemple complet :
+
+```yaml
+  - name: resolve_current_country
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{base_url}"
+    media_types: [application/arachnea-ip-country]
+    row_pointer: "/"
+    entries:
+      - name: country_code
+        type: string
+        pointer: /countryCode
+      - name: query_ip
+        type: string
+        pointer: /query
+```
+
+Le moteur nettoie les espaces et met le pays extrait en majuscules ; il ne valide
+pas ici son appartenance à la liste ISO. Émettre seulement un code alpha-2 non
+vide. Les messages d'erreur du fournisseur, chaînes arbitraires et réponses ne
+contenant que des espaces ne sont pas des pays valides. `query_ip` sert au
+diagnostic : les enregistrements de lot utilisent l'IP demandée sans la comparer
+à `query_ip`. Ne pas considérer ce champ comme un contrôle de confiance.
+
+## 10. Liste de contrôle de rédaction et de validation
+
+1. Placer le YAML dans `server/services/arachnea-ip-countries/` et l'inscrire dans
+   `services.json`, selon le format de manifeste de la spécification commune.
+2. Implémenter `resolve_ip_country` pour les adresses explicites et
+   `resolve_current_country` si la détection du pays sortant est nécessaire.
+3. Conserver `http.mode: direct` pour le fournisseur de référence ; passer la
+   détection par un proxy ferait observer le pays sortant de ce proxy.
+4. Déclarer le type de média sur les deux requêtes. Utiliser `row_pointer: "/"`
+   pour un objet racine et un pointeur vers des objets répétés pour un tableau.
+5. Vérifier que les IP non prises en charge et les erreurs fournisseur ne
+   deviennent pas des pays. Le consommateur prend la première ligne contenant
+   une valeur de pays non vide.
+6. Déclarer seulement les paramètres réellement interpolés. Dans le service de
+   référence, `fields` est déclaré mais n'est ajouté à aucune URL ; sa seule
+   présence ne modifie pas la réponse HTTP du fournisseur.
+7. Vérifier séparément la syntaxe YAML, le JSON final, l'activation du manifeste
+   et la réponse réelle de l'API. La persistance est gérée par l'application ;
+   ce n'est pas un champ YAML de service.
+
+### Exemples de services existants
+
+Ces exemples facultatifs illustrent des modèles propres aux fournisseurs. Le
+contrat complet reste dans ce guide et la spécification commune ; ne pas copier
+une URL, un identifiant ou un sélecteur sans vérifier la réponse de la cible.
+
+- [ip-api.yaml](../../server/services/arachnea-ip-countries/ip-api.yaml) — Requêtes pour une IP explicite et pour le pays sortant.

@@ -1,54 +1,5 @@
 # Spécification du format YAML arachnea-proxies
 
-### Classification HTTP runtime — lot 3
-
-Le schéma des listes fournisseur ne change pas. Les options HTTP du scraper et
-les options JSON des URLs médias partagent `proxy_response_classifier` :
-`{"type":"default"}`, `{"type":"http403"}`, ou
-`{"type":"statuses","rejected_statuses":[403],"accepted_statuses":[200,206],"cooldown_seconds":86400}`.
-Les statuts 100..599 doivent être disjoints entre acceptation et rejet ; un
-cooldown explicite est positif et représentable. Cette politique remplace la
-liste historique `proxy_rejection_statuses` ; un handler injecté par code reste
-prioritaire. Aucun objet trait n’est sérialisé. La politique suit les URLs de
-redirection réécrites, et ne change pas les activations 403 de FranceTV/TF1.
-
-Par défaut, seuls les 2xx créent une préférence. Un 4xx/5xx ou une redirection
-non classifiés restent inconclusifs ; un rejet explicite exclut seulement le
-couple endpoint/destination du jeton. La classification précède les post-actions,
-sans lecture du corps par défaut. Un handler de contenu peut demander un extrait
-non destructif de 64 Kio maximum, pendant trois secondes au plus et dans le
-timeout restant disponible. Un extrait incomplet ne prouve pas l’absence d’un
-marqueur. Les moteurs sans observation précoce corrélée restent sans effet sur
-les préférences/exclusions. Les budgets et retries communs restent au lot 5.
-
-### Persistance runtime — lot 2
-
-Sans changement du YAML fournisseur, l’application injecte les vues typées des
-tables `proxy-inventory`, `proxy-preferences` et `proxy-failures` d’un seul store
-SQLite physique, `<application-data>/data/proxy-inventory.sqlite3`, avec une
-connexion partagée et des métadonnées propres à chaque table. Les fichiers
-auxiliaires sont adjacents (`proxy-inventory.sqlite3-wal` et `-shm` si présents).
-Les anciennes bases `<STORENAME>/records.sqlite3*` ne sont pas reprises ; les
-nouvelles bases démarrent vides, puis persistent normalement entre redémarrages.
-Les autres stores SQLite utilisent aussi `<STORENAME>.sqlite3*` sans sous-dossier ;
-les sessions Cloudflare et les activations/credentials des anciens stores ne
-sont donc pas repris. L’historique durable
-conserve jusqu’à trois endpoints acceptés par schéma/hôte/port, sans pays dans la
-clé ni expiration par âge. Il est restauré avant découverte ; le succès éligible
-le plus récent gagne dans les pays autorisés, sans priorité liée à leur ordre.
-Les exclusions par destination restent persistées et ne sont pas effacées par
-une réussite technique ou une actualisation fournisseur.
-
-L’éviction globale exige un échec de connexion à l’endpoint après 24 heures depuis
-la dernière preuve positive, ou la découverte initiale sans preuve positive.
-`last_checked` n’est pas une preuve. Avant ce seuil, le cooldown global vaut
-15 minutes par défaut, configurable. La table distincte `proxy-failures` conserve au maximum
-1 024 états d’éviction pendant 48 heures, nettoyés à la demande, pour préserver
-les temporisations lors d’une redécouverte. Aucun worker n’est ajouté. L’ordre
-du parcours des autres candidats reste à traiter au lot 4. Le regroupement
-physique ne rend pas atomiques les commits d’éviction et de nettoyage des
-préférences ; les références restaurées sont vérifiées avant utilisation.
-
 ## 1. Aperçu
 
 Une collection arachnea-proxies déclare une ou plusieurs sources de proxys publics
@@ -59,7 +10,7 @@ Une collection arachnea-proxies déclare une ou plusieurs sources de proxys publ
 Ce document ne décrit que les champs propres au format proxy. La structure
 générale d'un fichier YAML ( `id`, `parameters`, `http`, `queries`,
 `entries`, `actions`, etc. ) est documentée dans
-`spec-arachnea-scrapyfy-yaml.md`.
+[la spécification YAML commune](arachnea-scrapyfy-fr.md).
 
 ---
 
@@ -91,6 +42,7 @@ Les champs utilisables sont les suivants :
 | `availability` | `string` | non | Indice de disponibilité annoncé par la source. Valeurs : `low`, `medium`, `high`. |
 | `latency_ms` | `number` | non | Latence mesurée par la source, en millisecondes. |
 | `failure_count` | `number` | non | Nombre d'échecs consécutifs rapportés par la source (défaut: `0`). |
+| `proxy_source` | `string` | non | Provenance conservée avec la déclaration. La découverte normale injecte l’ID de collection ; les autres appelants utilisent `unknown` si le champ est absent. |
 | `authentication_required` | `boolean` | non | Indique si le proxy nécessite une authentification. |
 
 Les champs `host` et `port` sont obligatoires. Au moins l'un des champs
@@ -278,5 +230,48 @@ sont réservés au moteur interne et ne proviennent pas du fichier YAML.
 
 Par convention, la requête principale d'une collection proxy s'appelle
 `list_proxies_for_country` et accepte un paramètre `country` correspondant au
-code pays ISO. C'est le nom attendu par `ScrapyfyProxyDataProvider` dans
-`proxy_provider.rs`.
+code pays ISO. C'est le nom attendu par `ScrapyfyProxyDataProvider` par ce fournisseur.
+
+## 7. Procédure de rédaction et de validation
+
+1. Créer un YAML dans `server/services/arachnea-proxies/` et inscrire son chemin
+   relatif dans le `services.json` du dossier, selon la spécification commune.
+   L'ID de collection est indépendant du nom de fichier.
+2. Implémenter `list_proxies_for_country` ; cette requête reçoit `{country}`,
+   normalisé en code pays de deux lettres majuscules. Déclarer
+   `media_types: [application/arachnea-proxy]`.
+3. Extraire `host`, `port` numérique et `protocol` ou `protocols`. Les noms de
+   protocoles sont nettoyés et comparés sans tenir compte de la casse. Un
+   `protocol` valide est prioritaire ; sinon le fournisseur examine `protocols`
+   dans l'ordre de priorité documenté.
+4. Émettre un proxy par ligne de résultat. Pour un groupe `proxies` répété,
+   définir `result_item_field: proxies` ; sinon le fournisseur ne peut pas lire
+   `host` et `port` à la racine de la ligne. Vérifier le JSON final aplati.
+5. Extraire `country` à partir des données de la source. Ne pas le remplir avec
+   `{country}` uniquement parce que ce pays était demandé. Le fournisseur publie
+   seulement les enregistrements du pays demandé. Une indication absente ou
+   invalide exige une géolocalisation IP ; les noms d'hôtes sans pays ne peuvent
+   pas utiliser ce repli limité aux IP.
+6. La découverte normale injecte `proxy_source` depuis l'ID de collection.
+   `supports_https` est une déclaration de la source, pas la preuve d'un tunnel
+   fonctionnel ; les sondes déterminent les capacités.
+7. Vérifier une réponse remplie et une réponse vide pour un pays. Maintenir les
+   fournisseurs désactivés analysables. L'activation ne prouve ni disponibilité
+   ni fiabilité.
+
+Un hôte vide ou un port non convertible en entier non signé de 16 bits fait
+ignorer la ligne. Utiliser des ports d'écoute réels dans `1..65535`.
+Une indication de pays invalide est supprimée. Au plus 20 pays d'IP inconnues
+distinctes sont recherchés par chargement d'un pays ; c'est une limite d'exécution,
+pas un champ YAML. Un pays inconnu n'est jamais déduit de la demande.
+Les options HTTP et de routage proxy appartiennent à la spécification commune ;
+le YAML fournisseur ne configure ni la persistance de l'inventaire ni les sondes.
+
+### Exemples de services existants
+
+Ces exemples facultatifs illustrent des modèles propres aux fournisseurs. Le
+contrat complet reste dans ce guide et la spécification commune ; ne pas copier
+une URL, un identifiant ou un sélecteur sans vérifier la réponse de la cible.
+
+- [iplocate-free-proxy-list.yaml](../../server/services/arachnea-proxies/iplocate-free-proxy-list.yaml) — Groupes de proxys JSON aplatis en lignes de résultat.
+- [spysone.yaml](../../server/services/arachnea-proxies/spysone.yaml) — Extraction HTML et valeurs calculées par JavaScript.
