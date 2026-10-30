@@ -56,6 +56,12 @@ http:
 
 ## 3. Requêtes standard
 
+AnimeUltime inclut les sections « Top animes », « Top dramas » et « Top tokusatsu »
+directement dans `load_home`, avec les identifiants `top-animes`, `top-dramas` et
+`top-tokusatsu`. Elles ne nécessitent pas `get_section`. Leurs sélecteurs HTML
+s'appliquent après la suppression du bloc de statistiques par `pre_process` :
+les positions des enfants désignent donc le DOM prétraité.
+
 Chaque source peut implémenter tout ou partie des 11 requêtes suivantes :
 
 | Nom de requête | Type | Description |

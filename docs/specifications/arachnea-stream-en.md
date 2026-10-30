@@ -56,6 +56,11 @@ http:
 
 ## 3. Standard queries
 
+AnimeUltime embeds the "Top animes", "Top dramas" and "Top tokusatsu" sections
+directly in `load_home`, with IDs `top-animes`, `top-dramas` and `top-tokusatsu`.
+They do not require `get_section`. Its HTML selectors apply after `pre_process`
+removes the statistics block, so their child positions refer to the processed DOM.
+
 Each source may implement any subset of the following 11 queries:
 
 | Query name | Type | Description |

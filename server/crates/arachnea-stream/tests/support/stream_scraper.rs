@@ -1,380 +1,475 @@
+//! Existing Stream scenarios driven by independent source-check contracts.
+
+#[path = "source_checks/execution.rs"]
+mod execution;
+#[path = "source_checks/report.rs"]
+mod report;
+#[path = "source_checks/runner.rs"]
+mod runner;
+#[path = "source_checks.rs"]
+mod source_checks;
+
 use super::StreamScraper;
+use anyhow::{ensure, Context, Result};
+use arachnea_core::persistence::FileCredentialsStore;
+use arachnea_scrapyfy::scrapyfy::{
+    scraper_agregator::{resolve_manifest_sources, ScraperAggregatorSourceEntry},
+    scraper_query_collection::ScraperQueryCollection,
+};
+use source_checks::{Operation, SourceCheck};
+use std::{
+    fs,
+    path::{Component, Path, PathBuf},
+};
 
-use crate::stream_scraper::DEFAULT_SERVICES_CONFIG_PATH;
-use crate::stream_scraper::STREAM_SERVICE_GROUP_NAME;
-use anyhow::Result;
-use arachnea_core::controler::RequestControlerContext;
-use arachnea_scrapyfy::scrapyfy::scraper_agregator::resolve_manifest_sources;
-use arachnea_scrapyfy::scrapyfy::scraper_data_node::ScraperDataNode;
-use arachnea_scrapyfy::scrapyfy::scraper_manager::tests::assert_query_succeeds;
-use arachnea_scrapyfy::scrapyfy::scraper_manager::tests::test_query;
-use arachnea_scrapyfy::scrapyfy::scraper_manager::tests::TestParams;
-use std::path::Path;
-
-use crate::test_support::configure_test_application_data_dir;
-
-static DEFAULT_SEARCH_TERM: &str = "inf";
-static DEFAULT_QUERY_SOURCE: &str = "arachnea-stream/dark-stream/anime-sama.yaml";
-
-pub(super) fn test_params() -> TestParams {
-    TestParams {
-        use_mock_file: false,
-        ignore_entry_not_mapped: true,
-        log_response: false,
-    }
+/// Executes the selected source, or all production YAML when selection is absent or `*`.
+pub(super) fn test_all_services() -> Result<()> {
+    run(selected_paths()?, None)
 }
 
-pub(super) fn query_source() -> String {
-    std::env::var("ARACHNEA_TEST_QUERY_SOURCE").unwrap_or_else(|_| DEFAULT_QUERY_SOURCE.to_string())
+/// Preserves the existing full-scenario entry point with the same selection rules.
+pub(super) fn test_service() -> Result<()> {
+    test_all_services()
 }
 
-pub(super) fn search_term() -> String {
-    std::env::var("ARACHNEA_TEST_SEARCH_TERM").unwrap_or_else(|_| DEFAULT_SEARCH_TERM.to_string())
-}
-
-pub(super) fn get_entry_url() -> Option<String> {
-    std::env::var("ARACHNEA_TEST_ENTRY_URL").ok()
-}
-
-pub(super) fn test_all(tests: Vec<&str>) {
-    let mut failures = Vec::new();
-
-    for yaml_file in tests {
-        // Extract service name from yaml_file path for display purposes
-        // e.g., "darkstream/coflix" -> "coflix" or "rtlplay-be" -> "rtlplay-be"
-        let service_name = Path::new(yaml_file)
-            .file_stem()
-            .unwrap_or_else(|| yaml_file.as_ref())
-            .to_string_lossy();
-
-        assert_query_succeeds(
-            &mut failures,
-            &service_name,
-            "service_stream_metadata",
-            Some(yaml_file),
-            |_, _| service_stream_metadata(yaml_file),
-        );
-
-        assert_query_succeeds(
-            &mut failures,
-            &service_name,
-            "load_home",
-            Some(yaml_file),
-            |_, _| load_home(yaml_file),
-        );
-
-        assert_query_succeeds(
-            &mut failures,
-            &service_name,
-            "search",
-            Some(yaml_file),
-            |_, _| search(search_term(), yaml_file),
-        );
-
-        assert_query_succeeds(
-            &mut failures,
-            &service_name,
-            "get_entry",
-            Some(yaml_file),
-            |_, _| get_entry(get_entry_url(), yaml_file),
-        );
-    }
-
-    assert!(
-        failures.is_empty(),
-        "test_all_services found {} failure(s):\n {}\n",
-        failures.len(),
-        failures.join("\n ")
-    );
-}
-
-pub(super) fn service_stream_metadata(yaml_file: &str) -> Result<()> {
-    configure_test_application_data_dir();
-    test_query(
-        &mut StreamScraper::default(),
-        STREAM_SERVICE_GROUP_NAME,
-        "service_stream_metadata",
-        test_params(),
-        yaml_file,
-        move |scraper| {
-            Box::pin(async move {
-                let (result, _) = scraper
-                    .get_service(RequestControlerContext::default())
-                    .await?;
-                assert!(
-                    result.is_ok(),
-                    "service_stream_metadata should complete without errors, got {:?}",
-                    result.errors,
-                );
-                let source = result.data[0]["id"].value_as_string().unwrap();
-                let advertised = &result.data[0]["supported_queries"].values;
-                assert_eq!(
-                    advertised.contains(&"load_home".to_string()),
-                    scraper.scraper_agregator.source_has_query(
-                        STREAM_SERVICE_GROUP_NAME,
-                        source,
-                        "load_home"
-                    ),
-                );
-                let (empty, etag) = scraper
-                    .load_home(RequestControlerContext::default(), Some(Vec::new()))
-                    .await?;
-                assert!(empty.data.is_empty() && empty.errors.is_empty() && etag.is_none());
-                let (unknown, etag) = scraper
-                    .load_home(
-                        RequestControlerContext::default(),
-                        Some(vec!["unknown-source-for-filter-validation".to_string()]),
-                    )
-                    .await?;
-                assert!(unknown.data.is_empty() && unknown.errors.len() == 1 && etag.is_none());
-                assert_eq!(
-                    unknown.errors[0].source.as_deref(),
-                    Some("unknown-source-for-filter-validation")
-                );
-                for invalid in [
-                    r#"{"sources":null}"#,
-                    r#"{"sources":"arte-fr"}"#,
-                    r#"{"sources":[""]}"#,
-                    r#"{"sources":[" "]}"#,
-                ] {
-                    assert!(serde_json::from_str::<super::LoadHomeRequest>(invalid).is_err());
-                }
-                assert!(serde_json::from_str::<super::LoadHomeRequest>("{}")?
-                    .sources
-                    .is_none());
-                assert_eq!(
-                    serde_json::from_str::<super::LoadHomeRequest>(r#"{"sources":[]}"#)?.sources,
-                    Some(Vec::new())
-                );
-                Ok(result.data)
-            })
-        },
-    )
-}
-
-pub(super) fn load_home(yaml_file: &str) -> Result<()> {
-    configure_test_application_data_dir();
-    test_query(
-        &mut StreamScraper::default(),
-        STREAM_SERVICE_GROUP_NAME,
-        "load_home",
-        test_params(),
-        yaml_file,
-        move |scraper| {
-            Box::pin(async move {
-                let (result, _) = scraper
-                    .load_home(RequestControlerContext::default(), None)
-                    .await?;
-                assert!(
-                    result.is_ok(),
-                    "load_home should complete without errors, got {:?}",
-                    result.errors,
-                );
-                Ok(result.data)
-            })
-        },
-    )
-}
-
-pub(super) fn search(search_term: String, yaml_file: &str) -> Result<()> {
-    configure_test_application_data_dir();
-    test_query(
-        &mut StreamScraper::default(),
-        STREAM_SERVICE_GROUP_NAME,
-        "search",
-        test_params(),
-        yaml_file,
-        move |scraper| {
-            let search_term = search_term.clone();
-            Box::pin(async move {
-                let (result, _) = scraper
-                    .search(
-                        RequestControlerContext::default(),
-                        search_term,
-                        Vec::new(),
-                        Vec::new(),
-                        1,
-                        Default::default(),
-                    )
-                    .await?;
-
-                // Verify envelope contract
-                assert!(
-                    result.is_ok(),
-                    "search should not fail at the envelope level",
-                );
-
-                Ok(result
-                    .data
-                    .into_iter()
-                    .flat_map(|mut group| {
-                        let source = group.get("source").cloned();
-
-                        group
-                            .remove("entries")
-                            .map(|entries| {
-                                entries
-                                    .items
-                                    .into_iter()
-                                    .map(|item| {
-                                        let mut item = item.children;
-                                        if let Some(source) = source.clone() {
-                                            item.entry("source".to_string()).or_insert(source);
-                                        }
-                                        item
-                                    })
-                                    .collect::<Vec<_>>()
-                            })
-                            .unwrap_or_default()
-                    })
-                    .collect())
-            })
-        },
-    )
-}
-
-pub(super) fn get_entry(get_entry_url: Option<String>, yaml_file: &str) -> Result<()> {
-    configure_test_application_data_dir();
-    let yaml_file_owned = yaml_file.to_string();
-    let yaml_file_for_test = yaml_file_owned.clone();
-    test_query(
-        &mut StreamScraper::default(),
-        STREAM_SERVICE_GROUP_NAME,
-        "get_entry",
-        test_params(),
-        &yaml_file_for_test,
-        move |scraper| {
-            let get_entry_url = get_entry_url.clone();
-            let yaml_file_inner = yaml_file_owned.clone();
-            Box::pin(async move {
-                let entry_url = if get_entry_url.is_none() {
-                    // We need to pass a source name to load_entry_url_from_home
-                    // For now, extract it from yaml_file
-                    let yaml_path = Path::new(&yaml_file_inner);
-                    let source_name = yaml_path
-                        .file_stem()
-                        .unwrap_or(yaml_path.as_os_str())
-                        .to_string_lossy();
-                    load_entry_url_from_home(scraper, &source_name).await?
-                } else {
-                    get_entry_url.clone().unwrap()
-                };
-
-                println!("Entry URL: {}", entry_url);
-                // Use yaml_file without extension as source
-                let yaml_path = Path::new(&yaml_file_inner);
-                let source_name = yaml_path
-                    .file_stem()
-                    .unwrap_or(yaml_path.as_os_str())
-                    .to_string_lossy();
-                let entry_result = scraper
-                    .get_entry(
-                        RequestControlerContext::default(),
-                        source_name.to_string(),
-                        entry_url,
-                    )
-                    .await?;
-                let (entry_result, _) = entry_result;
-                assert!(
-                    entry_result.is_ok(),
-                    "get_entry should complete without errors, got {:?}",
-                    entry_result.errors,
-                );
-                Ok(vec![entry_result.data])
-            })
-        },
-    )
-}
-
-pub(super) fn load_enabled_services() -> Vec<String> {
-    let config_file = format!(
-        "{}/{}",
-        arachnea_core::application::get_application_root(),
-        DEFAULT_SERVICES_CONFIG_PATH
-    );
-    let services_json_path = Path::new(config_file.as_str());
-    let services = resolve_manifest_sources(services_json_path)
-        .expect("Failed to resolve services.json manifest");
-
-    services
-        .into_iter()
-        .filter(|s| s.enabled)
-        .map(|s| format!("{}/{}", STREAM_SERVICE_GROUP_NAME, s.path))
-        .collect()
-}
-
-pub(super) async fn load_entry_url_from_home(
-    scraper: &mut StreamScraper,
-    query_source: &str,
-) -> Result<String> {
-    let (home_result, _) = scraper
-        .load_home(RequestControlerContext::default(), None)
-        .await?;
-    let home_result = home_result.data;
-
-    let section: ScraperDataNode = home_result
-        .iter()
-        .find(|root| {
-            root.get("source")
-                .and_then(|source| source.values.first())
-                .map(|source| source == query_source)
-                .unwrap_or(false)
-        })
-        .and_then(|root| root.get("sections"))
-        .and_then(|sections| sections.items.first())
-        .cloned()
-        .ok_or_else(|| anyhow::anyhow!("Missing section in load_home response"))?;
-
-    let entry = if let Some(entry) = first_section_entry(&section).cloned() {
-        entry
+/// Executes metadata locally for the selection, or all checked-in contracts.
+pub(super) fn service_stream_metadata() -> Result<()> {
+    let paths = if let Some(source) = query_source()? {
+        vec![resolve_source(&source)?]
     } else {
-        let section_url = section
-            .children
-            .get("link")
-            .and_then(|link| link.values.first())
-            .cloned()
-            .ok_or_else(|| anyhow::anyhow!("Missing link in load_home section"))?;
-        let section_result = scraper
-            .get_section(
-                RequestControlerContext::default(),
-                query_source.to_string(),
-                section_url,
-                1,
-                Default::default(),
-            )
-            .await?;
-        let section_result = section_result.0.data;
-
-        section_result
-            .get("entries")
-            .and_then(|entries| entries.items.first())
-            .cloned()
-            .ok_or_else(|| anyhow::anyhow!("Missing entry in get_section response"))?
+        let mut paths = Vec::new();
+        collect_yaml_paths(&fixtures_root(), &mut paths)?;
+        paths.sort();
+        // Derive the production path without loading contracts outside per-source isolation.
+        paths
+            .into_iter()
+            .map(|path| {
+                let root = fixtures_root();
+                let relative = path.strip_prefix(&root)?;
+                Ok(services_root().join(relative))
+            })
+            .collect::<Result<Vec<_>>>()?
     };
-
-    let entry_url = entry
-        .children
-        .get("link")
-        .and_then(|link| link.values.first())
-        .cloned()
-        .ok_or_else(|| anyhow::anyhow!("Missing link in load_home entry"))?;
-
-    Ok(entry_url)
+    run(paths, Some(Operation::ServiceStreamMetadata))
 }
 
-/// Finds the first entry in a section or its nested subsections.
+pub(super) fn load_home() -> Result<()> {
+    run(selected_paths()?, Some(Operation::LoadHome))
+}
+
+pub(super) fn search() -> Result<()> {
+    run(selected_paths()?, Some(Operation::Search))
+}
+
+pub(super) fn get_entry() -> Result<()> {
+    run(selected_paths()?, Some(Operation::GetEntry))
+}
+
+fn services_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../services")
+}
+
+fn fixtures_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join(crate::SOURCE_CHECK_FIXTURES_DIRECTORY)
+}
+
+/// Collects production or fixture YAML files without following symbolic links.
 ///
 /// # Arguments
-/// * `section` - Home section whose entries follow the current scraper schema.
-fn first_section_entry(section: &ScraperDataNode) -> Option<&ScraperDataNode> {
-    section
-        .children
-        .get("entries")
-        .and_then(|entries| entries.items.first())
-        .or_else(|| {
-            section
-                .children
-                .get("subsections")
-                .and_then(|subsections| subsections.items.iter().find_map(first_section_entry))
+/// * `directory` - Source or fixture directory to walk.
+/// * `paths` - Output list, sorted by the caller before loading.
+///
+/// # Errors
+/// Rejects unreadable directories and symbolic links in the scanned tree.
+fn collect_yaml_paths(directory: &Path, paths: &mut Vec<PathBuf>) -> Result<()> {
+    for entry in fs::read_dir(directory)? {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+        ensure!(
+            !file_type.is_symlink(),
+            "invalid_configuration: symlinks in service-check directories are not supported"
+        );
+        let path = entry.path();
+        if file_type.is_dir() {
+            collect_yaml_paths(&path, paths)?;
+        } else if file_type.is_file()
+            && path.extension().and_then(|value| value.to_str()) == Some("yaml")
+        {
+            paths.push(path);
+        }
+    }
+    Ok(())
+}
+
+fn manifest_sources(root: &Path) -> Result<Vec<ScraperAggregatorSourceEntry>> {
+    resolve_manifest_sources(
+        root.join(crate::STREAM_SERVICE_GROUP_NAME)
+            .join("services.json"),
+    )
+    .context("invalid_configuration: unable to resolve Stream manifest")
+}
+
+/// Reads an optional selector; only an absent variable or exact `*` selects all.
+fn query_source() -> Result<Option<String>> {
+    match std::env::var("ARACHNEA_TEST_QUERY_SOURCE") {
+        Err(std::env::VarError::NotPresent) => Ok(None),
+        Err(_) => anyhow::bail!("invalid_configuration: non-Unicode ARACHNEA_TEST_QUERY_SOURCE"),
+        Ok(value) if value == "*" => Ok(None),
+        Ok(value) => {
+            ensure!(
+                !value.trim().is_empty(),
+                "invalid_configuration: blank ARACHNEA_TEST_QUERY_SOURCE"
+            );
+            Ok(Some(value))
+        }
+    }
+}
+
+/// Selects one configuration or discovers every production Stream YAML.
+fn selected_paths() -> Result<Vec<PathBuf>> {
+    if let Some(source) = query_source()? {
+        let path = resolve_source(&source)?;
+        println!(
+            "selection=single_source configuration_path={}",
+            path.display()
+        );
+        return Ok(vec![path]);
+    }
+    let mut paths = Vec::new();
+    collect_yaml_paths(
+        &services_root().join(crate::STREAM_SERVICE_GROUP_NAME),
+        &mut paths,
+    )?;
+    paths.sort();
+    println!(
+        "selection=all_service_yaml discovered={} includes_disabled=true",
+        paths.len()
+    );
+    Ok(paths)
+}
+
+/// Resolves a unique production ID or a legacy services-relative path.
+///
+/// # Arguments
+/// * `value` - Nonblank source ID or services-relative YAML path, excluding `*`.
+///
+/// # Errors
+/// Rejects unsafe paths, unreadable YAML and unknown or ambiguous IDs.
+fn resolve_source(value: &str) -> Result<PathBuf> {
+    let relative = Path::new(value);
+    ensure!(
+        !value.trim().is_empty() && !relative.is_absolute()
+            && relative.components().all(|part| matches!(part, Component::Normal(_))),
+        "invalid_configuration: source selection must be an ID or a services-relative path without traversal"
+    );
+    let group_root = services_root()
+        .join(crate::STREAM_SERVICE_GROUP_NAME)
+        .canonicalize()?;
+    if relative.components().count() == 1 {
+        let mut paths = Vec::new();
+        collect_yaml_paths(&group_root, &mut paths)?;
+        paths.sort();
+        let mut matches = Vec::new();
+        for path in paths {
+            let collection = ScraperQueryCollection::from_file_with(&path, serde_yaml::from_reader)
+                .with_context(|| {
+                    format!("invalid_configuration: unable to read {}", path.display())
+                })?;
+            if collection.name() == value {
+                matches.push(path);
+            }
+        }
+        ensure!(matches.len() == 1, "invalid_configuration: service ID `{value}` matched {} production YAML files; expected exactly one", matches.len());
+        return Ok(matches.remove(0));
+    }
+    let path = services_root()
+        .join(relative)
+        .canonicalize()
+        .context("invalid_configuration: selected source path is missing")?;
+    ensure!(
+        path.starts_with(group_root),
+        "invalid_configuration: source selection escapes the Stream services directory"
+    );
+    Ok(path)
+}
+
+fn run(paths: Vec<PathBuf>, operation: Option<Operation>) -> Result<()> {
+    crate::test_support::configure_test_application_data_dir();
+    ensure!(!paths.is_empty(), "coverage_missing: no sources selected");
+    let root = services_root();
+    let manifest = manifest_sources(&root)?;
+    let overrides = runner::Overrides::load()?;
+    let selected_count = paths.len();
+    let mut prepared = Vec::new();
+    let mut results = Vec::new();
+    let mut table = report::Report::default();
+    let mut partial_coverage = operation.is_some();
+    // Validate every source before requests, but keep failures local to that source.
+    for path in paths {
+        let preparation = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            Prepared::load(&path, &root, &manifest).and_then(|prepared| {
+                let selected = overrides.select_steps(&prepared.contract, operation)?;
+                Ok((prepared, selected))
+            })
+        }))
+        .unwrap_or_else(|panic| Err(panic_error(panic)));
+        match preparation {
+            Ok(value) => prepared.push(value),
+            Err(error) => {
+                let missing = error.downcast_ref::<MissingSourceContract>();
+                let source = missing
+                    .map(|missing| missing.source.clone())
+                    .unwrap_or_else(|| path.display().to_string());
+                let outcome = if missing.is_some() {
+                    "not_tested"
+                } else {
+                    "failed"
+                };
+                let reason = execution::sanitize(&format!("{error:#}"));
+                println!(
+                    "source={source} outcome={outcome} configuration_path={} reason={reason}",
+                    path.display()
+                );
+                table.record(&source, "preflight", outcome, &reason);
+                results.push(SourceResult {
+                    source,
+                    outcome,
+                    reason,
+                });
+                partial_coverage = true;
+            }
+        }
+    }
+    println!(
+        "preflight_summary selected={selected_count} ready={} not_tested={} failed={}",
+        prepared.len(),
+        results
+            .iter()
+            .filter(|result| result.outcome == "not_tested")
+            .count(),
+        results
+            .iter()
+            .filter(|result| result.outcome == "failed")
+            .count()
+    );
+    let mut attempted = 0;
+    if !prepared.is_empty() {
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()?;
+        for (mut prepared, selected) in prepared {
+            let source = prepared.contract.source.clone();
+            partial_coverage |= !prepared.uncovered.is_empty();
+            if !selected.is_empty() {
+                attempted += 1;
+            }
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                runtime.block_on(runner::run_source(
+                    &mut prepared,
+                    &selected,
+                    operation,
+                    &overrides,
+                    &mut table,
+                ))
+            }));
+            let (outcome, reason) = match result {
+                Ok(Ok(())) if selected.is_empty() => (
+                    "not_applicable",
+                    "Requested operation is explicitly not expected".to_string(),
+                ),
+                Ok(Ok(())) => ("passed", "Selected checks passed".to_string()),
+                Ok(Err(error)) => ("failed", execution::sanitize(&format!("{error:#}"))),
+                Err(panic) => (
+                    "failed",
+                    execution::sanitize(&format!("{:#}", panic_error(panic))),
+                ),
+            };
+            if outcome == "failed" && !table.has_error(&source) {
+                table.record(&source, "run", outcome, &reason);
+            }
+            results.push(SourceResult {
+                source,
+                outcome,
+                reason,
+            });
+        }
+    }
+    results.sort_by(|left, right| left.source.cmp(&right.source));
+    let count = |outcome| {
+        results
+            .iter()
+            .filter(|result| result.outcome == outcome)
+            .count()
+    };
+    let passed = count("passed");
+    let failed = count("failed");
+    let not_tested = count("not_tested");
+    let not_applicable = count("not_applicable");
+    println!("source_check_summary selected={selected_count} attempted={attempted} passed={passed} failed={failed} not_tested={not_tested} not_applicable={not_applicable} partial_coverage={partial_coverage}");
+    for result in &results {
+        println!(
+            "source_check_result source={} outcome={} reason={}",
+            result.source, result.outcome, result.reason
+        );
+    }
+    table.print();
+    ensure!(failed == 0 && not_tested == 0,
+        "Source checks finished: {passed} passed, {failed} failed, {not_tested} not tested, {not_applicable} not applicable; see source_check_summary");
+    Ok(())
+}
+
+/// Converts an unwound source panic into a reportable error without reusing its state.
+fn panic_error(panic: Box<dyn std::any::Any + Send>) -> anyhow::Error {
+    let message = panic
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .or_else(|| panic.downcast_ref::<&str>().copied())
+        .unwrap_or("Non-string panic payload");
+    anyhow::anyhow!("Service check panicked: {message}")
+}
+
+/// One source's final status; missing contracts are distinct from executed failures.
+struct SourceResult {
+    source: String,
+    outcome: &'static str,
+    reason: String,
+}
+
+/// Typed coverage error, so unavailable contracts are not classified by error-text matching.
+#[derive(Debug)]
+struct MissingSourceContract {
+    source: String,
+}
+
+impl std::fmt::Display for MissingSourceContract {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "coverage_missing: no source contract for `{}`; service is not tested",
+            self.source
+        )
+    }
+}
+
+impl std::error::Error for MissingSourceContract {}
+
+/// Owns the isolated facade before its temporary files, so handles drop first.
+struct Prepared {
+    scraper: StreamScraper,
+    contract: SourceCheck,
+    uncovered: Vec<String>,
+    directory: TemporaryDirectory,
+}
+
+impl Prepared {
+    fn load(path: &Path, root: &Path, manifest: &[ScraperAggregatorSourceEntry]) -> Result<Self> {
+        let path = path
+            .canonicalize()
+            .context("invalid_configuration: selected configuration is missing")?;
+        let collection = ScraperQueryCollection::from_file_with(&path, serde_yaml::from_reader)
+            .context("invalid_configuration: unable to read selected source")?;
+        let canonical_root = root.canonicalize()?;
+        let relative = path
+            .strip_prefix(&canonical_root)
+            .context("invalid_configuration: selected source escapes services root")?;
+        let fixture = fixtures_root().join(relative);
+        if !fixture.try_exists()? {
+            return Err(MissingSourceContract {
+                source: collection.name().to_string(),
+            }
+            .into());
+        }
+        ensure!(
+            fixture.is_file(),
+            "invalid_configuration: source contract is not a file"
+        );
+        let contract = SourceCheck::load(&fixture, root)?;
+        ensure!(
+            contract.configuration_path(root)? == path,
+            "invalid_configuration: selected path differs from source contract"
+        );
+        let uncovered = contract.validate_capabilities(&collection.query_names())?;
+        let mut matches = manifest.iter().filter(|entry| {
+            root.join(crate::STREAM_SERVICE_GROUP_NAME)
+                .join(&entry.path)
+                .canonicalize()
+                .is_ok_and(|candidate| candidate == path)
+        });
+        let mut entry = matches
+            .next()
+            .cloned()
+            .unwrap_or_else(|| ScraperAggregatorSourceEntry {
+                path: path.to_string_lossy().into_owned(),
+                enabled: true,
+                parameters: Vec::new(),
+            });
+        ensure!(
+            matches.next().is_none(),
+            "invalid_configuration: duplicate selected source in manifest"
+        );
+        // A one-source manifest retains effective overrides and explicitly enables disabled selections.
+        entry.path = path.to_string_lossy().into_owned();
+        entry.enabled = true;
+        let directory = TemporaryDirectory::new()?;
+        let manifest_path = directory.0.join("services.json");
+        serde_json::to_writer(fs::File::create(&manifest_path)?, &vec![entry.clone()])?;
+        let mut scraper = StreamScraper::new(
+            FileCredentialsStore::new(directory.0.join("credentials.json")).as_arc(),
+        );
+        scraper
+            .scraper_agregator
+            .add_query_collection_from_config_json(
+                crate::STREAM_SERVICE_GROUP_NAME,
+                &manifest_path,
+            )?;
+        let loaded = scraper
+            .scraper_agregator
+            .query_services()
+            .filter(|group| group.name == crate::STREAM_SERVICE_GROUP_NAME)
+            .flat_map(|group| &group.services)
+            .collect::<Vec<_>>();
+        ensure!(
+            loaded.len() == 1 && loaded[0].name() == contract.source,
+            "invalid_configuration: facade must contain exactly the selected source"
+        );
+        for expected in &entry.parameters {
+            let actual = loaded[0]
+                .parameters()
+                .iter()
+                .find(|parameter| parameter.name == expected.name)
+                .context("Manifest override disappeared from the isolated source")?;
+            ensure!(
+                serde_json::to_value(actual)? == serde_json::to_value(expected)?,
+                "Manifest override changed while preparing the isolated source"
+            );
+        }
+        Ok(Self {
+            scraper,
+            contract,
+            uncovered,
+            directory,
         })
+    }
+}
+
+struct TemporaryDirectory(PathBuf);
+
+impl TemporaryDirectory {
+    fn new() -> Result<Self> {
+        let path = std::env::temp_dir().join(format!(
+            "arachnea-source-check-{}-{:032x}",
+            std::process::id(),
+            rand::random::<u128>()
+        ));
+        fs::create_dir(&path).context("Unable to create isolated source-check directory")?;
+        Ok(Self(path))
+    }
+}
+
+impl Drop for TemporaryDirectory {
+    fn drop(&mut self) {
+        if let Err(error) = fs::remove_dir_all(&self.0) {
+            eprintln!("Source-check temporary cleanup failed: {error}");
+        }
+    }
 }

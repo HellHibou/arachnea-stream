@@ -30,6 +30,33 @@ application. The localized-proxy test suites run with:
 cargo test --offline -p arachnea-scrapyfy --lib --features arachnea-proxy,sqlite-persistence
 ```
 
+## Test-only source-check support
+
+With `test-support`, `scrapyfy::scraper_manager::tests` retains the existing
+`test_query` and `TestParams` imports and exposes `read_strict_yaml` and
+`assertions::{Expectations, AssertionOutcome, AssertionReport}`. These helpers
+have no Stream dependency. The strict YAML reader rejects duplicate/non-string
+mapping keys, tags and scalar coercion; the target type supplies its schema.
+`Expectations::validate` checks useful-data minima and field paths before
+`evaluate` examines public JSON roots. Reports distinguish extraction/contract
+failures, include invalid-item counts, paths and observed JSON kinds without
+field values, and preserve shape errors even
+when other branches contain enough data. `first_valid_string` discovers a
+bounded input from valid upstream items without making requests.
+
+The legacy `test_query` now rejects zero rows, blank-only extraction and results
+containing only source identifiers. Explicit expectation files reject unknown
+keys, duplicate queries/fields and required/optional conflicts. Optional fields
+may occur on any subset of rows; new fields remain diagnostic. The existing
+production-field fallback and `ignore_entry_not_mapped` compatibility remain
+for remaining legacy callers; they never permit wholly empty useful data. Stream
+scenarios now use the independent v1 loader and JSON assertions.
+The repository no longer contains `server/data-test/` files or callers of the
+legacy `test_query` helper. Its optional external expectation-file lookup remains
+available for compatibility; Stream uses only its crate-owned v1 fixtures.
+See [the service-test YAML guide](../../../docs/specifications/arachnea-stream-source-checks-en.md)
+for the independent source-check format, which is separate from production YAML.
+
 ## Rust API contracts
 
 ### Proxy configuration migration (Unreleased)

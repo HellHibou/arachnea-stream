@@ -109,3 +109,32 @@ pub(crate) const PLAYER_DEFAULT_USER_AGENT: &str =
 
 /// Maximum diagnostic response preview length in Unicode characters across service resolvers.
 pub(crate) const PLAYER_ERROR_BODY_PREVIEW_LENGTH: usize = 300;
+
+// Test-only source-check contract and runner bounds.
+
+/// Supported version of the independent source-check YAML schema.
+#[cfg(test)]
+pub(crate) const SOURCE_CHECK_SCHEMA_VERSION: u32 = 1;
+/// Maximum number of facade steps in one source contract.
+#[cfg(test)]
+pub(crate) const SOURCE_CHECK_MAX_STEPS: usize = 32;
+/// Default per-step deadline in seconds.
+#[cfg(test)]
+pub(crate) const SOURCE_CHECK_STEP_TIMEOUT_SECONDS: u64 = 60;
+/// Maximum per-step deadline in seconds.
+#[cfg(test)]
+pub(crate) const SOURCE_CHECK_MAX_STEP_TIMEOUT_SECONDS: u64 = 120;
+/// Default per-source deadline in seconds.
+#[cfg(test)]
+pub(crate) const SOURCE_CHECK_TIMEOUT_SECONDS: u64 = 300;
+/// Maximum per-source deadline in seconds.
+#[cfg(test)]
+pub(crate) const SOURCE_CHECK_MAX_TIMEOUT_SECONDS: u64 = 900;
+
+/// Crate-relative location of independent source-check contracts.
+#[cfg(test)]
+pub(crate) const SOURCE_CHECK_FIXTURES_DIRECTORY: &str = "tests/fixtures/services";
+
+/// Maximum cache shutdown wait in seconds after a source-check operation ends.
+#[cfg(test)]
+pub(crate) const SOURCE_CHECK_CLEANUP_TIMEOUT_SECONDS: u64 = 5;

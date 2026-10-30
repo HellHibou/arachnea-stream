@@ -16,28 +16,126 @@ playback selection and tracing targets.
 
 Constants used by only one service resolver are documented at the beginning of its `src/services/*_resolver.rs` file; private child modules reuse those definitions. Constants genuinely shared by several service resolvers stay in `src/lib.rs`, alongside application and generic facade constants. The common user-agent, diagnostic preview limit and license-token length are defined once there. Defaults, endpoint identifiers, timeouts, token lifetimes, persisted store names and encryption-key bytes retain their values. The executable imports its configuration path and credentials key from the library; those constants are public because the binary is a separate Rust crate. Mutable session/license caches stay with their owners.
 
-Existing unit suites mirror `src/stream_resolver.rs` and `src/stream_scraper.rs` under crate-root `tests/`. Shared test-only helpers live under `tests/support/`, with conditional `#[path]` loading. `autotests = false` prevents Cargo from also treating the mirrored files as integration targets requiring public-only access. The Scrapyfy development dependency still enables `test-support`. Resolver fixture setup configures the application data directory before building the runtime, allowing isolated test execution. An atomic suffix keeps concurrent fixture directories distinct even when clock timestamps coincide. The live entry helper searches section entries and nested subsections before using a deferred section link.
+Existing unit suites mirror `src/stream_resolver.rs` and `src/stream_scraper.rs` under crate-root `tests/`. Shared test-only helpers live under `tests/support/`, with conditional `#[path]` loading. `autotests = false` prevents Cargo from also treating the mirrored files as integration targets requiring public-only access. The Scrapyfy development dependency still enables `test-support`. Resolver fixture setup configures the application data directory before building the runtime, allowing isolated test execution. An atomic suffix keeps concurrent fixture directories distinct even when clock timestamps coincide. Source-check navigation is declared in independent YAML contracts, including category and deferred-section dependencies.
 
-From `server/`, list all scenarios with `cargo test -p arachnea-stream --all-features -- --list`. Run the local resolver and static metadata scenarios without contacting providers:
+From `server/`, the regular command runs the local resolver/static metadata
+checks without provider calls or explicit skip filters:
 
 ```sh
-cargo test -p arachnea-stream --all-features -- \
-  --skip stream_scraper::tests::test_service \
-  --skip stream_scraper::tests::test_query_load_home \
-  --skip stream_scraper::tests::test_query_search \
-  --skip stream_scraper::tests::test_query_get_entry
+cargo test -p arachnea-stream --all-features
 ```
 
-This runs ten local tests and retains the existing ignored `test_all_services` scenario. The four filtered scenarios and `test_all_services` require live providers and, where applicable, credentials. They remain available for targeted manual execution. Omitting `--all-features` verifies the same local scenarios without optional performance diagnostics. Native GUI behavior and live provider compatibility require separate validation.
+There are ten local tests and five ignored live integration entry points:
+all discovered services, one selected service, home, search and entry checks.
+Omitting `--all-features` uses the same policy without optional performance
+diagnostics. An ignored scenario is not counted as successful live coverage.
+Native GUI behavior and provider health require separate validation.
 
-The 2026-10-29 manual review passed the four default Anime-Sama live scenarios.
-The exhaustive test was also executed and failed four source/query checks:
-FranceTV/Arte field-uniformity assumptions, undeclared LN24 search and section-only
-LN24 home-entry discovery. Its ignore attribute remains until the harness is
-aligned with explicit query/field contracts and category navigation. Details and
-commands: `docs/dev-tracking/ignored-tests-review-2026-10-29.md` at repository root.
+## Service integration checks
 
+From `server/`, use the existing Rust `test_all_services` test directly:
 
+```sh
+# All sources, when ARACHNEA_TEST_QUERY_SOURCE is not defined
+cargo test -p arachnea-stream --lib stream_scraper::tests::test_all_services -- --exact --ignored --nocapture
+
+# One source
+ARACHNEA_TEST_QUERY_SOURCE=anime-sama \
+  cargo test -p arachnea-stream --lib stream_scraper::tests::test_all_services -- --exact --ignored --nocapture
+
+# All sources explicitly
+ARACHNEA_TEST_QUERY_SOURCE='*' \
+  cargo test -p arachnea-stream --lib stream_scraper::tests::test_all_services -- --exact --ignored --nocapture
+```
+
+An absent variable or exact `*` selects all discovered production YAML files.
+An ID or services-relative path selects one source; empty, non-Unicode, unknown
+or ambiguous selections fail explicitly. The legacy `test_service` entry point
+uses the same rules. Select one exact full-scenario entry point to avoid duplicate
+runs. No JavaScript launcher, extra binary or Cargo alias is needed. From the
+repository root, add `--manifest-path server/Cargo.toml` after `cargo test`.
+
+Rust resolves service IDs from the production YAML `id`, checks ambiguity, and
+recursively discovers `.yaml` files under `server/services/arachnea-stream/`.
+No provider list is maintained in code or selected from the fixtures.
+The explicit all-source selection includes sources disabled in production and YAML files
+not registered in the manifest. Registered sources retain their manifest parameter
+overrides; unregistered sources use their own YAML defaults.
+
+Each production path requires the matching independent contract under
+`tests/fixtures/services/`, preserving the `arachnea-stream/dark-stream/` or
+`arachnea-stream/legal-stream/` hierarchy. All selected contracts are validated
+independently before provider requests. A missing contract is reported as
+`not_tested`; an invalid contract is a source failure. Both leave other valid
+sources eligible for execution. No expectations are generated from production.
+Runtime failures and recoverable source panics also leave later services running.
+
+Use `capabilities.not_expected` in a test contract to explicitly declare operations
+absent from the production YAML. The loader verifies their absence; they are not
+called and do not contribute table rows or severity totals. Production operations
+without test scenarios, including operations unsupported by schema v1, appear as
+`Skip` with `Warning` severity and an explicit test-not-implemented message. The
+table separates status (`Passed`, `Skip`, `Blocked`, `Failed`) from severity
+(`Ok`, `Warning`, `Error`). A missing source contract also appears as `Skip`/`Warning`
+and continues to fail the aggregate for incomplete source coverage.
+
+At batch 5 completion, the scan discovers 21 configurations with nine contracts
+and twelve missing contracts. An all-source run executes the nine covered sources
+and reports the twelve others as not tested. The final summary includes counts
+(`selected`, `attempted`, `passed`, `failed`, `not_tested`, `not_applicable`) and
+one result/reason per source. Aggregate failure for any failed or untested source
+occurs only after the other services finish and the summary is printed.
+The twelve contracts will be authored separately and discovered automatically. Historical
+`server/data-test/` expectations were removed after migration.
+
+A filtered operation selects its effective transitive prerequisites:
+
+```sh
+ARACHNEA_TEST_QUERY_SOURCE=arachnea-stream/legal-stream/rtlplay-be.yaml \
+  cargo test -p arachnea-stream --lib stream_scraper::tests::test_query_search -- --exact --ignored --nocapture
+```
+
+Without a source selection, or with `*`, the ordinary metadata test validates
+all nine checked-in contracts and their static metadata. It preserves capability
+advertising, empty/unknown home-filter and request parsing assertions. Filtered
+live checks use the same selection rules; set a service ID to target one source,
+or leave the variable undefined/use `*` for all.
+Prefer an exact test filter; a broad `--ignored` selection can execute overlapping
+full and filtered scenarios.
+
+`ARACHNEA_TEST_SEARCH_TERM` and `ARACHNEA_TEST_ENTRY_URL` remain explicit diagnostic
+overrides for executed search/detail steps. The Rust tests read these variables
+directly; blank or irrelevant overrides fail configuration. A filtered detail override
+removes only its replaced input dependency. Runs using overrides are labelled
+diagnostic, and filtered checks cannot claim complete source health.
+
+The six scraper test definitions use the strict v1 loader in
+`tests/support/source_checks.rs`. `tests/support/stream_scraper.rs` prepares one
+isolated Stream collection per source, retaining independent in-memory application,
+session and activation stores and temporary credentials. Adapters and bounded
+execution live in `tests/support/source_checks/`; shared JSON assertions stay in
+Scrapyfy test support. No provider-specific branches or reference defaults belong
+in the generic Rust harness.
+
+Every scenario operation uses a fresh context without validators and a fresh
+cache directory. Server-cache handles close before cleanup, with a separate
+five-second shutdown bound. Step/source deadlines and no runner retries bound
+execution; they do not cap internal HTTP fan-out or prove playback/DRM. Reports
+include per-source/step counts, minima, paths, invalid JSON kinds, blocked steps,
+exclusions and uncovered operations. Input references use fingerprints and URL
+origins, without paths or secrets. Opaque envelope failures remain contract
+failures because their typed transport cause is unavailable. `partial_coverage`
+also accounts for uncovered production capabilities.
+
+The 2026-10-29 batch 4 qualification observed 40/42 passed steps across nine
+contracts, retaining LN24's Belgian proxy-routing envelope failure and RTL Play's
+null-description mismatch. Those results remain historical; batch 5 changes
+execution selection without waiving either failure. CI may use the ordinary
+local Cargo command; no live CI job, schedule or monitoring is installed.
+
+See [the service-test YAML guide](../../../docs/specifications/arachnea-stream-source-checks-en.md),
+[batch 4 results](../../../docs/dev-tracking/source-checks-lot4-2026-10-29.md) and
+[batch 5 execution policy](../../../docs/dev-tracking/source-checks-lot5-2026-10-30.md).
 
 ## Direct fallback when a country proxy is unavailable
 
@@ -144,7 +242,7 @@ not stable identities. See the Section contract in the stream specifications.
 
 - `cd server && cargo run -p arachnea-stream --bin arachnea` - Run the backend executable. Add `--server-public` to bind the server to `0.0.0.0` so the web interface and API are reachable through any local network hostname or IP (for example `http://localhost:8080/`).
 - `cd server && cargo check -p arachnea-stream` - Type-check this crate.
-- `cd server && cargo test -p arachnea-stream` - Run this crate's tests.
+- `cd server && cargo test -p arachnea-stream` - Run local tests; live integration scenarios are ignored by default.
 - `cd server/crates/arachnea-stream && cargo tauri build` - Build the Tauri desktop application and release bundles.
 - `cd server/crates/arachnea-stream && cargo tauri build --target <target-triple>` - Build a platform-specific Tauri bundle once the target and native platform toolchain are installed. See the root and server README files for cross-platform setup notes.
 

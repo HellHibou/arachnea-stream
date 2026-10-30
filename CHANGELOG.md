@@ -314,6 +314,20 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Added the twelve missing schema-v1 source-check contracts under `server/crates/arachnea-stream/tests/fixtures/services/`, covering AnimeUltime, Coflix, FrenchAnimes, Papadustream V2, Wiflix, Antenne Réunion, Bouke, Canal Zoom, RMC BFM Play, TeleMB, Télésambre and TV5MONDE+. Each contract mirrors its production YAML path and declares only the supported operations reachable from that source's public navigation. The local metadata check now discovers and validates all 21 configurations; live navigation, search and entry steps remain unexecuted.
+
+- Published `docs/specifications/arachnea-stream-source-checks-en.md` as the complete schema-v1 service-test authoring guide for humans and AI agents. Commands now appear first, followed by an existing full contract, exact schemas, navigation recipes, null/type rules, troubleshooting and an author checklist. Renamed the previous guide and updated inbound links; runtime behavior and fixture contents are unchanged.
+
+- Published the French translation `docs/specifications/arachnea-stream-source-checks-fr.md` of the schema-v1 service-test authoring guide, keeping commands, schemas, identifiers and code unchanged while translating the explanatory prose. Documentation only; runtime behavior, contracts and fixtures are unchanged.
+
+- Published batch 4 local/live qualification with structured per-step evidence: 90 local tests pass and 40 of 42 live steps pass across nine source contracts. Retained the LN24 Belgian proxy-routing envelope failure and RTL Play null-description contract failure; no expectations, production configurations, ignore attributes or CI policy were relaxed. Cache diagnostics demonstrate fresh isolated directories, zero initial cache memory and fresh validations across repeated enabled-source runs; coverage flags now also account for uncovered capabilities.
+
+- Migrated the six existing source-check scenarios to nine independent v1 contracts covering the four enabled sources and five historical expectation sources. Generic facade adapters now resolve declared navigation dependencies, preserve manifest parameters, isolate credentials/stores and each step cache, enforce deadlines, and report failures, blocked steps, nonapplicable operations and missing coverage. Individual live checks require explicit source selection; diagnostic overrides are labelled and validated. Existing test names, local filters and aggregate ignore are preserved; live qualification remains pending.
+
+- Prepared the strict v1 source-check loader with operation/input validation, dependency and useful-data checks, services-root containment and independent production capability validation. Existing scenarios remain on the legacy helper until batch 3.
+
+- Fixed the v1 source-check contract for the planned test harness, including strict YAML inputs, useful-data assertions, navigation, diagnostics, live selection and per-step cache isolation. Documented all 21 source configurations, five historical expectation mappings and current facade cache modes; runtime implementation and scenario migration remain in subsequent batches.
+
 - Wiflix film entries now expose their players. Film pages carry no `.hostsblock` episode block, so `get_entry` reads their flat `.tabs-sel.linkstab` player list into entry-level `players` (the shape Coflix films already use) instead of returning no player at all, while series pages keep players scoped inside each episode. Host names are decoded from the base64 `span[data-n]` attribute the site's own script reads, falling back to the visible label carried by VOSTFR anchors, and the film language is read from the `inLanguage` marker of the seventh metadata row with `TrueFrench` mapped to `vf`.
 - Wiflix players now also expose `web-link`, holding the same resolved hoster URL as `embed-link`, so the public frontend can open the player page externally for entries, seasons and player lists. The field is copied through `copy_item_fields` for entry-level film players and `set_nested_fields` for episode players, so the signed `ajax_player.php` request still runs once per player.
 - Wiflix now exposes `get_category` and `get_section` so category pages are no longer empty and their rails can paginate. Both scrape the category grid (`#grid .mov`, reusing the home `block_card` anchor) reached through `{query_url}page/{page}/` (DLE pagination). `get_category` wraps the grid in `sections` from a `load_home` category descriptor, `get_section` returns the flat follow-up page the frontend requests when scrolling a rail. Pagination is driven by the `.pnext a[href]` \"next\" affordance: `derive_pagination` reads the extracted `next_page` and stops reporting `have_more` once the anchor degrades to a bare `<span>` on the last page, instead of counting page numbers from the navigation block.
@@ -355,9 +369,28 @@ All notable changes to the server workspace are recorded here.
 #### Fixed
 
 - Initialize application data before constructing resolver test fixtures so they also run in isolation, and add an atomic suffix to prevent temporary-directory collisions between concurrent fixtures. Update the existing home-entry test helper to traverse nested subsections, matching current Anime-Sama home output without changing production scraping.
+- Restore AnimeUltime's "Top animes", "Top dramas" and "Top tokusatsu" home sections by aligning their title and entry selectors with the DOM after statistics-block preprocessing. Existing section IDs and output shapes are preserved.
 - Wiflix `search` now returns results again. The AJAX POST to `/index.php?controller=ajax&mod=search` is gated by a JavaScript bot shield: the homepage runs `document.cookie = "h_check=" + (10+15)`, so the request must send `Cookie: h_check=25` itself — no server-side `Set-Cookie` exists to collect — together with a non-empty `Accept-Language` and `Referer`. A missing or different cookie answers the 18-byte `Bot shield active.` page, and `h_check=25` without `Accept-Language` answers `403` with an empty body. The query body is now declared with `request_body_actions` (the former `request_body` key was silently ignored, so the POST was empty), and `div.fast-search-result` cards are extracted again for films and series.
 
 #### Changed
+
+- Service integration checks now continue across missing/invalid contracts and source execution failures. Missing contracts receive explicit `not_tested` results; recoverable source panics are isolated. The final summary lists selected/attempted/passed/failed/untested/nonapplicable counts and each source’s result and reason, before any aggregate failure for errors or incomplete coverage. Metadata discovery uses the same per-source preparation isolation.
+
+- Exclude operations explicitly absent through source-check `capabilities.not_expected` from result-table rows and severity totals. Add a separate status column: production operations without test scenarios remain warnings with `Skip` status and an explicit test-not-implemented message, including operations unsupported by schema v1. Missing contracts use `Skip`/`Warning`; source-level outcomes and aggregate failure rules are preserved.
+
+- Source-check runs now end with a `Source check results` table (source, operation, `Ok`/`Warning`/`Error` severity, and a message for non-passing rows), followed by the total row count and the per-severity counts. Severity labels use ANSI colors only on an interactive terminal and respect `NO_COLOR` / `CLICOLOR=0`; the machine-readable `source_check_summary` and `source_check_result` lines are unchanged.
+
+- Fixed the Wiflix v1 `get_category` contract: production category sections expose `link`, pagination fields and entries but no `label`, so the fixture now requires only `link`; the full live Wiflix scenario passes and unblocks its section/entry dependencies.
+
+- Removed the JavaScript service-test launcher and kept the existing Rust test entry points. `ARACHNEA_TEST_QUERY_SOURCE` now selects one service by ID/path, or all production YAML files when absent or exactly `*`; blank/unknown selections fail explicitly. The legacy full-scenario entry point and filtered operations share these rules, while local metadata all-selection stays limited to checked-in contracts. Live tests remain ignored by default and missing contracts still fail preflight.
+
+- Batch 5 treats all five live service-check entry points as ignored integration checks, so ordinary Cargo runs need no live skip filters. Added `node server/test-services.mjs <service-id>` / `--all`: Rust resolves IDs and recursively discovers production Stream YAML, including disabled or unregistered sources, while preserving available manifest overrides. The current twelve missing contracts remain explicit preflight coverage failures and are deferred; no expectations or known failures were relaxed.
+
+- Renamed the source-check fixture root from `tests/fixtures/source_checks/` to `tests/fixtures/services/`, retaining the service-mirrored subdirectories and contract contents. Updated the loader constant, documentation and qualification artifact paths; recorded the artifact relocation without changing historical results.
+
+- Organized source-check fixtures to mirror service YAML paths under `source_checks/arachnea-stream/dark-stream/` and `legal-stream/`. Targeted loading uses the services-relative path; local metadata discovery recursively loads the contracts and rejects fixture symlinks or mismatched configuration paths.
+
+- Removed the five unused historical expectation files and `server/data-test/` directory after migration to crate-owned v1 source-check contracts. No repository scenario consumes the legacy files; the shared test-support API remains available for compatibility. Updated fixture-maintenance instructions and current documentation.
 
 - Box successful playback payloads in both private result enums and forward the same box through direct/HTML resolution. Add one allocation per returned stream, preserving untagged JSON and existing error/fallback behavior. Migrate direct in-process proxy configuration to the boxed HTTP variant.
 
@@ -460,6 +493,10 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Extended test-support assertion reports with observed JSON kinds at invalid paths, without recording field values or provider response bodies.
+
+- Added provider-independent test-support helpers for strict YAML decoding, public JSON path traversal, useful-object minima, optional type assertions and bounded upstream input selection. No production schema or API changes.
+
 - Implemented `Default` for `ScraperAgregator` by delegating to `new()`, preserving feature-gated proxy initialization, independent in-memory stores and current defaults. Existing construction call sites are unchanged.
 - Added `--proxy-server-port` / `proxy-server-port`: absent or zero allocates and logs an automatic port; a nonzero port is required exactly. Aggregator clients and provider snapshots share the runtime while keeping independent routing contexts. Port changes require restart.
 
@@ -522,6 +559,8 @@ All notable changes to the server workspace are recorded here.
 - Completed the global rustdoc review of `arachnea-scrapyfy`: reformulated `HtmlScraperEntry::for_each_selected` so the selector, mode, card and callback are described under `# Arguments` without treating `HtmlScraperSelectMode` variants as obsolete parameters. The remaining no-doc functions are trait implementations whose contracts stay on their traits; no schema, API or runtime behavior changed.
 
 #### Fixed
+
+- Legacy query checks now reject empty or wholly unusable extraction and accept partially present optional fields. Explicit expectation files reject malformed declarations; conflicting required/optional fields in historical RTL Play and TF1 expectations are now optional only.
 
 - Corrected and reactivated the existing ignored `resolve_request_headers` doctest with public imports, complete local inputs, the supported JSON pointer and the actual map return type. All 17 workspace doctests pass; runtime behavior is unchanged.
 - Removed redundant terminal returns from proxy-enabled aggregator constructors, preserving the corresponding builds without proxy support and all initialization behavior.

@@ -1,3 +1,9 @@
+#[path = "assertions.rs"]
+pub mod assertions;
+#[path = "yaml.rs"]
+mod yaml;
+pub use yaml::read_strict_yaml;
+
 use super::*;
 use anyhow::{Context, Result};
 use serde::Deserialize;
@@ -19,12 +25,14 @@ impl StatsTest {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct TestQueryCollection {
-    #[serde(default, alias = "query")]
+    #[serde(alias = "query")]
     queries: Vec<TestQueryConfig>,
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct TestQueryConfig {
     name: String,
     #[serde(default)]
@@ -44,24 +52,12 @@ pub struct TestParams {
     /// When enabled, uses mock HTML files instead of making real HTTP requests.
     pub use_mock_file: bool,
 
-    /// When enabled, missing expected fields are treated as warnings instead of errors.
+    /// Treats wholly absent expected fields as warnings, but never permits empty
+    /// extraction or the absence of every useful expected field.
     pub ignore_entry_not_mapped: bool,
 
     /// When enabled, logs the full response data in JSON format.
     pub log_response: bool,
-}
-
-fn dedup_fields(fields: Vec<String>) -> Vec<String> {
-    let mut deduped_fields = Vec::new();
-    let mut seen_fields = HashSet::new();
-
-    for field in fields {
-        if seen_fields.insert(field.clone()) {
-            deduped_fields.push(field);
-        }
-    }
-
-    deduped_fields
 }
 
 fn load_expected_fields_from_test_data(
@@ -84,8 +80,29 @@ fn load_expected_fields_from_test_data(
         }
     };
 
-    let config: TestQueryCollection = serde_yaml::from_reader(file)
+    let config: TestQueryCollection = read_strict_yaml(file)
         .with_context(|| format!("Unable to parse test data file `{}`", yaml_file))?;
+
+    let mut names = HashSet::new();
+    for entry in &config.queries {
+        anyhow::ensure!(
+            !entry.name.trim().is_empty() && names.insert(&entry.name),
+            "Blank or duplicate query name in `{yaml_file}`"
+        );
+        let mut fields = HashSet::new();
+        for field in entry.fields_result.iter().chain(&entry.fields_optional) {
+            anyhow::ensure!(
+                field.split('>').all(|segment| !segment.trim().is_empty()) && fields.insert(field),
+                "Blank, duplicate or conflicting field `{field}` in query `{}` of `{yaml_file}`",
+                entry.name
+            );
+        }
+        anyhow::ensure!(
+            !entry.fields_result.is_empty(),
+            "Query `{}` in `{yaml_file}` requires fields_result",
+            entry.name
+        );
+    }
 
     let query_config = config
         .queries
@@ -99,21 +116,17 @@ fn load_expected_fields_from_test_data(
             )
         })?;
 
-    if query_config.fields_result.is_empty() {
-        anyhow::bail!(
-            "Query `{}` in test data file `{}` does not define any `fields_result`",
-            query,
-            yaml_file
-        );
-    }
-
     Ok(Some(TestExpectedFields {
-        required: dedup_fields(query_config.fields_result),
-        optional: dedup_fields(query_config.fields_optional),
+        required: query_config.fields_result,
+        optional: query_config.fields_optional,
     }))
 }
 
-/// Executes one configured query and validates field-level extraction coverage.
+/// Executes one configured query and validates nonempty field-level extraction.
+///
+/// Explicit legacy expectations are loaded strictly when present. The production
+/// fallback remains until source scenarios migrate to independent v1 contracts.
+/// Optional and newly discovered fields are diagnostic, not uniformity requirements.
 pub fn test_query<M, F>(
     manager: &mut M,
     groupe_name: &str,
@@ -182,7 +195,10 @@ where
     }
 
     // === CALLBACK ===
-    let results = run_query_future(callback(manager))?;
+    let results = run_query_future(callback(manager))
+        .with_context(|| format!("Source `{query_source}`, query `{query}` failed"))?;
+    anyhow::ensure!(!results.is_empty(),
+        "extraction_failed: source `{query_source}`, query `{query}` returned 0 rows; expected at least 1");
 
     if test_params.log_response {
         if test_params.use_mock_file {
@@ -220,6 +236,14 @@ where
         .chain(expected_fields.optional.iter())
         .map(String::as_str)
         .collect();
+    anyhow::ensure!(expected_fields.required.iter().any(|field| {
+        field != "source" && field != "id" && stats.contains_key(field.as_str())
+    }), "extraction_failed: source `{query_source}`, query `{query}` has no useful expected fields in {total} rows");
+    let optional_fields: HashSet<&str> = expected_fields
+        .optional
+        .iter()
+        .map(String::as_str)
+        .collect();
     let mut not_mapped: Vec<String> = expected_fields
         .required
         .iter()
@@ -236,16 +260,17 @@ where
     stats_entries.sort_by_key(|(left_key, _)| *left_key);
 
     for (stat_key, stat_value) in stats_entries {
-        let equal_str =
-            if strict_expected_fields && !expected_fields_set.contains(stat_key.as_str()) {
-                new_fields += 1;
-                "New field".to_string()
-            } else if stat_value.count == total {
-                "OK".to_string()
-            } else {
-                bad_data_format += 1;
-                format!("Warning: {} != {}", stat_value.count, total)
-            };
+        let equal_str = if optional_fields.contains(stat_key.as_str()) {
+            "Optional".to_string()
+        } else if strict_expected_fields && !expected_fields_set.contains(stat_key.as_str()) {
+            new_fields += 1;
+            "New field".to_string()
+        } else if stat_value.count == total {
+            "OK".to_string()
+        } else {
+            bad_data_format += 1;
+            format!("Warning: {} != {}", stat_value.count, total)
+        };
         println!(" - {}: {} - {}", stat_key, stat_value.count, equal_str);
     }
 
@@ -268,7 +293,7 @@ where
 
     if bad_data_format > 0 {
         anyhow::bail!(
-            "Test count field: {:2} errors, {:2} skipped, {:2} new fields",
+            "contract_failed: source `{query_source}`, query `{query}`, {total} rows: {:2} field errors, {:2} skipped, {:2} new fields",
             bad_data_format,
             skipped,
             new_fields
@@ -284,7 +309,11 @@ fn collect_fields(
     row: &HashMap<String, ScraperDataNode>,
 ) {
     for (entry_key, entry_value) in row.iter() {
-        if !entry_value.values.is_empty() {
+        if entry_value
+            .values
+            .iter()
+            .any(|value| !value.trim().is_empty())
+        {
             fields.insert(format!("{}{}", root, entry_key));
         }
 
@@ -327,9 +356,9 @@ pub fn assert_query_succeeds<F>(
     println!("Test {} for source `{}`...", query_name, query_source);
     let result = run_query(query_source, yaml_file);
     if let Err(error) = result {
-        println!("{}", error);
+        println!("{error:#}");
         failures.push(format!(
-            "| Source: {query_source:15} | Query: {query_name:25} | {error}"
+            "| Source: {query_source:15} | Query: {query_name:25} | {error:#}"
         ));
     }
 

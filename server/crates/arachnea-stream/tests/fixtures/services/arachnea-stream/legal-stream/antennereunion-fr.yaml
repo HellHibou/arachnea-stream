@@ -1,0 +1,57 @@
+# Reference expectations; live qualification is recorded separately.
+schema_version: 1
+source: antennereunion-fr
+source_config: arachnea-stream/legal-stream/antennereunion-fr.yaml
+
+capabilities:
+  expected: ["service_stream_metadata","load_home","search","get_entry"]
+  not_expected: []
+
+steps:
+  - id: metadata
+    operation: service_stream_metadata
+    expect:
+      items_path: []
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["id"]
+        - ["title"]
+        - ["logo"]
+
+  - id: home
+    operation: load_home
+    expect:
+      items_path: ["sections","*","entries"]
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["title"]
+        - ["link"]
+
+  - id: search
+    operation: search
+    inputs:
+      query: "journal"
+    expect:
+      items_path: ["entries"]
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["title"]
+        - ["link"]
+
+  - id: entry
+    operation: get_entry
+    inputs:
+      query_url:
+        from_step: home
+        items_path: ["sections","*","entries"]
+        select: first_valid
+        value_path: ["link"]
+    expect:
+      items_path: []
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["title"]

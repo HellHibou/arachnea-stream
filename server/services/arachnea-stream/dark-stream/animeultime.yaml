@@ -246,13 +246,14 @@ queries:
                   - type: format_text
                     argument: "animeultime"            
 
-      # ---- Section: Top animes ---- enfant 4 (titre) et 5 (items)
+      # Top sections follow the statistics block removed by pre_process.
+      # ---- Section: Top animes ----
       - name: sections
         type: object[]
         entries:
           - name: label
             type: string
-            selector: "div.contain_stats > :nth-child(4)"
+            selector: "div.contain_stats > :nth-child(3)"
             select: first
             actions:
               - type: get_text
@@ -266,17 +267,17 @@ queries:
                 argument: "top-animes"
           - name: entries
             type: object[]
-            selector: "div.contain_stats > :nth-child(5) > a"
+            selector: "div.contain_stats > :nth-child(4) > a"
             select: all
             entries: *entries_top_item
 
-      # ---- Section: Top dramas ---- enfant 6 (titre) et 7 (items)
+      # ---- Section: Top dramas ----
       - name: sections
         type: object[]
         entries:
           - name: label
             type: string
-            selector: "div.contain_stats > :nth-child(6)"
+            selector: "div.contain_stats > :nth-child(5)"
             select: first
             actions:
               - type: get_text
@@ -290,17 +291,17 @@ queries:
                 argument: "top-dramas"
           - name: entries
             type: object[]
-            selector: "div.contain_stats > :nth-child(7) > a"
+            selector: "div.contain_stats > :nth-child(6) > a"
             select: all
             entries: *entries_top_item
 
-      # ---- Section: Top tokusatsu ---- enfant 8 (titre) et 9 (items)
+      # ---- Section: Top tokusatsu ----
       - name: sections
         type: object[]
         entries:
           - name: label
             type: string
-            selector: "div.contain_stats > :nth-child(8)"
+            selector: "div.contain_stats > :nth-child(7)"
             select: first
             actions:
               - type: get_text
@@ -314,7 +315,7 @@ queries:
                 argument: "top-tokusatsu"
           - name: entries
             type: object[]
-            selector: "div.contain_stats > :nth-child(9) > a"
+            selector: "div.contain_stats > :nth-child(8) > a"
             select: all
             entries: *entries_top_item
 

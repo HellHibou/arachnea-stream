@@ -15,7 +15,7 @@
 
 ## Code and Config Consistency
 - The YAML format may be changed when needed.
-- If a code change affects parsing rules, placeholders, actions, expected fields, or configuration semantics, update the relevant files under `services/*` or `data-test/*` in the same change.
+- If a code change affects parsing rules, placeholders, actions, expected fields, or configuration semantics, update the relevant files under `services/*` or the owning crate’s `tests/fixtures/` in the same change.
 - If a config change introduces new semantics, update the Rust code to match.
 - Do not leave code and YAML out of sync.
 - Prefer extending configuration over hardcoding source-specific behavior when that keeps the design simpler.

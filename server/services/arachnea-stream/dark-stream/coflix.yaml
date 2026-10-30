@@ -12,7 +12,7 @@ http:
 # ############################################################################
 parameters:
   - name: base_url
-    value: https://coflix.wiki
+    value: https://coflix.gold
     description: "Base URL — update on domain change"
 
 

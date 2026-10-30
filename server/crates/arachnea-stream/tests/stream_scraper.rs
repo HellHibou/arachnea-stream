@@ -4,32 +4,34 @@ use anyhow::Result;
 #[test]
 #[ignore = "requires live third-party providers; run manually with --ignored"]
 fn test_all_services() {
-    let enabled_services = load_enabled_services();
-    let enabled_services_refs: Vec<&str> = enabled_services.iter().map(|s| s.as_str()).collect();
-    test_all(enabled_services_refs);
+    super::test_support::test_all_services().expect("Discovered service checks failed");
 }
 
 #[test]
+#[ignore = "requires live third-party providers; select sources with ARACHNEA_TEST_QUERY_SOURCE and run with --ignored"]
 fn test_service() {
-    test_all(Vec::from([query_source().as_str()]));
+    super::test_support::test_service().expect("Selected source checks failed");
 }
 
 #[test]
 pub fn test_query_service_stream_metadata() -> Result<()> {
-    service_stream_metadata(query_source().as_str())
+    service_stream_metadata()
 }
 
 #[test]
+#[ignore = "requires live third-party providers; select sources with ARACHNEA_TEST_QUERY_SOURCE and run with --ignored"]
 pub fn test_query_load_home() -> Result<()> {
-    load_home(query_source().as_str())
+    load_home()
 }
 
 #[test]
+#[ignore = "requires live third-party providers; select sources with ARACHNEA_TEST_QUERY_SOURCE and run with --ignored"]
 pub fn test_query_search() -> Result<()> {
-    search(search_term(), query_source().as_str())
+    search()
 }
 
 #[test]
+#[ignore = "requires live third-party providers; select sources with ARACHNEA_TEST_QUERY_SOURCE and run with --ignored"]
 pub fn test_query_get_entry() -> Result<()> {
-    get_entry(get_entry_url(), query_source().as_str())
+    get_entry()
 }

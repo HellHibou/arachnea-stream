@@ -44,4 +44,5 @@ serde_json.workspace = true
 tauri-build.workspace = true
 
 [dev-dependencies]
+serde_yaml.workspace = true
 arachnea-scrapyfy = { path = "../arachnea-scrapyfy", default-features = false, features = ["test-support"] }
