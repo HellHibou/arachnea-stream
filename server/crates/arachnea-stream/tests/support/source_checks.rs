@@ -81,6 +81,20 @@ pub(super) enum Operation {
     GetEntry,
     /// Player descriptors without playback qualification.
     GetPlayers,
+    /// Episodes reached from a season URL or identifier.
+    GetSeason,
+    /// Isolated source's live channel catalog.
+    ListLives,
+    /// One live channel; query_url supplies the facade's channel argument.
+    GetLive,
+    /// Deferred banner descriptors.
+    GetBanners,
+    /// Deferred recommendation entries.
+    GetRecommendations,
+    /// Source-owned YAML stream resolution without playback qualification.
+    ResolveStream,
+    /// Legacy episode query without a dedicated Stream facade method.
+    GetEpisode,
 }
 
 impl Operation {
@@ -94,6 +108,13 @@ impl Operation {
             Self::GetSection => "get_section",
             Self::GetEntry => "get_entry",
             Self::GetPlayers => "get_players",
+            Self::GetSeason => "get_season",
+            Self::ListLives => "list_lives",
+            Self::GetLive => "get_live",
+            Self::GetBanners => "get_banners",
+            Self::GetRecommendations => "get_recommendations",
+            Self::ResolveStream => "resolve_stream",
+            Self::GetEpisode => "get_episode",
         }
     }
 
@@ -399,7 +420,7 @@ impl SourceCheck {
 impl Step {
     fn validate_inputs(&self) -> Result<()> {
         let required = match self.operation {
-            Operation::ServiceStreamMetadata | Operation::LoadHome => None,
+            Operation::ServiceStreamMetadata | Operation::LoadHome | Operation::ListLives => None,
             Operation::Search => Some("query"),
             _ => Some("query_url"),
         };
@@ -410,7 +431,10 @@ impl Step {
             if key == "page"
                 && matches!(
                     self.operation,
-                    Operation::GetCategory | Operation::GetSection
+                    Operation::GetCategory
+                        | Operation::GetSection
+                        | Operation::GetSeason
+                        | Operation::GetRecommendations
                 )
             {
                 ensure!(
@@ -444,3 +468,7 @@ fn unique_names(names: &[String]) -> Result<HashSet<&str>> {
     }
     Ok(unique)
 }
+
+#[cfg(test)]
+#[path = "source_checks/schema.rs"]
+mod schema_tests;

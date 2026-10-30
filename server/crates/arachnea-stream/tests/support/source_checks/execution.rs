@@ -168,6 +168,100 @@ pub(super) async fn execute(
             &source,
             operation,
         )?,
+        Operation::GetSeason => envelope(
+            scraper
+                .get_season(context, source.clone(), string("query_url")?, page)
+                .await?
+                .0,
+            true,
+            &source,
+            operation,
+        )?,
+        Operation::ListLives => envelope(
+            scraper.list_lives(context).await?.0,
+            false,
+            &source,
+            operation,
+        )?,
+        Operation::GetLive => envelope(
+            scraper
+                .get_live(context, source.clone(), string("query_url")?)
+                .await?
+                .0,
+            true,
+            &source,
+            operation,
+        )?,
+        Operation::GetBanners => envelope(
+            scraper
+                .get_banners(context, source.clone(), string("query_url")?)
+                .await?
+                .0,
+            true,
+            &source,
+            operation,
+        )?,
+        Operation::GetRecommendations => envelope(
+            scraper
+                .get_recommendations(
+                    context,
+                    source.clone(),
+                    string("query_url")?,
+                    page,
+                    Default::default(),
+                )
+                .await?
+                .0,
+            true,
+            &source,
+            operation,
+        )?,
+        Operation::ResolveStream => envelope(
+            scraper
+                .get_stream(
+                    crate::SCRAPER_QUERY_STREAM_RESOLVER_ID.to_string(),
+                    string("query_url")?,
+                    Some(source.clone()),
+                    vec![],
+                    Some(false),
+                )
+                .await?,
+            true,
+            &source,
+            operation,
+        )?,
+        Operation::GetEpisode => {
+            // No typed facade exists for this legacy production query.
+            let mut params = HashMap::from([
+                ("query_url".to_string(), string("query_url")?),
+                ("link".to_string(), string("query_url")?),
+            ]);
+            scraper.enrich_runtime_params(&mut params);
+            let sources = vec![source.clone()];
+            envelope(
+                scraper
+                    .scraper_agregator
+                    .execute_query_async(
+                        &context,
+                        Default::default(),
+                        crate::STREAM_SERVICE_GROUP_NAME,
+                        operation.name(),
+                        &params,
+                        arachnea_scrapyfy::ScraperAggregationOptions {
+                            source_params: None,
+                            scrapper_list: Some(&sources),
+                            query_media_type_filter: None,
+                            fields_filters: None,
+                            source_field_name: Some("source"),
+                            operation: operation.name(),
+                        },
+                    )
+                    .await,
+                false,
+                &source,
+                operation,
+            )?
+        }
     };
     for root in &roots {
         validate_source(root, &source)?;

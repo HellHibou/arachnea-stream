@@ -53,6 +53,12 @@ http:
 
 ## 3. Standard queries
 
+RMC BFM Play selects the home category rail by its "Toutes les catégories" title,
+since its provider-generated ID can change. Its deferred `get_section` query
+expects a `page_type=mosaique` tile URL; an editorial `fip-edito` page with content
+rails is a different response shape. TVMonaco player descriptors explicitly use
+`select: first` on the `resolver` group to emit the documented single object.
+
 AnimeUltime embeds the "Top animes", "Top dramas" and "Top tokusatsu" sections
 directly in `load_home`, with IDs `top-animes`, `top-dramas` and `top-tokusatsu`.
 They do not require `get_section`. Its HTML selectors apply after `pre_process`
@@ -606,17 +612,20 @@ loading without preventing the API detail response.
 The M6+ YAML prototype emits the program ID in `recommendations.link` and obtains
 an anonymous JWT in `get_recommendations`, without user credentials. Signing uses
 `exec_js` and configurable public client parameters. It scans at most eight
-layout pages and separately selects `feature.recommended_programs_by_program`
-and `feature.programs_by_tags`, regardless of the editorial title (for example,
+layout pages and separately selects `feature.recommended_programs_by_program`,
+`feature.programs_by_tags` and editorial `feature.list` blocks, regardless of the editorial title (for example,
 "Toujours plus de héros !"). The first block of each family on each page is
-selected; their cards are merged and only `program` targets are retained.
+selected for the first two families; every editorial list block is selected.
+Their cards are merged and only `program` targets are retained.
 Pagination uses the first non-empty `nextPage` value from the fetched blocks.
 The selections use distinct internal field names so that each sub-query fetches
-only its own family's URLs instead of duplicating cards from both families.
+only its own family's URLs instead of duplicating cards across families.
 Program cards include `img/poster` and `img/portrait`; card pagination is separate
 from layout pagination. Internal JWT fields are removed from public output, but
-internal traces must not be shared. Network validation is pending; reaching the
-eight-page bound without a rail does not confirm its absence.
+internal traces must not be shared. The 2026-10-30 Top chef qualification returned
+six valid programme cards and one card with a null title; that invalid card remains
+visible in test diagnostics. Reaching the eight-page bound without a rail does
+not confirm its absence.
 
 TF1+ includes only the "Si vous aimez…" program rail. When its label appears
 in the Smart TV detail editorial sections, `get_entry.recommendations.link`

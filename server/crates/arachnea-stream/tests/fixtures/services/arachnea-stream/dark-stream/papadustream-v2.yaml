@@ -4,7 +4,7 @@ source: papadustream-v2
 source_config: arachnea-stream/dark-stream/papadustream-v2.yaml
 
 capabilities:
-  expected: ["service_stream_metadata","load_home","search","get_entry"]
+  expected: ["service_stream_metadata", "load_home", "search", "get_entry", "get_players", "get_episode", "get_season"]
   not_expected: ["get_category","get_section"]
 
 steps:
@@ -55,3 +55,66 @@ steps:
       min_valid_count: 1
       required_non_empty:
         - ["title"]
+
+  - id: players
+    operation: get_players
+    inputs:
+      query_url:
+        from_step: home
+        items_path: ["sections","*","entries"]
+        select: first_valid
+        value_path: ["link"]
+    expect:
+      items_path: ["players"]
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["name"]
+
+  - id: season_navigation
+    operation: get_entry
+    inputs:
+      query_url:
+        from_step: home
+        items_path: ["sections","*","entries"]
+        select: first_valid
+        value_path: ["link"]
+    expect:
+      items_path: ["seasons"]
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["label"]
+        - ["link"]
+
+  - id: season
+    operation: get_season
+    inputs:
+      query_url:
+        from_step: season_navigation
+        items_path: ["seasons"]
+        select: first_valid
+        value_path: ["link"]
+    expect:
+      items_path: ["episodes"]
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["title"]
+        - ["link"]
+
+  - id: episode
+    operation: get_episode
+    inputs:
+      query_url:
+        from_step: season
+        items_path: ["episodes"]
+        select: first_valid
+        value_path: ["link"]
+    expect:
+      items_path: ["players"]
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["name"]
+        - ["player-id"]

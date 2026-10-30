@@ -4,7 +4,7 @@ source: anime-sama
 source_config: arachnea-stream/dark-stream/anime-sama.yaml
 
 capabilities:
-  expected: ["service_stream_metadata","load_home","get_category","search","get_entry"]
+  expected: ["service_stream_metadata", "load_home", "get_category", "get_section", "search", "get_entry", "get_season"]
   not_expected: []
 
 steps:
@@ -45,6 +45,38 @@ steps:
         - ["title"]
         - ["link"]
 
+  - id: category_sections
+    operation: get_category
+    inputs:
+      query_url:
+        from_step: home
+        items_path: ["categories"]
+        select: first_valid
+        value_path: ["request","query_url"]
+    expect:
+      items_path: ["sections"]
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["label"]
+        - ["link"]
+
+  - id: section
+    operation: get_section
+    inputs:
+      query_url:
+        from_step: category_sections
+        items_path: ["sections"]
+        select: first_valid
+        value_path: ["link"]
+    expect:
+      items_path: ["entries"]
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["title"]
+        - ["link"]
+
   - id: search
     operation: search
     inputs:
@@ -79,3 +111,35 @@ steps:
       optional_fields:
         - path: ["description"]
           type: string
+
+  - id: season_navigation
+    operation: get_entry
+    inputs:
+      query_url:
+        from_step: category
+        items_path: ["sections","*","entries"]
+        select: first_valid
+        value_path: ["link"]
+    expect:
+      items_path: ["seasons"]
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["label"]
+        - ["link"]
+
+  - id: season
+    operation: get_season
+    inputs:
+      query_url:
+        from_step: season_navigation
+        items_path: ["seasons"]
+        select: first_valid
+        value_path: ["link"]
+    expect:
+      items_path: []
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["resolver"]
+        - ["link"]

@@ -366,7 +366,7 @@ and does **not** declare `search`.
 
 - Both `expected` and `not_expected` are required lists of distinct nonblank
   operation names. `not_expected: []` is valid; omitting it is not.
-- Only the seven operation names in section 7 may occur in either list.
+- Only the fourteen operation names in section 7 may occur in either list.
 - The lists cannot overlap.
 - `service_stream_metadata` must be in `expected` and must have a step.
 - Every operation in `expected` must exist in production and have at least one
@@ -376,16 +376,15 @@ and does **not** declare `search`.
   These operations are excluded from the result table and severity totals.
 - Production operations in neither list are reported as `coverage_missing`.
   The result table displays `Skip` status with `Warning` severity.
-  This includes operations unsupported by schema v1, such as `get_season`,
-  `list_lives` or `resolve_stream`. Do not put unsupported names in either list.
+  Do not put operation names absent from section 7 in either list.
 - An additional uncovered operation does not invalidate passing declared steps,
   but prevents a complete-capability coverage claim.
 - A missing source contract is reported as `not_tested`. Other valid sources run;
   the aggregate remains unsuccessful for incomplete coverage after the final summary.
 
 To finish a full source run successfully, at least one executed **content** step
-must pass: `search`, `get_category`, `get_section`, `get_entry` or `get_players`.
-Metadata and home alone cannot produce a green full source result.
+must pass: any supported operation other than metadata or home. Metadata and
+home alone cannot produce a green full source result.
 
 ## 7. Steps and supported operations
 
@@ -411,11 +410,32 @@ there are no runner retries, loops or automatic pagination.
 | `get_section` | Required `query_url`: nonblank string or reference; optional `page`: positive integer, default `1` | One section object | `FullCache` |
 | `get_entry` | Required `query_url`: nonblank string or reference | One entry/detail object | `ClientCache` |
 | `get_players` | Required `query_url`: nonblank string or reference | One player-result object | `ClientCache` |
+| `get_season` | Required `query_url`; optional positive integer `page`, default `1` | One season object (usually `episodes`; Anime-Sama returns resolver/language metadata) | `ClientCache` |
+| `list_lives` | No inputs | Individual channel objects, without an `entries` wrapper | `FullCache` |
+| `get_live` | Required `query_url`, passed as the facade's channel identifier or URL | One object containing `players` | `ClientCache` |
+| `get_banners` | Required `query_url` | One object containing `banners` | `ClientCache` |
+| `get_recommendations` | Required `query_url`; optional positive integer `page`, default `1` | One object containing `entries` | `FullCache` |
+| `resolve_stream` | Required HTTP(S) `query_url` | One normalized stream object containing `stream_url` | `NoCache` |
+| `get_episode` | Required `query_url` | Individual legacy episode query objects, usually containing `players` | `ClientCache` |
 
 `page` must be a literal integer, not a string or a dynamic reference. Do not put
 `page` on search: search always runs page 1 with empty media-type/theme filters.
 URLs and internal query identifiers are passed as source-defined strings; the
 test format does not require all `query_url` inputs to be HTTP URLs.
+
+The additional operations preserve the existing `inputs` structure and literal/
+reference forms. `get_live` deliberately uses `query_url` for the typed facade's
+`channel` argument; do not add an input named `channel`. `page` is allowed only on
+`get_category`, `get_section`, `get_season` and `get_recommendations`.
+`list_lives` remains isolated because the prepared facade contains one source.
+`get_episode` has no dedicated Stream facade: its adapter invokes only the
+selected source's legacy query through the aggregator, with runtime parameters
+and the same envelope checks. All other operations use typed facade methods.
+`resolve_stream` uses the `scraper-query` resolver for the selected source, with
+no country hints and manifest rewriting disabled. It validates the normalized
+stream descriptor, not playback, DRM acquisition or segment availability.
+Source-specific resolver parameters and `source_params` remain unsupported.
+
 
 The adapter chooses the source from the contract. For `get_category`, it builds
 the typed descriptor `{name: source, query_url: resolved_value}` and passes empty
@@ -679,7 +699,7 @@ value, but never logs that value. A prerequisite does not inject credentials,
 configure a proxy, log in or prove that access works. Missing prerequisites fail
 as `prerequisite_missing`; they are never counted as successful retrieval.
 
-Execution is sequential. At most 32 scenario facade calls run per source; the
+Execution is sequential. At most 32 scenario operations run per source; the
 preserved metadata assertions additionally check empty/unknown home selections
 without dispatching provider queries. The contract does not cap internal HTTP
 fan-out, redirects or transport retries. There are no YAML retry options.
@@ -807,8 +827,8 @@ DRM/license validity or every segment's future availability.
 Unsupported schema-v1 features include arbitrary scripts/selectors/transforms,
 conditionals, loops, retries, cross-source dependencies, alternate-reference
 fallbacks, numeric path indexing, JSONPath, constant-value/regex assertions,
-nullable/union types, arbitrary operation parameters, seasons, live playback and
-resolver operations. Report a real need for a generic extension separately;
+nullable/union types, arbitrary operation parameters and end-to-end playback
+(including DRM acquisition and segment validation). Report a real need for a generic extension separately;
 do not add unsupported YAML or a source-specific Rust shortcut.
 
 ## 15. Final checklist for the author or AI agent

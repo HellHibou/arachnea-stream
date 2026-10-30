@@ -209,6 +209,14 @@ shared:
     actions: *recommendation_block_actions
     sub_queries: *recommendation_block_queries
 
+  recommendation_list_block: &recommendation_list_block
+    name: _list_block
+    type: string[]
+    select: all
+    pointer: /blocks/*[analytics/tealium/from=feature.list]/blockId
+    actions: *recommendation_block_actions
+    sub_queries: *recommendation_block_queries
+
   actions_default_media_type: &actions_default_media_type
     - type: map
       default: "video/other/{}"
@@ -914,6 +922,7 @@ queries:
                     format: "{1}"
               - *recommendation_block
               - *recommendation_tag_block
+              - *recommendation_list_block
     post_process:
       - type: filter_items
         source: entries
@@ -935,6 +944,7 @@ queries:
           - _jwt
           - _block
           - _tag_block
+          - _list_block
 
   # ---------------------------------------------------------------
   # Season

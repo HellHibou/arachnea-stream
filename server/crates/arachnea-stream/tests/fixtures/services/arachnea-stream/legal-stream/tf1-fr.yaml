@@ -4,7 +4,7 @@ source: tf1-fr
 source_config: arachnea-stream/legal-stream/tf1-fr.yaml
 
 capabilities:
-  expected: ["service_stream_metadata","load_home","search","get_entry"]
+  expected: ["service_stream_metadata", "load_home", "search", "get_entry", "get_live", "get_recommendations", "get_season", "list_lives"]
   not_expected: []
 
 steps:
@@ -63,3 +63,75 @@ steps:
       optional_fields:
         - path: ["description"]
           type: string
+
+  - id: season_navigation
+    operation: get_entry
+    inputs:
+      query_url:
+        from_step: home
+        items_path: ["sections","*","entries"]
+        select: first_valid
+        value_path: ["link"]
+    expect:
+      items_path: ["seasons"]
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["label"]
+        - ["link"]
+
+  - id: season
+    operation: get_season
+    inputs:
+      query_url:
+        from_step: season_navigation
+        items_path: ["seasons"]
+        select: first_valid
+        value_path: ["link"]
+    expect:
+      items_path: ["episodes"]
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["title"]
+        - ["link"]
+
+  - id: lives
+    operation: list_lives
+    expect:
+      items_path: []
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["title"]
+        - ["link"]
+
+  - id: live
+    operation: get_live
+    inputs:
+      query_url:
+        from_step: lives
+        items_path: []
+        select: first_valid
+        value_path: ["link"]
+    expect:
+      items_path: ["players"]
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["name"]
+        - ["resolver", "kind"]
+        - ["resolver", "target_id"]
+
+  - id: recommendations
+    operation: get_recommendations
+    inputs:
+      # Reference programme with the dedicated Si vous aimez editorial rail.
+      query_url: "https://www.tf1.fr/fr-fr/tf1/cats-eyes"
+    expect:
+      items_path: ["entries"]
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["title"]
+        - ["link"]

@@ -324,7 +324,11 @@ pub(super) async fn run_source(
         let cache = prepared.scraper.scraper_agregator.server_cache();
         let cached_operation = matches!(
             step.operation,
-            Operation::LoadHome | Operation::GetCategory | Operation::GetSection
+            Operation::LoadHome
+                | Operation::GetCategory
+                | Operation::GetSection
+                | Operation::ListLives
+                | Operation::GetRecommendations
         );
         let budget = Duration::from_secs(prepared.contract.limits.step_timeout_seconds)
             .min(deadline.saturating_duration_since(Instant::now()));

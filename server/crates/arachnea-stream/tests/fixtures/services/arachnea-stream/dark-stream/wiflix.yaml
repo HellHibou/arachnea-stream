@@ -4,7 +4,7 @@ source: wiflix
 source_config: arachnea-stream/dark-stream/wiflix.yaml
 
 capabilities:
-  expected: ["service_stream_metadata","load_home","get_category","get_section","search","get_entry"]
+  expected: ["service_stream_metadata","load_home","get_category","get_section","search","get_entry","get_players"]
   not_expected: []
 
 steps:
@@ -86,3 +86,34 @@ steps:
       min_valid_count: 1
       required_non_empty:
         - ["title"]
+
+  - id: episode
+    operation: get_entry
+    inputs:
+      query_url:
+        from_step: section
+        items_path: ["entries"]
+        select: first_valid
+        value_path: ["link"]
+    expect:
+      items_path: ["seasons", "*", "episodes"]
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["title"]
+        - ["link"]
+
+  - id: players
+    operation: get_players
+    inputs:
+      query_url:
+        from_step: episode
+        items_path: ["seasons", "*", "episodes"]
+        select: first_valid
+        value_path: ["link"]
+    expect:
+      items_path: ["players"]
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["name"]

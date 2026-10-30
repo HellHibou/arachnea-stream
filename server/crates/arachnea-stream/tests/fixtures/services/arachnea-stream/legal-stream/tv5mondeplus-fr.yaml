@@ -4,7 +4,7 @@ source: tv5mondeplus-fr
 source_config: arachnea-stream/legal-stream/tv5mondeplus-fr.yaml
 
 capabilities:
-  expected: ["service_stream_metadata","load_home","get_category","get_section","search","get_entry"]
+  expected: ["service_stream_metadata", "load_home", "get_category", "get_section", "search", "get_entry", "get_banners", "get_live", "get_recommendations", "get_season", "list_lives", "resolve_stream"]
   not_expected: []
 
 steps:
@@ -87,3 +87,114 @@ steps:
       min_valid_count: 1
       required_non_empty:
         - ["title"]
+
+  - id: season
+    operation: get_season
+    inputs:
+      # Public episode endpoint: Groupe de soutien, season 1.
+      query_url: "https://api.tv5mondeplus.com/v1/customer/TV5MONDE/businessunit/TV5MONDEplus/content/asset/107579820_74079A/season/1/episode"
+    expect:
+      items_path: ["episodes"]
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["title"]
+        - ["link"]
+
+  - id: lives
+    operation: list_lives
+    expect:
+      items_path: []
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["title"]
+        - ["link"]
+
+  - id: live
+    operation: get_live
+    inputs:
+      query_url:
+        from_step: lives
+        items_path: []
+        select: first_valid
+        value_path: ["link"]
+    expect:
+      items_path: ["players"]
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["name"]
+        - ["resolver", "kind"]
+        - ["resolver", "target_id"]
+
+  - id: banner_navigation
+    operation: load_home
+    expect:
+      items_path: []
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["banners", "link"]
+
+  - id: banners
+    operation: get_banners
+    inputs:
+      query_url:
+        from_step: banner_navigation
+        items_path: []
+        select: first_valid
+        value_path: ["banners", "link"]
+    expect:
+      items_path: ["banners"]
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["title"]
+        - ["link"]
+
+  - id: recommendation_navigation
+    operation: get_entry
+    inputs:
+      query_url:
+        from_step: section
+        items_path: ["entries"]
+        select: first_valid
+        value_path: ["link"]
+    expect:
+      items_path: []
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["recommendations", "link"]
+
+  - id: recommendations
+    operation: get_recommendations
+    inputs:
+      query_url:
+        from_step: recommendation_navigation
+        items_path: []
+        select: first_valid
+        value_path: ["recommendations", "link"]
+    expect:
+      items_path: ["entries"]
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["title"]
+        - ["link"]
+
+  - id: stream
+    operation: resolve_stream
+    inputs:
+      query_url:
+        from_step: live
+        items_path: ["players"]
+        select: first_valid
+        value_path: ["resolver", "target_id"]
+    expect:
+      items_path: []
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["stream_url"]

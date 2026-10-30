@@ -1004,7 +1004,7 @@ queries:
       # Browsable thematic categories from the "Toutes les catégories" rail.
       - name: categories
         type: object[]
-        pointer: /sections/*[id=_LGb5WZ_SAAaWgK4VF3giy6a5SinqFkX]/items/*
+        pointer: /sections/*[titre=Toutes les catégories]/items/*
         select: all
         entries: *category_entries
       # Only the dedicated fullscreen component is a home banner. Untitled

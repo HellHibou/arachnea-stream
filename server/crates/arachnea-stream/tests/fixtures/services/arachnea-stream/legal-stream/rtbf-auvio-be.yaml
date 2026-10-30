@@ -4,7 +4,7 @@ source: rtbf-auvio-be
 source_config: arachnea-stream/legal-stream/rtbf-auvio-be.yaml
 
 capabilities:
-  expected: ["service_stream_metadata","load_home","get_section","search","get_entry"]
+  expected: ["service_stream_metadata", "load_home", "get_category", "get_section", "search", "get_entry", "get_players", "get_banners", "get_live", "get_recommendations", "get_season", "list_lives"]
   not_expected: []
 
 steps:
@@ -21,6 +21,19 @@ steps:
 
   - id: home
     operation: load_home
+    expect:
+      items_path: ["sections"]
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["label"]
+        - ["link"]
+
+  - id: category
+    operation: get_category
+    inputs:
+      # Info page discovered through the home CATEGORY_LIST widget.
+      query_url: "https://bff-service.rtbf.be/auvio/v1.23/pages/categorie/info-1"
     expect:
       items_path: ["sections"]
       min_count: 1
@@ -82,3 +95,112 @@ steps:
       optional_fields:
         - path: ["description"]
           type: string
+
+  - id: players
+    operation: get_players
+    inputs:
+      # Legacy get_players expects RedBee authentication, not a BFF detail page.
+      query_url: "https://exposure.api.redbee.live:443/v2/customer/RTBF/businessunit/Auvio/auth/anonymous?assetId=3546663_6BA97Bb"
+    expect:
+      items_path: ["players"]
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["direct-link"]
+
+  - id: season_navigation
+    operation: get_entry
+    inputs:
+      query_url:
+        from_step: section
+        items_path: ["entries"]
+        select: first_valid
+        value_path: ["link"]
+    expect:
+      items_path: ["seasons"]
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["label"]
+        - ["link"]
+
+  - id: season
+    operation: get_season
+    inputs:
+      query_url:
+        from_step: season_navigation
+        items_path: ["seasons"]
+        select: first_valid
+        value_path: ["link"]
+    expect:
+      items_path: ["episodes"]
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["title"]
+        - ["link"]
+
+  - id: lives
+    operation: list_lives
+    expect:
+      items_path: []
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["title"]
+        - ["link"]
+
+  - id: live
+    operation: get_live
+    inputs:
+      query_url:
+        from_step: lives
+        items_path: []
+        select: first_valid
+        value_path: ["link"]
+    expect:
+      items_path: ["players"]
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["name"]
+        - ["resolver", "kind"]
+        - ["resolver", "target_id"]
+
+  - id: banner_navigation
+    operation: load_home
+    expect:
+      items_path: []
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["banners", "link"]
+
+  - id: banners
+    operation: get_banners
+    inputs:
+      query_url:
+        from_step: banner_navigation
+        items_path: []
+        select: first_valid
+        value_path: ["banners", "link"]
+    expect:
+      items_path: ["banners"]
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["title"]
+        - ["link"]
+
+  - id: recommendations
+    operation: get_recommendations
+    inputs:
+      # Official home PROGRAM_LIST rail: Nos recommandations pour vous.
+      query_url: "https://bff-service.rtbf.be/auvio/v1.23/widgets/23362"
+    expect:
+      items_path: ["entries"]
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["title"]
+        - ["link"]

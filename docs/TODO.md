@@ -4,11 +4,6 @@ Ce fichier suit les tâches DNS, HTTP et proxy prévues qui restent pertinentes 
 
 ## Streaming
 
-- Contrôles génériques des sources : lots 1–5 terminés. Tests live ignorés par défaut ; lancement direct du test Rust `test_all_services` ; `ARACHNEA_TEST_QUERY_SOURCE` absent ou `*` sélectionne tous les YAML, sinon un identifiant/chemin sélectionne une source. Voir [la politique du lot 5](dev-tracking/source-checks-lot5-2026-10-30.md).
-- Qualification live des douze contrats ajoutés (AnimeUltime, Coflix, FrenchAnimes, Papadustream V2, Wiflix, Antenne Réunion, Bouke, Canal Zoom, RMC BFM Play, TeleMB, Télésambre, TV5MONDE+) : les 21 configurations disposent désormais d’un contrat et la vérification locale des métadonnées passe pour les 21. Un run live complet a été exécuté ; Wiflix passe après correction de son contrat `get_category` (les sections de production n’exposent pas `label`). Restent à qualifier/corriger : AnimeUltime (catégorie dont les entrées sélectionnées sont nulles), Coflix (payload JSON invalide sur l’URL de catégorie), FrenchAnimes (timeout de recherche) et RMC BFM Play (catégories d’accueil nulles). Voir le [guide de création des YAML de test](specifications/arachnea-stream-source-checks-en.md).
-- Qualification LN24 : rejouer la fiche avec un routage belge utilisable. Les deux passages du lot 4 conservent une erreur d’enveloppe après absence de proxy BE et repli direct ; l’extraction de la fiche n’est pas qualifiée.
-- Qualification RTL Play : décider comment traiter la description facultative `null` de la recherche, incompatible avec la contrainte v1 `string` lorsqu’elle est présente (deux objets sur deux). Analyser la sortie publique et les attentes avant de changer leur contrat ; conserver l’échec en attendant.
-
 - Dans la description des services, ajouter des tags cle/valeur pour pouvoir distinguer le pays et la langue des vidéos.
 - Identités YAML des rails : clés standardisées `rail:<provider-id>` ajoutées pour Arte, TF1, France TV et RMC BFM Play ; clé fixe du rail LN24. Trouver une identité persistante pour les rails featured TeleMB et recommandations Canal Zoom/Télésambre sans descripteur ; les UIDs de slider changent entre requêtes et sont exclus. Ne pas utiliser de position ni de titre normalisé comme fausse clé stable.
 - Utiliser obscura pour contourner Cloudflare (navigateur rust avec résolution cloudflare interne).
@@ -42,10 +37,8 @@ Ce fichier suit les tâches DNS, HTTP et proxy prévues qui restent pertinentes 
 ## Server/HTTP
 
 - Préserver l'ordre de déclaration des paramètres YAML lors de la fusion des surcharges `services.json` dans Scrapyfy : la reconstruction actuelle via une table de hachage peut modifier l'ordre des pipelines de paramètres dépendants. Limite et contournement documentés dans les spécifications YAML ; vérifier le chargement via les manifestes concernés avant de modifier ce comportement.
-
 - Décider si `arachnea-http` doit exposer une API `tower::Service` en plus du constructeur de requêtes fluide.
 - Ajouter des garde-fous optionnels d'usage responsable, comme de la limitation de débit, des délais entre requêtes, des reprises bornées, des vérifications de masquage des cookies et un support optionnel de `robots.txt` si le crate évolue vers du crawling.
-- Étendre les tests pour le parsing, l'expiration, la suppression, le filtrage domaine/path/secure des cookies, la détection Cloudflare, les reprises bornées, le masquage des cookies et les réponses locales simulant des challenges.
 
 ## Server/Proxy
 
@@ -69,4 +62,3 @@ Ce fichier suit les tâches DNS, HTTP et proxy prévues qui restent pertinentes 
 
 ## Divers
 
-- Terminé : nettoyage des 491 diagnostics Clippy distincts du workspace Rust ; Clippy strict passe avec tous les targets et toutes les fonctionnalités. La [migration approuvée des dernières enums](dev-tracking/rust-validation-large-enums-analysis-2026-10-29.md) supprime les trois derniers diagnostics, avec une allocation par flux réussi et lors de la construction/du clonage de la variante proxy intégrée. Les contrats YAML/JSON sont conservés ; la migration de l’API Rust publique est documentée. Bilan et inventaire vide : [validation Rust du 28 octobre 2026](dev-tracking/rust-validation-2026-10-28.md).

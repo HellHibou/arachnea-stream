@@ -4,7 +4,7 @@ source: rtlplay-be
 source_config: arachnea-stream/legal-stream/rtlplay-be.yaml
 
 capabilities:
-  expected: ["service_stream_metadata","load_home","search","get_entry"]
+  expected: ["service_stream_metadata", "load_home", "get_category", "search", "get_entry", "get_live", "get_season", "list_lives"]
   not_expected: []
 
 steps:
@@ -23,6 +23,32 @@ steps:
     operation: load_home
     expect:
       items_path: ["sections","*","entries"]
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["title"]
+        - ["link"]
+
+  - id: home_categories
+    operation: load_home
+    expect:
+      items_path: ["categories"]
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["label"]
+        - ["request", "query_url"]
+
+  - id: category
+    operation: get_category
+    inputs:
+      query_url:
+        from_step: home_categories
+        items_path: ["categories"]
+        select: first_valid
+        value_path: ["request", "query_url"]
+    expect:
+      items_path: ["sections", "*", "entries"]
       min_count: 1
       min_valid_count: 1
       required_non_empty:
@@ -63,3 +89,62 @@ steps:
       optional_fields:
         - path: ["description"]
           type: string
+
+  - id: season_navigation
+    operation: get_entry
+    inputs:
+      query_url:
+        from_step: home
+        items_path: ["sections","*","entries"]
+        select: first_valid
+        value_path: ["link"]
+    expect:
+      items_path: ["seasons"]
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["label"]
+        - ["link"]
+
+  - id: season
+    operation: get_season
+    inputs:
+      query_url:
+        from_step: season_navigation
+        items_path: ["seasons"]
+        select: first_valid
+        value_path: ["link"]
+    expect:
+      items_path: ["episodes"]
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["title"]
+        - ["link"]
+
+  - id: lives
+    operation: list_lives
+    expect:
+      items_path: []
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["title"]
+        - ["link"]
+
+  - id: live
+    operation: get_live
+    inputs:
+      query_url:
+        from_step: lives
+        items_path: []
+        select: first_valid
+        value_path: ["link"]
+    expect:
+      items_path: ["players"]
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["name"]
+        - ["resolver", "kind"]
+        - ["resolver", "target_id"]

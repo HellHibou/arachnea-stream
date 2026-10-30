@@ -403,7 +403,7 @@ et ne déclare **pas** `search`.
 - `expected` et `not_expected` sont tous deux des listes obligatoires de noms
   d'opérations distincts et non vides. `not_expected: []` est valide ; l'omettre ne
   l'est pas.
-- Seuls les sept noms d'opération de la section 7 peuvent figurer dans l'une ou
+- Seuls les quatorze noms d'opération de la section 7 peuvent figurer dans l'une ou
   l'autre liste.
 - Les listes ne peuvent pas se chevaucher.
 - `service_stream_metadata` doit être dans `expected` et doit avoir une étape.
@@ -415,10 +415,8 @@ et ne déclare **pas** `search`.
   Ces opérations sont exclues du tableau des résultats et des décomptes de sévérité.
 - Les opérations de production qui ne figurent dans aucune des deux listes sont
   signalées comme `coverage_missing`, avec le statut `Skip` et la sévérité
-  `Warning` dans le tableau. Cela inclut les opérations non prises en
-  charge par le schéma v1, telles que `get_season`, `list_lives` ou
-  `resolve_stream`. Ne placez pas de noms non pris en charge dans l'une ou l'autre
-  liste.
+  `Warning` dans le tableau. Ne placez pas de noms absents de la section 7 dans
+  l'une ou l'autre liste.
 - Une opération supplémentaire non couverte n'invalide pas les étapes déclarées
   réussies, mais empêche de revendiquer une couverture complète des capacités.
 - Un contrat de source manquant est signalé comme `not_tested`. Les autres sources
@@ -426,8 +424,8 @@ et ne déclare **pas** `search`.
   le résumé final.
 
 Pour terminer avec succès une exécution complète de source, au moins une étape de
-**contenu** exécutée doit réussir : `search`, `get_category`, `get_section`,
-`get_entry` ou `get_players`. Les métadonnées et l'accueil seuls ne peuvent pas
+**contenu** exécutée doit réussir : toute opération prise en charge autre que
+les métadonnées ou l'accueil. Les métadonnées et l'accueil seuls ne peuvent pas
 produire un résultat vert pour une source complète.
 
 ## 7. Étapes et opérations prises en charge
@@ -455,6 +453,13 @@ boucle, ni pagination automatique dans l'exécuteur.
 | `get_section` | `query_url` requis : chaîne non vide ou référence ; `page` optionnel : entier positif, `1` par défaut | Un objet de section | `FullCache` |
 | `get_entry` | `query_url` requis : chaîne non vide ou référence | Un objet d'entrée/détail | `ClientCache` |
 | `get_players` | `query_url` requis : chaîne non vide ou référence | Un objet de résultat de lecteur | `ClientCache` |
+| `get_season` | `query_url` requis ; `page` entier positif optionnel, `1` par défaut | Un objet de saison (généralement `episodes` ; Anime-Sama retourne des métadonnées de résolveur/langues) | `ClientCache` |
+| `list_lives` | Aucune entrée | Objets de chaîne individuels, sans enveloppe `entries` | `FullCache` |
+| `get_live` | `query_url` requis, transmis comme identifiant ou URL de canal à la façade | Un objet contenant `players` | `ClientCache` |
+| `get_banners` | `query_url` requis | Un objet contenant `banners` | `ClientCache` |
+| `get_recommendations` | `query_url` requis ; `page` entier positif optionnel, `1` par défaut | Un objet contenant `entries` | `FullCache` |
+| `resolve_stream` | `query_url` HTTP(S) requis | Un objet de flux normalisé contenant `stream_url` | `NoCache` |
+| `get_episode` | `query_url` requis | Objets individuels de la requête historique d'épisode, généralement avec `players` | `ClientCache` |
 
 `page` doit être un entier littéral, pas une chaîne ni une référence dynamique. Ne
 placez pas `page` sur la recherche : la recherche s'exécute toujours sur la page 1
@@ -462,6 +467,21 @@ avec des filtres de type de média/thème vides.
 Les URL et les identifiants de requête internes sont passés comme des chaînes
 définies par la source ; le format de test n'exige pas que toutes les entrées
 `query_url` soient des URL HTTP.
+
+Les nouvelles opérations conservent la structure `inputs` et les formes littérales
+ou références existantes. `get_live` utilise `query_url` pour l'argument `channel`
+de la façade ; n'ajoutez pas d'entrée `channel`. `page` est autorisé uniquement
+sur `get_category`, `get_section`, `get_season` et `get_recommendations`.
+`list_lives` reste isolé car la façade préparée ne contient qu'une source.
+`get_episode` n'a pas de façade Stream dédiée : son adaptateur appelle uniquement
+la requête historique de la source sélectionnée via l'agrégateur, avec les
+paramètres d'exécution et les mêmes contrôles d'enveloppe. Les autres opérations
+utilisent les méthodes typées de la façade. `resolve_stream` utilise le résolveur
+`scraper-query` pour la source sélectionnée, sans pays imposé et sans réécriture
+des manifestes. Il vérifie le descripteur normalisé, sans qualifier la lecture,
+l'acquisition DRM ni la disponibilité des segments. Les paramètres spécifiques
+aux résolveurs et `source_params` restent exclus.
+
 
 L'adaptateur choisit la source à partir du contrat. Pour `get_category`, il construit
 le descripteur typé `{name: source, query_url: resolved_value}` et passe des
@@ -748,7 +768,7 @@ connexion et ne prouve pas que l'accès fonctionne. Les prérequis manquants éc
 comme `prerequisite_missing` ; ils ne sont jamais comptés comme une récupération
 réussie.
 
-L'exécution est séquentielle. Au plus 32 appels de façade de scénario s'exécutent
+L'exécution est séquentielle. Au plus 32 opérations de scénario s'exécutent
 par source ; les assertions de métadonnées préservées vérifient en outre les
 sélections d'accueil vides/inconnues sans envoyer de requêtes au fournisseur. Le
 contrat ne plafonne pas le fan-out HTTP interne, les redirections ni les nouvelles
@@ -898,7 +918,7 @@ scripts/sélecteurs/transformations arbitraires, les conditionnels, les boucles,
 nouvelles tentatives, les dépendances entre sources, les replis vers une référence
 alternative, l'indexation numérique de chemin, JSONPath, les assertions de
 valeur constante/regex, les types nullables/union, les paramètres d'opération
-arbitraires, les saisons, la lecture en direct et les opérations de résolution.
+arbitraires et la lecture de bout en bout (acquisition DRM et validation des segments).
 Signalez séparément un besoin réel d'extension générique ; n'ajoutez pas de YAML non
 pris en charge ni de raccourci Rust propre à une source.
 

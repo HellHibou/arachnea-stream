@@ -25,7 +25,7 @@ checks without provider calls or explicit skip filters:
 cargo test -p arachnea-stream --all-features
 ```
 
-There are ten local tests and five ignored live integration entry points:
+There are thirteen local tests and five ignored live integration entry points:
 all discovered services, one selected service, home, search and entry checks.
 Omitting `--all-features` uses the same policy without optional performance
 diagnostics. An ignored scenario is not counted as successful live coverage.
@@ -79,6 +79,16 @@ table separates status (`Passed`, `Skip`, `Blocked`, `Failed`) from severity
 (`Ok`, `Warning`, `Error`). A missing source contract also appears as `Skip`/`Warning`
 and continues to fail the aggregate for incomplete source coverage.
 
+The [2026-10-30 coverage qualification](../../../docs/dev-tracking/source-checks-coverage-2026-10-30.md)
+records the corrected section/category/player scenarios and remaining gaps.
+The runner now supports 14 operations, including seasons, live catalogs and
+channels, banners, recommendations, legacy episodes and source-owned YAML stream
+resolution. The 55 previously unsupported production operations now have scenarios.
+The existing `inputs` format is preserved, without `source_params`: `get_live`
+uses `query_url` as its channel argument. Three operations still require parameters
+that the format cannot forward (`channel` or `home_type`), and remain
+`Skip`/`Warning`. See the [extended qualification](../../../docs/dev-tracking/source-checks-expanded-2026-10-30.md).
+
 At batch 5 completion, the scan discovers 21 configurations with nine contracts
 and twelve missing contracts. An all-source run executes the nine covered sources
 and reports the twelve others as not tested. The final summary includes counts
@@ -96,7 +106,7 @@ ARACHNEA_TEST_QUERY_SOURCE=arachnea-stream/legal-stream/rtlplay-be.yaml \
 ```
 
 Without a source selection, or with `*`, the ordinary metadata test validates
-all nine checked-in contracts and their static metadata. It preserves capability
+all 21 checked-in contracts and their static metadata. It preserves capability
 advertising, empty/unknown home-filter and request parsing assertions. Filtered
 live checks use the same selection rules; set a service ID to target one source,
 or leave the variable undefined/use `*` for all.

@@ -4,7 +4,7 @@ source: rmcbfmplay-fr
 source_config: arachnea-stream/legal-stream/rmcbfmplay-fr.yaml
 
 capabilities:
-  expected: ["service_stream_metadata","load_home","get_category","search","get_entry"]
+  expected: ["service_stream_metadata", "load_home", "get_category", "get_section", "get_players", "search", "get_entry", "get_live", "list_lives"]
   not_expected: []
 
 steps:
@@ -45,6 +45,19 @@ steps:
         - ["title"]
         - ["link"]
 
+  - id: section
+    operation: get_section
+    inputs:
+      # Deferred Histoire tile observed on the Documentaires category page.
+      query_url: "https://bff.rmcplus.fr/v1/page?model=web&page_type=mosaique&page_id=doc-histoire"
+    expect:
+      items_path: ["entries"]
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["title"]
+        - ["link"]
+
   - id: search
     operation: search
     inputs:
@@ -71,3 +84,47 @@ steps:
       min_valid_count: 1
       required_non_empty:
         - ["title"]
+
+  - id: players
+    operation: get_players
+    inputs:
+      query_url:
+        from_step: search
+        items_path: ["entries"]
+        select: first_valid
+        value_path: ["link"]
+    expect:
+      items_path: ["players"]
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["name"]
+        - ["resolver", "kind"]
+        - ["resolver", "target_id"]
+
+  - id: lives
+    operation: list_lives
+    expect:
+      items_path: []
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["title"]
+        - ["link"]
+
+  - id: live
+    operation: get_live
+    inputs:
+      query_url:
+        from_step: lives
+        items_path: []
+        select: first_valid
+        value_path: ["link"]
+    expect:
+      items_path: ["players"]
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["name"]
+        - ["resolver", "kind"]
+        - ["resolver", "target_id"]

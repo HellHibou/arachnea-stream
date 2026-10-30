@@ -54,6 +54,13 @@ http:
 
 ## 3. Requêtes standard
 
+RMC BFM Play sélectionne le rail de catégories de l'accueil par son titre
+« Toutes les catégories », car son identifiant fournisseur peut changer.
+Sa requête différée `get_section` attend une URL de tuile `page_type=mosaique` ;
+une page éditoriale `fip-edito` avec des rails a une autre structure.
+Les lecteurs TVMonaco utilisent explicitement `select: first` sur le groupe
+`resolver` pour publier l'objet unique documenté.
+
 AnimeUltime inclut les sections « Top animes », « Top dramas » et « Top tokusatsu »
 directement dans `load_home`, avec les identifiants `top-animes`, `top-dramas` et
 `top-tokusatsu`. Elles ne nécessitent pas `get_section`. Leurs sélecteurs HTML
@@ -629,18 +636,22 @@ Pour M6+, le prototype YAML publie l'identifiant programme dans `recommendations
 et demande un JWT anonyme dans `get_recommendations`, sans identifiants utilisateur.
 La signature est calculée avec `exec_js` et des paramètres publics configurables.
 Le parcours inspecte huit pages de layout au maximum et sélectionne séparément
-`feature.recommended_programs_by_program` et `feature.programs_by_tags`, sans
+`feature.recommended_programs_by_program`, `feature.programs_by_tags` et les blocs
+éditoriaux `feature.list`, sans
 condition sur le titre éditorial (par exemple « Toujours plus de héros ! »).
-Le premier bloc de chaque famille sur chaque page est retenu ; leurs cartes sont
-fusionnées et seules les cibles de type `program` sont conservées. La pagination
+Le premier bloc des deux premières familles sur chaque page est retenu, ainsi que
+tous les blocs de listes éditoriales. Leurs cartes sont fusionnées et seules les
+cibles de type `program` sont conservées. La pagination
 utilise la première valeur `nextPage` non vide des blocs récupérés.
 Les sélections utilisent des noms de champs internes distincts pour éviter que
-chaque sous-requête ne recharge les URL de l'autre famille et ne duplique les cartes.
+chaque sous-requête ne recharge les URL des autres familles et ne duplique les cartes.
 Les cartes programme disposent de
 `img/poster` et `img/portrait` ; leur pagination est distincte de celle du layout.
 Les champs internes contenant le JWT sont retirés du résultat public, mais les
-traces internes ne doivent pas être diffusées. Ce prototype reste à valider en
-réseau ; un rail absent dans la borne de huit pages n'est pas une absence confirmée.
+traces internes ne doivent pas être diffusées. La qualification Top chef du
+2026-10-30 a retourné six cartes programme valides et une carte avec un titre nul,
+qui reste visible dans les diagnostics du test. Un rail absent dans la borne de
+huit pages n'est pas une absence confirmée.
 
 Pour TF1+, seul le rail de programmes « Si vous aimez… » est retenu.
 Lorsque son libellé est présent dans les sections éditoriales du détail Smart TV,

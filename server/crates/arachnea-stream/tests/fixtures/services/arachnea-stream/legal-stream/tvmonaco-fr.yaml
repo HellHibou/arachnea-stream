@@ -4,7 +4,7 @@ source: tvmonaco-fr
 source_config: arachnea-stream/legal-stream/tvmonaco-fr.yaml
 
 capabilities:
-  expected: ["service_stream_metadata","load_home","get_section","search","get_entry"]
+  expected: ["service_stream_metadata", "load_home", "get_category", "get_section", "search", "get_entry", "get_players", "get_banners", "get_season", "resolve_stream"]
   not_expected: []
 
 steps:
@@ -27,6 +27,32 @@ steps:
       min_valid_count: 1
       required_non_empty:
         - ["label"]
+        - ["link"]
+
+  - id: home_categories
+    operation: load_home
+    expect:
+      items_path: ["categories"]
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["label"]
+        - ["request","query_url"]
+
+  - id: category
+    operation: get_category
+    inputs:
+      query_url:
+        from_step: home_categories
+        items_path: ["categories"]
+        select: first_valid
+        value_path: ["request","query_url"]
+    expect:
+      items_path: ["sections","*","entries"]
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["title"]
         - ["link"]
 
   - id: section
@@ -82,3 +108,86 @@ steps:
       optional_fields:
         - path: ["description"]
           type: string
+
+
+  - id: season_navigation
+    operation: get_entry
+    inputs:
+      # Series owning the season observed in the PROGRAMMES A VENIR rail.
+      query_url: "https://videos.tvmonaco.com/api/smartlist/v5/smartlist/c010add0-965a-4ba4-8e6c-0e4ab94b62f1?lang=fr"
+    expect:
+      items_path: ["seasons"]
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["label"]
+        - ["link"]
+
+  - id: season
+    operation: get_season
+    inputs:
+      query_url:
+        from_step: season_navigation
+        items_path: ["seasons"]
+        select: first_valid
+        value_path: ["link"]
+    expect:
+      items_path: ["episodes"]
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["title"]
+        - ["link"]
+
+  - id: banner_navigation
+    operation: load_home
+    expect:
+      items_path: []
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["banners", "link"]
+
+  - id: banners
+    operation: get_banners
+    inputs:
+      query_url:
+        from_step: banner_navigation
+        items_path: []
+        select: first_valid
+        value_path: ["banners", "link"]
+    expect:
+      items_path: ["banners"]
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["title"]
+        - ["link"]
+
+  - id: players
+    operation: get_players
+    inputs:
+      query_url:
+        from_step: season
+        items_path: ["episodes"]
+        select: first_valid
+        value_path: ["link"]
+    expect:
+      items_path: ["players"]
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["name"]
+        - ["resolver", "target_id"]
+
+  - id: stream
+    operation: resolve_stream
+    inputs:
+      # Offer endpoint for an episode observed in the reference season.
+      query_url: "https://videos.tvmonaco.com/api/offer/v4/media/daab5951-2caa-4283-9492-80d84c6d42b4/url?language=fr"
+    expect:
+      items_path: []
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["stream_url"]
