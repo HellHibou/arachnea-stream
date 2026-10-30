@@ -105,6 +105,12 @@ The shared command runner always disables Node's implicit shell. Windows npm
 steps invoke `cmd.exe /d /s /c` with fixed `npm.cmd install` or `npm.cmd run build`
 commands; project paths are passed separately through the working-directory option.
 
+Explicit Docker `sh -c` commands quote each dynamic path, target and JSON config
+as a POSIX shell argument, including embedded apostrophes. Windows elevation uses
+fixed PowerShell source and passes the executable path and argument string through
+child-process environment variables. `shell: false` alone does not protect source
+passed explicitly to an interpreter. See the [CodeQL alert analysis](../docs/dev-tracking/codeql-security-alerts-2026-10-30.md).
+
 The Windows PowerShell ZIP fallback passes archive paths through dedicated
 child-process environment variables, keeping apostrophes and shell metacharacters
 out of the PowerShell source. Source directory wildcard characters are escaped;

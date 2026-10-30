@@ -483,7 +483,7 @@ function crossRunBase(platform, tauriDir) {
 export async function crossBuildArgs(platform, tauriDir, dryRun = false) {
   if (!dryRun) await assertDocker();
   const crateRel = path.relative(ROOT, path.resolve(tauriDir)).replace(/\\/g, '/');
-  const workaround = `cd /io/${crateRel} && cargo build --release --target ${platform.target}`;
+  const workaround = `cd ${shellQuote(`/io/${crateRel}`)} && cargo build --release --target ${shellQuote(platform.target)}`;
   return buildCrossRunArgs(platform, tauriDir, workaround, [], dryRun);
 }
 
@@ -577,7 +577,6 @@ export async function crossBundleArgs(platform, tauriDir, dryRun = false, bundle
   if (requested.length === 0) return null;
   if (!dryRun) await assertDocker();
   const crateRel = path.relative(ROOT, path.resolve(tauriDir)).replace(/\\/g, '/');
-  // JSON output never contains single quotes, so shell-quoting stays safe.
   const configJson = JSON.stringify({
     ...(productName ? { productName } : {}),
     build: { beforeBuildCommand: null },
@@ -586,7 +585,7 @@ export async function crossBundleArgs(platform, tauriDir, dryRun = false, bundle
   // Use `cargo tauri bundle` instead of `build` to avoid recompilation/re-linking
   // between separate bundle types; the binary is already present.
   const command =
-    `cd /io/${crateRel} && cargo tauri bundle --target ${platform.target} --config '${configJson}'`;
+    `cd ${shellQuote(`/io/${crateRel}`)} && cargo tauri bundle --target ${shellQuote(platform.target)} --config ${shellQuote(configJson)}`;
   const extraEnv = [
     ['XDG_CACHE_HOME', '/io/' + crossBundleCacheDir(platform) + '/.cache'],
   ];

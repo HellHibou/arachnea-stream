@@ -1124,10 +1124,9 @@ export function runElevatedSync(exe, args) {
   // "C:\Program Files (x86)\...") would be split into separate arguments. The
   // reliable form is a single command-line string with every token that
   // contains whitespace wrapped in double quotes. The whole argument string is
-  // then single-quoted for PowerShell (double single quotes escape one).
+  // then passed through the environment so PowerShell never parses it as code.
   const quoteToken = (token) => (/[\s"]/).test(token) ? `"${token.replace(/"/g, '""')}"` : token;
   const argString = args.map(quoteToken).join(' ');
-  const psQuotedArgs = `'${argString.replace(/'/g, "''")}'`;
   // `Start-Process -Verb RunAs` triggers the UAC prompt. `-Wait` is unreliable
   // with `-Verb RunAs` (it can return before the elevated process exits), so
   // completion is polled with `HasExited` on the process handle returned by
@@ -1137,7 +1136,7 @@ export function runElevatedSync(exe, args) {
   const script =
     `$ErrorActionPreference = 'Stop'; ` +
     `try { ` +
-    `$p = Start-Process -FilePath ${JSON.stringify(exe)} -ArgumentList ${psQuotedArgs} ` +
+    `$p = Start-Process -FilePath $env:ARACHNEA_ELEVATE_EXE -ArgumentList $env:ARACHNEA_ELEVATE_ARGS ` +
     `-Verb RunAs -PassThru -ErrorAction Stop; ` +
     `while (-not $p.HasExited) { Start-Sleep -Milliseconds 500; $p.Refresh() } ` +
     `exit $p.ExitCode ` +
@@ -1145,7 +1144,15 @@ export function runElevatedSync(exe, args) {
   const result = spawnSync(
     'powershell',
     ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-Command', script],
-    { stdio: 'inherit', windowsHide: true },
+    {
+      stdio: 'inherit',
+      windowsHide: true,
+      env: {
+        ...process.env,
+        ARACHNEA_ELEVATE_EXE: exe,
+        ARACHNEA_ELEVATE_ARGS: argString,
+      },
+    },
   );
   if (result.error) throw new Error(`Failed to elevate ${exe}: ${result.error.message}`);
   return result.status ?? 0;

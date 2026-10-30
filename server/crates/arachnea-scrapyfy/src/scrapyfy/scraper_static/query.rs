@@ -479,15 +479,11 @@ impl ScraperQuery for StaticScraperQuery {
     }
 
     fn request_actions(&self) -> &[ScraperAction] {
-        /// Shared empty collection returned by this default query trait accessor.
-        const EMPTY: &[ScraperAction] = &[];
-        EMPTY
+        &[]
     }
 
     fn request_headers(&self) -> &[ScraperRequestHeader] {
-        /// Shared empty collection returned by this default query trait accessor.
-        const EMPTY: &[ScraperRequestHeader] = &[];
-        EMPTY
+        &[]
     }
 
     fn http_config(&self) -> &ScraperHttpConfig {
@@ -507,9 +503,7 @@ impl ScraperQuery for StaticScraperQuery {
     }
 
     fn post_processes(&self) -> &[crate::scrapyfy::ScraperPostProcess] {
-        /// Shared empty collection returned by this default query trait accessor.
-        const EMPTY: &[crate::scrapyfy::ScraperPostProcess] = &[];
-        EMPTY
+        &[]
     }
 
     fn result_item_field(&self) -> Option<&str> {

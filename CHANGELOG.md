@@ -23,6 +23,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Fixed
 
+- Docker cross-build and bundle commands now escape dynamic shell arguments, including paths and JSON containing apostrophes. Windows elevation passes executable paths and argument strings as environment data instead of interpolating executable paths into PowerShell source.
+
 - Windows PowerShell ZIP fallback now passes source and destination paths through dedicated child-process environment variables instead of interpolating them into PowerShell code. Apostrophes and shell metacharacters remain path data, source directory wildcard characters are escaped, and archive errors fail the release command.
 
 - The shared release command runner now explicitly disables implicit shells after applying caller options. Windows npm installation and build steps invoke `cmd.exe` with fixed commands and pass project paths separately as working directories.
@@ -527,6 +529,7 @@ All notable changes to the server workspace are recorded here.
 - Named the private weak geo-lookup registry and country-cache map types with transparent aliases. Marked text-entry collection parameters as reserved during recursive traversal and corrected its documentation: entry action placeholders resolve at execution time, with no load-time substitution added.
 - Simplified fixed-divisor hex/cache validation, preserved parent-row precedence with explicit JSON context matching, and replaced duplicate pending-proxy lookups with direct mutable access. Country lookup limits, deferred jobs, insertion/allocation conditions and YAML contracts are unchanged.
 - Simplified hexadecimal pair iteration, private manifest path borrowing and visited checks, redundant selector branches and existing collection-test helpers. Validation, import/selector order, first-match lookup and lexical report sorting are preserved.
+- Static query accessors now return empty slices directly instead of named constants, avoiding CodeQL's hard-coded cryptographic source classification without changing action, header or post-processor behavior. The security alert analysis is recorded in `docs/dev-tracking/codeql-security-alerts-2026-10-30.md`.
 - Derive the existing field-by-field application and test-option defaults and elide a redundant private helper lifetime, preserving option values and YAML execution.
 - Simplified redundant query borrows, closures, iterator conversions and the JavaScript timeout cast, preserving query dispatch, evaluation order, computed values and YAML contracts.
 - Extracted shared proxy routing and lazy transport caching from the HTTP facade, and separated scraper output types, typed JSON rendering and raw node conversion into private modules. Existing public paths, feature gates, serialization, proxy versioning, cookie/session sharing and tracing targets remain unchanged; the facade and node files now fit within 1,000 lines.
