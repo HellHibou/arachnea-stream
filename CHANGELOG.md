@@ -382,6 +382,10 @@ All notable changes to the server workspace are recorded here.
 
 - Extended the source-check runner from seven to 14 operations with typed season/live/banner/recommendation/stream adapters and an isolated aggregator adapter for the legacy episode query. Added scenarios for all 55 previously unsupported production operations; corrected uncommitted navigation and expectation errors. Preserved schema-v1 input forms and rejected extra source parameters, retaining three explicit parameter-dependent coverage gaps. Added three local compatibility tests; no production YAML or facade APIs changed. Qualification is recorded in `docs/dev-tracking/source-checks-expanded-2026-10-30.md`.
 
+#### Changed
+
+- Coflix (`dark-stream/coflix.yaml`): home categories and `get_category` scraped the retired JSON `wp-json/apiflix/v1/options` endpoints and returned no cards. They now scrape the HTML catalogue pages (`/movies/`, `/series/`, `/animes/`), parse the entry cards from the page markup, derive `media-type` from the category URL, and paginate through `derive_pagination`, restoring category browsing.
+
 #### Fixed
 
 - Fixed the executable’s second argument scan rejecting values supplied to `--server-port`, `--network`, and `--entrypoint-root` as unknown arguments. Standard option/value pairs such as `--server-port 8080 --network local` now work.

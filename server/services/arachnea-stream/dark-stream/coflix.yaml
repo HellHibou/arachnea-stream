@@ -250,7 +250,7 @@ queries:
             type: string
             actions:
               - type: format_text
-                argument: "{base_url}/wp-json/apiflix/v1/options/?post_type=movies&sort=1"
+                argument: "{base_url}/movies"
       - name: categories
         type: object[]
         entries:
@@ -268,7 +268,7 @@ queries:
             type: string
             actions:
               - type: format_text
-                argument: "{base_url}/wp-json/apiflix/v1/options/?post_type=series&sort=1"
+                argument: "{base_url}/series"
       - name: categories
         type: object[]
         entries:
@@ -286,7 +286,7 @@ queries:
             type: string
             actions:
               - type: format_text
-                argument: "{base_url}/wp-json/apiflix/v1/options/?post_type=animes&sort=1"
+                argument: "{base_url}/movies/animation"
       - name: sections
         type: object[]
         entries:
@@ -517,15 +517,28 @@ queries:
                     argument: src
 
 
+              - name: lang
+                type: string[]
+                select: first
+                selector: "div.version"
+                actions:
+                  - type: get_text
+                  - type: map
+                    argument:
+                      VF: vf
+                      VOSTFR: vostfr
+                      French: vf
+                      TrueFrench: vf
+
   # ---------------------------------------------------------------
-  # Category listing
+  # Category listing — HTML catalogue pages (/movies/, /series/, /animes/)
   # ---------------------------------------------------------------
   - name: get_category
-    scraper_type: json
+    scraper_type: html
     base_url: "{base_url}"
-    query_url: "{query_url}&page={page}"
+    query_url: "{query_url}?page={page}"
     media_types: *media_types_coflix
-    row_pointer: "/"
+    row_selector: "html"
     entries:
       - name: source
         type: string
@@ -541,10 +554,6 @@ queries:
             actions:
               - type: format_text
                 argument: "{page}"
-          - name: have_more
-            type: boolean
-            select: first
-            pointer: "/next"
           - name: page_size
             type: number
             actions:
@@ -555,226 +564,114 @@ queries:
             actions:
               - type: format_text
                 argument: "{query_url}"
+          - name: total_pages
+            type: number
+            select: first
+            actions:
+              - type: get_response_body
+              - type: regex_find_all
+                pattern: '(?:/page/|[?&]page=)(\d+)'
+                format: "{1}"
+              - type: max
           - name: entries
             type: object[]
-            pointer: "/results/*"
+            selector: "aside.main div.ani.items > div.item"
             select: all
             entries:
+              - name: source
+                type: string
+                actions:
+                  - type: format_text
+                    argument: "{source}"
               - name: title
                 type: string
                 select: first
-                pointer: "/name"
+                selector: "a.name"
+                actions:
+                  - type: get_attribut
+                    argument: data-jp
               - name: link
                 type: string
                 select: first
-                pointer: "/url"
+                selector: "a.ani.poster"
+                actions:
+                  - type: get_attribut
+                    argument: href
               - name: web-link
                 type: string
                 select: first
-                pointer: "/url"
+                selector: "a.ani.poster"
+                actions:
+                  - type: get_attribut
+                    argument: href
               - name: img/poster > link
                 type: string
                 select: first
-                pointer: "/path"
+                selector: "a.ani.poster > img"
                 actions:
-                  - type: regex_find_all
-                    pattern: 'src="(?:https?:)?(//[^"]+)'
-                    format: "https:{1}"
-              - name: img/poster > link
-                type: string
+                  - type: get_attribut
+                    argument: src
+              - name: lang
+                type: string[]
                 select: first
-                pointer: "/image"
+                selector: "div.version"
                 actions:
-                  - type: regex_find_all
-                    pattern: 'src="(?:https?:)?(//[^"]+)'
-                    format: "https:{1}"
+                  - type: get_text
+                  - type: map
+                    argument:
+                      VF: vf
+                      VOSTFR: vostfr
+                      French: vf
+                      TrueFrench: vf
+
               - name: media-type
                 type: string[]
-                pointer: "/ts"
                 select: first
                 actions:
+                  - type: format_text
+                    argument: "{query_url}"
+                  - type: regex_find_all
+                    pattern: "/(movies|series|animes)/"
+                    format: "{1}"
                   - type: map
                     argument:
                       movies: "video/movie"
                       series: "video/show/serie"
                       animes: "video/show/anime"
-              - name: year
-                type: number
-                select: first
-                pointer: "/release"
-                actions:
-                  - type: map
-                    default: "{}"
-                    argument:
-                      "false": null
-              - name: description
-                type: string
-                select: first
-                pointer: "/excerpt"
-                actions:
-                  - type: html_to_text
-                  - type: map
-                    default: "{}"
-                    argument:
-                      "false": null
-              - name: rating
-                type: number
-                select: first
-                pointer: "/ranking"
-              - name: director
-                type: string[]
-                pointer: "/director"
-                actions:
-                  - type: regex_find_all
-                    pattern: ">([^<]+)</a>"
-                    format: "{1}"
-                  - type: map
-                    default: "{}"
-                    argument:
-                      "false": null
-              - name: casting
-                type: string[]
-                pointer: "/casts"
-                actions:
-                  - type: regex_find_all
-                    pattern: ">([^<]+)</a>"
-                    format: "{1}"
-                  - type: map
-                    argument:
-                      "false": null
-                    default: "{}"
+      - name: categories
+        type: object[]
+        selector: ".genre-list > ul > li > a"
+        select: all
+        entries:
+          - name: key
+            type: string
+            select: first
+            actions:
+              - type: get_attribut
+                argument: href
+              - type: regex_find_all
+                pattern: "/([^/]+)/?$"
+                format: "{1}"
+          - name: label
+            type: string
+            select: first
+            actions:
+              - type: get_text
+          - name: request > query_url
+            type: string
+            select: first
+            actions:
+              - type: get_attribut
+                argument: href
+              - type: resolve_url
 
-
-  # ---------------------------------------------------------------
-  # Sections listing
-  # ---------------------------------------------------------------
-  - name: get_section
-    scraper_type: json
-    base_url: "{base_url}"
-    query_url: "{query_url}&page={page}"
-    media_types: *media_types_coflix
-    row_pointer: "/"
     post_process:
       - type: derive_pagination
+        source: sections
         total_pages_field: total_pages
         remove_fields:
           - total_pages
-    entries:
-      - name: total_pages
-        type: number
-        select: first
-        pointer: /total
-      - name: source
-        type: string
-        select: first
-        actions:
-          - type: format_text
-            argument: "{source}"
-      - name: current_page
-        type: number
-        actions:
-          - type: format_text
-            argument: "{page}"
-      - name: have_more
-        type: boolean
-        select: first
-        pointer: "/next"
-      - name: page_size
-        type: number
-        actions:
-          - type: format_text
-            argument: "20"
-      - name: entries
-        type: object[]
-        pointer: "/results/*"
-        select: all
-        entries:
-          - name: source
-            type: string
-            actions:
-              - type: format_text
-                argument: "{source}"
-          - name: title
-            type: string
-            select: first
-            pointer: "/name"
-          - name: link
-            type: string
-            select: first
-            pointer: "/url"
-          - name: web-link
-            type: string
-            select: first
-            pointer: "/url"
-          - name: img/poster > link
-            type: string
-            select: first
-            pointer: "/path"
-            actions:
-              - type: regex_find_all
-                pattern: 'src="(?:https?:)?(//[^"]+)'
-                format: "https:{1}"
-          - name: img/poster > link
-            type: string
-            select: first
-            pointer: "/image"
-            actions:
-              - type: regex_find_all
-                pattern: 'src="(?:https?:)?(//[^"]+)'
-                format: "https:{1}"
-          - name: media-type
-            type: string[]
-            select: first
-            pointer: "/ts"
-            actions:
-              - type: map
-                argument:
-                  movies: "video/movie"
-                  series: "video/show/serie"
-                  animes: "video/show/anime"
-          - name: year
-            type: number
-            select: first
-            pointer: "/release"
-            actions:
-              - type: map
-                default: "{}"
-                argument:
-                  "false": null
-          - name: description
-            type: string
-            select: first
-            pointer: "/excerpt"
-            actions:
-              - type: html_to_text
-              - type: map
-                default: "{}"
-                argument:
-                  "false": null
-          - name: rating
-            type: number
-            select: first
-            pointer: "/ranking"
-          - name: director
-            type: string[]
-            pointer: "/director"
-            actions:
-              - type: map
-                default: "{}"
-                argument:
-                  "false": null
-          - name: casting
-            type: string[]
-            pointer: "/casts"
-            actions:
-              - type: html_to_text
-              - type: split
-                argument: ","
-              - type: map
-                argument:
-                  "false": null
-                default: "{}"
-       
+
   # --------------------------------------------------------------------------
   # Search
   # --------------------------------------------------------------------------
