@@ -343,6 +343,15 @@ shared:
             18ec9891-ce09-471d-9341-6c71a4a99665: "true"
             252d0403-e9db-4cc5-a8ae-31917bf23b66: "true"
           default: "false"
+    - name: _is_programs_coming
+      type: string
+      select: first
+      pointer: /translation/name
+      actions:
+        - type: map
+          argument:
+            "PROGRAMMES À VENIR": "true"
+          default: "false"
 
   entries_home_category: &entries_home_category
     - name: key
@@ -571,6 +580,17 @@ queries:
         pattern: "^false$"
         remove:
           - _is_home_container
+      - type: filter_items
+        source: sections
+        field: _is_programs_coming
+        pattern: "^true$"
+        keep_matching: false
+      - type: filter_fields
+        source: sections
+        field: _is_programs_coming
+        pattern: "^true$"
+        remove:
+          - _is_programs_coming
 
   - name: get_category
     scraper_type: json

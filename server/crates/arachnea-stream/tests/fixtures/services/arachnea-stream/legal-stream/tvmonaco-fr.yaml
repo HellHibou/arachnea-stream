@@ -180,7 +180,6 @@ steps:
       min_valid_count: 1
       required_non_empty:
         - ["name"]
-        - ["resolver", "target_id"]
 
   - id: stream
     operation: resolve_stream

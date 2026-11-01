@@ -10,6 +10,7 @@ use anyhow::{ensure, Context, Result};
 use arachnea_scrapyfy::scrapyfy::{
     scraper_cache::ScraperCacheConfig, scraper_manager::tests::assertions::AssertionOutcome,
 };
+use crate::stream_resolver::ResolveStreamNoStream;
 use serde_json::Value;
 use std::{
     collections::{BTreeSet, HashMap},
@@ -566,6 +567,10 @@ pub(super) async fn run_source(
             Ok(Err(failure)) => {
                 failures += 1;
                 let mut cause = format!("{:#}", failure.error);
+                let full_target = failure
+                    .error
+                    .downcast_ref::<ResolveStreamNoStream>()
+                    .map(|err| err.target.clone());
                 for value in inputs
                     .values()
                     .filter_map(Value::as_str)
@@ -573,7 +578,10 @@ pub(super) async fn run_source(
                 {
                     cause = cause.replace(value, &execution::reference(value));
                 }
-                let cause = execution::sanitize(&cause);
+                let mut cause = execution::sanitize(&cause);
+                if let Some(url) = full_target {
+                    cause = format!("{} full_target={url}", cause);
+                }
                 failure_reasons.push(format!(
                     "step={} operation={} {}: {cause}",
                     step.id,

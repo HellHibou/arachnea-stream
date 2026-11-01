@@ -425,7 +425,10 @@ pub(crate) async fn resolve_scraper_query_stream(
     let entry = results
         .into_iter()
         .next()
-        .ok_or_else(|| anyhow::anyhow!("Scraper-query source `{source}` returned no stream."))?;
+        .ok_or_else(|| ResolveStreamNoStream {
+            source: source.to_string(),
+            target: target.to_string(),
+        })?;
     if let Some(message) = extract_error_message(&entry) {
         bail!("Scraper-query source `{source}` reported: {message}");
     }
@@ -451,6 +454,30 @@ pub(crate) async fn resolve_scraper_query_stream(
     );
     Ok(stream)
 }
+
+/// Error returned when a scraper-query `resolve_stream` produces no usable stream.
+///
+/// Carries the raw target URL so callers can display it without it being redacted
+/// by the test runner's URL sanitisation.
+#[derive(Debug)]
+pub struct ResolveStreamNoStream {
+    /// Source identifier.
+    pub source: String,
+    /// Raw target URL that was attempted.
+    pub target: String,
+}
+
+impl std::fmt::Display for ResolveStreamNoStream {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Scraper-query source `{}` returned no stream.",
+            self.source
+        )
+    }
+}
+
+impl std::error::Error for ResolveStreamNoStream {}
 
 /// Validates, normalizes and deduplicates ordered country hints requested by a
 /// `scraper-query` player descriptor.
