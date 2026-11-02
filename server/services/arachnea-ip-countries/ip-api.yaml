@@ -6,9 +6,9 @@ http:
   mode: direct
 
 # ############################################################################
-# Parameters
+# Constants
 # ############################################################################
-parameters:
+constants:
   - name: base_url
     value: http://ip-api.com/json
     description: Base URL for the ip-api.com JSON endpoint.

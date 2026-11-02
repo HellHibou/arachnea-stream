@@ -28,23 +28,12 @@ pub struct ScraperQueryCollectionParameter {
     /// Optional actions applied to the parameter value before use.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub actions: Vec<crate::scrapyfy::actions::ScraperAction>,
-}
-
-impl ScraperQueryCollectionParameter {
-    /// Validates and normalizes this parameter, returning the trimmed name and raw value.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the parameter name is empty after trimming.
-    fn validate_and_normalize(&self) -> Result<(String, String)> {
-        let parameter_name = self.name.trim();
-        if parameter_name.is_empty() {
-            anyhow::bail!("Collection parameter name cannot be empty");
-        }
-
-        // Description is now optional
-        Ok((parameter_name.to_string(), self.value.clone()))
-    }
+    /// Human-readable editor label; required for editable parameters.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// Editor and validation contract; absent for constants.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub editor: Option<super::service_parameters::ParameterEditor>,
 }
 
 /// Optional account requirements declared by a service YAML file.
@@ -76,7 +65,13 @@ pub struct ScraperQueryCollectionRaw {
     /// Optional credentials requirements exposed to administration clients.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub credentials: Option<ScraperServiceCredentials>,
-    /// Collection-level default parameters merged into every query execution.
+    /// Optional service-specific tags, indexed by metadata key.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub metadata: HashMap<String, Vec<String>>,
+    /// YAML-owned values, including expressions derived from editable parameters.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub constants: Vec<ScraperQueryCollectionParameter>,
+    /// Administrable parameters with YAML defaults and editor definitions.
     #[serde(default, alias = "parametres", skip_serializing_if = "Vec::is_empty")]
     pub parameters: Vec<ScraperQueryCollectionParameter>,
     /// HTTP configuration shared across all queries in this collection.
@@ -365,6 +360,8 @@ pub struct ScraperQueryCollection {
     logo: String,
     description: HashMap<String, String>,
     parameters: Vec<ScraperQueryCollectionParameter>,
+    constants: Vec<ScraperQueryCollectionParameter>,
+    metadata: HashMap<String, Vec<String>>,
     proxy_insecure_tls_hosts: Vec<String>,
     parameter_defaults: HashMap<String, String>,
     queries: HashMap<String, ScraperQueryDefinition>,
@@ -415,6 +412,8 @@ impl ScraperQueryCollection {
             logo: logo.to_string(),
             description,
             parameters,
+            constants: Vec::new(),
+            metadata: HashMap::new(),
             proxy_insecure_tls_hosts,
             parameter_defaults,
             queries: HashMap::new(),
@@ -438,16 +437,36 @@ impl ScraperQueryCollection {
         &self.parameters
     }
 
+    /// Returns resolved constants and parameters for service-specific resolvers.
+    ///
+    /// # Returns
+    /// Owned definitions in constants-then-parameters declaration order, with
+    /// resolved, action-processed values. Actions remain attached as descriptive
+    /// configuration and must not be applied again by consumers.
+    pub fn effective_parameters(&self) -> Vec<ScraperQueryCollectionParameter> {
+        self.constants
+            .iter()
+            .chain(&self.parameters)
+            .map(|parameter| {
+                let mut parameter = parameter.clone();
+                if let Some(value) = self.parameter_defaults.get(&parameter.name) {
+                    parameter.value = value.clone();
+                }
+                parameter
+            })
+            .collect()
+    }
+
     /// Returns exact hosts eligible for an explicit proxy TLS bypass.
     pub fn proxy_insecure_tls_hosts(&self) -> &[String] {
         &self.proxy_insecure_tls_hosts
     }
 
-    /// Returns the base62 hash of the source YAML document backing this collection.
+    /// Returns the base62 configuration identity backing this collection.
     ///
-    /// The hash is computed once from the raw file bytes at load time and is
-    /// embedded in every validator fragment so a scraper edit invalidates the
-    /// cached response even when the remote content is unchanged.
+    /// Manifest loading includes the YAML bytes and effective editable values;
+    /// direct file loading hashes the YAML bytes alone. Validator fragments use
+    /// this identity so configuration edits invalidate unchanged remote responses.
     pub fn yaml_hash(&self) -> &str {
         &self.yaml_hash
     }
@@ -468,7 +487,7 @@ impl ScraperQueryCollection {
         names
     }
 
-    /// Records the base62 hash of the raw source YAML document.
+    /// Records the base62 identity of the source configuration and its overrides.
     ///
     /// # Arguments
     ///
@@ -779,6 +798,8 @@ impl TryFrom<ScraperQueryCollectionRaw> for ScraperQueryCollection {
             logo,
             description,
             credentials: _,
+            metadata,
+            constants,
             parameters,
             http,
             proxy_insecure_tls_hosts,
@@ -793,8 +814,14 @@ impl TryFrom<ScraperQueryCollectionRaw> for ScraperQueryCollection {
             .map(|title| title.trim().to_string())
             .filter(|title| !title.is_empty())
             .unwrap_or_else(|| id.clone());
-        let logo = logo.unwrap_or_default();
-        let mut parameter_defaults = Self::build_parameter_defaults(&parameters)?;
+        super::service_parameters::validate_definitions(&constants, &parameters)?;
+        let mut all_parameters = constants.clone();
+        all_parameters.extend(parameters.clone());
+        let mut parameter_defaults = Self::build_parameter_defaults(&all_parameters)?;
+        let logo = logo
+            .map(|value| replace_template_placeholders(&value, &parameter_defaults).0)
+            .unwrap_or_default();
+        parameter_defaults.insert("service_metadata".into(), serde_json::to_string(&metadata)?);
         parameter_defaults.extend(Self::build_service_metadata_defaults(
             &id,
             &title,
@@ -812,7 +839,7 @@ impl TryFrom<ScraperQueryCollectionRaw> for ScraperQueryCollection {
             .map(TryInto::try_into)
             .collect::<Result<Vec<_>>>()?;
 
-        Ok(ScraperQueryCollection::new(
+        let mut collection = ScraperQueryCollection::new(
             CollectionMetadata {
                 name: &id,
                 title: &title,
@@ -823,7 +850,10 @@ impl TryFrom<ScraperQueryCollectionRaw> for ScraperQueryCollection {
             proxy_insecure_tls_hosts,
             parameter_defaults,
             queries,
-        ))
+        );
+        collection.constants = constants;
+        collection.metadata = metadata;
+        Ok(collection)
     }
 }
 
@@ -851,6 +881,8 @@ impl From<&ScraperQueryCollection> for ScraperQueryCollectionRaw {
             },
             description: collection.description.clone(),
             credentials: None,
+            metadata: collection.metadata.clone(),
+            constants: collection.constants.clone(),
             parameters: collection.parameters.clone(),
             http: ScraperHttpConfig::default(),
             proxy_insecure_tls_hosts: collection.proxy_insecure_tls_hosts.clone(),

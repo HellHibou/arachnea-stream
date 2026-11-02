@@ -5,5 +5,27 @@
     "arachnea-stream-hoster",
     "arachnea-proxies",
     "arachnea-ip-countries"
-  ]
+  ],
+  "service-filters": {
+    "arachnea-stream": [
+      {
+        "key": "languages",
+        "label": "services.filters.languages"
+      },
+      {
+        "key": "geo_countries",
+        "label": "services.filters.geo_countries"
+      },
+      {
+        "key": "content_types",
+        "label": "services.filters.content_types",
+        "value_labels": {
+          "local_tv": "services.contentTypes.local_tv",
+          "movies": "services.contentTypes.movies",
+          "series": "services.contentTypes.series",
+          "documentaries": "services.contentTypes.documentaries"
+        }
+      }
+    ]
+  }
 }

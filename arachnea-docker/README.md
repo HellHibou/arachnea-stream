@@ -280,11 +280,13 @@ Notes:
   volume must be mounted there (override with `ARACHNEA_DATA_DIR` and mount
   the same path).
 - The entrypoint pins the port and network mode in
-  `$ARACHNEA_DATA_DIR/config.json` (`server_port`, `network_mode`) because
-  `arachnea`'s argument parser compares option names only, so **any** value on
-  the command line is rejected (`--server-port 8080` -> `unknown argument:
-  8080`). Arguments placed after the image name are forwarded verbatim and
-  must therefore be valueless flags such as `--no-tray` / `--server`.
+  `$ARACHNEA_DATA_DIR/config.json` (`server_port`, `network_mode`), keeping the
+  container settings and administration API aligned. This also supports older
+  binaries whose second argument scan rejected values such as `--server-port 8080`.
+  Current source accepts `--server-port 8080`, `--network local` and
+  `--entrypoint-root /path`. Arguments after the image name are forwarded verbatim;
+  use the documented environment variables for container ports/network settings
+  so they remain consistent with Compose's published ports.
 
 ### Network mode and published ports
 

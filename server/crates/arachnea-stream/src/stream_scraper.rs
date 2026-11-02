@@ -73,6 +73,8 @@ pub struct ApplicationStores {
     /// Administrator service records: activation override and encrypted
     /// credentials (`arachnea-services`).
     pub source_enabled: Arc<dyn TypedEntityStore<SourceServiceRecord>>,
+    /// Atomic per-service administrator parameter overrides.
+    pub service_parameters: Arc<dyn TypedEntityStore<ServiceParametersRecord>>,
 }
 
 pub use crate::DEFAULT_SERVICES_CONFIG_PATH;
@@ -403,6 +405,7 @@ impl StreamScraper {
                 stores.proxy_preferences.clone(),
             )),
         );
+        agregator.set_service_parameters(stores.service_parameters.clone());
         agregator.set_source_enabled(Arc::new(PersistenceSourceEnabled::with_typed_store(
             Arc::clone(&stores.source_enabled),
         )));

@@ -146,10 +146,10 @@ impl<E: PersistentEntity, C: PersistenceFileCodec> TypedEntityStore<E> for FileE
             return Ok(None);
         };
         if expired(&self.config.schema, entity)? {
-            document.records.remove(&storage_key);
-            let snapshot = document.clone();
-            drop(state);
-            self.persist(snapshot).await?;
+            let mut snapshot = document.clone();
+            snapshot.records.remove(&storage_key);
+            self.persist(snapshot.clone()).await?;
+            *document = snapshot;
             return Ok(None);
         }
         Ok(Some(decode(&self.config.schema, entity)?))
@@ -158,10 +158,11 @@ impl<E: PersistentEntity, C: PersistenceFileCodec> TypedEntityStore<E> for FileE
         let encoded = encode(&self.config, entity)?;
         let mut state = self.state.lock().await;
         let document = self.document(&mut state).await?;
-        document.records.insert(entity.key().storage_key(), encoded);
-        let snapshot = document.clone();
-        drop(state);
-        self.persist(snapshot).await
+        let mut snapshot = document.clone();
+        snapshot.records.insert(entity.key().storage_key(), encoded);
+        self.persist(snapshot.clone()).await?;
+        *document = snapshot;
+        Ok(())
     }
     async fn put_all(&self, entities: &[E]) -> anyhow::Result<()> {
         let encoded: anyhow::Result<Vec<_>> = entities
@@ -171,20 +172,47 @@ impl<E: PersistentEntity, C: PersistenceFileCodec> TypedEntityStore<E> for FileE
         let encoded = encoded?;
         let mut state = self.state.lock().await;
         let document = self.document(&mut state).await?;
+        let mut snapshot = document.clone();
         for (key, entity) in encoded {
-            document.records.insert(key, entity);
+            snapshot.records.insert(key, entity);
         }
-        let snapshot = document.clone();
-        drop(state);
-        self.persist(snapshot).await
+        self.persist(snapshot.clone()).await?;
+        *document = snapshot;
+        Ok(())
     }
+    async fn replace_where(&self, query: &EntityQuery<E>, entities: &[E]) -> anyhow::Result<()> {
+        let encoded = super::replacement_documents(&self.config, query, entities)?;
+        let mut state = self.state.lock().await;
+        let document = self.document(&mut state).await?;
+        let mut snapshot = document.clone();
+        let removed = snapshot
+            .records
+            .iter()
+            .filter_map(|(key, entity)| match matches(&self.config, entity, query) {
+                Ok(true) => Some(Ok(key.clone())),
+                Ok(false) => None,
+                Err(error) => Some(Err(error)),
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        for key in removed {
+            snapshot.records.remove(&key);
+        }
+        for (key, entity) in encoded {
+            snapshot.records.insert(key.storage_key(), entity);
+        }
+        self.persist(snapshot.clone()).await?;
+        *document = snapshot;
+        Ok(())
+    }
+
     async fn delete(&self, key: &E::Key) -> anyhow::Result<()> {
         let mut state = self.state.lock().await;
         let document = self.document(&mut state).await?;
-        document.records.remove(&key.storage_key());
-        let snapshot = document.clone();
-        drop(state);
-        self.persist(snapshot).await
+        let mut snapshot = document.clone();
+        snapshot.records.remove(&key.storage_key());
+        self.persist(snapshot.clone()).await?;
+        *document = snapshot;
+        Ok(())
     }
     async fn find(&self, query: &EntityQuery<E>) -> anyhow::Result<Vec<E>> {
         let mut state = self.state.lock().await;

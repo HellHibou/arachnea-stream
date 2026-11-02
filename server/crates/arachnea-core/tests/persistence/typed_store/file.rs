@@ -85,6 +85,25 @@ async fn file_put_all_rejects_invalid_batch_without_writing() -> anyhow::Result<
     let found = store.find(&EntityQuery::<FlexibleEntity>::new()).await?;
     assert_eq!(found.len(), 1);
     assert_eq!(found[0].authority, "kept:1");
+    let scope =
+        EntityQuery::new().where_string(&crate::persistence::Field::string("authority"), "kept:1");
+    assert!(store
+        .replace_where(&scope, &[flexible("outside:1", "n", Some(1))])
+        .await
+        .is_err());
+    assert!(store
+        .replace_where(&scope, &[flexible("kept:1", "n", None)])
+        .await
+        .is_err());
+    store.put(&flexible("other:1", "kept", Some(8080))).await?;
+    store
+        .replace_where(&scope, &[flexible("kept:1", "updated", Some(9090))])
+        .await?;
+    store.replace_where(&scope, &[]).await?;
+    drop(store);
+    let reopened = FileEntityStore::<FlexibleEntity>::new(dir.clone(), config())?;
+    assert!(reopened.get(&"kept:1".to_string()).await?.is_none());
+    assert!(reopened.get(&"other:1".to_string()).await?.is_some());
     let _ = std::fs::remove_dir_all(&dir);
     Ok(())
 }

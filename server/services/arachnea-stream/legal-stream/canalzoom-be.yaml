@@ -1,4 +1,7 @@
 id: canalzoom-be
+metadata:
+  languages: [fr]
+  content_types: [local_tv]
 title: Canal Zoom
 logo: "https://www.canalzoom.be/sites/default/files/logo3.png"
 description:
@@ -9,9 +12,9 @@ http:
 
 
 # ############################################################################
-# Parameters
+# Constants
 # ############################################################################
-parameters:
+constants:
   - name: base_url
     value: https://www.canalzoom.be
     description: "Base URL — update on domain change"
@@ -442,6 +445,9 @@ queries:
   - name: service_stream_metadata
     scraper_type: static
     entries:
+      - name: metadata
+        type: object
+        value: "{service_metadata}"
       - name: id
         type: string
         value: "{service_id}"

@@ -8,7 +8,7 @@ that the `ScrapyfyIpCountryDataProvider` module in `arachnea-scrapyfy`
 consumes to resolve the country code of an IP address.
 
 This document only describes fields specific to the IP-country format. The
-general structure of a YAML file (`id`, `parameters`, `http`, `queries`,
+general structure of a YAML file (`id`, `constants`, `parameters`, `http`, `queries`,
 `entries`, `actions`, etc.) is documented in [the common YAML specification](arachnea-scrapyfy-en.md).
 
 ---
@@ -70,7 +70,7 @@ description:
 http:
   mode: direct
 
-parameters:
+constants:
   - name: base_url
     value: http://ip-api.com/json
     description: Base URL for the ip-api.com JSON endpoint.

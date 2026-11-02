@@ -203,6 +203,7 @@ pub struct AdminState {
     sessions: SessionStore,
     login_limiter: LoginRateLimiter,
     source_enabled: Arc<dyn TypedEntityStore<SourceServiceRecord>>,
+    service_parameters: Arc<dyn TypedEntityStore<crate::ServiceParametersRecord>>,
     groups: Vec<AdminServiceGroupConfig>,
     adapter: Arc<dyn AdminRuntimeAdapter>,
     reload_coordinator: Arc<ReloadCoordinator>,
@@ -235,6 +236,7 @@ impl AdminState {
     /// * `groups` - Declared service stores, in display order.
     /// * `source_enabled` - Typed store holding the `arachnea-services`
     ///   records, qualified by `(service_store_id, source_id)`.
+    /// * `service_parameters` - Atomic per-service raw parameter overrides.
     /// * `adapter` - Application adapter for persisted settings, hot apply,
     ///   credentials, and runtime rebuilds.
     /// * `cli_scraper` - Command-line scraper overrides, which take precedence over persisted settings.
@@ -245,6 +247,7 @@ impl AdminState {
         settings: CoreApplicationOptions,
         groups: Vec<AdminServiceGroupConfig>,
         source_enabled: Arc<dyn TypedEntityStore<SourceServiceRecord>>,
+        service_parameters: Arc<dyn TypedEntityStore<crate::ServiceParametersRecord>>,
         adapter: Arc<dyn AdminRuntimeAdapter>,
         cli_scraper: ScraperAdminSettings,
     ) -> anyhow::Result<AdminStateBuild> {
@@ -267,6 +270,7 @@ impl AdminState {
             sessions: SessionStore::new(),
             login_limiter: LoginRateLimiter::new(),
             source_enabled,
+            service_parameters,
             groups,
             adapter,
             reload_coordinator: Arc::clone(&reload_coordinator),

@@ -123,7 +123,7 @@ logo: "https://example.com/logo.png"
 description:
   fr: "Description en français"
   en: "Description in English"
-parameters:
+constants:
   - name: base_url
     value: "https://example.com"
     description: "URL de base de la source"
@@ -189,10 +189,9 @@ credentials:
 | `required` | booléen | non | Vaut `false` par défaut ; le service requiert des identifiants lorsqu'il vaut `true`. |
 | `signup_url` | chaîne | non | URL publique d'inscription affichée par les clients d'administration. |
 
-### `parameters` (optionnel)
+### `constants` (optionnel)
 
-La clé racine accepte aussi l’alias de compatibilité `parametres`.
-Liste de paramètres par défaut de la collection. Chaque paramètre a :
+Valeurs modifiables uniquement dans le YAML. Chaque constante a :
 
 | Champ | Type | Obligatoire | Description |
 |-------|------|-------------|-------------|
@@ -201,7 +200,7 @@ Liste de paramètres par défaut de la collection. Chaque paramètre a :
 | `description` | string | non | Description du paramètre |
 | `actions` | array | non | Actions appliquées à la valeur résolue |
 
-Les paramètres sont résolus séquentiellement dans l'ordre de déclaration YAML. Un paramètre peut référencer les paramètres précédents via `{placeholder}`.
+Constantes et paramètres éditables sont résolus selon leurs dépendances, y compris entre les deux sections. Les actions de chaque entrée s’exécutent une seule fois après résolution de ses dépendances. Les références cycliques et les noms dupliqués sont refusés.
 
 Les placeholders non déclarés sont préservés au chargement de la collection afin d'être fournis par l'appelant à l'exécution. Un placeholder requis mais absent provoque alors une erreur contextuelle lors de la résolution de la requête, et non au chargement du YAML.
 
@@ -210,7 +209,7 @@ Le préfixe `@` est réservé aux variables dynamiques produites pendant l'extra
 Pour les entrées textuelles, le chargement parcourt les entrées imbriquées sans réécrire ni valider les paramètres des actions. Ces paramètres sont résolus à l’exécution des actions ; les options communes des requêtes conservent leur résolution au niveau de la collection pendant le chargement.
 
 ```yaml
-parameters:
+constants:
   - name: base_url
     value: "https://www.m6play.fr"
   - name: query_url
@@ -223,10 +222,51 @@ parameters:
 - `service_title` — titre de la collection
 - `service_logo` — logo de la collection
 - `service_description` — description sérialisée en JSON
+- `service_metadata` — tags du service sérialisés en JSON
 - `page_index` — dérivé de `page` (`page - 1`)
 - `offset` — dérivé de `(page - 1) * page_size` lorsque les deux valeurs sont positives
 - `query_separator` — `?`, `&` ou `""` selon l'URL
 - `url_fragment` — partie après `#` dans le `query_url` résolu, définie uniquement quand l'URL porte un fragment non vide (elle n'est jamais envoyée au serveur)
+
+
+Les valeurs JSON des entrées statiques `object` conservent les tableaux imbriqués de chaînes sous forme de `string[]` (y compris les tableaux vides), sans envelopper leurs éléments dans des objets `_`.
+
+### `metadata` et paramètres éditables
+
+`metadata` est un objet facultatif associant des clés à des listes de chaînes. Il est disponible dans `{service_metadata}` et dans le catalogue admin, y compris pour les services désactivés. Un objet absent vaut `{}`.
+
+`parameters` contient exclusivement les valeurs éditables. La structure reprend `name`, `value`, `description` et `actions` des constantes et ajoute un `label` non vide et un `editor` obligatoire. L’alias `parametres` accepte le même nouveau schéma ; il ne convertit pas les anciens paramètres en constantes. Les constantes ne peuvent pas déclarer d’éditeur. Les noms `service_*`, les noms vides et les doublons entre sections sont refusés.
+
+```yaml
+metadata:
+  languages: [fr]
+parameters:
+  - name: base_url
+    label: Base URL
+    value: https://example.org
+    editor:
+      type: regex
+      pattern: '^https?://[^\s/?#]+(?:/[^\s?#]*)?$'
+      message: Enter an absolute HTTP(S) URL without query, fragment or trailing slash.
+constants:
+  - name: api_url
+    value: "{base_url}/api"
+```
+
+Formats d’édition :
+
+- `regex` : `pattern` et `message` obligatoires ; correspondance sur la valeur entière, syntaxe commune Rust/JavaScript, sans lookaround, références arrière ni drapeaux inline. Le serveur valide aussi `base_url` comme URL HTTP(S) absolue avec hôte, sans identifiants, query, fragment, espaces ni slash final.
+- `select` : `options` non vide, chaque option ayant un `value` chaîne unique et un `label` non vide. Les valeurs hors liste sont refusées. Exemple : `editor: {type: select, options: [{value: fr, label: France - France}]}`.
+
+Les défauts YAML sont validés au chargement. Les surcharges administrateur remplacent les valeurs brutes avant actions et avant résolution des constantes dérivées. Les entrées d’exécution restent distinctes et conservent leur priorité ; les références qui leur sont destinées restent différées.
+
+Les surcharges sont stockées dans la table `arachnea-services-parameters` du store `arachnea-services`. Chaque ligne représente un paramètre : clé primaire `(service_store_id, source_id, parameter_name)`, et colonne chaîne `value`. Aucun dictionnaire JSON de paramètres n’est persisté. Définitions et défauts restent dans les YAML ; les valeurs égales aux défauts actuels ne sont pas stockées.
+
+La sauvegarde remplace atomiquement toutes les lignes du couple groupe/source avec `replace_where` du store typé ; la réinitialisation supprime ce périmètre. Les autres sources, l’activation et les identifiants chiffrés restent inchangés. Les dictionnaires utilisés par les API et le runtime sont reconstruits depuis ces lignes.
+
+La table est ouverte directement avec le schéma courant. Aucune migration des données de l’ancien format JSON `values` à deux composantes de clé n’est effectuée : une clé primaire incompatible est refusée et la table existante reste intacte. Une table absente est créée au nouveau format. Le changement distinct de configuration YAML/manifeste décrit ci-dessus reste inchangé.
+
+Le moteur utilise les mêmes valeurs effectives pour les requêtes, les logos et les résolveurs. Le hash de configuration inclut les valeurs éditables afin de séparer les réponses mises en cache après changement. L’enregistrement impose le rechargement existant ; un échec de reconstruction conserve le runtime précédent. Le catalogue montre la configuration enregistrée : un logo peut donc précéder son application au runtime. Une valeur persistée invalide reste lisible dans l’éditeur pour correction ou réinitialisation ; le catalogue expose `configuration_error`.
 
 ---
 
@@ -2020,7 +2060,7 @@ id: example-source
 title: "Source d'exemple"
 description:
   fr: "Une source d'exemple complète"
-parameters:
+constants:
   - name: base_url
     value: "https://www.example.com"
   - name: api_url
@@ -2181,15 +2221,14 @@ est un tableau JSON. Chaque entrée déclare exactement un champ `path` ou `impo
 
 ```json
 [
-  {"path": "example.yaml", "enabled": true,
-   "parameters": [{"name": "base_url", "value": "https://example.org"}]},
+  {"path": "example.yaml", "enabled": true},
   {"import": "other-sources/services.json"}
 ]
 ```
 
 | Entrée | Champs et comportement |
 |---|---|
-| Source | `path` chaîne obligatoire ; `enabled` booléen facultatif, défaut `true` ; `parameters` tableau facultatif ayant la même structure que les paramètres YAML |
+| Source | `path` chaîne obligatoire ; `enabled` booléen facultatif, défaut `true` ; les surcharges `parameters` non vides sont refusées : placer les défauts dans le YAML et utiliser l’administration |
 | Import | `import` chaîne obligatoire désignant un autre manifeste JSON |
 
 Les chemins sont relatifs au manifeste qui les déclare. Les imports sont développés
@@ -2204,14 +2243,11 @@ désactivés sont tout de même lus et désérialisés dans le schéma brut avan
 contrôle d'activation ; ils doivent rester valides. La conversion sémantique
 complète est réalisée pour les fichiers activés.
 
-Les paramètres du manifeste remplacent les définitions YAML complètes par leur
-`name`, ou en ajoutent. Les paramètres de requête à l'exécution remplacent ensuite
-les valeurs par défaut ; les paramètres d'exécution propres à une source peuvent
-remplacer les paramètres communs. **Limite actuelle :** la fusion des paramètres
-du manifeste ne préserve pas l'ordre YAML. Éviter les pipelines d'actions de
-paramètres dépendants lorsque des surcharges sont utilisées ; vérifier avec le
-manifeste réel. Ne pas supposer qu'une surcharge de `base_url` recalcule une valeur
-déjà substituée au chargement de la collection.
+
+Les surcharges de paramètres dans les manifestes sont retirées et refusées avec une erreur
+contextualisée de migration. Les valeurs administrées remplacent les défauts éditables YAML
+avant résolution des dépendances et conversion des requêtes. Les entrées d’exécution conservent
+leur priorité actuelle. Recharger le runtime après modification pour recalculer constantes et URL.
 
 ## 17. Liste de contrôle de l'exécution et de la sortie
 

@@ -961,6 +961,10 @@ function normalizeServiceMetadata(payload: unknown): ServiceMetadata | null {
     title: firstNonEmptyString([record.title]) ?? id,
     logo: firstNonEmptyString([record.logo]),
     description: normalizeServiceDescription(record.description),
+    metadata: isJsonRecord(record.metadata)
+      ? Object.fromEntries(Object.entries(record.metadata).filter(([, value]) => Array.isArray(value))
+          .map(([key, value]) => [key, (value as unknown[]).filter((item): item is string => typeof item === 'string')]))
+      : {},
     themes: normalizeServiceThemes(record.themes ?? record.search_themes),
     supportedQueries: Array.isArray(record.supported_queries)
       ? record.supported_queries.filter((query): query is string => typeof query === 'string')

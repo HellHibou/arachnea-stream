@@ -1,4 +1,8 @@
 id: francetv
+metadata:
+  languages: [fr]
+  geo_countries: [fr]
+  content_types: [movies, series, documentaries]
 title: France TV
 logo: https://www.france.tv/favicons/favicon-192.png
 description:
@@ -8,9 +12,9 @@ http:
   user_agent_profile: firefox
 
 # ############################################################################
-# Parameters
+# Constants
 # ############################################################################
-parameters:
+constants:
   - name: base_url
     value: https://www.france.tv
     description: Public website base URL for france.tv.
@@ -553,6 +557,9 @@ queries:
   - name: service_stream_metadata
     scraper_type: static
     entries:
+      - name: metadata
+        type: object
+        value: "{service_metadata}"
       - name: id
         type: string
         value: "{service_id}"

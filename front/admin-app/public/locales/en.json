@@ -45,7 +45,22 @@
     },
     "credentialsState": "Credentials: {state}",
     "credentialsDefined": "Set",
-    "credentialsAbsent": "Absent"
+    "credentialsAbsent": "Absent",
+    "search": "Search services",
+    "noResults": "No services match the filters.",
+    "options": "Options",
+    "configurationError": "Invalid saved configuration: {message}",
+    "filters": {
+      "languages": "Languages",
+      "geo_countries": "Countries",
+      "content_types": "Content"
+    },
+    "contentTypes": {
+      "local_tv": "Local TV",
+      "movies": "Movies",
+      "series": "Series",
+      "documentaries": "Documentaries"
+    }
   },
   "credentials": {
     "title": "Credentials for {service}",
@@ -187,5 +202,13 @@
       "copyCode": "Copy error code {code}",
       "codeCopied": "Copied"
     }
+  },
+  "serviceParameters": {
+    "title": "Options for {service}",
+    "save": "Save",
+    "reset": "Restore defaults",
+    "invalid": "Invalid value.",
+    "pending": "Saved values and logos take effect in the runtime after reloading.",
+    "default": "Default value: {value}"
   }
 }

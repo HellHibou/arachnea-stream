@@ -1,4 +1,4 @@
-﻿import { getAdminApiUrl } from '@/services/baseUrl'
+import { getAdminApiUrl } from '@/services/baseUrl'
 
 /**
  * Stable error shape returned by the admin API.
@@ -226,6 +226,9 @@ export interface AdminServiceEntry {
   has_override: boolean
   credentials?: CredentialInfo
   unavailable: boolean
+  metadata: Record<string, string[]>
+  has_parameters: boolean
+  configuration_error?: string | null
 }
 
 export interface AdminUnavailableSource {
@@ -494,4 +497,41 @@ export function setAdminPassword(currentPassword: string | undefined, newPasswor
 /** Triggers a configuration reload. */
 export function reload(): Promise<ReloadResponse> {
   return apiCall<ReloadResponse>('reload', { method: 'POST', body: {} })
+}
+
+/** YAML-defined editor and its authoritative validation contract. */
+export type ParameterEditor =
+  | { type: 'regex'; pattern: string; message: string }
+  | { type: 'select'; options: { value: string; label: string }[] }
+
+export interface ServiceParameter {
+  name: string
+  label: string
+  description?: string | null
+  default_value: string
+  value: string
+  has_override: boolean
+  editor: ParameterEditor
+}
+
+/** Reads definitions and saved values without executing the service. */
+export function fetchServiceParameters(serviceStoreId: string, serviceId: string) {
+  return apiCall<{ parameters: ServiceParameter[] }>('service-parameters', {
+    params: { service_store_id: serviceStoreId, service_id: serviceId },
+  })
+}
+
+/** Replaces editable values atomically; submitting defaults removes overrides. */
+export function saveServiceParameters(serviceStoreId: string, serviceId: string, values: Record<string, string>) {
+  return apiCall<{ reload_required: boolean }>('save-service-parameters', {
+    method: 'POST',
+    body: { service_store_id: serviceStoreId, service_id: serviceId, values },
+  })
+}
+
+/** Removes all saved overrides for one service. */
+export function resetServiceParameters(serviceStoreId: string, serviceId: string) {
+  return apiCall<{ reload_required: boolean }>('reset-service-parameters', {
+    method: 'POST', body: { service_store_id: serviceStoreId, service_id: serviceId },
+  })
 }

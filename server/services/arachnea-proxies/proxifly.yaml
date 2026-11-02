@@ -6,9 +6,9 @@ http:
   mode: auto
 
 # ############################################################################
-# Parameters
+# Constants
 # ############################################################################
-parameters:
+constants:
   - name: base_url
     value: https://raw.githubusercontent.com/proxifly/free-proxy-list/refs/heads/main/proxies
     description: Base URL used to resolve requests.

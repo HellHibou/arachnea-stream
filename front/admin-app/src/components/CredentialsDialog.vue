@@ -73,6 +73,8 @@ async function loadCredentials(serviceStoreId: string, serviceId: string): Promi
       enabled: true,
       has_override: false,
       unavailable: false,
+      metadata: {},
+      has_parameters: false,
       credentials: cred,
     }
   }

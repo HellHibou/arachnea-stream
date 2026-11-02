@@ -113,6 +113,7 @@ pub struct ScraperAgregator {
     /// Typed store backing the Cloudflare session cache of created HTTP clients.
     session_store: Arc<dyn TypedEntityStore<CachedChaserSession>>,
     source_enabled: Option<Arc<dyn ScraperSourceEnabled>>,
+    service_parameters: Arc<dyn TypedEntityStore<super::ServiceParametersRecord>>,
     server_cache: Arc<ScraperServerCache>,
     #[cfg(feature = "arachnea-proxy")]
     proxy_core: Option<ArachneaProxyCore>,
@@ -233,6 +234,7 @@ impl ScraperAgregator {
             proxy_store,
             session_store,
             source_enabled: None,
+            service_parameters: super::service_parameters_store::memory_parameters_store(),
             server_cache: Arc::new(ScraperServerCache::new(ScraperCacheConfig::default())),
             #[cfg(feature = "arachnea-proxy")]
             proxy_core: None,
@@ -286,6 +288,7 @@ impl ScraperAgregator {
         snapshot.proxy_repository = self.proxy_repository.clone();
         snapshot.proxy_preferences = self.proxy_preferences.clone();
         snapshot.source_enabled = self.source_enabled.clone();
+        snapshot.service_parameters = self.service_parameters.clone();
         for group in groups {
             if let Some(service) = self.queries_collection.get(*group) {
                 if let Err(error) =
@@ -356,10 +359,31 @@ impl ScraperAgregator {
             proxy_store,
             session_store,
             source_enabled: None,
+            service_parameters: super::service_parameters_store::memory_parameters_store(),
             server_cache: Arc::new(ScraperServerCache::new(ScraperCacheConfig::default())),
             #[cfg(feature = "arachnea-proxy")]
             proxy_core: None,
         }
+    }
+
+    /// Sets the parameter override store used when loading source configurations.
+    ///
+    /// Existing collections retain their resolved values until they are reloaded.
+    ///
+    /// # Arguments
+    /// * `store` - Shared typed store of raw administrator overrides.
+    pub fn set_service_parameters(
+        &mut self,
+        store: Arc<dyn TypedEntityStore<super::ServiceParametersRecord>>,
+    ) {
+        self.service_parameters = store;
+    }
+
+    /// Returns the shared store used by administration and runtime loading.
+    ///
+    /// Clones the store handle without copying its records or loading source values.
+    pub fn service_parameters(&self) -> Arc<dyn TypedEntityStore<super::ServiceParametersRecord>> {
+        self.service_parameters.clone()
     }
 
     /// Injects shared proxy repositories before initializing or replacing the core.
@@ -552,7 +576,7 @@ impl ScraperAgregator {
             .unwrap_or_default()
     }
 
-    /// Returns the configured parameters for one loaded source within a group.
+    /// Returns owned, resolved constants and parameters for one loaded source.
     ///
     /// # Arguments
     ///
@@ -562,13 +586,13 @@ impl ScraperAgregator {
         &self,
         group_name: &str,
         name: &str,
-    ) -> Option<&[ScraperQueryCollectionParameter]> {
+    ) -> Option<Vec<ScraperQueryCollectionParameter>> {
         match self.queries_collection.get(group_name) {
             Some(service) => service
                 .services
                 .iter()
                 .find(|query_collection| query_collection.name() == name)
-                .map(ScraperQueryCollection::parameters),
+                .map(ScraperQueryCollection::effective_parameters),
             None => {
                 tracing::warn!("query group `{group_name}` not found");
                 None

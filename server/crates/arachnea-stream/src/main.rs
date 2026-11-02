@@ -64,8 +64,8 @@ fn help_message(aop: Box<dyn ApplicationOptionsProvider>) -> String {
 /// Parses supported command line arguments for the backend executable.
 ///
 /// # Errors
-/// Returns an error when an argument is unknown, when `--server-port` is missing
-/// its value, or when the provided port is invalid.
+/// Returns an error for an unreadable or invalid persisted configuration, an
+/// unknown argument, or a missing or invalid command-line option value.
 fn parse_runtime_options() -> Result<CliAction> {
     let persisted_options = SrcapyfyApplicationOptions::default().load_file(configuration_path())?;
     let configuration = persisted_options.application_option.clone();
@@ -84,12 +84,16 @@ fn parse_runtime_options() -> Result<CliAction> {
             "--refresh-ip-countries" => {
                 return Ok(CliAction::RefreshIpCountries);
             }
-            "--proxy-server-port"
+            "--server-port"
+            | "--network"
+            | "--entrypoint-root"
+            | "--proxy-server-port"
             | "--current-country"
             | "--cache-max-disk-bytes"
             | "--cache-max-memory-bytes"
             | "--cache-block-size" => {
-                args.next().context("Missing scraper option value")?;
+                args.next()
+                    .with_context(|| format!("Missing value for `{arg}`"))?;
             }
             // Finder passes this process serial number argument when opening a
             // macOS application bundle. It is not an application option.

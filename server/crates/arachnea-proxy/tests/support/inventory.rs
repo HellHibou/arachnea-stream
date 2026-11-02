@@ -124,6 +124,14 @@ impl arachnea_core::persistence::TypedEntityStore<crate::core::ProxyDestinationP
         anyhow::bail!("unexpected batch write")
     }
 
+    async fn replace_where(
+        &self,
+        _: &arachnea_core::persistence::EntityQuery<crate::core::ProxyDestinationPreference>,
+        _: &[crate::core::ProxyDestinationPreference],
+    ) -> AnyResult<()> {
+        anyhow::bail!("unexpected atomic replacement")
+    }
+
     async fn delete(&self, _: &String) -> AnyResult<()> {
         Ok(())
     }

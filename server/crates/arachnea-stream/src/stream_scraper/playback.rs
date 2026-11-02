@@ -120,7 +120,7 @@ impl StreamScraper {
             let service_parameters = self
                 .scraper_agregator
                 .query_collection_parameters(STREAM_SERVICE_GROUP_NAME, resolver.source_id())
-                .unwrap_or(&[]);
+                .unwrap_or_default();
 
             ResolvedStream::Stream(Box::new(
                 resolver
@@ -130,7 +130,7 @@ impl StreamScraper {
                         crate::services::player_resolver::PlayerStreamRequest {
                             resolver: &resolver_id,
                             target: &target,
-                            service_parameters,
+                            service_parameters: &service_parameters,
                             proxy_countries: &proxy_countries,
                         },
                         &self.player_resolver_endpoints,

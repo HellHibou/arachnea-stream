@@ -129,6 +129,11 @@ pub use source_enabled::{
     PersistenceSourceEnabled, ScraperSourceDescriptor, ScraperSourceEnabled,
     SourceEnabledRepository, SourceServiceKey, SourceServiceRecord, TypedSourceEnabledRepository,
 };
+/// Editable service parameter contracts and resolution.
+pub mod service_parameters;
+/// Persistent administrator parameter overrides.
+pub mod service_parameters_store;
+pub use service_parameters_store::{ServiceParameterKey, ServiceParametersRecord};
 /// Complete read-only service catalog loading.
 pub mod service_catalog;
 pub use service_catalog::{

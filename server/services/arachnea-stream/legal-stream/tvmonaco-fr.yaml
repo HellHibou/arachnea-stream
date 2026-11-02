@@ -1,4 +1,7 @@
 id: tvmonaco-fr
+metadata:
+  languages: [fr]
+  content_types: [local_tv]
 title: TVMonaco
 logo: "https://production.content.okast.tv/2116dc08-1959-465d-857f-3619daefb66b/storefront_projects/f8817419-73a4-4c55-85c2-c135542fde09/favicon.2487188FDBBF29917B5E7E76766FD48A7630BF488F54B44F0FAF25B456A87998.fr.png"
 description:
@@ -8,9 +11,9 @@ http:
   mode: direct
 
 # ############################################################################
-# Parameters
+# Constants
 # ############################################################################
-parameters:
+constants:
   - name: base_url
     value: https://videos.tvmonaco.com
     description: "Public OKAST storefront base URL"
@@ -500,6 +503,9 @@ queries:
   - name: service_stream_metadata
     scraper_type: static
     entries:
+      - name: metadata
+        type: object
+        value: "{service_metadata}"
       - name: id
         type: string
         value: "{service_id}"

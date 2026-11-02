@@ -13,18 +13,29 @@ import { resolveAppPath } from '@/services/baseUrl'
 
 const CONFIG_PATH = 'config.json'
 
+/** Metadata filter definitions configured independently for each service group. */
+export interface ServiceFilterDefinition {
+  key: string
+  /** Translation key resolved through the existing locales dictionaries. */
+  label: string
+  /** Optional metadata-value to locale-key mapping; values without a mapping stay unchanged. */
+  value_labels?: Record<string, string>
+}
+
 interface AppConfigState {
   title: string
   serviceStores: string[]
+  serviceFilters: Record<string, ServiceFilterDefinition[]>
 }
 
 /** Validated configuration value. */
 interface ValidatedAppConfig {
   title: string
   serviceStores: string[]
+  serviceFilters: Record<string, ServiceFilterDefinition[]>
 }
 
-const state = ref<AppConfigState>({ title: '', serviceStores: [] })
+const state = ref<AppConfigState>({ title: '', serviceStores: [], serviceFilters: {} })
 const isLoading = ref(false)
 const errorMessage = ref<string | null>(null)
 const loaded = ref(false)
@@ -64,6 +75,7 @@ export function useAppConfig() {
   return {
     title: computed(() => state.value.title),
     serviceStores: computed(() => state.value.serviceStores),
+    serviceFilters: computed(() => state.value.serviceFilters),
     isLoading: readonly(isLoading),
     errorMessage: readonly(errorMessage),
     loaded: readonly(loaded),
@@ -116,7 +128,36 @@ function validateAppConfig(payload: unknown): ValidatedAppConfig {
     serviceStores.push(store)
   }
 
-  return { title: rawTitle.trim(), serviceStores }
+  const serviceFilters: Record<string, ServiceFilterDefinition[]> = {}
+  const rawFilters = payload['service-filters']
+  if (rawFilters !== undefined) {
+    if (!isRecord(rawFilters)) throw new Error('service-filters must be an object.')
+    for (const [store, definitions] of Object.entries(rawFilters)) {
+      if (!Array.isArray(definitions)) throw new Error(`Invalid filters for ${store}.`)
+      const keys = new Set<string>()
+      serviceFilters[store] = definitions.map((definition: unknown) => {
+        if (!isRecord(definition) || typeof definition.key !== 'string' || !definition.key.trim()
+          || keys.has(definition.key)) throw new Error(`Invalid or duplicate filter for ${store}.`)
+        keys.add(definition.key)
+        const label = definition.label
+        if (typeof label !== 'string' || !label.trim()) {
+          throw new Error(`Filter label for ${store}/${definition.key} must be a non-empty translation key.`)
+        }
+        const valueLabels: Record<string, string> = {}
+        if (definition.value_labels !== undefined) {
+          if (!isRecord(definition.value_labels)) throw new Error(`Invalid value_labels for ${store}/${definition.key}.`)
+          for (const [value, translationKey] of Object.entries(definition.value_labels)) {
+            if (typeof translationKey !== 'string' || !translationKey.trim()) {
+              throw new Error(`Value label for ${store}/${definition.key}/${value} must be a non-empty translation key.`)
+            }
+            valueLabels[value] = translationKey.trim()
+          }
+        }
+        return { key: definition.key, label: label.trim(), value_labels: valueLabels }
+      })
+    }
+  }
+  return { title: rawTitle.trim(), serviceStores, serviceFilters }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

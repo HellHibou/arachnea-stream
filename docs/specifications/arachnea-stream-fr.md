@@ -12,7 +12,7 @@ backend. Le YAML doit mettre en forme la réponse selon les structures décrites
 ci-dessous.
 
 Ce document ne décrit que les champs et conventions propres au format stream.
-La structure générale d'un fichier YAML (`id`, `parameters`, `http`, `queries`,
+La structure générale d'un fichier YAML (`id`, `constants`, `parameters`, `http`, `queries`,
 `entries`, `actions`, `shared`, etc.) est documentée dans
 [la spécification YAML commune](arachnea-scrapyfy-fr.md).
 
@@ -24,7 +24,7 @@ Les fichiers YAML sont organisés en sous-dossiers thématiques :
 
 ```
 services/arachnea-stream/
-├── services.json                 # Activation et paramètres par source
+├── services.json                 # Inscription et activation des sources
 ├── legal-stream/                 # Plateformes légales (TF1+, M6 Play, etc.)
 │   ├── m6play-fr.yaml
 │   ├── tf1-fr.yaml
@@ -38,7 +38,7 @@ services/arachnea-stream/
     └── animeultime.yaml
 ```
 
-### 2.1 Paramètres et configuration HTTP
+### 2.1 Constantes, paramètres et configuration HTTP
 
 Chaque source définit ses propres paramètres (`base_url`, clés d'API,
 identifiants de chaîne, limites de pagination). La configuration HTTP peut
@@ -148,6 +148,9 @@ Requête statique. Chaque source retourne exactement une ligne.
     - name: description
       type: object
       value: "{service_description}"
+    - name: metadata
+      type: object
+      value: "{service_metadata}"
     - name: search_themes
       type: string[]
       value:
@@ -162,6 +165,7 @@ Requête statique. Chaque source retourne exactement une ligne.
 | `title` | `string` | oui | Nom affiché (ex: « M6 Play », « TF1+ ») |
 | `logo` | `string` | oui | URL du logo |
 | `description` | `object` | oui | Description multilingue (ex: `{ fr: "…", en: "…" }`) |
+| `metadata` | `object` | non | Tags déclarés à la racine du YAML, ou `{}` |
 | `search_themes` | `string[]` | non | Liste des thèmes disponibles pour filtrer la recherche |
 | `themes` | `string[]` | non | Variante de `search_themes` |
 
@@ -1065,7 +1069,7 @@ description:
 http:
   mode: direct
 
-parameters:
+constants:
   - name: base_url
     value: https://api.example.com
 
@@ -1257,6 +1261,12 @@ mêmes noms de commande.
 | `set-admin-password` | POST | Définit ou change le mot de passe administrateur permanent (Argon2id). Lorsqu’un mot de passe permanent est déjà configuré, le mot de passe actuel est obligatoire ; une valeur absente ou incorrecte renvoie une erreur d’authentification. |
 | `reload` | POST | Valide puis recharge tous les groupes administrables ; chaque runtime applicable est échangé atomiquement. Le corps doit être l’objet JSON vide `{}`. La réponse conserve `{applied, build_error}` pour le premier groupe et ajoute `groups: [{service_store_id, applied, build_error}]` pour tous les groupes. |
 
+Les paramètres HTTP fournis en ligne de commande (`--server-port`, `--network`,
+`--entrypoint-root`) sont masqués individuellement dans le formulaire admin et
+absents des requêtes de sauvegarde. `update-settings` ignore ces champs imposés,
+même explicitement envoyés, et conserve leurs valeurs persistées existantes.
+Les autres paramètres HTTP restent modifiables et sont persistés normalement.
+
 Le rechargement applique les changements d’activation des sources proxy
 (`arachnea-proxies`) et IP-country (`arachnea-ip-countries`), même si toutes les
 sources proxy étaient désactivées au démarrage. La route stable `/proxy` utilise
@@ -1272,3 +1282,105 @@ Les erreurs emploient une forme stable : `{"error":{"code":"<code>","message":"<
 avec des statuts HTTP tels que `400 bad_request`, `401 unauthorized`,
 `403 forbidden`, `404 not_found`, `405 method_not_allowed` et
 `429 rate_limited`.
+
+
+## Métadonnées, filtres et options administrables
+
+Chaque source Stream déclare initialement `metadata: {languages: [fr]}`. Le tag facultatif
+`geo_countries` contient les pays où le service est accessible, sous forme de codes ISO 3166-1
+alpha-2 minuscules (`fr`, `be`, `lu`, `ch`, etc.). Un tag absent ou vide est non renseigné et
+ne signifie pas « disponible partout ». Ne pas déduire les restrictions du nom du service.
+Ces tags ne changent ni le pays du catalogue ni le routage proxy et ne garantissent pas
+la disponibilité de chaque vidéo. Ils sont exposés dans `service_stream_metadata` sous
+`metadata` via `{service_metadata}`, sans seconde déclaration dans la requête.
+
+Les valeurs historiques `parameters` deviennent `constants`, sauf les paramètres éditables :
+`base_url` pour les six sources dark-stream et `country` pour TF1. Les défauts effectifs qui
+étaient dans les manifestes JSON sont maintenant dans le YAML ; les surcharges JSON non vides
+sont refusées. Le schéma complet `label`/`editor` est décrit dans la spécification Scrapyfy.
+TF1 accepte `fr`, `be`, `lu`, `ch` et calcule respectivement `fr-fr`, `fr-be`, `fr-lu`, `fr-ch`.
+Les libellés sont fixes : `France - France`, `Belgium - Belgique`, `Luxembourg - Luxembourg`,
+`Switzerland - Suisse`.
+
+Le catalogue admin expose `metadata`, `has_parameters` et `configuration_error`. Les lignes de services
+affichent les tags entre le titre et la description, avec les libellés localisés des filtres configurés.
+L’interrupteur indique l’activation ; les badges Activé/Désactivé sont supprimés.
+Les boutons d’identifiants et de paramètres sont affichés côte à côte.
+Les logos
+sont calculés à partir des constantes et paramètres enregistrés, avec leurs dépendances et actions.
+Le bouton Options apparaît seulement si des paramètres éditables existent, même pour une source
+désactivée. « Rétablir les valeurs par défaut » restaure le brouillon ; « Enregistrer » confirme
+et supprime les surcharges égales aux défauts YAML actuels. « Annuler » ne persiste rien.
+La sauvegarde et la réinitialisation demandent ensuite le rechargement du runtime existant.
+
+| Opération admin | Méthode HTTP | Contrat |
+|---|---|---|
+| `service-parameters` | GET | `service_store_id`, `service_id` obligatoires ; renvoie `parameters` avec nom, libellé, description, `default_value`, `value`, `has_override`, `editor` |
+| `save-service-parameters` | POST | Même identité et objet `values` ; remplace atomiquement les surcharges après validation des valeurs et des requêtes ; noms inconnus et constantes refusés |
+| `reset-service-parameters` | POST | Même identité ; supprime toutes les surcharges du service après validation des défauts |
+
+Les écritures renvoient `{ "reload_required": true }`. Les mêmes opérations sont enregistrées
+sur les transports REST et Tauri et utilisent les contrôles d’accès admin existants.
+Les paramètres sont enregistrés dans la nouvelle table `arachnea-services-parameters`, dans
+`data/arachnea-services.sqlite3`, sans modifier la table d’activation et d’identifiants.
+
+Dans `front/admin-app/public/config.json`, la section optionnelle `service-filters` associe
+chaque type de service à une liste de tags de recherche :
+
+```json
+{
+  "service-filters": {
+    "arachnea-stream": [
+      {"key": "languages", "label": "services.filters.languages"},
+      {"key": "geo_countries", "label": "services.filters.geo_countries"},
+      {"key": "content_types", "label": "services.filters.content_types",
+       "value_labels": {
+         "local_tv": "services.contentTypes.local_tv",
+         "movies": "services.contentTypes.movies",
+         "series": "services.contentTypes.series",
+         "documentaries": "services.contentTypes.documentaries"
+       }}
+    ]
+  }
+}
+```
+
+`label` est une clé de traduction non vide, résolue par la fonction `t()` existante dans
+`front/admin-app/public/locales/*.json`. Les traductions intégrées à la configuration et les
+libellés littéraux ne sont pas pris en charge. Les options viennent du catalogue complet du groupe ;
+les filtres sont locaux, avec OU entre valeurs d’un tag et ET entre tags et recherche textuelle
+(identifiant, titre, description). Ils sont réinitialisés lors d’un changement de groupe.
+
+### Pays et types de contenu déclarés
+
+Les tags `geo_countries` valent `[be]` pour RTL Play, RTBF Auvio et LN24, et `[fr]` pour
+France TV, M6 Play, Arte, TF1+ et RMC BFM Play. Le tag de disponibilité TF1 reste indépendant
+du paramètre éditable de pays du catalogue. Les autres pays restent non renseignés.
+
+Le tag multivalué `content_types` est déclaré pour toutes les sources Stream :
+
+| Valeur | Libellé français | Sources |
+|---|---|---|
+| `local_tv` | TV locale | TVMonaco, Tele MB, Canal Zoom, Bouké, Télésambre |
+| `movies` et `series` | Films et Séries | Toutes les autres sources, y compris LN24 et les sources dark-stream |
+| `documentaries` | Documentaires | RTL Play, RTBF Auvio, TF1+, M6 Play, France TV, Arte, TV5 MONDE+, Antenne Réunion, RMC BFM Play |
+
+Les documentaires s’ajoutent aux types films et séries. `content_types` est exposé par les
+API de métadonnées et proposé comme filtre admin. Les codes restent stables dans les YAML,
+les réponses API et les critères de filtrage. Le champ facultatif `value_labels` d’un filtre
+associe les valeurs à des clés de traduction `locales/*`, utilisées dans les sélections et
+les tags affichés sur les lignes. Sans correspondance, la valeur brute est affichée.
+
+Les valeurs d’une même métadonnée sont regroupées dans un seul tag, séparées par ` - `
+(par exemple « Contenu : Films - Séries - Documentaires »). À partir du breakpoint
+`md`, chaque combobox occupe deux colonnes de grille, contre quatre pour la recherche.
+Sur les petits écrans, les champs restent empilés et occupent toute la largeur.
+
+### Schéma de persistance des paramètres
+
+`arachnea-services-parameters` contient une ligne par paramètre : clé primaire
+`(service_store_id, source_id, parameter_name)` et colonne chaîne `value`.
+Sauvegarde et réinitialisation remplacent ce périmètre atomiquement. La table est
+ouverte directement, sans migration des anciennes données JSON. Une clé primaire
+existante incompatible est refusée, sans conversion ni suppression de lignes.
+Les contrats admin et le mécanisme de rechargement sont conservés.

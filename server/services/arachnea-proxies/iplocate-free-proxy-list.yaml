@@ -6,9 +6,9 @@ http:
   mode: auto
 
 # ############################################################################
-# Parameters
+# Constants
 # ############################################################################
-parameters:
+constants:
   - name: base_url
     value: https://raw.githubusercontent.com/iplocate/free-proxy-list/refs/heads/main
     description: Base URL used to resolve requests.

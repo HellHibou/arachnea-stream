@@ -65,6 +65,33 @@ impl<E: PersistentEntity> TypedEntityStore<E> for MemoryEntityStore<E> {
         }
         Ok(())
     }
+    async fn replace_where(&self, query: &EntityQuery<E>, entities: &[E]) -> anyhow::Result<()> {
+        super::replacement_documents(&self.config, query, entities)?;
+        let mut records = self
+            .records
+            .write()
+            .map_err(|_| anyhow::anyhow!("memory entity store lock was poisoned"))?;
+        let removed = records
+            .iter()
+            .filter_map(|(key, entity)| {
+                match encode(&self.config, entity)
+                    .and_then(|document| matches(&self.config, &document, query))
+                {
+                    Ok(true) => Some(Ok(key.clone())),
+                    Ok(false) => None,
+                    Err(error) => Some(Err(error)),
+                }
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        for key in removed {
+            records.remove(&key);
+        }
+        for entity in entities {
+            records.insert(entity.key(), entity.clone());
+        }
+        Ok(())
+    }
+
     async fn delete(&self, key: &E::Key) -> anyhow::Result<()> {
         self.records
             .write()

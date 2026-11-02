@@ -141,25 +141,37 @@ impl ScraperAgregator {
                 "parsed scraper query collection source"
             );
 
-            // Merge parameters: start with YAML's, override with source-specific if provided
-            if !source.parameters.is_empty() {
-                let mut param_map: HashMap<String, ScraperQueryCollectionParameter> = raw
-                    .parameters
-                    .into_iter()
-                    .map(|p| (p.name.clone(), p))
-                    .collect();
-                for param in source.parameters {
-                    param_map.insert(param.name.clone(), param);
-                }
-                raw.parameters = param_map.into_values().collect();
-                tracing::debug!(target: "arachnea_scrapyfy::scrapyfy::scraper_agregator",
-                    group_name,
-                    source_index,
-                    source_id = %raw.id,
-                    merged_parameter_count = raw.parameters.len(),
-                    "merged scraper query collection source parameter overrides"
-                );
-            }
+            super::super::service_parameters::validate_definitions(&raw.constants, &raw.parameters)
+                .map_err(|error| {
+                    anyhow::anyhow!(
+                        "Invalid configuration in {}: {error:#}",
+                        source_path.display()
+                    )
+                })?;
+            let key = super::super::SourceServiceKey::new(group_name, &raw.id);
+            let overrides = if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                // Typed SQLite reads complete on Tokio's blocking pool; this also
+                // supports current-thread runtimes without block_in_place panics.
+                let _guard = handle.enter();
+                futures::executor::block_on(
+                    super::super::service_parameters_store::load_parameter_values(
+                        self.service_parameters.as_ref(),
+                        &key,
+                    ),
+                )?
+            } else {
+                tokio::runtime::Runtime::new()?.block_on(
+                    super::super::service_parameters_store::load_parameter_values(
+                        self.service_parameters.as_ref(),
+                        &key,
+                    ),
+                )?
+            };
+            super::super::service_parameters::apply_overrides(&mut raw.parameters, &overrides)
+                .map_err(|error| anyhow::anyhow!("Invalid stored parameters for {group_name}/{}; reset them in administration: {error:#}", raw.id))?;
+            let effective_hash = arachnea_core::crypt::hash62_64(
+                serde_yaml::to_string(&(source_yaml_hash, &raw.parameters))?.as_bytes(),
+            );
 
             let mut collection: ScraperQueryCollection = raw.try_into().map_err(|error| {
                 anyhow::anyhow!(
@@ -167,7 +179,7 @@ impl ScraperAgregator {
                     source_path.display()
                 )
             })?;
-            collection.set_yaml_hash(source_yaml_hash);
+            collection.set_yaml_hash(effective_hash);
             collection.set_runtime_handles_with_session_store(
                 self.proxy_handle.clone(),
                 self.local_country.clone(),

@@ -22,6 +22,12 @@ pub struct ScraperServiceCatalogEntry {
     pub description: std::collections::HashMap<String, String>,
     /// Optional account requirements.
     pub credentials: Option<ScraperServiceCredentials>,
+    /// Optional service-specific tag values.
+    pub metadata: std::collections::HashMap<String, Vec<String>>,
+    /// Values owned exclusively by the YAML.
+    pub constants: Vec<super::ScraperQueryCollectionParameter>,
+    /// Editable definitions and YAML defaults.
+    pub parameters: Vec<super::ScraperQueryCollectionParameter>,
 }
 
 /// Failure reason for one catalog source.
@@ -98,6 +104,9 @@ pub fn load_service_catalog(
                 logo: raw.logo,
                 description: raw.description,
                 credentials: raw.credentials,
+                metadata: raw.metadata,
+                constants: raw.constants,
+                parameters: raw.parameters,
             })
         })
         .collect()
@@ -190,6 +199,9 @@ pub fn load_service_catalog_detailed(
             logo: raw.logo,
             description: raw.description,
             credentials: raw.credentials,
+            metadata: raw.metadata,
+            constants: raw.constants,
+            parameters: raw.parameters,
         });
     }
 

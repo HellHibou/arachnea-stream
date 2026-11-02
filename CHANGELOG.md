@@ -83,6 +83,7 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Added atomic primary-key-scope replacement to SQLite, memory and file typed stores. File mutations now serialize snapshot persistence before publishing cached state.
 - Added two-level SQLite persistence: `SqliteStoreConfig` / `SqliteDatabase` own a physical database and shared connection, while `PersistenceTableConfig` / typed table views manage independent entity schemas. `PersistenceStoreConfig` remains a compatibility alias for table configuration.
 
 #### Changed
@@ -316,6 +317,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Populated availability-country tags for the specified Belgian/French services and added content-type metadata for every Stream source: local TV, movies/series, and documentaries on the requested providers. TF1 availability remains independent of its editable catalog country.
+- Added optional service metadata tags exposed by `service_stream_metadata`, with initial French video-language tags for every source, editable dark-stream base URLs, and TF1 country selection including Switzerland (`fr-ch`) with English/French labels. Administrator overrides use the new `arachnea-services-parameters` table in the existing services SQLite store.
 - Added the twelve missing schema-v1 source-check contracts under `server/crates/arachnea-stream/tests/fixtures/services/`, covering AnimeUltime, Coflix, FrenchAnimes, Papadustream V2, Wiflix, Antenne Réunion, Bouke, Canal Zoom, RMC BFM Play, TeleMB, Télésambre and TV5MONDE+. Each contract mirrors its production YAML path and declares only the supported operations reachable from that source's public navigation. The local metadata check now discovers and validates all 21 configurations; live navigation, search and entry steps remain unexecuted.
 
 - Published `docs/specifications/arachnea-stream-source-checks-en.md` as the complete schema-v1 service-test authoring guide for humans and AI agents. Commands now appear first, followed by an existing full contract, exact schemas, navigation recipes, null/type rules, troubleshooting and an author checklist. Renamed the previous guide and updated inbound links; runtime behavior and fixture contents are unchanged.
@@ -372,6 +375,7 @@ All notable changes to the server workspace are recorded here.
 
 #### Fixed
 
+- Fixed the executable’s second argument scan rejecting values supplied to `--server-port`, `--network`, and `--entrypoint-root` as unknown arguments. Standard option/value pairs such as `--server-port 8080 --network local` now work.
 - Initialize application data before constructing resolver test fixtures so they also run in isolation, and add an atomic suffix to prevent temporary-directory collisions between concurrent fixtures. Update the existing home-entry test helper to traverse nested subsections, matching current Anime-Sama home output without changing production scraping.
 - Restore RMC home categories by selecting the semantic category rail instead of its obsolete provider ID, and correct its section-check reference to an actual mosaic tile. Emit TVMonaco player resolvers as single objects and discover the stream target from the current player. Include M6 editorial programme lists in recommendation extraction while retaining invalid-card diagnostics. Targeted live source checks pass for all three sources; access refusals and transport failures remain separate follow-ups.
 - Restore AnimeUltime's "Top animes", "Top dramas" and "Top tokusatsu" home sections by aligning their title and entry selectors with the DOM after statistics-block preprocessing. Existing section IDs and output shapes are preserved.
@@ -379,6 +383,7 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Open the normalized service parameter table directly, without data migration or automatic deletion of historical JSON records. Incompatible existing primary keys are rejected by schema validation.
 - Service integration checks now continue across missing/invalid contracts and source execution failures. Missing contracts receive explicit `not_tested` results; recoverable source panics are isolated. The final summary lists selected/attempted/passed/failed/untested/nonapplicable counts and each source’s result and reason, before any aggregate failure for errors or incomplete coverage. Metadata discovery uses the same per-source preparation isolation.
 
 - Exclude operations explicitly absent through source-check `capabilities.not_expected` from result-table rows and severity totals. Add a separate status column: production operations without test scenarios remain warnings with `Skip` status and an explicit test-not-implemented message, including operations unsupported by schema v1. Missing contracts use `Skip`/`Warning`; source-level outcomes and aggregate failure rules are preserved.
@@ -498,6 +503,7 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Added YAML `constants`, validated editable `parameters` (`regex`/`select`), cross-section dependency resolution, atomic per-service override storage, and authenticated administration read/save/reset operations. Logos and player resolvers share effective configuration; cache identities include editable values. Nonempty legacy manifest parameter overrides are rejected with migration guidance. Nested string arrays in static JSON objects now retain their array shape.
 - Extended test-support assertion reports with observed JSON kinds at invalid paths, without recording field values or provider response bodies.
 
 - Added provider-independent test-support helpers for strict YAML decoding, public JSON path traversal, useful-object minima, optional type assertions and bounded upstream input selection. No production schema or API changes.
@@ -523,6 +529,7 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Service parameter overrides now use one `(service_store_id, source_id, parameter_name, value)` row per parameter instead of a per-source JSON document. Source saves/resets atomically replace their row scope while keeping administration DTOs unchanged.
 - Migrate in-process HTTP proxy configuration to the boxed public variant. Preserve existing core clone points without intermediate boxes; configuration clones now allocate a box for the in-process variant. YAML and query contracts are unchanged.
 
 - Breaking Rust execution API change: added borrowed `ActionResponse` and `ScraperAggregationOptions` inputs to the fallible action and aggregated-query methods. Migrated all workspace callers and documented the argument mapping; the legacy action wrapper, YAML contracts, error handling, ordering and cache behavior are preserved without new allocations.
@@ -566,6 +573,9 @@ All notable changes to the server workspace are recorded here.
 
 #### Fixed
 
+- Administration updates now ignore HTTP port, network mode and entrypoint root fields pinned by command-line options, preserving their existing persisted values while allowing other settings to be saved.
+
+- Documented all new restricted-visibility service-parameter operations with Rustdoc arguments, errors and persistence effects; clarified accessor/store contracts and made the shared server rules explicit for every public visibility.
 - Legacy query checks now reject empty or wholly unusable extraction and accept partially present optional fields. Explicit expectation files reject malformed declarations; conflicting required/optional fields in historical RTL Play and TF1 expectations are now optional only.
 
 - Corrected and reactivated the existing ignored `resolve_request_headers` doctest with public imports, complete local inputs, the supported JSON pointer and the actual map return type. All 17 workspace doctests pass; runtime behavior is unchanged.
@@ -648,6 +658,24 @@ All notable changes to the server workspace are recorded here.
 - The `rquest` engine now applies the configured total request timeout to loopback-proxy clients as well as ordinary clients, including response body collection. Previously supplied proxy clients skipped the timeout configuration and could hang after a successful tunnel connection.
 - The `chaser-cf` engine builds its default Chromium flags with `ChaserConfig::add_extra_arg` instead of `with_extra_args`. The latter *replaces* the whole flag set, so the defaults appended after `ChaserConfig::from_env()` silently discarded the flags that function had just parsed from `CHASER_EXTRA_ARGS`, making the documented override a no-op — a container passing `--no-sandbox` still started Chromium without it and hit `No usable sandbox!`.
 
+### <u>front-admin</u>
+
+#### Added
+
+- Added content-type filtering and localized metadata-value labels through optional `value_labels` translation-key mappings shared by filter options and service-row tags.
+- Added configurable per-service-group metadata filters and text search, plus an Options dialog for YAML-declared editable parameters. The dialog validates inputs, shows bilingual TF1 country labels, restores YAML defaults in a cancellable draft, and requests runtime reload after saving. Service logos now reflect saved constants and parameters.
+
+#### Fixed
+
+- Shortened English metadata filter and service-tag labels to “Countries”, “Languages”, and “Content”, matching the concise French labels.
+- Shortened French metadata filter and service-tag labels to “Pays”, “Langues”, and “Contenu”.
+- Grouped each service metadata field into one tag with localized values separated by ` - `, and reduced desktop filter dropdown widths to half the search field width.
+- HTTP port, network mode and entrypoint root are now individually hidden and omitted from save requests when pinned by command-line options; the server card is hidden when all three fields are pinned.
+
+- Service rows now show metadata tags between title and description, omit redundant enabled/disabled badges, and display credential and parameter buttons side by side.
+- Service metadata filter labels now use locale dictionary keys resolved through the existing translation system; configuration no longer embeds language dictionaries or literal labels.
+
+
 ### <u>front-public</u>
 
 #### Fixed
@@ -701,6 +729,7 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Preserved generic service metadata tags while normalizing public service catalog responses.
 - Responsive sidebar navigation (lot 2D): ordered custom homes with create/edit/manage actions, Lives and capability-filtered collapsible sources without provider-home preloading. Source expansion persists locally; focus/visibility refresh preserves independent-view definitions. Narrow screens use a modal drawer with keyboard containment, Escape/backdrop dismissal and trigger focus restoration; fullscreen hides navigation. The brand retains `/`, duplicate toolbar Lives/source selectors are removed, search/settings/back remain, and route changes clear stale background candidates.
 - Custom home editor (lot 2C): detached creation/rename/repair drafts, selected-source content picker, optional title merging and bookmarks, ordered banners/shortcuts/blocks, read-only previews, atomic revision-checked saves and navigation reordering, confirmed deletion and conflict-preserving errors. Edition-only additions target service banner collections (excluding custom banners), categories including custom-home shortcuts, and source sections through explicit destination/contribution choices. Permanent sidebar remains deferred.
 - Custom home foundations (lot 2A): versioned declarative types, strict runtime validation, additive `custom_homes` IndexedDB CRUD with atomic revision checks and non-destructive invalid-record diagnostics, and selected-source discovery without merging or deferred hydration. Source-owned reference identities distinguish provider keys, descriptor fallbacks, fragile labels and collisions. Composition and editor integration remain for subsequent lots.
@@ -736,6 +765,7 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Documented the approved source-parameter persistence correction: one row per parameter, atomic scope replacement, and direct schema opening without legacy data migration.
 - Documented the three remaining long-signature execution interface migrations, including two public Scrapyfy APIs and Stream's internal resolver trait. The proposal uses borrowed parameter structures and awaits confirmation; the eight-diagnostic inventory remains unchanged.
 - Documented a four-diagnostic public-constructor migration proposal with explicit Rust API compatibility tradeoffs, unchanged YAML/runtime requirements and validation steps. Implementation awaits confirmation; the current 12-diagnostic inventory is unchanged.
 - Documented the next seven-function private Proxy/Scrapyfy argument-grouping proposal, its ownership/feature-gate invariants and validation plan in the Rust validation report. Implementation awaits confirmation; runtime code and the 23-diagnostic inventory are unchanged.

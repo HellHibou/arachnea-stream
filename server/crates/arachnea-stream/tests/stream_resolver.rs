@@ -84,7 +84,7 @@ fn html_fallback_fetches_once_detects_service_and_reuses_input_html() {
 
     let html_resolver = r#"
 id: html-resolver
-parameters:
+constants:
   - name: url
     value: ""
   - name: html
@@ -289,7 +289,7 @@ fn html_fallback_returns_embed_link_when_no_yaml_recognizes_document() {
 
     let non_matching_resolver = r#"
 id: non-matching
-parameters:
+constants:
   - name: html
     value: ""
 queries:
@@ -328,7 +328,7 @@ fn html_fallback_follows_simple_js_redirect_before_detection() {
 
     let html_resolver = r#"
 id: html-resolver
-parameters:
+constants:
   - name: url
     value: ""
   - name: html
@@ -404,7 +404,7 @@ fn html_fallback_does_not_follow_branchless_non_literal_js_assignment() {
 
     let non_matching_resolver = r#"
 id: non-matching
-parameters:
+constants:
   - name: html
     value: ""
 queries:

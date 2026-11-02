@@ -26,9 +26,8 @@ use super::register_admin_operation;
 use super::{AdminRuntimeAdapter, AdminServiceGroupConfig, AdminState, AdminStateBuild};
 use crate::scrapyfy::{
     load_service_catalog_detailed, ScraperAdminSettings, ScraperAgregator,
-    ScraperQueryCollectionParameter, ScraperServiceCatalogEntry, ScraperServiceCredentials,
-    SourceServiceRecord, DEFAULT_CACHE_BLOCK_SIZE_KIB, DEFAULT_CACHE_MAX_DISK_KIB,
-    DEFAULT_CACHE_MAX_MEMORY_KIB,
+    ScraperServiceCatalogEntry, ScraperServiceCredentials, SourceServiceRecord,
+    DEFAULT_CACHE_BLOCK_SIZE_KIB, DEFAULT_CACHE_MAX_DISK_KIB, DEFAULT_CACHE_MAX_MEMORY_KIB,
 };
 
 use crate::ADMIN_APPLY_SETTINGS_DELAY as APPLY_SETTINGS_DELAY;
@@ -515,31 +514,6 @@ fn localized_description(
         .cloned()
 }
 
-/// Resolves the service logo URL from the template and known parameters.
-///
-/// Returns `None` when the template contains a placeholder that cannot be
-/// resolved from the available parameters.
-///
-/// # Arguments
-///
-/// * `template` - Optional logo template resolved against configured collection parameters.
-/// * `parameters` - Configured collection parameter names and values available for template replacement.
-fn resolve_logo(
-    template: Option<&str>,
-    parameters: &[ScraperQueryCollectionParameter],
-) -> Option<String> {
-    let template = template?;
-    let mut resolved = template.to_string();
-    for parameter in parameters {
-        resolved = resolved.replace(&format!("{{{}}}", parameter.name), &parameter.value);
-    }
-    if resolved.contains('{') {
-        None
-    } else {
-        Some(resolved)
-    }
-}
-
 /// Masks a stored login, keeping the first character.
 ///
 /// # Arguments
@@ -585,11 +559,33 @@ pub(crate) async fn op_services(
                 .ok()
                 .flatten();
 
+            let key = state.source_key(&group.service_store_id, &entry.source.id);
+            let overrides = crate::scrapyfy::service_parameters_store::load_parameter_values(
+                state.service_parameters.as_ref(),
+                &key,
+            )
+            .await
+            .map_err(admin_err)?;
+            let effective = parameters::effective_values(&entry, Some(&overrides));
+            let configuration_error = effective.as_ref().err().map(|error| format!("{error:#}"));
+            let logo = effective.ok().and_then(|values| {
+                entry
+                    .logo
+                    .as_ref()
+                    .map(|logo| {
+                        crate::scrapyfy::query_helpers::replace_template_placeholders(logo, &values)
+                            .0
+                    })
+                    .filter(|logo| !logo.contains('{'))
+            });
             services.push(AdminServiceEntry {
                 service_store_id: group.service_store_id.clone(),
                 id: entry.source.id.clone(),
                 title: entry.title.clone(),
-                logo: resolve_logo(entry.logo.as_deref(), &entry.source.parameters),
+                logo,
+                metadata: entry.metadata.clone(),
+                has_parameters: !entry.parameters.is_empty(),
+                configuration_error,
                 description: localized_description(&entry.description, requested_lang),
                 credentials: entry.credentials.as_ref().map(|declared| CredentialInfo {
                     required: declared.required,
@@ -906,12 +902,37 @@ pub fn register_admin_service(
             manifest_path: service.json_path.clone(),
         })
         .collect();
-    let state = AdminState::build(settings, groups, source_enabled, adapter, cli_scraper)?;
+    let state = AdminState::build(
+        settings,
+        groups,
+        source_enabled,
+        scraper_agregator.service_parameters(),
+        adapter,
+        cli_scraper,
+    )?;
 
     register_admin_operation(controler, &state.state, "status", op_status);
     register_admin_operation(controler, &state.state, "login", op_login);
     register_admin_operation(controler, &state.state, "logout", op_logout);
     register_admin_operation(controler, &state.state, "services", op_services);
+    register_admin_operation(
+        controler,
+        &state.state,
+        "service-parameters",
+        parameters::op_parameters,
+    );
+    register_admin_operation(
+        controler,
+        &state.state,
+        "save-service-parameters",
+        parameters::op_save_parameters,
+    );
+    register_admin_operation(
+        controler,
+        &state.state,
+        "reset-service-parameters",
+        parameters::op_reset_parameters,
+    );
     register_admin_operation(
         controler,
         &state.state,
@@ -961,3 +982,5 @@ pub fn register_admin_service(
 
 mod settings;
 use settings::*;
+
+mod parameters;

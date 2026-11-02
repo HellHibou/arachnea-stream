@@ -249,7 +249,7 @@ Ajouter aussi `input_html: "{html}"` à la requête HTML `resolve_stream`, ainsi
 que cette valeur par défaut de collection avant `queries` :
 
 ```yaml
-parameters:
+constants:
   - name: html
     value: ""
 ```

@@ -3,52 +3,17 @@
 use super::*;
 
 impl ScraperQueryCollection {
-    /// Process all collection parameters sequentially in YAML declaration order.
-    ///
-    /// For each parameter:
-    /// 1. Resolve `{placeholder}` references using already-resolved parameters.
-    /// 2. Apply its actions (e.g. map) to transform the resolved value.
-    ///
-    /// This ensures that a parameter defined later in the YAML file can reference
-    /// an earlier parameter's final (action-processed) value.
+    /// Resolves constants and parameters by dependency before applying their actions.
     ///
     /// # Arguments
-    ///
-    /// * `parameters` - Collection-level parameters to validate and resolve.
+    /// * `parameters` - Combined YAML constants and editable values.
     ///
     /// # Errors
-    ///
-    /// Returns an error if a parameter name is empty or if duplicate names exist.
+    /// Returns an error for empty/duplicate names or cyclic dependencies.
     pub(super) fn build_parameter_defaults(
         parameters: &[ScraperQueryCollectionParameter],
     ) -> Result<HashMap<String, String>> {
-        let mut resolved = HashMap::new();
-
-        for parameter in parameters {
-            let (parameter_name, mut current_value) = parameter.validate_and_normalize()?;
-
-            // 1. Resolve {placeholders} using already-processed parameters
-            let (resolved_value, _) = replace_template_placeholders(&current_value, &resolved);
-            current_value = resolved_value;
-
-            // 2. Apply actions in order on the resolved value
-            let mut values = vec![current_value];
-            for action in &parameter.actions {
-                values = action.apply(&None, values, &resolved, "", None, None);
-            }
-
-            // Take the first value after all actions
-            let final_value = values.into_iter().next().unwrap_or_default();
-
-            if resolved
-                .insert(parameter_name.clone(), final_value)
-                .is_some()
-            {
-                anyhow::bail!("Duplicate collection parameter: {}", parameter_name);
-            }
-        }
-
-        Ok(resolved)
+        super::super::service_parameters::resolve_values(parameters)
     }
 
     /// Builds service metadata defaults from the collection identity and description.

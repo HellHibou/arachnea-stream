@@ -464,6 +464,44 @@ where
         });
         task.await.map_err(join_error)?
     }
+    async fn replace_where(&self, query: &EntityQuery<E>, entities: &[E]) -> anyhow::Result<()> {
+        let documents = super::typed_store::replacement_documents(&self.config, query, entities)?;
+        let predicates = query.predicates().to_vec();
+        let database = self.database.clone();
+        let table = self.table.clone();
+        let config = self.config.clone();
+        tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+            let mut connection = database.connection.lock().map_err(|_| lock_poisoned())?;
+            let transaction = connection.transaction()?;
+            let clauses = predicates
+                .iter()
+                .enumerate()
+                .map(|(index, (name, _))| format!("\"{name}\" = ?{}", index + 1))
+                .collect::<Vec<_>>();
+            let values = predicates
+                .iter()
+                .map(|(_, value)| to_sql_value(value))
+                .collect::<anyhow::Result<Vec<_>>>()?;
+            let scope = if clauses.is_empty() {
+                String::new()
+            } else {
+                format!(" WHERE {}", clauses.join(" AND "))
+            };
+            transaction.execute(
+                &format!("DELETE FROM \"{table}\"{scope}"),
+                rusqlite::params_from_iter(values),
+            )?;
+            for (_, document) in documents {
+                insert_entity(&transaction, &table, &config.schema, &document)?;
+            }
+            transaction
+                .commit()
+                .map_err(|error| anyhow::anyhow!("failed to commit sqlite replacement: {error}"))
+        })
+        .await
+        .map_err(join_error)?
+    }
+
     async fn delete(&self, key: &E::Key) -> anyhow::Result<()> {
         let connection = self.database.connection.clone();
         let table = self.table.clone();

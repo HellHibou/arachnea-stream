@@ -719,6 +719,17 @@ fn json_value_to_node(
             vec![value],
             forced_type.unwrap_or(ScraperOutputType::String),
         )),
+        serde_json::Value::Array(values)
+            if forced_type.is_none() && values.iter().all(serde_json::Value::is_string) =>
+        {
+            Ok(ScraperDataNode::from_values_typed(
+                values
+                    .into_iter()
+                    .filter_map(|value| value.as_str().map(str::to_string))
+                    .collect(),
+                ScraperOutputType::StringArray,
+            ))
+        }
         serde_json::Value::Array(values) => {
             let mut node = ScraperDataNode::default();
             node.set_self_output_type(forced_type.unwrap_or(ScraperOutputType::ObjectArray));

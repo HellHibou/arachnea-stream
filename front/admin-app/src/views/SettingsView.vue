@@ -31,6 +31,13 @@ const port = ref<number | null>(null)
 const networkMode = ref<string>('private')
 const entrypointRoot = ref('')
 
+const editableHttpSettings = computed(() => ({
+  port: !!settings.value && settings.value.server_port_source !== 'command_line',
+  network: !!settings.value && settings.value.network_mode_source !== 'command_line',
+  root: !!settings.value && settings.value.entrypoint_root_source !== 'command_line',
+}))
+const hasEditableHttpSettings = computed(() => Object.values(editableHttpSettings.value).some(Boolean))
+
 const currentCountry = ref('')
 
 /** Display units for the cache size fields, as multiples of one K (kilobyte). */
@@ -261,7 +268,7 @@ async function handleSaveSettings(): Promise<void> {
   }
 
   // The popup variant only submits the application settings; the full page
-  // submits the server settings too (empty strings / zero clear overrides).
+  // submits only server settings that are not pinned by the command line.
   // Cache values are sent in K (kilobytes); an edited-but-empty field sends
   // `0` to clear the override.
   const cacheChanges = {
@@ -272,22 +279,24 @@ async function handleSaveSettings(): Promise<void> {
   const request = popupMode.value
     ? { current_country: country, ...cacheChanges }
     : (() => {
-        if (port.value && (port.value < 1 || port.value > 65535)) {
+        if (editableHttpSettings.value.port && port.value && (port.value < 1 || port.value > 65535)) {
           localError.value = t('settings.portInvalid')
           return null
         }
 
         const root = entrypointRoot.value.trim()
-        if (root && (root.startsWith('/') || root.split('/').some((segment) => !segment))) {
+        if (editableHttpSettings.value.root && root && (root.startsWith('/') || root.split('/').some((segment) => !segment))) {
           localError.value = t('settings.rootInvalid')
           return null
         }
 
         return {
-          server_port: port.value ?? undefined,
-          network_mode: networkMode.value as 'local' | 'private' | 'public',
+          ...(editableHttpSettings.value.port ? { server_port: port.value ?? undefined } : {}),
+          ...(editableHttpSettings.value.network
+            ? { network_mode: networkMode.value as 'local' | 'private' | 'public' }
+            : {}),
           // An explicit empty string tells the backend to clear the persisted root.
-          entrypoint_root: root,
+          ...(editableHttpSettings.value.root ? { entrypoint_root: root } : {}),
           current_country: country,
           ...cacheChanges,
         }
@@ -383,14 +392,14 @@ onMounted(() => {
             {{ t('settings.save') }}
           </v-btn>
         </v-row>
-        <v-card v-if="!popupMode" variant="outlined" class="mb-6">
+        <v-card v-if="!popupMode && hasEditableHttpSettings" variant="outlined" class="mb-6">
           <v-card-title>{{ t('settings.serverGroup') }}</v-card-title>
           <v-card-text>
-            <v-text-field v-model.number="port" :label="t('settings.serverPort')" :placeholder="t('settings.serverPortPlaceholder')" type="number" variant="outlined" :hint="settings ? sourceHint(settings.server_port_source) : undefined" persistent-hint />
-            <v-select v-model="networkMode" :label="t('settings.networkMode')" :items="networkModes" variant="outlined" class="mt-4" :hint="settings ? sourceHint(settings.network_mode_source) : undefined" persistent-hint />
-            <v-alert v-if="networkMode === 'public'" type="warning" variant="tonal" class="mt-2" :text="t('settings.publicHttpWarning')" />
-            <v-alert v-if="networkMode === 'local'" type="info" variant="tonal" class="mt-2" :text="t('settings.localModeWarning')" />
-            <v-text-field v-model="entrypointRoot" :label="t('settings.entrypointRoot')" :placeholder="t('settings.entrypointRootPlaceholder')" variant="outlined" class="mt-4" :hint="settings ? sourceHint(settings.entrypoint_root_source) : undefined" persistent-hint />
+            <v-text-field v-if="editableHttpSettings.port" v-model.number="port" :label="t('settings.serverPort')" :placeholder="t('settings.serverPortPlaceholder')" type="number" variant="outlined" :hint="settings ? sourceHint(settings.server_port_source) : undefined" persistent-hint />
+            <v-select v-if="editableHttpSettings.network" v-model="networkMode" :label="t('settings.networkMode')" :items="networkModes" variant="outlined" class="mt-4" :hint="settings ? sourceHint(settings.network_mode_source) : undefined" persistent-hint />
+            <v-alert v-if="editableHttpSettings.network && networkMode === 'public'" type="warning" variant="tonal" class="mt-2" :text="t('settings.publicHttpWarning')" />
+            <v-alert v-if="editableHttpSettings.network && networkMode === 'local'" type="info" variant="tonal" class="mt-2" :text="t('settings.localModeWarning')" />
+            <v-text-field v-if="editableHttpSettings.root" v-model="entrypointRoot" :label="t('settings.entrypointRoot')" :placeholder="t('settings.entrypointRootPlaceholder')" variant="outlined" class="mt-4" :hint="settings ? sourceHint(settings.entrypoint_root_source) : undefined" persistent-hint />
           </v-card-text>
         </v-card>
         <v-card variant="outlined" class="mb-6">

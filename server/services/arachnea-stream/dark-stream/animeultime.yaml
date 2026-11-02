@@ -1,4 +1,7 @@
 id: animeultime
+metadata:
+  languages: [fr]
+  content_types: [movies, series]
 title: Anime Ultime
 logo: "{base_url}/favicon.ico"
 description:
@@ -8,13 +11,17 @@ http:
 
 
 # ############################################################################
-# Parameters
+# Constants and editable parameters
 # ############################################################################
 parameters:
   - name: base_url
     value: http://www.anime-ultime.net
     description: "Base URL — update on domain change"
-
+    label: Base URL
+    editor:
+      type: regex
+      pattern: '^https?://[^\s/?#]+(?:/[^\s?#]*)?$'
+      message: Enter an absolute HTTP(S) URL without query, fragment or trailing slash.
 
 # ############################################################################
 # Shared structs
@@ -94,6 +101,9 @@ queries:
   - name: service_stream_metadata
     scraper_type: static
     entries:
+      - name: metadata
+        type: object
+        value: "{service_metadata}"
       - name: id
         type: string
         value: "{service_id}"

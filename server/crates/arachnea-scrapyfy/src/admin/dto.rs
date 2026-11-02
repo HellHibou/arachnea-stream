@@ -47,6 +47,12 @@ pub struct AdminServiceEntry {
     pub credentials: Option<CredentialInfo>,
     /// True when the YAML file is currently missing or invalid.
     pub unavailable: bool,
+    /// Generic metadata tags declared by the service.
+    pub metadata: std::collections::HashMap<String, Vec<String>>,
+    /// Whether this service declares at least one editable parameter.
+    pub has_parameters: bool,
+    /// Invalid stored parameters remain visible and can be reset in administration.
+    pub configuration_error: Option<String>,
 }
 
 /// One source that failed to load, with its error context.
@@ -148,7 +154,9 @@ pub struct SettingsResponse {
 ///
 /// Absent fields keep their current value. An empty `entrypoint_root` clears
 /// the persisted root, as does an empty `current_country` or a zero cache
-/// size. Cache sizes are expressed in K (kilobytes).
+/// size. Cache sizes are expressed in K (kilobytes). HTTP port, network and
+/// root fields pinned by command-line options are ignored without changing
+/// their persisted values.
 #[derive(Debug, Default, Deserialize)]
 pub struct UpdateSettingsRequest {
     /// New REST server port.
@@ -324,3 +332,56 @@ pub struct ServicesRequest {
 /// Empty body used by operations that take no specific input.
 #[derive(Debug, Default, Deserialize, Serialize)]
 pub struct AdminEmptyRequest {}
+
+/// Namespaced identity for reading or resetting service parameters.
+#[derive(Deserialize)]
+pub struct ServiceParametersRequest {
+    /// Group owning the service.
+    pub service_store_id: String,
+    /// Exact source identifier.
+    pub service_id: String,
+}
+
+/// Complete editable values submitted by the administration dialog.
+#[derive(Deserialize)]
+pub struct SaveServiceParametersRequest {
+    /// Group owning the service.
+    pub service_store_id: String,
+    /// Exact source identifier.
+    pub service_id: String,
+    /// Raw values; YAML defaults are removed from persistence.
+    pub values: std::collections::HashMap<String, String>,
+}
+
+/// One editable parameter and its saved value.
+#[derive(Serialize)]
+pub struct AdminServiceParameter {
+    /// Template identifier.
+    pub name: String,
+    /// Human-readable field label.
+    pub label: String,
+    /// Optional editor help.
+    pub description: Option<String>,
+    /// Current raw YAML default.
+    pub default_value: String,
+    /// Saved raw override or YAML default.
+    pub value: String,
+    /// Whether the saved value differs from the YAML default.
+    pub has_override: bool,
+    /// Text validation or closed selection contract.
+    pub editor: crate::scrapyfy::service_parameters::ParameterEditor,
+}
+
+/// Service parameter editor contents, independent of service activation.
+#[derive(Serialize)]
+pub struct ServiceParametersResponse {
+    /// Ordered editable definitions.
+    pub parameters: Vec<AdminServiceParameter>,
+}
+
+/// Persisted configuration needs an explicit runtime reload.
+#[derive(Serialize)]
+pub struct ServiceParametersSavedResponse {
+    /// True after a successful save or reset.
+    pub reload_required: bool,
+}

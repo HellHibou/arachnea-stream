@@ -1,4 +1,7 @@
 id: antennereunion-fr
+metadata:
+  languages: [fr]
+  content_types: [movies, series, documentaries]
 title: "Antenne Réunion"
 logo: "https://antennereunion-production.eu-west-3.ancdn.tv/configuration/HadCogoctandsxEDEsdufOcagidOad/data/images/b6f24743b9bda84965732853163e52b0979129872630db4b3940689e003fe512.png"
 description:
@@ -12,7 +15,7 @@ http:
   mode: direct
   user_agent_profile: firefox
 
-parameters:
+constants:
   - name: base_url
     value: "https://proxies.antennereunion-production.eu-west-3.alphanetworks.tv"
   - name: cdn_base_url
@@ -282,6 +285,9 @@ queries:
   - name: service_stream_metadata
     scraper_type: static
     entries:
+      - name: metadata
+        type: object
+        value: "{service_metadata}"
       - name: id
         type: string
         value: "{service_id}"

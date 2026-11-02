@@ -1,4 +1,7 @@
 id: papadustream-v2
+metadata:
+  languages: [fr]
+  content_types: [movies, series]
 title: PapaDuStream v2
 logo: "{base_url}/templates/papadustream2/images/favicon1.png"
 description:
@@ -10,7 +13,13 @@ parameters:
   - name: base_url
     value: https://papadustream.boo
     description: "Base URL — update on domain change"
+    label: Base URL
+    editor:
+      type: regex
+      pattern: '^https?://[^\s/?#]+(?:/[^\s?#]*)?$'
+      message: Enter an absolute HTTP(S) URL without query, fragment or trailing slash.
 
+constants:
 shared:
   media_types_series: &media_types_series
     - video/show/serie
@@ -137,6 +146,9 @@ queries:
   - name: service_stream_metadata
     scraper_type: static
     entries:
+      - name: metadata
+        type: object
+        value: "{service_metadata}"
       - name: id
         type: string
         value: "{service_id}"

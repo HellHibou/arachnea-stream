@@ -121,6 +121,9 @@ pub(super) fn resolve_manifest_sources_recursive(
 
         match entry {
             ScraperAggregatorConfigEntry::Source(source) => {
+                if !source.parameters.is_empty() {
+                    anyhow::bail!("Manifest {} source {} uses retired parameters; move constants/defaults to its YAML and edit parameters through administration", config_path.display(), source.path);
+                }
                 let resolved_path = manifest_rel_dir.join(Path::new(&source.path));
                 resolved.push(ScraperAggregatorSourceEntry {
                     path: format!("{}", resolved_path.display()),

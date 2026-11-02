@@ -210,6 +210,34 @@ async fn put_all_is_atomic() -> anyhow::Result<()> {
     store.put_all(&batch).await?;
     let found = store.find(&EntityQuery::<TestEntity>::new()).await?;
     assert_eq!(found.len(), 2);
+    let scope = EntityQuery::new().where_string(&Field::string("authority"), "b:1");
+    assert!(store
+        .replace_where(&scope, &[entity("b:3", "outside", 60)])
+        .await
+        .is_err());
+    assert!(store
+        .replace_where(&scope, &[batch[0].clone(), batch[0].clone()])
+        .await
+        .is_err());
+    store.database.connection.lock().unwrap().execute_batch(
+        "CREATE TRIGGER reject_replacement BEFORE INSERT ON \"test-inventory\" WHEN NEW.name = 'reject' BEGIN SELECT RAISE(ABORT, 'injected write failure'); END;"
+    )?;
+    assert!(store
+        .replace_where(&scope, &[entity("b:1", "reject", 60)])
+        .await
+        .is_err());
+    assert_eq!(store.get(&"b:1".to_string()).await?.unwrap().name, "n1");
+    assert!(store.get(&"b:2".to_string()).await?.is_some());
+    store
+        .replace_where(&scope, &[entity("b:1", "updated", 60)])
+        .await?;
+    assert_eq!(
+        store.get(&"b:1".to_string()).await?.unwrap().name,
+        "updated"
+    );
+    store.replace_where(&scope, &[]).await?;
+    assert!(store.get(&"b:1".to_string()).await?.is_none());
+    assert!(store.get(&"b:2".to_string()).await?.is_some());
     let _ = std::fs::remove_dir_all(&dir);
     Ok(())
 }

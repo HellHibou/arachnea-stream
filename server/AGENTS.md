@@ -24,7 +24,8 @@
 
 ## Documentation Rules
 - When source code and a `README.md` or `docs/specifications/*.md` file disagree, update the Markdown documentation in the same change. Also add missing documentation when it is needed to describe a relevant behavior, contract, limitation, or configuration requirement discovered during the work.
-- Add or maintain Rust doc comments with `///` on modified public or non-trivial items when behavior, inputs, outputs, or invariants are not obvious.
+- Every new or modified public Rust function or method must have an English `///` rustdoc comment, including restricted visibility (`pub(crate)`, `pub(super)`, and `pub(in ...)`). Document purpose, inputs, outputs, and relevant invariants; do not treat restricted visibility as an exemption. Trait implementations may inherit the trait method documentation when the implementation adds no specific contract.
+- Add or maintain Rust doc comments with `///` on non-trivial private items when behavior, inputs, outputs, or invariants are not obvious.
 - Document public constants, enum types, enum variants, and struct fields with `///` doc comments to describe their purpose and invariants.
 - For function and method documentation, use idiomatic Rust `rustdoc` format rather than JavaDoc style.
 - When a documented function or method has parameters, describe them in a `# Arguments` section.

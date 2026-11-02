@@ -24,4 +24,6 @@ export interface ServiceMetadata {
   themes: ServiceThemeMetadata[]
   /** Query names advertised by the loaded backend registry. */
   supportedQueries: string[]
+  /** Optional service-specific tags; country values use ISO 3166-1 alpha-2 codes. */
+  metadata?: Record<string, string[]>
 }

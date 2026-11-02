@@ -6,7 +6,7 @@
 
 - Define controller abstractions and the REST/Tauri controller backends under `src/controler/`.
 - Provide a main-thread dispatcher abstraction for native UI/event-loop work shared by controller backends.
-- Define credentials persistence and runtime resource helpers under `src/persistence/`. `TypedEntityStore<E>` provides typed `get`/`get_many`/`put`/`put_all`/`delete`/`find` operations over declared entity schemas. File stores persist snapshots through the configured codec.
+- Define credentials persistence and runtime resource helpers under `src/persistence/`. `TypedEntityStore<E>` provides typed `get`/`get_many`/`put`/`put_all`/`replace_where`/`delete`/`find` operations over declared entity schemas. File stores persist snapshots through the configured codec.
 - Provide small shared utilities that are useful across backend crates and do not belong to the scraper engine or stream service.
 
 ## Source organization and defaults
@@ -93,3 +93,21 @@ Binary routes on the desktop custom URI scheme execute in background async tasks
 combined in a balanced Warp filter tree, preserving registration priority and
 per-route client ACL checks while keeping polling depth logarithmic. This avoids
 linear routing stack growth underneath TLS and proxy work in debug builds.
+
+## Atomic scope replacement
+
+`TypedEntityStore::replace_where(query, entities)` replaces an entire primary-key scope
+atomically, including removal of omitted/expired rows. Predicates must reference
+primary-key columns; every replacement row must match them and keys must be unique.
+An empty query replaces the whole table and an empty replacement removes its scope.
+Validation/backend errors preserve the previous scope; cancelling an already-started
+backend commit can leave its outcome indeterminate. Implementations must provide this
+operation rather than falling back to sequential delete/insert calls.
+
+SQLite uses one transaction; memory uses one write lock. File-backed mutations serialize
+snapshot persistence under the store lock and publish the cached snapshot only after
+successful persistence. The standard JSON codec atomically renames the file; custom
+codecs must also guarantee atomic replacement to provide equivalent file-level guarantees.
+Atomic replacement serializes operations on the same file-store instance; independently
+opened file stores do not coordinate their cached snapshots. This remains a single-table
+operation, not a multi-table transaction.

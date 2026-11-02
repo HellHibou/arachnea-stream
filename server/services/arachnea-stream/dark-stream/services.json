@@ -1,13 +1,7 @@
 [
   {
     "path": "anime-sama.yaml",
-    "enabled": false,
-    "parameters": [
-      {
-        "name": "base_url",
-        "value": "https://anime-sama.to"
-      }
-    ]
+    "enabled": false
   },
   {
     "path": "animeultime.yaml",
@@ -27,12 +21,6 @@
   },
   {
     "path": "wiflix.yaml",
-    "enabled": false,
-    "parameters": [
-      {
-        "name": "base_url",
-        "value": "https://flemmix.studio"
-      }
-    ]
+    "enabled": false
   }
 ]

@@ -14,6 +14,9 @@ pub use scrapyfy::*;
 
 // Service and validation contracts
 
+/// Table holding atomic per-service administrator parameter overrides.
+pub const SERVICE_PARAMETERS_TABLE_NAME: &str = "arachnea-services-parameters";
+
 /// The default directory for scraper service configuration files.
 pub const DEFAULT_SERVICES_DIRECTORY: &str = "services";
 

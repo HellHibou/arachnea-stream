@@ -1,4 +1,8 @@
 id: arte-fr
+metadata:
+  languages: [fr]
+  geo_countries: [fr]
+  content_types: [movies, series, documentaries]
 title: Arte
 logo: https://api-cdn.arte.tv/img/v2/image/zMQA5ovzUC2JDk8VLrW8Ce/1920x480
 description:
@@ -8,9 +12,9 @@ http:
   user_agent_profile: firefox
 
 # ############################################################################
-# Parameters
+# Constants
 # ############################################################################
-parameters:
+constants:
   - name: base_url
     value: https://www.arte.tv
     description: Public website base URL used for web links.
@@ -372,6 +376,9 @@ queries:
   - name: service_stream_metadata
     scraper_type: static
     entries:
+      - name: metadata
+        type: object
+        value: "{service_metadata}"
       - name: id
         type: string
         value: "{service_id}"

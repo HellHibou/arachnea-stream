@@ -12,6 +12,9 @@ import type {
   ServicesResponse,
 } from '@/services/adminApi'
 import CredentialsDialog from '@/components/CredentialsDialog.vue'
+import ServiceParametersDialog from '@/components/ServiceParametersDialog.vue'
+import ServiceMetadataFilters from '@/components/ServiceMetadataFilters.vue'
+import { useAppConfig } from '@/services/appConfig'
 
 const route = useRoute()
 const router = useRouter()
@@ -41,6 +44,46 @@ const groupTitle = computed(() => serviceStoreTitle(serviceStoreId.value))
 const groupDescription = computed(() => serviceStoreDescription(serviceStoreId.value))
 
 const services = ref<AdminServiceEntry[]>([])
+const { serviceFilters } = useAppConfig()
+const searchQuery = ref('')
+const selectedTags = ref<Record<string, string[]>>({})
+const parameterService = ref<AdminServiceEntry | null>(null)
+const filterDefinitions = computed(() => serviceFilters.value[serviceStoreId.value] ?? [])
+const metadataLabels = computed<Record<string, string>>(() => Object.fromEntries(
+  filterDefinitions.value.map(({ key, label }) => [key, t(label)]),
+))
+const metadataValueLabels = computed<Record<string, Record<string, string>>>(() => Object.fromEntries(
+  filterDefinitions.value.map(({ key, value_labels }) => [key, Object.fromEntries(
+    Object.entries(value_labels ?? {}).map(([value, label]) => [value, t(label)]),
+  )]),
+))
+const filteredServices = computed(() => {
+  const query = (searchQuery.value ?? '').trim().toLocaleLowerCase()
+  return services.value.filter((service) => {
+    const text = [service.id, service.title, service.description].filter(Boolean).join(' ').toLocaleLowerCase()
+    return (!query || text.includes(query)) && filterDefinitions.value.every(({ key }) => {
+      const selected = selectedTags.value[key] ?? []
+      return selected.length === 0 || selected.some((value) => service.metadata?.[key]?.includes(value))
+    })
+  })
+})
+
+/**
+ * Formats one metadata field with its localized values grouped in declaration order.
+ * @param key Metadata field identifier.
+ * @param values Raw metadata values to display together.
+ * @returns Localized values separated by a spaced hyphen.
+ */
+function formatMetadataValues(key: string, values: string[]): string {
+  return values.map((value) => metadataValueLabels.value[key]?.[value] ?? value).join(' - ')
+}
+
+async function onParametersSaved() {
+  parameterService.value = null
+  needsReload.value = true
+  reloadResult.value = t('services.reloadRequired')
+  await loadServices()
+}
 const unavailable = ref<AdminUnavailableSource[]>([])
 const needsReload = ref(false)
 const reloadResult = ref<string | null>(null)
@@ -291,6 +334,9 @@ onMounted(() => {
 
 // Reload the group data when navigation switches between service groups.
 watch(serviceStoreId, () => {
+  searchQuery.value = ''
+  selectedTags.value = {}
+  parameterService.value = null
   ensureKnownGroup()
   loadServices()
 })
@@ -358,6 +404,9 @@ watch(serviceStoreId, () => {
           </v-list>
         </v-alert>
 
+        <ServiceMetadataFilters v-model:query="searchQuery" v-model:selected="selectedTags"
+          :definitions="filterDefinitions" :services="services" />
+
         <v-progress-circular
           v-if="isLoading && services.length === 0"
           indeterminate
@@ -370,12 +419,14 @@ watch(serviceStoreId, () => {
           </v-card-text>
         </v-card>
 
+        <v-card v-else-if="filteredServices.length === 0" variant="outlined">
+          <v-card-text>{{ t('services.noResults') }}</v-card-text>
+        </v-card>
         <v-list v-else class="align-start">
           <v-list-item
-            v-for="service in services"
+            v-for="service in filteredServices"
             :key="serviceKey(service)"
             :title="getServiceName(service)"
-            :subtitle="service.description"
           >
             <template #prepend>
               <div class="service-item-prepend">
@@ -394,8 +445,19 @@ watch(serviceStoreId, () => {
               </div>
             </template>
 
+            <div v-if="Object.values(service.metadata).some((values) => values.length > 0)" class="service-tags">
+              <template v-for="(values, key) in service.metadata" :key="key">
+                <v-chip v-if="values.length > 0" size="small" variant="tonal" class="service-metadata-tag">
+                  {{ metadataLabels[key] ?? key }} : {{ formatMetadataValues(key, values) }}
+                </v-chip>
+              </template>
+            </div>
+            <v-list-item-subtitle v-if="service.description">{{ service.description }}</v-list-item-subtitle>
+            <v-alert v-if="service.configuration_error" type="error" variant="tonal" class="my-2">
+              {{ t('services.configurationError', { message: service.configuration_error }) }}
+            </v-alert>
             <template #append>
-              <div class="d-flex flex-column align-center" style="gap: 6px;">
+              <div class="service-actions">
                 <v-chip
                   v-if="service.unavailable"
                   color="error"
@@ -404,23 +466,8 @@ watch(serviceStoreId, () => {
                 >
                   {{ t('services.unavailable') }}
                 </v-chip>
-                <v-chip
-                  v-else-if="service.enabled"
-                  color="success"
-                  size="small"
-                  variant="tonal"
-                >
-                  {{ t('services.enabled') }}
-                </v-chip>
-                <v-chip
-                  v-else
-                  color="default"
-                  size="small"
-                  variant="tonal"
-                >
-                  {{ t('services.disabled') }}
-                </v-chip>
-
+                <v-btn v-if="service.has_parameters" icon="mdi-cog" size="small" variant="tonal"
+                  :title="t('services.options')" @click="parameterService = service" />
                 <v-btn
                   v-if="service.credentials?.required"
                   icon="mdi-key"
@@ -472,6 +519,8 @@ watch(serviceStoreId, () => {
           </v-card>
         </v-dialog>
 
+        <ServiceParametersDialog :service="parameterService" @close="parameterService = null"
+          @saved="onParametersSaved" />
         <CredentialsDialog
           :service-store-id="activeService?.service_store_id ?? null"
           :service-id="activeService?.id ?? null"
@@ -502,6 +551,31 @@ watch(serviceStoreId, () => {
 
 
 <style scoped>
+.service-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0;
+}
+
+.service-metadata-tag {
+  max-width: 100%;
+  height: auto;
+  min-height: 26px;
+}
+
+.service-metadata-tag :deep(.v-chip__content) {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.service-actions {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+}
+
 /* Logo rendering when an icon is configured - shared styles */
 .service-logo {
   width: 120px;

@@ -1,4 +1,8 @@
 id: rtbf-auvio-be
+metadata:
+  languages: [fr]
+  geo_countries: [be]
+  content_types: [movies, series, documentaries]
 title: RTBF Auvio
 logo: https://auvio.rtbf.be/images/icons/auvio_192x192.png
 description:
@@ -11,9 +15,9 @@ http:
 
 
 # ############################################################################
-# Parameters
+# Constants
 # ############################################################################
-parameters:
+constants:
   - name: home_url
     value: "https://bff-service.rtbf.be/auvio/v1.23/pages/home"
     description: RTBF home endpoint for deferred banners.
@@ -247,6 +251,9 @@ queries:
   - name: service_stream_metadata
     scraper_type: static
     entries:
+      - name: metadata
+        type: object
+        value: "{service_metadata}"
       - name: id
         type: string
         value: "{service_id}"

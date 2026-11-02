@@ -234,7 +234,7 @@ Also add `input_html: "{html}"` to the HTML `resolve_stream` query and this
 collection default before `queries`:
 
 ```yaml
-parameters:
+constants:
   - name: html
     value: ""
 ```

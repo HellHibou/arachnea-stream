@@ -1,4 +1,8 @@
 id: ln24-be
+metadata:
+  languages: [fr]
+  geo_countries: [be]
+  content_types: [movies, series]
 title: LN24
 logo: "https://www.ln24.be/wp-content/themes/rise/assets/img/static/LN24_LOGO.png"
 description:
@@ -8,9 +12,9 @@ http:
 
 
 # ############################################################################
-# Parameters
+# Constants
 # ############################################################################
-parameters:
+constants:
   - name: base_url
     value: https://www.ln24.be
     description: "Base URL — update on domain change"
@@ -102,6 +106,9 @@ queries:
   - name: service_stream_metadata
     scraper_type: static
     entries:
+      - name: metadata
+        type: object
+        value: "{service_metadata}"
       - name: id
         type: string
         value: "{service_id}"

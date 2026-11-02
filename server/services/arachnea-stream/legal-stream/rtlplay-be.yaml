@@ -1,4 +1,8 @@
 id: rtlplay-be
+metadata:
+  languages: [fr]
+  geo_countries: [be]
+  content_types: [movies, series, documentaries]
 title: RTL Play
 logo: https://www.rtlplay.be/rtlplay/img/rtlplay/logo-large.svg
 description:
@@ -13,9 +17,9 @@ http:
 
 
 # ############################################################################
-# Parameters
+# Constants
 # ############################################################################
-parameters:
+constants:
   - name: base_url
     value: https://www.rtlplay.be
     description: Public RTL Play website base URL.
@@ -463,6 +467,9 @@ queries:
   - name: service_stream_metadata
     scraper_type: static
     entries:
+      - name: metadata
+        type: object
+        value: "{service_metadata}"
       - name: id
         type: string
         value: "{service_id}"

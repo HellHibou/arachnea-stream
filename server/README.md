@@ -68,7 +68,7 @@ sudo apt install -y build-essential cmake pkg-config libssl-dev libwebkit2gtk-4.
 - `cargo build` - Build the backend workspace.
 - `cargo check --workspace` - Type-check the backend workspace.
 - `cargo test --workspace` - Run local backend tests; Stream live integration checks are ignored by default. From `server/`, run `cargo test -p arachnea-stream --lib stream_scraper::tests::test_all_services -- --exact --ignored --nocapture` explicitly. Set `ARACHNEA_TEST_QUERY_SOURCE` to one service ID/path, or leave it undefined/use `*` for all YAML files. See [service integration checks](crates/arachnea-stream/README.md#service-integration-checks).
-- `cargo run -p arachnea-stream --bin arachnea` - Run the `arachnea` backend executable. Add `--server-public` to bind the server to `0.0.0.0` so the web interface and API are reachable through any local network hostname or IP (for example `http://localhost:8080/`).
+- `cargo run -p arachnea-stream --bin arachnea` - Run the `arachnea` backend executable. Pass application flags after Cargo’s `--` separator: `cargo run -p arachnea-stream --bin arachnea -- --server --server-port 8080 --network local`. `--network local` restricts access to loopback; use `--network public` to accept public clients. Values follow their options as separate arguments.
 - `cd crates/arachnea-stream && cargo tauri build` - Build the Tauri desktop application and release bundles.
 - `cargo build-doc` - Generate backend documentation without external dependencies.
 - `cargo show-doc` - Generate backend documentation without external dependencies and open it in the browser.

@@ -1,4 +1,7 @@
 id: anime-sama
+metadata:
+  languages: [fr]
+  content_types: [movies, series]
 title: Anime-Sama
 logo: https://raw.githubusercontent.com/Anime-Sama/IMG/img/autres/logo.png
 description:
@@ -8,13 +11,17 @@ http:
 
 
 # ############################################################################
-# Parameters
+# Constants and editable parameters
 # ############################################################################
 parameters:
   - name: base_url
     value: https://anime-sama.to
     description: Base URL used to resolve Anime-Sama requests.
-
+    label: Base URL
+    editor:
+      type: regex
+      pattern: '^https?://[^\s/?#]+(?:/[^\s?#]*)?$'
+      message: Enter an absolute HTTP(S) URL without query, fragment or trailing slash.
 
 # ############################################################################
 # Shared structs
@@ -207,6 +214,9 @@ queries:
   - name: service_stream_metadata
     scraper_type: static
     entries:
+      - name: metadata
+        type: object
+        value: "{service_metadata}"
       - name: id
         type: string
         value: "{service_id}"

@@ -15,6 +15,9 @@ steps:
       min_count: 1
       min_valid_count: 1
       required_non_empty:
+        - ["metadata", "languages"]
+        - ["metadata", "content_types"]
+        - ["metadata", "geo_countries"]
         - ["id"]
         - ["title"]
         - ["logo"]

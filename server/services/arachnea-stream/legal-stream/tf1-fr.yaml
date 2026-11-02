@@ -1,4 +1,8 @@
 id: tf1-fr
+metadata:
+  languages: [fr]
+  geo_countries: [fr]
+  content_types: [movies, series, documentaries]
 title: TF1+
 logo: "https://www.tf1.fr/_next/static/media/tf1-plus-logo-white.107m~.6am38d6.svg"
 description:
@@ -12,18 +16,25 @@ http:
 
 
 # ############################################################################
-# Parameters
+# Constants and editable parameters
 # ############################################################################
 parameters:
   - name: country
+    label: Country - Pays
     value: fr
-    actions:
-      - type: map
-        default: "fr"
-        argument:
-          "fr": "fr"
-          "be": "be"
-          "lu": "lu"
+    editor:
+      type: select
+      options:
+        - value: fr
+          label: France - France
+        - value: be
+          label: Belgium - Belgique
+        - value: lu
+          label: Luxembourg - Luxembourg
+        - value: ch
+          label: Switzerland - Suisse
+
+constants:
   - name: catalog_code
     description: TF1 catalog code used by the Smart TV API.
     value: "{country}"
@@ -34,6 +45,7 @@ parameters:
           "fr": "fr-fr"
           "be": "fr-be"
           "lu": "fr-lu"
+          "ch": "fr-ch"
   - name: catalog_code_web
     description: TF1 catalog code used by the Smart TV API.
     value: "/{catalog_code}"
@@ -634,6 +646,9 @@ queries:
   - name: service_stream_metadata
     scraper_type: static
     entries:
+      - name: metadata
+        type: object
+        value: "{service_metadata}"
       - name: id
         type: string
         value: "{service_id}"

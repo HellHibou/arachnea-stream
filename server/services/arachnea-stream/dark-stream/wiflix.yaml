@@ -1,4 +1,7 @@
 id: wiflix
+metadata:
+  languages: [fr]
+  content_types: [movies, series]
 title: Wiflix
 logo: "{base_url}/templates/flemmixnew/images/favicon.png"
 description:
@@ -10,7 +13,13 @@ parameters:
   - name: base_url
     value: https://flemmix.studio
     description: "Base URL — update on domain change"
+    label: Base URL
+    editor:
+      type: regex
+      pattern: '^https?://[^\s/?#]+(?:/[^\s?#]*)?$'
+      message: Enter an absolute HTTP(S) URL without query, fragment or trailing slash.
 
+constants:
 shared:
   media_types: &media_types
     - video/movie
@@ -415,6 +424,9 @@ queries:
   - name: service_stream_metadata
     scraper_type: static
     entries:
+      - name: metadata
+        type: object
+        value: "{service_metadata}"
       - name: id
         type: string
         value: "{service_id}"

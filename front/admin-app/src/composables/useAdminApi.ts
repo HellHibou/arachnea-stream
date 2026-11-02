@@ -2,6 +2,8 @@ import { ref } from 'vue'
 
 import {
   fetchStatus,
+  fetchServiceParameters,
+  saveServiceParameters,
   login as apiLogin,
   logout as apiLogout,
   fetchServices,
@@ -175,6 +177,10 @@ export function useAdminApi() {
     isLoading,
     error,
     clearError,
+    getServiceParameters: (storeId: string, serviceId: string) =>
+      withApiState(() => fetchServiceParameters(storeId, serviceId)),
+    saveServiceParameters: (storeId: string, serviceId: string, values: Record<string, string>) =>
+      withApiState(() => saveServiceParameters(storeId, serviceId, values)),
     getStatus,
     login,
     logout,

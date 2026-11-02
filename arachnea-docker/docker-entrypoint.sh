@@ -143,13 +143,10 @@ if [ "${CHASER_VIRTUAL_DISPLAY:-0}" != "1" ] && [ -z "${DISPLAY_SKIP_XVFB:-}" ];
   unset DISP_NUM
 fi
 
-# Server settings are pinned through the persisted JSON document instead of
-# CLI flags: `arachnea`'s argument parser only matches option names, so any
-# value on the command line fails with `unknown argument: <value>` (verified:
-# `--server-port 9090` -> `Error: unknown argument: 9090`). The JSON keys map
-# to CLI flags (`server_port` -> `--server-port`, `network_mode` ->
-# `--network`, `entrypoint_root` -> `--entrypoint-root`) and the file is the
-# same one the administration API rewrites, so both stay in sync.
+# Persist server settings in the document also used by the administration API.
+# This keeps container configuration aligned and supports older binaries whose
+# second argument scan rejected values passed to core command-line options.
+# Current binaries also accept --server-port, --network and --entrypoint-root.
 CONFIG_FILE="$DATA_DIR/config.json"
 mkdir -p "$(dirname "$CONFIG_FILE")"
 if command -v jq >/dev/null 2>&1; then

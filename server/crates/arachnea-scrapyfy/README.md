@@ -280,6 +280,14 @@ after response headers preserve the proxy and do not trigger transport rotation.
 Legacy rejection-status configuration now adapts to the shared classifier above;
 safe sequential retries use the shared deadline and replay policy described above.
 
+## Administration HTTP settings
+
+The administration form hides each HTTP server setting (`--server-port`,
+`--network`, `--entrypoint-root`) supplied on the command line and omits it
+from save requests. The `update-settings` operation also ignores these pinned
+fields from any client, preserving their existing persisted values. Each option
+is handled independently; unpinned settings remain editable and persist normally.
+
 ## Shared local proxy server
 
 With `arachnea-proxy`, `SrcapyfyApplicationOptions` accepts `--proxy-server-port`
@@ -355,3 +363,32 @@ their timing/outcome state; progressive publication, failure handling and
 cancellation continue unchanged. Country-hint forwarding is logged at DEBUG.
 The Stream application's feature enables all relevant diagnostics together;
 setting `RUST_LOG` alone does not compile them back in.
+
+## Service configuration and administration
+
+YAML `constants` holds configuration editable only in YAML; `parameters` now requires
+`label` and a `regex` or `select` editor and supplies administrator-editable defaults.
+Both sections resolve cross-references and actions before query conversion. Nonempty
+JSON manifest parameter overrides are retired: migrate their effective values into YAML.
+Optional root `metadata` maps service-specific tag names to string arrays.
+
+Administrator overrides use one row per `(service_store_id, source_id, parameter_name)`
+with a raw string `value` in `arachnea-services-parameters`, a table of
+`data/arachnea-services.sqlite3` in Stream. Saving replaces a source’s complete row set
+atomically; restoring defaults deletes that scope. The table is opened directly with
+its current schema. Historical per-source JSON tables are incompatible and are not
+converted, reset or deleted automatically.
+The memory constructors provide an equivalent isolated store. Saving or restoring defaults
+requires the existing runtime reload; cache configuration identities include saved values.
+Admin logos and player resolvers use effective constants and parameters.
+
+The admin UI supports configurable metadata filters, Options for editable sources,
+and a cancellable Restore defaults action followed by Save. Stream initializes all video
+language tags to `fr` and exposes tags through `service_stream_metadata`. Editable options
+are dark-stream `base_url` and TF1 `country` (`fr`, `be`, `lu`, `ch`, including `fr-ch`).
+See the English/French Scrapyfy and Stream specifications for schema, migration, API
+operations and filter configuration.
+
+`query_collection_parameters` now returns an owned vector containing resolved constants
+and editable parameters, rather than a borrowed slice of raw definitions. Player resolvers
+therefore receive the same action-processed values used by the queries.

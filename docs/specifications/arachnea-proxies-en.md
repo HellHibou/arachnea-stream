@@ -8,7 +8,7 @@ that the `ProxyDataProvider` module in `arachnea-scrapyfy` consumes and
 transforms into `ProxyRecord`.
 
 This document only describes fields specific to the proxy format. The general
-structure of a YAML file (`id`, `parameters`, `http`, `queries`, `entries`,
+structure of a YAML file (`id`, `constants`, `parameters`, `http`, `queries`, `entries`,
 `actions`, etc.) is documented in [the common YAML specification](arachnea-scrapyfy-en.md).
 
 ---
@@ -78,7 +78,7 @@ title: "My Proxy List"
 http:
   mode: auto
 
-parameters:
+constants:
   - name: base_url
     value: https://example.com/proxies
 
@@ -119,7 +119,7 @@ title: "Proxies from a JSON API"
 http:
   mode: auto
 
-parameters:
+constants:
   - name: base_url
     value: https://api.example.com/proxies
 
@@ -163,7 +163,7 @@ title: "Proxies from an HTML page"
 http:
   mode: auto
 
-parameters:
+constants:
   - name: base_url
     value: https://example.com/proxies
 

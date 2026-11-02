@@ -1,4 +1,7 @@
 id: tv5mondeplus-fr
+metadata:
+  languages: [fr]
+  content_types: [movies, series, documentaries]
 title: "TV5 MONDE+"
 logo: "https://www.tv5mondeplus.com/build/img/icon/logo-refonte.9728769c.svg"
 description:
@@ -8,7 +11,7 @@ http:
   mode: auto
   user_agent_profile: chrome
 
-parameters:
+constants:
   - name: base_url
     value: "https://www.tv5mondeplus.com"
     description: "Base URL of TV5MONDE+"
@@ -203,6 +206,9 @@ queries:
   - name: service_stream_metadata
     scraper_type: static
     entries:
+      - name: metadata
+        type: object
+        value: "{service_metadata}"
       - name: id
         type: string
         value: "{service_id}"

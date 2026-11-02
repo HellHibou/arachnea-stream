@@ -13,6 +13,7 @@ pub use memory::MemoryEntityStore;
 pub use schema::{
     EntitySchema, Field, FieldRole, FieldType, PersistenceStoreConfig, PersistenceTableConfig,
 };
+use std::collections::HashSet;
 
 use async_trait::async_trait;
 use std::{fmt::Debug, hash::Hash, marker::PhantomData};
@@ -204,6 +205,24 @@ where
     /// Returns an error when any entity is invalid or the backend cannot write
     /// the batch.
     async fn put_all(&self, entities: &[E]) -> anyhow::Result<()>;
+    /// Atomically replaces all rows in a primary-key scope, including expired rows.
+    ///
+    /// An empty query replaces the entire table; an empty replacement deletes the
+    /// scope. Every predicate must compare a primary-key field. Replacement rows
+    /// must match the scope and have unique keys. Concurrent operations observe
+    /// either the previous set or the complete replacement, never a partial set.
+    /// Dropping the future may leave an already-started backend commit running.
+    ///
+    /// # Arguments
+    /// * `query` - Equality predicates on primary-key components defining the scope.
+    /// * `entities` - Complete replacement for that scope.
+    ///
+    /// # Errors
+    /// Returns an error for invalid predicates, invalid or out-of-scope entities,
+    /// duplicate keys or a backend failure. Failed validation/writes leave the
+    /// prior scope intact; an interrupted commit may have an indeterminate outcome.
+    async fn replace_where(&self, query: &EntityQuery<E>, entities: &[E]) -> anyhow::Result<()>;
+
     /// Removes an entity by its primary key.
     ///
     /// # Arguments
@@ -277,3 +296,51 @@ pub(crate) fn safe_name(name: &str) -> String {
 #[cfg(test)]
 #[path = "../../tests/support/typed_store.rs"]
 mod test_support;
+
+/// Validates an atomic replacement and encodes its rows before any mutation.
+///
+/// # Arguments
+/// * `config` - Target table schema.
+/// * `query` - Primary-key scope, validated even when the table/replacement is empty.
+/// * `entities` - Complete replacement rows.
+///
+/// # Errors
+/// Returns an error for invalid/non-key predicates, duplicate keys or invalid/out-of-scope rows.
+pub(crate) fn replacement_documents<E: PersistentEntity>(
+    config: &PersistenceStoreConfig,
+    query: &EntityQuery<E>,
+    entities: &[E],
+) -> anyhow::Result<Vec<(E::Key, EntityDocument)>> {
+    for (name, value) in &query.predicates {
+        let field = config
+            .schema
+            .primary_key_fields()
+            .iter()
+            .find(|field| field.name() == name)
+            .copied()
+            .ok_or_else(|| {
+                anyhow::anyhow!("replacement predicate '{name}' must reference a primary-key field")
+            })?;
+        anyhow::ensure!(
+            field.field_type() == value.field_type(),
+            "replacement predicate '{name}' has the wrong type"
+        );
+    }
+    let mut keys = HashSet::new();
+    entities
+        .iter()
+        .map(|entity| {
+            let key = entity.key();
+            anyhow::ensure!(
+                keys.insert(key.clone()),
+                "duplicate replacement entity key: {key:?}"
+            );
+            let document = encode(config, entity)?;
+            anyhow::ensure!(
+                matches(config, &document, query)?,
+                "replacement entity is outside its scope: {key:?}"
+            );
+            Ok((key, document))
+        })
+        .collect()
+}

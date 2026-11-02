@@ -114,7 +114,7 @@ logo: "https://example.com/logo.png"
 description:
   fr: "Description in French"
   en: "Description in English"
-parameters:
+constants:
   - name: base_url
     value: "https://example.com"
     description: "Base URL of the source"
@@ -181,8 +181,8 @@ credentials:
 | `required` | boolean | no | Defaults to `false`; the service needs credentials when `true`. |
 | `signup_url` | string | no | Public registration URL displayed by administration clients. |
 
-### `parameters` (optional)
-List of default collection parameters. Each parameter has:
+### `constants` (optional)
+YAML-owned values, editable only in the YAML. Each constant has:
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -191,7 +191,7 @@ List of default collection parameters. Each parameter has:
 | `description` | string | no | Parameter description |
 | `actions` | array | no | Actions applied to the resolved value |
 
-Parameters are resolved sequentially in YAML declaration order. A parameter can reference previous parameters via `{placeholder}`.
+Constants and editable parameters resolve by dependency across both sections. Each entry runs its actions once after its dependencies resolve. Cycles and duplicate names are rejected.
 
 Undeclared placeholders are preserved while loading the collection so callers can provide them at execution time. A required placeholder that remains absent then produces a contextual error while resolving the request, rather than while loading the YAML.
 
@@ -200,7 +200,7 @@ For text entries, loading traverses nested entries without rewriting or validati
 The `@` prefix is reserved for dynamic variables produced while a request is extracted. These variables are not collection parameters and are referenced with the `{@name}` syntax. Standard parameters must not use names starting with `@`.
 
 ```yaml
-parameters:
+constants:
   - name: base_url
     value: "https://www.m6play.fr"
   - name: query_url
@@ -213,10 +213,51 @@ parameters:
 - `service_title` — collection title
 - `service_logo` — collection logo
 - `service_description` — serialised JSON description
+- `service_metadata` — serialised JSON service tags
 - `page_index` — derived from `page` (`page - 1`)
 - `offset` — derived from `(page - 1) * page_size` when both values are positive
 - `query_separator` — `?`, `&` or `""` depending on the URL
 - `url_fragment` — part after `#` in the resolved `query_url`, only set when the URL carries a non-empty fragment (it is never sent to the server)
+
+
+Static `object` JSON values preserve nested string arrays as `string[]` (including empty arrays), without wrapping their elements in `_` objects.
+
+### `metadata` and editable parameters
+
+Optional `metadata` maps arbitrary tag keys to string arrays. It is exposed through `{service_metadata}` and the admin catalog, including disabled services; absent metadata becomes `{}`.
+
+`parameters` now contains editable values exclusively. Entries retain the constants’ `name`, string `value`, optional `description` and `actions`, and require a nonempty `label` and an `editor`. The `parametres` alias uses the same new schema; it does not migrate legacy definitions. Constants cannot declare editors. Empty, duplicate and reserved `service_*` names are rejected.
+
+```yaml
+metadata:
+  languages: [fr]
+parameters:
+  - name: base_url
+    label: Base URL
+    value: https://example.org
+    editor:
+      type: regex
+      pattern: '^https?://[^\s/?#]+(?:/[^\s?#]*)?$'
+      message: Enter an absolute HTTP(S) URL without query, fragment or trailing slash.
+constants:
+  - name: api_url
+    value: "{base_url}/api"
+```
+
+Editor formats:
+
+- `regex` requires `pattern` and `message`, matching the entire value with common Rust/JavaScript syntax, without lookaround, backreferences or inline flags. The server additionally requires `base_url` to be an absolute HTTP(S) URL with a host, without credentials, query, fragment, whitespace or a trailing slash.
+- `select` requires a nonempty `options` array of unique string `value` and nonempty `label` pairs. Other values are rejected. Example: `editor: {type: select, options: [{value: fr, label: France - France}]}`.
+
+YAML defaults are validated at load time. Administrator overrides replace raw values before actions and dependent constants resolve. Runtime query inputs remain separate and keep their existing precedence; their placeholders stay deferred.
+
+Overrides live in table `arachnea-services-parameters` of the existing `arachnea-services` store. Each row stores one parameter: primary key `(service_store_id, source_id, parameter_name)`, with a string `value` column. There is no persisted JSON parameter dictionary. Definitions and defaults stay in YAML, and values equal to their current defaults are not stored.
+
+Saving atomically replaces all rows belonging to the selected group/source using the typed store’s `replace_where` operation; restoring defaults removes that scope. Other sources, activation records and encrypted credentials are unchanged. API/runtime dictionaries remain dictionaries assembled from these rows.
+
+The parameter table is opened directly with the current schema. There is no data migration from the historical two-key JSON `values` layout: an incompatible primary key is rejected, leaving the existing table and its rows intact. An absent table is created with one row per parameter. The separate YAML/manifest configuration change described above remains unchanged.
+
+Queries, logos and player resolvers share effective values. Configuration hashes include editable values to isolate cached responses after changes. Saving requires an explicit runtime reload; a failed rebuild retains the prior runtime. The admin catalog reflects saved configuration, so its logo may precede runtime application. Invalid persisted values remain readable in the editor for correction/reset and are reported as `configuration_error` in the catalog.
 
 ---
 
@@ -1984,7 +2025,7 @@ id: example-source
 title: "Example Source"
 description:
   fr: "Une source d'exemple complète"
-parameters:
+constants:
   - name: base_url
     value: "https://www.example.com"
   - name: api_url
@@ -2145,15 +2186,14 @@ is a JSON array. Each entry declares exactly one of `path` or `import`.
 
 ```json
 [
-  {"path": "example.yaml", "enabled": true,
-   "parameters": [{"name": "base_url", "value": "https://example.org"}]},
+  {"path": "example.yaml", "enabled": true},
   {"import": "other-sources/services.json"}
 ]
 ```
 
 | Entry | Fields and behavior |
 |---|---|
-| Source | Required `path` string; optional `enabled` boolean, default `true`; optional `parameters` array with the same parameter structure as YAML |
+| Source | Required `path` string; optional `enabled` boolean, default `true`; nonempty `parameters` overrides are rejected; move defaults into YAML |
 | Import | Required `import` string naming another JSON manifest |
 
 Paths are relative to the manifest that declares them. Imports expand recursively
@@ -2167,13 +2207,10 @@ An administrator activation override takes precedence over the manifest's
 schema before activation is checked; they must remain valid. Full semantic
 conversion is performed for enabled files.
 
-Manifest parameters replace complete YAML parameter definitions by matching
-`name`, or add new definitions. Runtime query parameters then override defaults;
-source-specific execution parameters can override the common execution parameters.
-**Current limitation:** the manifest parameter merge does not preserve YAML
-parameter order. Avoid dependent parameter action pipelines when manifest overrides
-are used; verify loading with the actual manifest. Do not assume an override of
-`base_url` recomputes a value already substituted at collection loading.
+Manifest parameter overrides are retired and rejected with a contextual migration error.
+Administrator values override YAML editable defaults before dependency resolution and query
+conversion. Runtime query inputs retain their existing precedence. Rebuild the runtime after
+editing configuration so dependent constants and URLs are recomputed.
 
 ## 17. Execution and output checklist
 

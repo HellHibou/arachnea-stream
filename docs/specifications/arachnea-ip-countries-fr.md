@@ -9,7 +9,7 @@ type `application/arachnea-ip-country` que le module
 le code pays d'une adresse IP.
 
 Ce document ne décrit que les champs propres au format IP-country. La structure
-générale d'un fichier YAML ( `id`, `parameters`, `http`, `queries`,
+générale d'un fichier YAML ( `id`, `constants`, `parameters`, `http`, `queries`,
 `entries`, `actions`, etc. ) est documentée dans
 [la spécification YAML commune](arachnea-scrapyfy-fr.md).
 
@@ -72,7 +72,7 @@ description:
 http:
   mode: direct
 
-parameters:
+constants:
   - name: base_url
     value: http://ip-api.com/json
     description: Base URL for the ip-api.com JSON endpoint.

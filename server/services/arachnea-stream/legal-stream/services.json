@@ -1,9 +1,7 @@
 [
   { "path": "rtlplay-be.yaml", "enabled": false },
   { "path": "rtbf-auvio-be.yaml", "enabled": false },
-  { "path": "tf1-fr.yaml", "enabled": false, "parameters": [ 
-    { "name": "country", "value": "fr"}
-  ]},
+  { "path": "tf1-fr.yaml", "enabled": false },
   { "path": "m6play-fr.yaml", "enabled": false },
   { "path": "francetv.yaml", "enabled": true },
   { "path": "arte-fr.yaml", "enabled": true },

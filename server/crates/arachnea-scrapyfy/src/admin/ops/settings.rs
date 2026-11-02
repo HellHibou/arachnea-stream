@@ -88,17 +88,27 @@ pub(crate) async fn op_update_settings(
     let effective_mode = state.mode();
     let mut persisted = state.adapter().persisted_settings().map_err(admin_err)?;
 
-    if let Some(port) = input.server_port {
+    let effective = state.settings();
+    if let Some(port) = input
+        .server_port
+        .filter(|_| effective.server_port_source != SettingSource::CommandLine)
+    {
         if port == 0 {
             return Err(AdminError::bad_request("Server port cannot be zero."));
         }
         persisted.server_port = Some(port);
     }
-    if let Some(root) = input.entrypoint_root {
+    if let Some(root) = input
+        .entrypoint_root
+        .filter(|_| effective.entrypoint_root_source != SettingSource::CommandLine)
+    {
         let root = root.trim().to_string();
         persisted.entrypoint_root = if root.is_empty() { None } else { Some(root) };
     }
-    if let Some(network) = input.network_mode {
+    if let Some(network) = input
+        .network_mode
+        .filter(|_| effective.network_mode_source != SettingSource::CommandLine)
+    {
         let network = network.trim().to_lowercase();
         if !matches!(network.as_str(), "local" | "private" | "public") {
             return Err(AdminError::bad_request(format!(

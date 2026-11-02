@@ -8,7 +8,7 @@ Une collection arachnea-proxies déclare une ou plusieurs sources de proxys publ
 `arachnea-scrapyfy` consomme et transforme en `ProxyRecord`.
 
 Ce document ne décrit que les champs propres au format proxy. La structure
-générale d'un fichier YAML ( `id`, `parameters`, `http`, `queries`,
+générale d'un fichier YAML ( `id`, `constants`, `parameters`, `http`, `queries`,
 `entries`, `actions`, etc. ) est documentée dans
 [la spécification YAML commune](arachnea-scrapyfy-fr.md).
 
@@ -80,7 +80,7 @@ title: "Ma liste de proxys"
 http:
   mode: auto
 
-parameters:
+constants:
   - name: base_url
     value: https://example.com/proxies
 
@@ -121,7 +121,7 @@ title: "Proxys depuis une API JSON"
 http:
   mode: auto
 
-parameters:
+constants:
   - name: base_url
     value: https://api.example.com/proxies
 
@@ -165,7 +165,7 @@ title: "Proxys depuis une page HTML"
 http:
   mode: auto
 
-parameters:
+constants:
   - name: base_url
     value: https://example.com/proxies
 
