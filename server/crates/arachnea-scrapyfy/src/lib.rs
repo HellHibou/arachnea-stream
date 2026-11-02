@@ -12,7 +12,27 @@ pub use scrapyfy::*;
 
 // Crate defaults and stable configuration contracts.
 
+// Shared proxy settings and administration limits.
+
+/// Persisted activation option for user proxy access.
+pub const PROXY_ENABLED_KEY: &str = "proxy-enabled";
+/// Persisted fixed user proxy listening port.
+pub const PROXY_PORT_KEY: &str = "proxy-server-port";
+/// Persisted proxy exposure mode.
+pub const PROXY_NETWORK_KEY: &str = "proxy-network";
+/// Persisted JSON string containing user-key verifiers and metadata.
+pub const PROXY_KEYS_KEY: &str = "proxy-api-keys";
+/// Maximum UTF-8 byte length of an administrator key label.
+#[cfg(feature = "arachnea-proxy")]
+pub(crate) const PROXY_KEY_LABEL_MAX_BYTES: usize = 128;
+/// Maximum number of persisted user API keys.
+#[cfg(feature = "arachnea-proxy")]
+pub(crate) const PROXY_MAX_USER_KEYS: usize = 128;
+
 // Service and validation contracts
+
+/// Store and table holding generic administrator service records.
+pub const SERVICES_STORE_NAME: &str = "arachnea-services";
 
 /// Table holding atomic per-service administrator parameter overrides.
 pub const SERVICE_PARAMETERS_TABLE_NAME: &str = "arachnea-services-parameters";

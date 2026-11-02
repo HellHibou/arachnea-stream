@@ -20,12 +20,16 @@ use crate::server::ServerConfig;
 /// # Arguments
 /// - `client`: Accepted loopback stream positioned before the SOCKS version byte.
 /// - `routes`: Weak registry shared with the HTTP loopback adapter.
+/// - `access`: Shared API-key policy and listener-generation admission state.
+/// - `peer`: Actual TCP peer address; internal credentials require loopback.
 ///
 /// # Errors
 /// Returns an error for invalid negotiation, expired contexts or outbound failures.
 pub(crate) async fn handle_loopback(
     mut client: TcpStream,
     routes: Arc<std::sync::RwLock<HashMap<String, std::sync::Weak<crate::server::LoopbackRoute>>>>,
+    access: Arc<crate::server::access::ListenerAccess>,
+    peer: std::net::IpAddr,
 ) -> Result<()> {
     let (request, route) = tokio::time::timeout(std::time::Duration::from_secs(30), async {
         if client.read_u8().await? != 5 {
@@ -51,11 +55,13 @@ pub(crate) async fn handle_loopback(
         }
         let username = read_socks_auth_string(&mut client).await?;
         let password = read_socks_auth_string(&mut client).await?;
-        let route = if username == "arachnea-context" {
+        let route = if access.authenticate(&password, peer) == Some(true)
+            && username.starts_with("context=")
+        {
             routes
                 .read()
                 .map_err(|_| ProxyError::Config("loopback registry lock poisoned".into()))?
-                .get(&password)
+                .get(username.strip_prefix("context=").unwrap_or(""))
                 .and_then(std::sync::Weak::upgrade)
         } else {
             None

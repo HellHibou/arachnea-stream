@@ -31,6 +31,7 @@ pub(crate) async fn op_settings(
         }
     };
     Ok(AdminReply::ok(&SettingsResponse {
+        proxy: state.adapter().proxy_settings().map_err(admin_err)?,
         server_port: effective
             .server_port
             .expect("runtime administration settings must have an effective server port"),
@@ -84,7 +85,18 @@ pub(crate) async fn op_update_settings(
 ) -> Result<AdminReply, AdminError> {
     require_authorized(&state, &context).await?;
     verify_write(&state, &context)?;
+    let _write = state.settings_write.lock().await;
 
+    if let Some(proxy) = &input.proxy {
+        state
+            .adapter()
+            .validate_proxy_settings(proxy)
+            .map_err(admin_err)?;
+    }
+    let proxy_only = input.proxy.is_some()
+        && input.server_port.is_none()
+        && input.network_mode.is_none()
+        && input.entrypoint_root.is_none();
     let effective_mode = state.mode();
     let mut persisted = state.adapter().persisted_settings().map_err(admin_err)?;
 
@@ -188,6 +200,14 @@ pub(crate) async fn op_update_settings(
         .save_persisted_settings(&persisted)
         .map_err(admin_err)?;
 
+    if let Some(proxy) = &input.proxy {
+        state
+            .adapter()
+            .update_proxy_settings(proxy)
+            .await
+            .map_err(admin_err)?;
+    }
+
     // Hot-apply the scraper runtime overrides (current country and cache
     // sizing) when they were changed. The adapter reloads the runtime with the
     // effective merged values; the command-line-pinned ones stay authoritative.
@@ -265,8 +285,8 @@ pub(crate) async fn op_update_settings(
     }
 
     Ok(AdminReply::ok(&UpdateSettingsResponse {
-        restart_required: true,
-        applied: false,
+        restart_required: !proxy_only,
+        applied: proxy_only,
         apply_error: None,
         admin_url: None,
     }))
@@ -317,6 +337,7 @@ pub(crate) async fn op_set_admin_password(
 ) -> Result<AdminReply, AdminError> {
     require_authorized(&state, &context).await?;
     verify_write(&state, &context)?;
+    let _write = state.settings_write.lock().await;
 
     let mut persisted = state.adapter().persisted_settings().map_err(admin_err)?;
     if let Some(existing) = persisted.password_hash.as_deref() {

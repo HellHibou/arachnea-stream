@@ -4,6 +4,7 @@
 //! parsing. Route selection and outbound transports are delegated to
 //! the `core` module.
 
+mod access;
 mod acl;
 mod auth;
 mod config;
@@ -13,6 +14,7 @@ mod loopback;
 #[path = "server.rs"]
 mod runtime;
 
+pub use access::{api_key_digest, generate_api_key, ProxyApiKey, ProxyListenerSettings};
 pub use acl::ClientAcl;
 pub use auth::{validate_http_basic_header, ProxyAuthConfig, ProxyCredentials};
 pub use config::{FileConfig, NetworkConfig, ServerConfig};

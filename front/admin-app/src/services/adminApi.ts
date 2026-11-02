@@ -314,7 +314,34 @@ export function lookupCredential(
 
 export type SettingSource = 'command_line' | 'configuration' | 'default'
 
+export interface ProxyKeyInfo {
+  id: string
+  label: string
+  created_at: number
+}
+
+export interface ProxySettingsUpdate {
+  enabled?: boolean
+  server_port?: number
+  network_mode?: string
+}
+
+export interface ProxySettingsResponse {
+  enabled: boolean
+  enabled_source: SettingSource
+  server_port: number | null
+  server_port_source: SettingSource
+  network_mode: string
+  network_mode_source: SettingSource
+  effective_enabled: boolean
+  effective_port: number
+  effective_network_mode: string
+  apply_error: string | null
+  keys: ProxyKeyInfo[]
+}
+
 export interface SettingsResponse {
+  proxy?: ProxySettingsResponse | null
   server_port: number
   server_port_source: SettingSource
   network_mode: string
@@ -336,6 +363,7 @@ export interface SettingsResponse {
 }
 
 export interface UpdateSettingsRequest {
+  proxy?: ProxySettingsUpdate
   server_port?: number
   network_mode?: 'local' | 'private' | 'public'
   entrypoint_root?: string
@@ -534,4 +562,14 @@ export function resetServiceParameters(serviceStoreId: string, serviceId: string
   return apiCall<{ reload_required: boolean }>('reset-service-parameters', {
     method: 'POST', body: { service_store_id: serviceStoreId, service_id: serviceId },
   })
+}
+
+/** Generates a proxy key; the token is returned only by this operation. */
+export function createProxyKey(label: string): Promise<{ key: ProxyKeyInfo; token: string }> {
+  return apiCall('create-proxy-key', { method: 'POST', body: { label } })
+}
+
+/** Revokes a proxy key by public identifier. */
+export function deleteProxyKey(id: string): Promise<void> {
+  return apiCall('delete-proxy-key', { method: 'POST', body: { id } })
 }

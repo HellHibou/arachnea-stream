@@ -518,3 +518,15 @@ per-attempt failure logs are DEBUG; the localized retry facade emits a terminal
 WARN containing origin, method and delivery evidence. Normal startup and
 persistence failure handling are unchanged. For the application command and
 log policy, see the proxy crate README.
+
+### Application proxy authentication and live endpoint changes
+
+The shared application proxy uses username `context=<opaque-lease-id>` and a
+process-only API token as password for internal HTTP and SOCKS5. Tokens contain
+64 random bytes encoded as 86 Base64url characters. The WebView adapter receives
+explicit internal-origin metadata for the macOS HTTP-to-SOCKS5 conversion; it no
+longer recognizes the fixed username `arachnea-context`. Never log proxy URLs or
+credentials. The owning application must reconstruct clients, idle transport pools
+and browser sessions after an endpoint change; Stream coordinates this with a
+bounded retired-listener drain. External user authentication instead places
+optional routing parameters in the username and the user API key in the password.

@@ -82,13 +82,15 @@ where
 
 /// Resolves a connection-owned context on the shared embedded listener.
 ///
-/// Internal credentials select a weakly registered lease. External credentials
-/// carry routing parameters and are challenged before any destination is opened.
+/// Internal credentials select a weakly registered lease. User tokens authenticate
+/// default-route access before optional username/header parameters are processed.
 ///
 /// # Arguments
 /// * `client` - Accepted client stream positioned before its proxy protocol exchange.
 /// * `config` - Shared server configuration controlling limits, ACLs and authentication.
 /// * `routes` - Registered loopback routes indexed by their opaque route identifier.
+/// * `access` - Shared authentication policy and listener-generation admission state.
+/// * `peer` - Actual TCP peer address used to restrict internal credentials to loopback.
 /// * `default_route` - Route used when no explicit route identifier is supplied.
 ///
 /// # Errors
@@ -103,6 +105,8 @@ pub(crate) async fn handle_loopback<S>(
         >,
     >,
     default_route: Arc<std::sync::RwLock<std::sync::Weak<crate::server::LoopbackRoute>>>,
+    access: Arc<crate::server::access::ListenerAccess>,
+    peer: std::net::IpAddr,
 ) -> Result<()>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
@@ -125,24 +129,27 @@ where
     let credentials = auth
         .first()
         .map(|header| crate::server::auth::decode_http_basic_credentials(&header.value));
-    let internal = credentials
-        .as_ref()
-        .and_then(|pair| pair.as_ref())
-        .is_some_and(|(name, _)| name == "arachnea-context");
+    let Some(Some((username, password))) = credentials else {
+        write_proxy_auth_required(&mut client, "Arachnea Proxy").await?;
+        return Ok(());
+    };
+    let Some(internal) = access.authenticate(&password, peer) else {
+        write_proxy_auth_required(&mut client, "Arachnea Proxy").await?;
+        return Ok(());
+    };
     let public_route = if internal {
         None
     } else {
         default_route
             .read()
-            .map_err(|_| ProxyError::Config("loopback default route lock poisoned".into()))?
+            .map_err(|_| ProxyError::Config("proxy default route lock poisoned".into()))?
             .upgrade()
     };
-    if !internal && public_route.is_none() && credentials.is_none() {
-        write_proxy_auth_required(&mut client, "Arachnea local routing profile").await?;
-        return Ok(());
-    }
     let route = if internal {
-        let id = &credentials.as_ref().unwrap().as_ref().unwrap().1;
+        let Some(id) = username.strip_prefix("context=") else {
+            write_proxy_auth_required(&mut client, "Arachnea Proxy").await?;
+            return Ok(());
+        };
         let route = routes
             .read()
             .map_err(|_| ProxyError::Config("loopback registry lock poisoned".into()))?
@@ -165,46 +172,28 @@ where
         route
     };
     let definitions = route.core.parameter_definitions();
-    let has_parameters = request.headers.iter().any(|header| {
-        definitions
-            .iter()
-            .any(|definition| header.name.eq_ignore_ascii_case(&definition.http_header))
-    });
-    if !internal && credentials.is_none() && !has_parameters {
-        write_proxy_auth_required(&mut client, "Arachnea local routing profile").await?;
-        return Ok(());
-    }
     let resolved = (|| -> Result<ClientContext> {
         let mut context = route.context.clone();
         if !internal {
-            if let Some(credentials) = credentials {
-                let (username, password) = credentials
-                    .ok_or_else(|| ProxyError::Protocol("invalid proxy credentials".into()))?;
-                if password != "local" {
-                    return Err(ProxyError::AccessDenied(
-                        "invalid local routing profile password".into(),
+            if !username.is_empty() && username != "default" {
+                if !username.contains('=') {
+                    return Err(ProxyError::Protocol(
+                        "invalid proxy routing parameters".into(),
                     ));
                 }
-                if username != "default" {
-                    if username.is_empty() || !username.contains('=') {
-                        return Err(ProxyError::Protocol("invalid local routing profile".into()));
+                for (name, value) in url::form_urlencoded::parse(username.as_bytes()) {
+                    if !definitions.iter().any(|definition| definition.name == name) {
+                        return Err(ProxyError::Protocol(
+                            "unknown local routing parameter".into(),
+                        ));
                     }
-                    for (name, value) in url::form_urlencoded::parse(username.as_bytes()) {
-                        if !definitions.iter().any(|definition| definition.name == name) {
-                            return Err(ProxyError::Protocol(
-                                "unknown local routing parameter".into(),
-                            ));
-                        }
-                        let value = if name == crate::PROXY_PARAMETER_COUNTRIES {
-                            serde_json::to_string(
-                                &value.split(',').map(str::trim).collect::<Vec<_>>(),
-                            )
+                    let value = if name == crate::PROXY_PARAMETER_COUNTRIES {
+                        serde_json::to_string(&value.split(',').map(str::trim).collect::<Vec<_>>())
                             .map_err(|_| ProxyError::Protocol("invalid countries profile".into()))?
-                        } else {
-                            value.into_owned()
-                        };
-                        insert_loopback_parameter(&mut context, &name, &value)?;
-                    }
+                    } else {
+                        value.into_owned()
+                    };
+                    insert_loopback_parameter(&mut context, &name, &value)?;
                 }
             }
         }
@@ -236,10 +225,16 @@ where
             !definition.forward_header && header.name.eq_ignore_ascii_case(&definition.http_header)
         })
     });
-    if request.method.eq_ignore_ascii_case("CONNECT") {
-        handle_connect(client, request, route.core.clone(), context).await
-    } else {
-        handle_absolute_request(client, request, route.core.clone(), context).await
+    let relay = async {
+        if request.method.eq_ignore_ascii_case("CONNECT") {
+            handle_connect(client, request, route.core.clone(), context).await
+        } else {
+            handle_absolute_request(client, request, route.core.clone(), context).await
+        }
+    };
+    tokio::select! {
+        result = relay => result,
+        _ = access.revoked(&password, peer), if !internal => Err(ProxyError::AccessDenied("proxy access revoked".into())),
     }
 }
 

@@ -110,6 +110,14 @@ pub use ip_country_provider::{
     refresh_ip_country_store, IpCountryRefreshConfig, ScrapyfyIpCountryDataProvider,
 };
 
+/// Encrypted credentials over generic typed service records.
+pub mod typed_service_credentials_store;
+pub use typed_service_credentials_store::TypedServiceCredentialsStore;
+
+/// Shared application proxy configuration resolution.
+#[cfg(feature = "arachnea-proxy")]
+pub mod proxy_settings;
+
 /// Scrapyfy administrator overrides owned by this crate.
 pub mod admin_settings;
 pub use admin_settings::{

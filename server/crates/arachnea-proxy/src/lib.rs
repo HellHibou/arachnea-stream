@@ -439,6 +439,16 @@ pub const PROXY_NETWORK_DEFAULT_MAX_CONNECTIONS: u32 = 1024;
 #[cfg(feature = "server")]
 pub const PROXY_LOOPBACK_DEFAULT_PORT: u16 = 0;
 
+/// Random byte count of internal and administrator-created proxy API keys.
+#[cfg(feature = "server")]
+pub const PROXY_API_KEY_BYTES: usize = 64;
+/// ASCII length of a 64-byte key encoded as unpadded Base64url.
+#[cfg(feature = "server")]
+pub(crate) const PROXY_API_KEY_ENCODED_LENGTH: usize = 86;
+/// Maximum lifetime of connections on a retired proxy listener.
+#[cfg(feature = "server")]
+pub const PROXY_LISTENER_DRAIN: Duration = Duration::from_secs(30);
+
 // --- Localized search concurrency and connection budgets ---
 
 /// Maximum concurrent TCP operations per search.

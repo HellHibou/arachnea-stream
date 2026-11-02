@@ -392,14 +392,18 @@ impl RquestEngine {
         }
 
         if let Some(proxy_url) = proxy_url {
-            let proxy = rquest::Proxy::all(proxy_url)
-                .map_err(|err| ArachneaHttpError::InvalidConfiguration(err.to_string()))?;
+            let proxy = rquest::Proxy::all(proxy_url).map_err(|err| {
+                ArachneaHttpError::InvalidConfiguration(crate::error::redact_proxy_error(
+                    err,
+                    Some(proxy_url),
+                ))
+            })?;
             builder = builder.proxy(proxy);
         }
 
-        let client = builder
-            .build()
-            .map_err(|err| ArachneaHttpError::Network(err.to_string()))?;
+        let client = builder.build().map_err(|err| {
+            ArachneaHttpError::Network(crate::error::redact_proxy_error(err, proxy_url))
+        })?;
         Ok(Self {
             client,
             uses_proxy,

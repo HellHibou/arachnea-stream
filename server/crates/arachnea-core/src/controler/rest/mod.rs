@@ -33,7 +33,7 @@ type RestRouter = BoxedFilter<(RestReply,)>;
 ///
 /// # Returns
 /// The list of local network ranges, empty when interface enumeration fails.
-pub(crate) fn local_networks() -> Vec<ipnet::IpNet> {
+pub fn local_networks() -> Vec<ipnet::IpNet> {
     let Ok(interfaces) = if_addrs::get_if_addrs() else {
         return Vec::new();
     };

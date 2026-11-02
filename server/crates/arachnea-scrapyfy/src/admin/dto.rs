@@ -116,6 +116,8 @@ pub struct StatusCapabilities {
 /// Response of the `settings` operation.
 #[derive(Debug, Serialize)]
 pub struct SettingsResponse {
+    /// Proxy configuration, when supported by the application.
+    pub proxy: Option<super::proxy::ProxySettingsResponse>,
     /// Effective REST server port.
     pub server_port: u16,
     /// Where the effective port comes from.
@@ -159,6 +161,9 @@ pub struct SettingsResponse {
 /// their persisted values.
 #[derive(Debug, Default, Deserialize)]
 pub struct UpdateSettingsRequest {
+    /// Partial proxy settings, independent from the REST listener settings.
+    #[serde(default)]
+    pub proxy: Option<super::proxy::ProxySettingsUpdate>,
     /// New REST server port.
     #[serde(default, alias = "serverPort")]
     pub server_port: Option<u16>,

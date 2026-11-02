@@ -52,9 +52,9 @@ impl GhostwireEngine {
         if let Some(proxy_url) = proxy_url {
             builder = builder.add_proxy(proxy_url);
         }
-        let client = builder
-            .build()
-            .map_err(|err| ArachneaHttpError::GhostwireFailure(err.to_string()))?;
+        let client = builder.build().map_err(|err| {
+            ArachneaHttpError::GhostwireFailure(crate::error::redact_proxy_error(err, proxy_url))
+        })?;
         Ok(Self {
             client: Arc::new(Mutex::new(client)),
             user_agent,

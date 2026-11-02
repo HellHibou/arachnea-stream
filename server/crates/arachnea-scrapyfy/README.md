@@ -288,51 +288,63 @@ from save requests. The `update-settings` operation also ignores these pinned
 fields from any client, preserving their existing persisted values. Each option
 is handled independently; unpinned settings remain editable and persist normally.
 
-## Shared local proxy server
+## Shared application proxy server
 
-With `arachnea-proxy`, `SrcapyfyApplicationOptions` accepts `--proxy-server-port`
-(or `proxy-server-port` in the persisted application option map). Absent or zero
-selects a port automatically; a nonzero value requires that exact port. Values
-outside 0..65535 and explicit use without the proxy feature are rejected.
+With `arachnea-proxy`, application options include `--proxy-enabled true|false`,
+`--proxy-server-port <port>` and `--proxy-network local|private|public`.
+The same names without leading dashes are accepted in `data/config.json`.
+Explicit CLI values take precedence and cannot be edited from administration.
+User access is **disabled by default**: the internal listener still starts on
+127.0.0.1 with an automatic port and accepts only its ephemeral internal key.
+A CLI port alone no longer enables external use or fixes the internal-only port.
+Enabling user access requires a nonzero fixed port; zero remains valid only while
+disabled. Settings and user keys are retained across disable/re-enable cycles.
 
-Create a `LoopbackProxyRuntime::new(port)` before building the aggregator and
-inject it through `SharedProxyConfigHandle::with_runtime(runtime)` and
-`ScraperAgregator::new_with_typed_stores_and_proxy_handle(...)`. After installing
-the effective proxy core, call `proxy_handle.start_proxy_server().await` to
-publish the default route and bind before external clients connect. Stream
-performs these steps at startup. The effective `127.0.0.1:<port>` address is
-logged once at info level. A fixed port bind failure stops startup; changing the
-configured port requires restarting the application.
+Create a shared `LoopbackProxyRuntime` before building the aggregator, then inject
+it through `SharedProxyConfigHandle::with_runtime` and
+`ScraperAgregator::new_with_typed_stores_and_proxy_handle`. Publish the default
+route with `start_proxy_server`. Scrapyfy owns configuration resolution and
+user-key persistence through `scrapyfy::proxy_settings::configuration` and the
+reusable administration adapter. The executable injects the shared runtime and
+its concrete reconstruction hooks; the proxy crate receives resolved policies
+and verifiers. `admin::proxy::apply_proxy_runtime` coordinates live application,
+transport reconstruction and policy rollback under the application's rebuild
+lock. Rebuilt aggregators share the runtime and publish their default route only
+after successful construction.
+Internal HTTP/SOCKS5 credentials use a routing-lease username and the process key
+as password. Tauri/Wry macOS 14+ uses authenticated SOCKS5 on the same port;
+other clients use HTTP/CONNECT. See the HTTP crate README for platform constraints.
 
-Every HTTP client, pinned Rquest attempt, browser fallback and provider snapshot
-from the aggregator uses that runtime. Rebuilt aggregators must receive the same
-runtime and publish their new default route only after successful construction;
-Stream preserves the port across source reloads. Existing connections retain
-their routing lease. The server stops when the final runtime owner is released,
-terminating its accepted connections. An owner can call `runtime.shutdown()` to
-stop acceptance and connections explicitly even while clients retain references;
-the stopped runtime cannot restart.
+The `settings` response includes a nullable `proxy` object with requested values,
+CLI/configuration/default sources, effective listener state, the last application
+error and public key metadata. `update-settings` accepts a nested `proxy` object
+with optional `enabled`, `server_port`, and `network_mode`; it never replaces the
+key list. Applications normally use `ScrapyfyAdminRuntimeAdapter` and implement
+only `AdminApplicationRuntime` hooks for their concrete facade; custom
+`AdminRuntimeAdapter` implementations remain supported. Settings/password/key
+writes share a mutation lock.
 
-Tauri/Wry fallbacks also use this port and retain their request's routing context.
-On macOS 14 or later, native WebViews use authenticated SOCKS5 on the same socket;
-other clients continue to use HTTP/CONNECT. No separate browser listener is created.
-Proxy WebViews use isolated data stores and configure authentication before navigation.
-See the HTTP crate README for native platform constraints.
+`create-proxy-key` accepts `{ "label": "Browser" }` and returns public metadata
+plus a token exactly once. `delete-proxy-key` accepts `{ "id": "..." }`.
+Both require the usual administration authorization and POST/origin checks.
+Usable tokens are never returned by `settings`. The Scrapyfy adapter stores only SHA-256
+verifiers, labels, identifiers and Unix creation timestamps as a JSON-encoded
+string under `proxy-api-keys`; this preserves Core's scalar configuration format.
+That verifier option is configuration-only, never a CLI secret argument.
 
-For external applications, configure the logged address as an HTTP proxy
-(including for HTTPS destinations). A browser receives a `407` challenge before
-routing when it supplies neither a profile nor explicit proxy parameter headers.
-Use username `countries=BE,FR&proxy_affinity=browser-session-1` and password
-`local`, or `default` / `local` for the application's default route. Parameter
-values inside the username use URL form encoding. These credentials select a
-routing profile and do not authenticate a local user. The default route retains
-the application's direct-fallback policy.
+External clients use the API token as **password** and an empty username,
+`default`, or optional routing parameters such as `countries=BE,FR` as username.
+Without a valid token, even explicit parameter headers receive a 407 challenge.
+Legacy `default:local` access is removed. User tokens are rejected while disabled;
+the internal token is never accepted from remote peers. Keys contain 64 random
+bytes encoded as 86 unpadded Base64url characters. Revocation and access restriction
+allow existing user tunnels at most 30 seconds to drain.
 
-Only IPv4 loopback is bound; use `127.0.0.1`, not an assumed IPv6 `localhost`.
-In a container, the address is local to that container's network namespace.
-HTTPS tunnels remain opaque to the server, so external HTTPS response statuses
-cannot drive the scraper's correlated response classification.
-
+Only IPv4 is listened on. The private mode uses the same local interface subnet
+filter as the Web server. HTTP Basic does not protect tokens from network
+observation; secure the remote client-to-proxy hop separately. Container network
+modes and published ports must be configured explicitly. HTTPS tunnels remain
+opaque, so their origin response statuses cannot drive scraper classification.
 
 ### Optional proxy domain groups
 
@@ -392,3 +404,33 @@ operations and filter configuration.
 `query_collection_parameters` now returns an owned vector containing resolved constants
 and editable parameters, rather than a borrowed slice of raw definitions. Player resolvers
 therefore receive the same action-processed values used by the queries.
+
+## Reusable administration composition
+
+`admin::ScrapyfyAdminRuntimeAdapter<A>` implements the existing
+`AdminRuntimeAdapter` contract using an `AdminApplicationRuntime` supplied by the
+executable. Scrapyfy owns configuration persistence, REST report adaptation,
+source credentials, proxy settings/key management and rollback policy. Application
+hooks only select affected groups, rebuild the concrete scraper facade, apply
+scraper settings and expose the shared proxy runtime. For proxy transitions they
+hold their rebuild lock while delegating to `admin::proxy::apply_proxy_runtime`
+with a concrete rebuild callback. They must not reacquire that lock in the callback.
+
+`admin::configuration::AdminConfigurationStore` receives the loaded options and
+an explicit destination path. Its `shared()` handle feeds Core's
+`rest_settings_source`, so administration and Web hot application read the same
+configuration. Saves preserve unknown additional options and publish memory state
+only after successful persistence. Executables still choose the destination and
+assemble the underlying SQLite/memory stores. No application crate dependency or
+application-specific filesystem path is introduced in Scrapyfy.
+
+`TypedServiceCredentialsStore` is owned by Scrapyfy alongside `SourceServiceRecord`.
+It accepts any `TypedEntityStore<SourceServiceRecord>`, an injected encryption key
+and a default source-group namespace; SQLite is not required. Login/password
+remain independently AES-256-GCM encrypted in the existing source record fields.
+`SERVICES_STORE_NAME` centralizes the unchanged `arachnea-services` namespace.
+The Stream crate retains its historical adapter, credentials and constant imports
+as aliases/reexports. Configuration/credential formats and admin API routes are
+unchanged. Proxy implementation modules remain gated by `arachnea-proxy`; the
+base admin DTOs, configuration component and typed credentials store compile
+without that feature.

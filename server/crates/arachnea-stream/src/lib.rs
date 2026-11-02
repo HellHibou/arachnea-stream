@@ -1,8 +1,7 @@
 #![warn(missing_docs)]
 //! Arachnea stream service facade and player resolvers.
 
-/// Composition adapter between the generic Scrapyfy administration service and
-/// this executable's configuration, credentials and stream runtime.
+/// Stream-specific hooks and compatibility paths for Scrapyfy administration.
 pub mod admin_composition;
 /// Global ETag construction and decoding for aggregated responses.
 pub mod stream_etag;
@@ -16,7 +15,7 @@ pub mod services;
 pub mod stream_resolver;
 /// Stream scraper facade and main entry point.
 pub mod stream_scraper;
-/// Credentials adapter over the typed `arachnea-services` store.
+/// Compatibility path for Scrapyfy's typed encrypted source credentials store.
 pub mod typed_service_credentials_store;
 
 pub use reloadable_stream_scraper::ReloadableStreamScraper;
@@ -38,7 +37,10 @@ pub const DEFAULT_SERVER_CREDENTIALS_KEY: [u8; 32] = *b"hell_hibou-arachnea-key-
 pub const CONFIGURATION_PATH: &str = "data/config.json";
 
 /// Default application loopback proxy port; zero requests an ephemeral port.
-pub const DEFAULT_LOOPBACK_PROXY_PORT: u16 = 0;
+pub use arachnea_proxy::PROXY_LOOPBACK_DEFAULT_PORT as DEFAULT_LOOPBACK_PROXY_PORT;
+
+/// Shared proxy configuration option names, retained for compatibility.
+pub use arachnea_scrapyfy::{PROXY_ENABLED_KEY, PROXY_KEYS_KEY, PROXY_NETWORK_KEY, PROXY_PORT_KEY};
 
 // Stream facade and generic resolver
 
@@ -46,7 +48,7 @@ pub const DEFAULT_LOOPBACK_PROXY_PORT: u16 = 0;
 pub const STREAM_SERVICE_GROUP_NAME: &str = "arachnea-stream";
 
 /// Persistence namespace containing administrator service activation overrides.
-pub const STREAM_SERVICES_STORE_NAME: &str = "arachnea-services";
+pub use arachnea_scrapyfy::SERVICES_STORE_NAME as STREAM_SERVICES_STORE_NAME;
 
 /// Root directory, relative to the application data directory, of the SQLite
 /// persistence stores.

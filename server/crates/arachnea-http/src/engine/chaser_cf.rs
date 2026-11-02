@@ -825,7 +825,7 @@ fn chaser_proxy_from_url(
         )
     })?;
     let mut config = ProxyConfig::new(host, port).with_scheme(url.scheme());
-    if !url.username().is_empty() {
+    if !url.username().is_empty() || url.password().is_some() {
         config = config.with_auth(
             url.username(),
             url.password().ok_or_else(|| {

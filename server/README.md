@@ -141,20 +141,27 @@ The proxy binds to loopback by default. Public binds without ACLs are rejected u
 - Crate `README.md` files hold crate-specific design context, capabilities, commands, and known gaps.
 - Crate `AGENTS.md` files are AI-agent-only implementation instructions.
 
-## Local proxy listening port
+## Application proxy configuration
 
-The Stream executable starts one shared Scrapyfy HTTP proxy on IPv4 loopback.
-Use `arachnea --proxy-server-port 18080` or add `"proxy-server-port": 18080` to
-`data/config.json`. Command-line values override persisted values. Omit the
-option or set it to `0` for an automatic port. After binding, the proxy service prints
-`Proxy Server Application launched: http://127.0.0.1:<port>`, like the web server,
-regardless of the tracing filter. The structured `shared loopback proxy listening`
-info event also records the effective address. A fixed-port bind
-failure stops startup. Source reloads preserve the port; changing it requires a
-restart.
+The Stream executable starts a shared Scrapyfy proxy on IPv4 loopback by default.
+Configure **Arachnéa Proxy** from the administration settings page. User proxy
+access is disabled by default; internal scraper traffic continues on an automatic
+loopback port with a process-only API key. Enabling user access requires a fixed
+port between 1 and 65535, a network mode (`local` by default, `private` or `public`)
+and an API key created from administration. The token is used as the proxy
+password; the username is empty, `default`, or optional routing parameters such as
+`countries=BE,FR`. The old `default:local` access is removed.
 
-Local applications can configure `127.0.0.1:<port>` as their HTTP/HTTPS proxy.
-The routing-profile challenge accepts username `countries=BE,FR` and password
-`local`; use `default` / `local` for the default application route. Details and
-limitations are documented in the Scrapyfy and proxy crate READMEs. Only loopback
-is exposed, inside the application's network namespace when containerized.
+The equivalent options are `--proxy-enabled true`, `--proxy-server-port 18080`
+and `--proxy-network local`, or the corresponding keys in `data/config.json`.
+CLI-pinned fields cannot be edited in administration. While disabled, even an
+explicit CLI port is ignored in favor of an automatic internal port. Port/network
+changes apply live, with transport reconstruction and failure rollback; source
+reloads retain the active listener. Existing user tunnels drain for at most 30
+seconds after revocation or access restriction.
+
+Internal and user keys contain 64 random bytes (86 Base64url characters). The
+internal key is never saved or displayed; user keys are displayed once and only
+their cryptographic verifiers are persisted. HTTP proxy authentication does not
+provide encryption: secure remote access separately, and publish container ports
+explicitly. See the Scrapyfy, Stream and proxy crate READMEs for details.

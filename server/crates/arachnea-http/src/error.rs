@@ -120,3 +120,21 @@ pub enum ArachneaHttpError {
     #[error("text decoding error: {0}")]
     Text(String),
 }
+
+/// Removes proxy credentials from transport-construction errors.
+///
+/// # Arguments
+/// * `error` - Error supplied by an upstream transport implementation.
+/// * `proxy_url` - Configured proxy endpoint, possibly containing a secret.
+pub(crate) fn redact_proxy_error(error: impl std::fmt::Display, proxy_url: Option<&str>) -> String {
+    let mut message = error.to_string();
+    if let Some(proxy_url) = proxy_url {
+        message = message.replace(proxy_url, "[redacted proxy]");
+        if let Ok(url) = url::Url::parse(proxy_url) {
+            if let Some(password) = url.password().filter(|value| !value.is_empty()) {
+                message = message.replace(password, "[redacted]");
+            }
+        }
+    }
+    message
+}

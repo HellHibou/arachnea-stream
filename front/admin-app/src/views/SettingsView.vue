@@ -1,4 +1,6 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
+import ProxySettingsSection from '@/components/ProxySettingsSection.vue'
+import type { ProxySettingsUpdate } from '@/services/adminApi'
 import { computed, onMounted, ref, type ComputedRef } from 'vue'
 import { useRoute } from 'vue-router'
 
@@ -27,6 +29,7 @@ const localError = ref<string | null>(null)
 const successMessage = ref<string | null>(null)
 const redirectTarget = ref<string | null>(null)
 
+const proxyDraft = ref<ProxySettingsUpdate>({})
 const port = ref<number | null>(null)
 const networkMode = ref<string>('private')
 const entrypointRoot = ref('')
@@ -209,6 +212,9 @@ async function loadSettings(): Promise<void> {
   }
   if (settingsResult) {
     settings.value = settingsResult
+    if (settingsResult.proxy) {
+      proxyDraft.value = { enabled: settingsResult.proxy.enabled, server_port: settingsResult.proxy.server_port ?? undefined, network_mode: settingsResult.proxy.network_mode }
+    }
     port.value = settingsResult.server_port
     networkMode.value = settingsResult.network_mode
     entrypointRoot.value = settingsResult.entrypoint_root ?? ''
@@ -290,7 +296,17 @@ async function handleSaveSettings(): Promise<void> {
           return null
         }
 
+        const proxy = settings.value?.proxy
+        if (proxy && proxyDraft.value.enabled && (!Number.isInteger(proxyDraft.value.server_port) || !proxyDraft.value.server_port || proxyDraft.value.server_port < 1 || proxyDraft.value.server_port > 65535)) {
+          localError.value = t('settings.portInvalid')
+          return null
+        }
         return {
+          ...(proxy ? { proxy: {
+            ...(proxy.enabled_source !== 'command_line' ? { enabled: proxyDraft.value.enabled } : {}),
+            ...(proxy.server_port_source !== 'command_line' ? { server_port: proxyDraft.value.server_port } : {}),
+            ...(proxy.network_mode_source !== 'command_line' ? { network_mode: proxyDraft.value.network_mode } : {}),
+          } } : {}),
           ...(editableHttpSettings.value.port ? { server_port: port.value ?? undefined } : {}),
           ...(editableHttpSettings.value.network
             ? { network_mode: networkMode.value as 'local' | 'private' | 'public' }
@@ -402,6 +418,7 @@ onMounted(() => {
             <v-text-field v-if="editableHttpSettings.root" v-model="entrypointRoot" :label="t('settings.entrypointRoot')" :placeholder="t('settings.entrypointRootPlaceholder')" variant="outlined" class="mt-4" :hint="settings ? sourceHint(settings.entrypoint_root_source) : undefined" persistent-hint />
           </v-card-text>
         </v-card>
+        <ProxySettingsSection v-if="!popupMode && settings?.proxy" v-model="proxyDraft" :settings="settings.proxy" :loading="isLoading" />
         <v-card variant="outlined" class="mb-6">
           <v-card-title>{{ t('settings.applicationGroup') }}</v-card-title>
           <v-card-text>

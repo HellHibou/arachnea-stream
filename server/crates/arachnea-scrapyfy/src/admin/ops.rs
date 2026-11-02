@@ -962,6 +962,18 @@ pub fn register_admin_service(
     register_admin_operation(
         controler,
         &state.state,
+        "create-proxy-key",
+        proxy::op_create_proxy_key,
+    );
+    register_admin_operation(
+        controler,
+        &state.state,
+        "delete-proxy-key",
+        proxy::op_delete_proxy_key,
+    );
+    register_admin_operation(
+        controler,
+        &state.state,
         "update-settings",
         op_update_settings,
     );
@@ -980,6 +992,7 @@ pub fn register_admin_service(
     Ok(state)
 }
 
+mod proxy;
 mod settings;
 use settings::*;
 

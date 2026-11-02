@@ -1,136 +1,34 @@
-//! Stream executable adapters for the generic Scrapyfy administration service.
+//! Application-only hooks for Scrapyfy's reusable administration adapter.
 
+use crate::ReloadableStreamScraper;
 use anyhow::Result;
+use arachnea_scrapyfy::{
+    admin::{AdminApplicationRuntime, RuntimeReloadReport, ValidatedReloadGroup},
+    ScraperAdminSettings,
+};
 use async_trait::async_trait;
-use std::{
-    path::PathBuf,
-    sync::{Arc, RwLock},
-};
+use std::sync::Arc;
 
-use arachnea_core::controler::{options::CoreApplicationOptions, RestServerHandle};
-use arachnea_scrapyfy::admin::{
-    AdminRuntimeAdapter, AdminServerSettingsReport, PlaintextCredentials, RuntimeReloadReport,
-    ValidatedReloadGroup,
-};
-use arachnea_scrapyfy::ScraperAdminSettings;
+/// Compatibility resolver path; proxy configuration is owned by Scrapyfy.
+pub use arachnea_scrapyfy::scrapyfy::proxy_settings::configuration as proxy_configuration;
 
-use crate::{ReloadableStreamScraper, TypedServiceCredentialsStore};
-
-/// Application-specific adapter injected into Scrapyfy's admin service.
-pub struct StreamAdminRuntimeAdapter {
-    configuration: Arc<RwLock<CoreApplicationOptions>>,
-    configuration_path: PathBuf,
-    credentials: Arc<TypedServiceCredentialsStore>,
-    reloadable: Arc<ReloadableStreamScraper>,
-    rest_server: Option<Arc<RestServerHandle>>,
-}
-
-impl StreamAdminRuntimeAdapter {
-    /// Creates the Stream runtime adapter.
-    ///
-    /// # Arguments
-    /// * `configuration` - Persisted application options shared with the REST settings resolver.
-    /// * `configuration_path` - File receiving saved application options.
-    /// * `credentials` - Encrypted service credentials store.
-    /// * `reloadable` - Reloadable scraper runtime controlled by the admin service.
-    /// * `rest_server` - Optional REST server handle used for hot settings application.
-    pub fn new(
-        configuration: CoreApplicationOptions,
-        configuration_path: PathBuf,
-        credentials: Arc<TypedServiceCredentialsStore>,
-        reloadable: Arc<ReloadableStreamScraper>,
-        rest_server: Option<Arc<RestServerHandle>>,
-    ) -> Self {
-        Self {
-            configuration: Arc::new(RwLock::new(configuration)),
-            configuration_path,
-            credentials,
-            reloadable,
-            rest_server,
-        }
-    }
-
-    /// Returns the shared persisted configuration for the REST settings resolver.
-    pub fn configuration(&self) -> Arc<RwLock<CoreApplicationOptions>> {
-        Arc::clone(&self.configuration)
-    }
-}
+/// Compatibility adapter name using Stream's concrete reconstruction hooks.
+pub type StreamAdminRuntimeAdapter =
+    arachnea_scrapyfy::admin::ScrapyfyAdminRuntimeAdapter<ReloadableStreamScraper>;
 
 #[async_trait]
-impl AdminRuntimeAdapter for StreamAdminRuntimeAdapter {
-    fn persisted_settings(&self) -> Result<CoreApplicationOptions> {
-        Ok(self
-            .configuration
-            .read()
-            .expect("configuration lock poisoned")
-            .clone())
+impl AdminApplicationRuntime for ReloadableStreamScraper {
+    fn proxy_runtime(&self) -> Option<Arc<arachnea_proxy::server::LoopbackProxyRuntime>> {
+        Some(self.current().proxy_handle().proxy_runtime())
     }
 
-    fn save_persisted_settings(&self, settings: &CoreApplicationOptions) -> Result<()> {
-        let mut config = self
-            .configuration
-            .write()
-            .expect("configuration lock poisoned");
-        config.server_port = settings.server_port;
-        config.entrypoint_root = settings.entrypoint_root.clone();
-        config.network_mode = settings.network_mode;
-        config.password_hash = settings.password_hash.clone();
-        // Preserve application-specific persisted entries (current country,
-        // cache sizing), merging so options owned by other crates stay intact.
-        for (name, value) in &settings.additional_options {
-            config
-                .additional_options
-                .insert(name.clone(), value.clone());
-        }
-        config.save(&self.configuration_path)
-    }
-
-    fn target_server_settings(&self) -> Option<CoreApplicationOptions> {
-        let rest_server = self.rest_server.as_ref()?;
-        let target = rest_server.target_settings()?;
-        Some(CoreApplicationOptions {
-            server_port: Some(target.server_port),
-            network_mode: Some(target.network_mode),
-            entrypoint_root: target.entrypoint_root,
-            ..Default::default()
-        })
-    }
-
-    fn apply_server_settings(&self) -> AdminServerSettingsReport {
-        let Some(rest_server) = &self.rest_server else {
-            return AdminServerSettingsReport {
-                applied: false,
-                apply_error: Some("REST server hot application is unavailable.".to_string()),
-                server_port: 0,
-                network_mode: "private".to_string(),
-                entrypoint_root: None,
-            };
-        };
-        let report = rest_server.apply_settings();
-        AdminServerSettingsReport {
-            applied: report.applied,
-            apply_error: report.apply_error,
-            server_port: report.server_port,
-            network_mode: report.network_mode,
-            entrypoint_root: report.entrypoint_root,
-        }
-    }
-
-    fn stored_credentials(&self, store: &str, id: &str) -> Result<Option<PlaintextCredentials>> {
-        self.credentials.get_credentials_for(store, id)
-    }
-
-    fn set_stored_credentials(
+    async fn apply_proxy_settings(
         &self,
-        store: &str,
-        id: &str,
-        value: PlaintextCredentials,
+        settings: arachnea_proxy::server::ProxyListenerSettings,
+        keys: Vec<arachnea_proxy::server::ProxyApiKey>,
+        previous_keys: Vec<arachnea_proxy::server::ProxyApiKey>,
     ) -> Result<()> {
-        self.credentials.set_credentials_for(store, id, value)
-    }
-
-    fn clear_stored_credentials(&self, store: &str, id: &str) -> Result<()> {
-        self.credentials.clear_credentials_for(store, id)
+        ReloadableStreamScraper::apply_proxy_settings(self, settings, keys, previous_keys).await
     }
 
     async fn rebuild_validated_group(
@@ -145,10 +43,10 @@ impl AdminRuntimeAdapter for StreamAdminRuntimeAdapter {
         ) {
             return Ok(None);
         }
-        Ok(Some(self.reloadable.rebuild_validated().await?))
+        Ok(Some(self.rebuild_validated().await?))
     }
 
     async fn apply_scraper_settings(&self, settings: &ScraperAdminSettings) -> Result<()> {
-        self.reloadable.apply_scraper_settings(settings).await
+        ReloadableStreamScraper::apply_scraper_settings(self, settings).await
     }
 }

@@ -11,7 +11,7 @@ pub struct SrcapyfyApplicationOptions {
     pub application_option: CoreApplicationOptions,
     /// Explicit local country used for geo proxy decisions.
     pub current_country: Option<String>,
-    /// Loopback proxy listening port; absent or zero selects an ephemeral port.
+    /// Requested user proxy port; ignored while user access is disabled.
     pub proxy_server_port: Option<u16>,
     /// Override of the maximum on-disk server cache size in K (kilobytes).
     pub cache_max_disk_bytes: Option<u64>,
@@ -22,6 +22,8 @@ pub struct SrcapyfyApplicationOptions {
     /// Command-line-pinned scraper overrides only, used by the administration
     /// API to compute effective values and to reject edits on pinned fields.
     cli_scraper: ScraperAdminSettings,
+    /// Proxy values explicitly pinned by command-line arguments.
+    pub cli_proxy: BTreeMap<String, String>,
 }
 
 impl SrcapyfyApplicationOptions {
@@ -109,8 +111,16 @@ impl ApplicationOptionsProvider for SrcapyfyApplicationOptions {
         let mut options = self.application_option.get_options();
         options.extend([
             ApplicationOptionDefinition::new(
+                "--proxy-enabled",
+                "Enable user proxy access (true or false; default false).",
+            ),
+            ApplicationOptionDefinition::new(
+                "--proxy-network",
+                "Proxy network mode: local, private or public (default local).",
+            ),
+            ApplicationOptionDefinition::new(
                 "--proxy-server-port",
-                "Loopback proxy port (0 selects an automatic port; restart required).",
+                "User proxy port (1..65535 when enabled; ignored while disabled).",
             ),
             ApplicationOptionDefinition::new(
                 "--current-country",
@@ -167,6 +177,28 @@ impl ApplicationOptionsProvider for SrcapyfyApplicationOptions {
 
         while let Some(arg) = iter.next() {
             match arg.as_str() {
+                "--proxy-enabled" | "--proxy-network" | "--proxy-api-keys" => {
+                    let name = arg.trim_start_matches("--");
+                    let value = iter.next().context("Missing proxy option value")?.clone();
+                    if name == "proxy-api-keys" && source == SettingSource::CommandLine {
+                        anyhow::bail!("Proxy API key verifiers must be configured through the configuration file or administration UI.");
+                    }
+                    if name == "proxy-enabled" {
+                        value
+                            .parse::<bool>()
+                            .context("Invalid proxy-enabled; expected true or false")?;
+                    }
+                    if name == "proxy-network"
+                        && !matches!(value.as_str(), "local" | "private" | "public")
+                    {
+                        anyhow::bail!("Invalid proxy-network; expected local, private or public.");
+                    }
+                    self.application_option
+                        .set_additional_option(name, Some(value.clone()));
+                    if source == SettingSource::CommandLine {
+                        self.cli_proxy.insert(name.to_string(), value);
+                    }
+                }
                 "--proxy-server-port" => {
                     #[cfg(not(feature = "arachnea-proxy"))]
                     anyhow::bail!("`--proxy-server-port` requires the arachnea-proxy feature");
@@ -178,6 +210,12 @@ impl ApplicationOptionsProvider for SrcapyfyApplicationOptions {
                         self.proxy_server_port = Some(value.parse::<u16>().context(
                             "Invalid value for `--proxy-server-port`: expected 0..65535",
                         )?);
+                        self.application_option
+                            .set_additional_option("proxy-server-port", Some(value.clone()));
+                        if source == SettingSource::CommandLine {
+                            self.cli_proxy
+                                .insert("proxy-server-port".into(), value.clone());
+                        }
                     }
                 }
                 "--current-country" => {

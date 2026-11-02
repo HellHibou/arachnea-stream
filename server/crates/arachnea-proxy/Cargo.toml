@@ -37,6 +37,7 @@ rusqlite = { workspace = true, optional = true }
 rustls.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha2 = "0.10"
 serde_urlencoded.workspace = true
 thiserror.workspace = true
 tokio.workspace = true

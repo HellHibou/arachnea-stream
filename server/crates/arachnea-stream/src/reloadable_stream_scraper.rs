@@ -40,6 +40,7 @@ pub(crate) struct RegistrationEndpoints {
 /// successful reload swaps the instance without interrupting in-flight
 /// requests or re-registering routes.
 pub struct ReloadableStreamScraper {
+    rebuild: tokio::sync::Mutex<()>,
     options: RwLock<StreamScraperBuildOptions>,
     /// Scrapyfy runtime options (cache sizing) reapplied to every built
     /// instance, so reloads keep the effective configuration of the initial
@@ -69,6 +70,7 @@ impl ReloadableStreamScraper {
         let mut instance = StreamScraper::from_options(&options)?;
         runtime_options.apply_to(&mut instance.scraper_agregator);
         Ok(Self {
+            rebuild: tokio::sync::Mutex::new(()),
             options: RwLock::new(options),
             runtime_options: RwLock::new(runtime_options),
             registration: RwLock::new(None),
@@ -86,6 +88,7 @@ impl ReloadableStreamScraper {
         options: StreamScraperBuildOptions,
     ) -> Self {
         Self {
+            rebuild: tokio::sync::Mutex::new(()),
             options: RwLock::new(options),
             runtime_options: RwLock::new(ScraperRuntimeOptions::default()),
             registration: RwLock::new(None),
@@ -228,6 +231,39 @@ impl ReloadableStreamScraper {
     /// Returns an error only for unexpected internal failures such as a panicked
     /// build task.
     pub async fn rebuild_validated(&self) -> Result<RuntimeReloadReport> {
+        let _guard = self.rebuild.lock().await;
+        self.rebuild_current().await
+    }
+
+    /// Applies proxy policy and rebuilds transports when their endpoint changes.
+    ///
+    /// # Arguments
+    /// * `settings` - Validated effective proxy settings.
+    /// * `keys` - User-key verifiers shared by all listener generations.
+    /// * `previous_keys` - Previous verifiers restored if reconstruction fails.
+    ///
+    /// # Errors
+    /// Returns bind, reconstruction or rollback failures.
+    pub async fn apply_proxy_settings(
+        &self,
+        settings: arachnea_proxy::server::ProxyListenerSettings,
+        keys: Vec<arachnea_proxy::server::ProxyApiKey>,
+        previous_keys: Vec<arachnea_proxy::server::ProxyApiKey>,
+    ) -> Result<()> {
+        let _guard = self.rebuild.lock().await;
+        let runtime = self.current().proxy_handle().proxy_runtime();
+        arachnea_scrapyfy::admin::proxy::apply_proxy_runtime(
+            &runtime,
+            settings,
+            keys,
+            previous_keys,
+            || self.rebuild_current(),
+        )
+        .await
+    }
+
+    /// Constructs and publishes a scraper while the caller holds the rebuild mutex.
+    async fn rebuild_current(&self) -> Result<RuntimeReloadReport> {
         let options = self
             .options
             .read()

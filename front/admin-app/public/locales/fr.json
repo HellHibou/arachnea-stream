@@ -105,7 +105,7 @@
     "restartRequired": "Redémarrage requis pour appliquer les changements.",
     "portInvalid": "Le port doit être entre 1 et 65535.",
     "rootInvalid": "La racine doit être un chemin relatif à segments non vides, par exemple arachnea ou arachnea/admin.",
-    "serverGroup": "Serveur",
+    "serverGroup": "Serveur Web - Arachnéa Stream",
     "applicationGroup": "Application",
     "currentCountry": "Pays courant",
     "currentCountryPlaceholder": "ex : FR (vide = détection automatique)",
@@ -210,5 +210,24 @@
     "invalid": "Valeur invalide.",
     "pending": "Les valeurs enregistrées et les logos seront appliqués au runtime après rechargement.",
     "default": "Valeur par défaut : {value}"
+  },
+  "proxy": {
+    "title": "Arachnéa Proxy",
+    "enabled": "Activer le mode proxy local",
+    "disabledHint": "Accès utilisateur désactivé : réseau local uniquement, port automatique et clé interne uniquement. Les clés enregistrées sont conservées mais refusées.",
+    "effective": "Port effectif : {port} — mode réseau : {network}",
+    "keys": "Clés API",
+    "credentialsHint": "Mot de passe : clé API. Login : vide, default ou paramètres optionnels (ex. countries=BE,FR).",
+    "networkWarning": "La connexion au proxy utilise HTTP sans chiffrement. Le token peut être intercepté sur le réseau ; utilisez un transport sécurisé pour un accès distant.",
+    "secretOnce": "Copiez cette clé maintenant. Elle ne sera plus affichée après fermeture.",
+    "token": "Clé API (mot de passe du proxy)",
+    "copy": "Copier",
+    "copyFailed": "Copie impossible. Sélectionnez et copiez la clé manuellement.",
+    "keyLabel": "Nom de la clé",
+    "createKey": "Créer une clé API",
+    "revoke": "Révoquer",
+    "revokeConfirm": "Révoquer la clé « {label} » ? Les nouvelles authentifications seront refusées ; les tunnels déjà établis peuvent se terminer pendant 30 secondes au maximum.",
+    "noKeys": "Aucune clé API utilisateur.",
+    "pinned": "Imposé par la ligne de commande : {settings}"
   }
 }

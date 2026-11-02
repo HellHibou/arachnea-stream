@@ -88,6 +88,7 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Exposed the existing local-interface subnet resolver for shared Web/proxy private-network admission; proxy callers deny remote peers if interface enumeration fails.
 - Simplified ASCII-insensitive content-type checks, route-pair capacity calculation, API-prefix matching, log token splitting and private SQLite fixture path arguments. Header precedence, route order, log matching and stored paths are unchanged.
 - Simplified default mode selection, snapshot loopback detection and the tray shutdown call, preserving the existing controller defaults and lifecycle.
 - Reduced the controller and Tauri `mod.rs` files to module declarations and compatibility reexports. Separated shared contracts, typed registration, backend construction and REST settings; split native service state, dispatch, assets, runtime setup, IPC, custom-protocol routing and binary response buffering into private modules. The six existing settings tests now mirror `controler/rest_settings.rs`. Existing command/ETag contracts, call-site Tauri context generation, mount precedence, main-thread behavior and tracing targets are preserved.
@@ -135,6 +136,7 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Added ephemeral internal and hashed user API-key authentication to the shared application proxy, with 64-byte Base64url tokens, live port/network policies, retired-listener drainage and bounded tunnel revocation. User access defaults to disabled; internal traffic stays available on loopback.
 - Extended the crate harmonization tracking plan with a proxy follow-up analysis for extracting performance-only diagnostics and centralizing remaining constants and operational limits. Recorded module boundaries, lifecycle constraints, and validation criteria; implementation remains pending confirmation.
 - Add bounded DEBUG exploration-ranking diagnostics: unique ranking identities, up to eight ordered candidate snapshots, sampled pipeline lifecycle/completion order, and winner paths even outside the sample. Preserve the comparator, validation concurrency, eligibility and deadlines; distinguish cancellation from endpoint failures and stored probe latency from pipeline elapsed time.
 
@@ -266,6 +268,7 @@ All notable changes to the server workspace are recorded here.
 
 #### Fixed
 
+- Removed hardcoded default:local access and unauthenticated routing-header access from the shared application listener. Tokens belong in the password field, optional routing parameters in the username; user keys cannot select internal leases or use internal SOCKS5.
 - Removed redundant terminal returns from DNS-enabled proxy core constructors, keeping DNS initialization, inventory ownership and error propagation unchanged.
 - Restored Proxy rustdoc after the module refactoring: standardized argument sections, completed public and internal parameter descriptions, documented probe/selection ownership and error contracts, and repaired the feature-gated loopback-runtime link. Clarified strict versus relaxed selection, affinity replacement, configured DNS error propagation, backend-dependent batch guarantees and explicit redirect budgets. Runtime code, APIs and feature gates are unchanged; strict documentation builds and the existing doctest pass with default and full features.
 
@@ -317,6 +320,7 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Added application-owned proxy configuration and user-key persistence in config.json, CLI precedence, one-time token creation/revocation and coordinated transport reconstruction on proxy endpoint changes. Failed runtime/persistence changes attempt restoration of the previous policy.
 - Populated availability-country tags for the specified Belgian/French services and added content-type metadata for every Stream source: local TV, movies/series, and documentaries on the requested providers. TF1 availability remains independent of its editable catalog country.
 - Added optional service metadata tags exposed by `service_stream_metadata`, with initial French video-language tags for every source, editable dark-stream base URLs, and TF1 country selection including Switzerland (`fr-ch`) with English/French labels. Administrator overrides use the new `arachnea-services-parameters` table in the existing services SQLite store.
 - Added the twelve missing schema-v1 source-check contracts under `server/crates/arachnea-stream/tests/fixtures/services/`, covering AnimeUltime, Coflix, FrenchAnimes, Papadustream V2, Wiflix, Antenne Réunion, Bouke, Canal Zoom, RMC BFM Play, TeleMB, Télésambre and TV5MONDE+. Each contract mirrors its production YAML path and declares only the supported operations reachable from that source's public navigation. The local metadata check now discovers and validates all 21 configurations; live navigation, search and entry steps remain unexecuted.
@@ -383,6 +387,7 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Reduced administration to Stream-specific reconstruction/application hooks and executable composition. Startup now uses Scrapyfy configuration resolution directly; historical adapter, credential-store and option-constant imports remain available through aliases/reexports without data migration.
 - Open the normalized service parameter table directly, without data migration or automatic deletion of historical JSON records. Incompatible existing primary keys are rejected by schema validation.
 - Service integration checks now continue across missing/invalid contracts and source execution failures. Missing contracts receive explicit `not_tested` results; recoverable source panics are isolated. The final summary lists selected/attempted/passed/failed/untested/nonapplicable counts and each source’s result and reason, before any aggregate failure for errors or incomplete coverage. Metadata discovery uses the same per-source preparation isolation.
 
@@ -503,6 +508,7 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Added proxy settings DTOs and runtime adapter hooks, authenticated create-proxy-key/delete-proxy-key operations, and a shared configuration mutation lock. CLI proxy activation/network/port overrides are tracked separately from persisted settings.
 - Added YAML `constants`, validated editable `parameters` (`regex`/`select`), cross-section dependency resolution, atomic per-service override storage, and authenticated administration read/save/reset operations. Logos and player resolvers share effective configuration; cache identities include editable values. Nonempty legacy manifest parameter overrides are rejected with migration guidance. Nested string arrays in static JSON objects now retain their array shape.
 - Extended test-support assertion reports with observed JSON kinds at invalid paths, without recording field values or provider response bodies.
 
@@ -529,6 +535,7 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Moved generic proxy configuration, API-key management, policy rollback, shared application configuration, REST report adaptation and encrypted source credentials from Stream into reusable Scrapyfy modules. Added the generic administration composition and narrow application hooks; proxy modules remain feature-gated and persisted formats are unchanged.
 - Service parameter overrides now use one `(service_store_id, source_id, parameter_name, value)` row per parameter instead of a per-source JSON document. Source saves/resets atomically replace their row scope while keeping administration DTOs unchanged.
 - Migrate in-process HTTP proxy configuration to the boxed public variant. Preserve existing core clone points without intermediate boxes; configuration clones now allocate a box for the in-process variant. YAML and query contracts are unchanged.
 
@@ -612,6 +619,7 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Internal proxy credentials now use the routing lease as username and the process API token as password. macOS WebViews receive explicit internal-origin metadata for SOCKS5 conversion; WebView and Chaser-CF parsing accepts an empty HTTP username with a token.
 - Breaking Rust proxy configuration API change: `HttpProxyConfig::Arachnea` now owns `Box<ArachneaProxyCore>`. Direct callers box owned cores; `proxy_core(core)` keeps its signature. Construction and variant cloning allocate a box, preserving contained-core clone semantics, routing and loopback lifecycle; owned-core consumers clone the contained value without an intermediate box.
 
 - Box the private application-owned Tauri solver session while passing it through the main-thread result, adding one allocation on successful interactive session creation. The observer still receives the owned session; standalone solving, ordinary requests, proxy readiness and cleanup remain unchanged.
@@ -662,6 +670,7 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Added the Arachnéa Proxy settings block with activation, port/network controls, effective state, CLI field locking and named API-key creation/copy/revocation. Tokens are displayed only after creation.
 - Added content-type filtering and localized metadata-value labels through optional `value_labels` translation-key mappings shared by filter options and service-row tags.
 - Added configurable per-service-group metadata filters and text search, plus an Options dialog for YAML-declared editable parameters. The dialog validates inputs, shows bilingual TF1 country labels, restores YAML defaults in a cancellable draft, and requests runtime reload after saving. Service logos now reflect saved constants and parameters.
 
@@ -674,6 +683,11 @@ All notable changes to the server workspace are recorded here.
 
 - Service rows now show metadata tags between title and description, omit redundant enabled/disabled badges, and display credential and parameter buttons side by side.
 - Service metadata filter labels now use locale dictionary keys resolved through the existing translation system; configuration no longer embeds language dictionaries or literal labels.
+
+#### Changed
+
+- Renamed the Web settings block to “Serveur Web - Arachnéa Stream” in French, with the corresponding English label.
+- Placed the proxy API-key creation button to the right of its name field on the same row.
 
 
 ### <u>front-public</u>
@@ -765,6 +779,7 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Added the Stream/Scrapyfy administration responsibility audit and a proposed migration of generic proxy administration, shared configuration, REST adaptation and encrypted source credentials into Scrapyfy. Application-specific reconstruction stays in Stream; implementation awaits approval.
 - Documented the approved source-parameter persistence correction: one row per parameter, atomic scope replacement, and direct schema opening without legacy data migration.
 - Documented the three remaining long-signature execution interface migrations, including two public Scrapyfy APIs and Stream's internal resolver trait. The proposal uses borrowed parameter structures and awaits confirmation; the eight-diagnostic inventory remains unchanged.
 - Documented a four-diagnostic public-constructor migration proposal with explicit Rust API compatibility tradeoffs, unchanged YAML/runtime requirements and validation steps. Implementation awaits confirmation; the current 12-diagnostic inventory is unchanged.
@@ -779,6 +794,10 @@ All notable changes to the server workspace are recorded here.
 - Documented the shared Scrapyfy loopback proxy server, configurable port, per-connection routing contexts, and browser profile negotiation. Recorded user approval of approach B and the `407` challenge; delivery and validation details are recorded in the development analysis.
 
 #### Changed
+
+- Updated the approved Arachnéa Proxy administration analysis: API tokens belong in the password field, optional routing parameters in the username, and internal/user keys contain 128 random bytes encoded as 171 unpadded Base64url characters for SOCKS5 compatibility. Recorded approval of configuration, persistence, and hot application choices; implementation remains pending.
+- Recorded user authorization to reduce proxy API keys to 64 random bytes (86 unpadded Base64url characters) if client compatibility requires it; the analysis retains 128 bytes while no incompatibility is identified.
+- Finalized the proxy API key size at 64 random bytes (512 bits, encoded as 86 unpadded Base64url characters) for both internal and user keys, superseding the earlier 128-byte choice and conditional fallback. Updated the analysis and TODO.
 
 - Moved YAML extraction-strategy selection, feasibility guidance and per-group validation levels from `build-yaml-source` into the English/French specifications. Placed existing-service examples in their owning group guides and reduced the skill to document routing and agent workflow, avoiding a second technical reference.
 

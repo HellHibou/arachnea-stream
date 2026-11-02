@@ -3,13 +3,20 @@
 //! The API is mounted under `api/admin/<operation>` over HTTP and exposed to
 //! the desktop frontend through the Tauri invoke handler under the same
 //! command names. Sources are addressed by the composite pair
-//! `(service_store_id, service_id)`; application-specific behaviors (persisted
-//! settings, REST hot application, encrypted credentials, runtime rebuilds)
-//! are reached through the [`crate::admin::AdminRuntimeAdapter`] injected by the executable.
+//! `(service_store_id, service_id)`. The reusable [`crate::admin::ScrapyfyAdminRuntimeAdapter`]
+//! owns shared configuration, credentials and proxy administration. Executables
+//! supply paths, handles and narrow [`crate::admin::AdminApplicationRuntime`] reconstruction
+//! hooks. Custom [`crate::admin::AdminRuntimeAdapter`] implementations remain supported.
 
 pub mod auth;
+/// Shared administrator configuration persistence.
+pub mod configuration;
 pub mod dto;
+/// Generic composition with application-specific reconstruction hooks.
+pub mod runtime;
+pub use runtime::{AdminApplicationRuntime, ScrapyfyAdminRuntimeAdapter};
 mod ops;
+pub mod proxy;
 /// Generic validation and reporting primitives for service-group reloads.
 pub mod reload;
 
@@ -75,18 +82,70 @@ pub struct AdminServiceGroupConfig {
 
 /// Plaintext credential pair exchanged with the adapter.
 ///
-/// Scrapyfy never stores this value; the adapter encrypts it before
-/// persistence.
+/// The reusable adapter encrypts each credential field before storing it in
+/// generic source records; plaintext is only exchanged at the API boundary.
 pub type PlaintextCredentials = arachnea_core::persistence::credentials_store::StoredCredentials;
 
-/// Runtime hooks an executable provides to the administration service.
+/// Administration backend contract supporting both generic and custom adapters.
 ///
-/// Scrapyfy owns the routes, DTOs, sessions, write checks, catalog resolution
-/// and reload orchestration; the adapter keeps the application-specific side
-/// (configuration persistence, REST hot application, encrypted credentials,
-/// runtime rebuilds) without any dependency on concrete facades.
+/// [`crate::admin::ScrapyfyAdminRuntimeAdapter`] implements the shared persistence, REST,
+/// credentials and proxy policies. Executables normally provide only its
+/// [`crate::admin::AdminApplicationRuntime`] hooks; existing custom implementations can retain
+/// this contract without depending on a concrete application facade.
 #[async_trait]
 pub trait AdminRuntimeAdapter: Send + Sync {
+    /// Returns proxy configuration when supported by the executable.
+    fn proxy_settings(&self) -> anyhow::Result<Option<proxy::ProxySettingsResponse>> {
+        Ok(None)
+    }
+
+    /// Validates proxy changes without mutating configuration or runtime.
+    ///
+    /// # Arguments
+    /// * `input` - Partial requested proxy settings.
+    ///
+    /// # Errors
+    /// Returns unsupported-operation or validation errors.
+    fn validate_proxy_settings(&self, _input: &proxy::ProxySettingsUpdate) -> anyhow::Result<()> {
+        anyhow::bail!("Proxy administration is unavailable.")
+    }
+
+    /// Validates and applies proxy changes, preserving unrelated configuration.
+    ///
+    /// # Arguments
+    /// * `input` - Partial requested proxy settings.
+    ///
+    /// # Errors
+    /// Returns errors for unsupported, invalid or unapplied changes.
+    async fn update_proxy_settings(
+        &self,
+        _input: &proxy::ProxySettingsUpdate,
+    ) -> anyhow::Result<()> {
+        anyhow::bail!("Proxy administration is unavailable.")
+    }
+
+    /// Generates and persists one proxy key, returning its secret once.
+    ///
+    /// # Arguments
+    /// * `label` - Administrator-supplied key label.
+    ///
+    /// # Errors
+    /// Returns validation or persistence errors.
+    async fn create_proxy_key(&self, _label: &str) -> anyhow::Result<proxy::CreatedProxyKey> {
+        anyhow::bail!("Proxy administration is unavailable.")
+    }
+
+    /// Revokes a user key for future proxy authentications.
+    ///
+    /// # Arguments
+    /// * `id` - Public key identifier.
+    ///
+    /// # Errors
+    /// Returns errors for unknown identifiers or failed persistence.
+    async fn delete_proxy_key(&self, _id: &str) -> anyhow::Result<()> {
+        anyhow::bail!("Proxy administration is unavailable.")
+    }
+
     /// Reads the persisted application settings.
     ///
     /// # Errors
@@ -198,6 +257,8 @@ pub trait AdminRuntimeAdapter: Send + Sync {
 
 /// Shared administration state bound to the registered routes.
 pub struct AdminState {
+    /// Serializes configuration read/modify/write operations across admin routes.
+    pub(crate) settings_write: tokio::sync::Mutex<()>,
     settings: RwLock<CoreApplicationOptions>,
     temp_password: Option<String>,
     sessions: SessionStore,
@@ -265,6 +326,7 @@ impl AdminState {
             Arc::clone(&adapter),
         ));
         let state = Arc::new(Self {
+            settings_write: tokio::sync::Mutex::new(()),
             settings: RwLock::new(settings),
             temp_password: temporary_password.clone(),
             sessions: SessionStore::new(),

@@ -20,6 +20,22 @@ impl WebviewProxy {
     /// # Errors
     /// Returns a redacted configuration error for unsupported endpoints or platforms.
     pub(super) fn parse(value: &str) -> Result<Self, ArachneaHttpError> {
+        Self::parse_with_origin(value, false)
+    }
+
+    /// Parses a proxy endpoint with explicit application-owned origin metadata.
+    ///
+    /// # Arguments
+    /// * `value` - Endpoint with optional credentials.
+    /// * `internal` - Whether the caller obtained this endpoint from its shared runtime.
+    ///
+    /// # Errors
+    /// Returns a redacted error for unsupported or malformed endpoints.
+    pub(super) fn parse_with_origin(
+        value: &str,
+        internal: bool,
+    ) -> Result<Self, ArachneaHttpError> {
+        let _ = internal;
         let mut endpoint = Url::parse(value).map_err(|_| invalid("invalid proxy URL"))?;
         if !matches!(endpoint.scheme(), "http" | "socks5")
             || endpoint.host_str().is_none()
@@ -29,10 +45,7 @@ impl WebviewProxy {
                 "the WebView proxy requires an HTTP or SOCKS5 endpoint with a port",
             ));
         }
-        let credentials = if endpoint.username().is_empty() {
-            if endpoint.password().is_some() {
-                return Err(invalid("proxy credentials require a username"));
-            }
+        let credentials = if endpoint.username().is_empty() && endpoint.password().is_none() {
             None
         } else {
             let username = urlencoding::decode(endpoint.username())
@@ -52,9 +65,7 @@ impl WebviewProxy {
         };
         #[cfg(target_os = "macos")]
         if endpoint.scheme() == "http"
-            && credentials
-                .as_ref()
-                .is_some_and(|(username, _)| username == "arachnea-context")
+            && internal
             && endpoint
                 .host_str()
                 .and_then(|host| host.parse::<std::net::IpAddr>().ok())

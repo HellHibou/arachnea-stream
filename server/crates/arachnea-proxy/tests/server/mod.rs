@@ -64,18 +64,67 @@ async fn http_proxy_relays_absolute_request() {
         )
         .unwrap();
     runtime.set_default_route(&lease).unwrap();
+    let token = crate::server::generate_api_key();
+    assert_eq!(token.len(), 86);
+    let key = crate::server::ProxyApiKey {
+        id: "test".into(),
+        label: "Test".into(),
+        created_at: 0,
+        digest: crate::server::api_key_digest(&token),
+    };
+    let settings = crate::server::ProxyListenerSettings {
+        enabled: true,
+        port: addr.port(),
+        network: arachnea_core::controler::options::ServerNetworkMode::Local,
+    };
+    runtime
+        .configure(settings.clone(), vec![key.clone()])
+        .await
+        .unwrap();
+    let (internal_username, internal_password) = runtime.internal_credentials(&lease);
     for (authorization, expected) in [
         (None, "407 Proxy Authentication Required"),
-        (Some("invalid:local"), "400 Bad Request"),
-        (Some("default:wrong"), "400 Bad Request"),
-        (Some("arachnea-context:expired"), "403 Forbidden"),
-        (Some("default:local"), "200 OK"),
         (
-            Some("countries=be,FR&proxy_affinity=browser-session-1:local"),
+            Some("invalid:local".to_string()),
+            "407 Proxy Authentication Required",
+        ),
+        (
+            Some("default:wrong".to_string()),
+            "407 Proxy Authentication Required",
+        ),
+        (
+            Some("arachnea-context:expired".to_string()),
+            "407 Proxy Authentication Required",
+        ),
+        (
+            Some("default:local".to_string()),
+            "407 Proxy Authentication Required",
+        ),
+        (Some(format!("default:{token}")), "200 OK"),
+        (Some(format!(":{token}")), "200 OK"),
+        (
+            Some(format!(
+                "countries=be,FR&proxy_affinity=browser-session-1:{token}"
+            )),
             "200 OK",
         ),
-        (Some("countries=BE&countries=FR:local"), "400 Bad Request"),
-        (Some("countries=invalid:local"), "400 Bad Request"),
+        (
+            Some(format!("countries=BE&countries=FR:{token}")),
+            "400 Bad Request",
+        ),
+        (
+            Some(format!("countries=invalid:{token}")),
+            "400 Bad Request",
+        ),
+        (Some(format!("context=expired:{token}")), "400 Bad Request"),
+        (
+            Some(format!("context=expired:{internal_password}")),
+            "403 Forbidden",
+        ),
+        (
+            Some(format!("{internal_username}:{internal_password}")),
+            "200 OK",
+        ),
     ] {
         let target = if expected == "200 OK" {
             spawn_http_target().await
@@ -104,6 +153,69 @@ async fn http_proxy_relays_absolute_request() {
             "expected {expected}, received {}",
             String::from_utf8_lossy(&response)
         );
+    }
+    // Parameter headers alone never authenticate user access.
+    let mut anonymous = TcpStream::connect(addr).await.unwrap();
+    anonymous.write_all(format!("GET http://{target}/hello HTTP/1.1\r\nHost: {target}\r\nArachnea-Proxy-Countries: [\"BE\"]\r\n\r\n").as_bytes()).await.unwrap();
+    let mut response = String::new();
+    anonymous.read_to_string(&mut response).await.unwrap();
+    assert!(response.starts_with("HTTP/1.1 407"));
+    // A failed fixed-port bind leaves the active address and policy intact.
+    let occupied = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let mut unavailable = settings.clone();
+    unavailable.port = occupied.local_addr().unwrap().port();
+    assert!(runtime
+        .configure(unavailable.clone(), vec![key.clone()])
+        .await
+        .is_err());
+    assert_eq!(runtime.local_addr(), Some(addr));
+    assert_eq!(runtime.settings(), settings);
+    unavailable.port = 0;
+    assert!(runtime
+        .configure(unavailable, vec![key.clone()])
+        .await
+        .is_err());
+    // Removing a verifier rejects new authentication on the same socket.
+    runtime.configure(settings, Vec::new()).await.unwrap();
+    let mut revoked = TcpStream::connect(addr).await.unwrap();
+    let auth = base64::engine::general_purpose::STANDARD.encode(format!("default:{token}"));
+    revoked.write_all(format!("GET http://{target}/hello HTTP/1.1\r\nHost: {target}\r\nProxy-Authorization: Basic {auth}\r\n\r\n").as_bytes()).await.unwrap();
+    response.clear();
+    revoked.read_to_string(&mut response).await.unwrap();
+    assert!(response.starts_with("HTTP/1.1 407"));
+    // Disabling forces a fresh automatic loopback port without changing the internal key.
+    runtime
+        .configure(
+            crate::server::ProxyListenerSettings {
+                enabled: false,
+                port: occupied.local_addr().unwrap().port(),
+                network: arachnea_core::controler::options::ServerNetworkMode::Public,
+            },
+            vec![key],
+        )
+        .await
+        .unwrap();
+    let moved = runtime.local_addr().unwrap();
+    assert!(moved.ip().is_loopback());
+    assert_ne!(moved.port(), addr.port());
+    assert_eq!(runtime.internal_credentials(&lease).1, internal_password);
+    assert!(!runtime.settings().enabled);
+    assert_eq!(runtime.settings().port, 0);
+    for (credentials, expected) in [
+        (format!("default:{token}"), "407"),
+        (format!("{internal_username}:{internal_password}"), "200"),
+    ] {
+        let target = if expected == "200" {
+            spawn_http_target().await
+        } else {
+            target
+        };
+        let mut client = TcpStream::connect(moved).await.unwrap();
+        let auth = base64::engine::general_purpose::STANDARD.encode(credentials);
+        client.write_all(format!("GET http://{target}/hello HTTP/1.1\r\nHost: {target}\r\nProxy-Authorization: Basic {auth}\r\n\r\n").as_bytes()).await.unwrap();
+        let mut response = String::new();
+        client.read_to_string(&mut response).await.unwrap();
+        assert!(response.starts_with(&format!("HTTP/1.1 {expected}")));
     }
     runtime.shutdown();
     assert!(runtime.start().await.is_err());
@@ -221,7 +333,9 @@ async fn socks5_connect_relays_tcp_payloads_without_auth() {
     assert_eq!(method, [5, 255]);
     drop(anonymous);
     let target = spawn_echo_target().await;
-    for (password, command) in [
+    let (_, password) = runtime.internal_credentials(&lease);
+    assert_eq!(password.len(), 86);
+    for (route_id, command) in [
         ("expired", 1),
         (lease.credential(), 3),
         (lease.credential(), 1),
@@ -230,15 +344,15 @@ async fn socks5_connect_relays_tcp_payloads_without_auth() {
         client.write_all(&[5, 1, 2]).await.unwrap();
         client.read_exact(&mut method).await.unwrap();
         assert_eq!(method, [5, 2]);
-        let username = b"arachnea-context";
+        let username = format!("context={route_id}");
         let mut auth = vec![1, username.len() as u8];
-        auth.extend_from_slice(username);
+        auth.extend_from_slice(username.as_bytes());
         auth.push(password.len() as u8);
         auth.extend_from_slice(password.as_bytes());
         client.write_all(&auth).await.unwrap();
         client.read_exact(&mut method).await.unwrap();
-        assert_eq!(method, [1, if password == "expired" { 1 } else { 0 }]);
-        if password == "expired" {
+        assert_eq!(method, [1, if route_id == "expired" { 1 } else { 0 }]);
+        if route_id == "expired" {
             continue;
         }
         if command == 3 {

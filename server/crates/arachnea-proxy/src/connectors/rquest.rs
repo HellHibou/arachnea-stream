@@ -117,12 +117,26 @@ impl ArachneaRquestLoopback {
     ) -> Result<Self> {
         let addr = runtime.start().await?;
         let route = runtime.register(core, client_context, allow_parameter_headers)?;
+        let (username, password) = runtime.internal_credentials(&route);
         Ok(Self {
-            proxy_url: format!("http://arachnea-context:{}@{addr}", route.credential()),
+            proxy_url: format!("http://{username}:{password}@127.0.0.1:{}", addr.port()),
             parameter_definitions,
             runtime,
             _route: route,
         })
+    }
+
+    /// Removes the internal token from errors returned by upstream client builders.
+    fn redacted_error(&self, error: impl std::fmt::Display) -> ConnectorError {
+        let mut message = error
+            .to_string()
+            .replace(&self.proxy_url, "[redacted proxy]");
+        if let Ok(url) = url::Url::parse(&self.proxy_url) {
+            if let Some(password) = url.password() {
+                message = message.replace(password, "[redacted]");
+            }
+        }
+        ConnectorError::Rquest(message)
     }
 
     /// Returns the shared listener used by this routing lease.
@@ -186,17 +200,15 @@ impl ArachneaRquestLoopback {
         &self,
         timeout: Option<std::time::Duration>,
     ) -> Result<rquest::Client> {
-        let proxy = rquest::Proxy::all(&self.proxy_url)
-            .map_err(|error| ConnectorError::Rquest(error.to_string()))?;
+        let proxy =
+            rquest::Proxy::all(&self.proxy_url).map_err(|error| self.redacted_error(error))?;
         let mut builder = rquest::Client::builder()
             .proxy(proxy)
             .redirect(rquest::redirect::Policy::none());
         if let Some(timeout) = timeout {
             builder = builder.connect_timeout(timeout);
         }
-        builder
-            .build()
-            .map_err(|error| ConnectorError::Rquest(error.to_string()))
+        builder.build().map_err(|error| self.redacted_error(error))
     }
 
     /// Builds a rquest client that sends routing parameters to the loopback proxy.
@@ -249,12 +261,12 @@ impl ArachneaRquestLoopback {
         }
 
         let proxy = rquest::Proxy::all(&self.proxy_url)
-            .map_err(|error| ConnectorError::Rquest(error.to_string()))?
+            .map_err(|error| self.redacted_error(error))?
             .custom_http_headers(headers);
         rquest::Client::builder()
             .proxy(proxy)
             .redirect(rquest::redirect::Policy::none())
             .build()
-            .map_err(|error| ConnectorError::Rquest(error.to_string()))
+            .map_err(|error| self.redacted_error(error))
     }
 }

@@ -83,7 +83,7 @@
   "settings": {
     "title": "Settings",
     "description": "Server configuration. Changes are applied to the running server without a restart.",
-    "serverGroup": "Server",
+    "serverGroup": "Web Server - Arachnéa Stream",
     "applicationGroup": "Application",
     "currentCountry": "Current Country",
     "currentCountryPlaceholder": "e.g., FR (empty = automatic detection)",
@@ -210,5 +210,24 @@
     "invalid": "Invalid value.",
     "pending": "Saved values and logos take effect in the runtime after reloading.",
     "default": "Default value: {value}"
+  },
+  "proxy": {
+    "title": "Arachnéa Proxy",
+    "enabled": "Enable local proxy mode",
+    "disabledHint": "User access disabled: loopback network, automatic port and internal key only. Stored user keys are retained but rejected.",
+    "effective": "Effective port: {port} — network mode: {network}",
+    "keys": "API keys",
+    "credentialsHint": "Password: API key. Username: empty, default or optional parameters (e.g. countries=BE,FR).",
+    "networkWarning": "The proxy connection uses unencrypted HTTP. The token can be intercepted on the network; use a secure transport for remote access.",
+    "secretOnce": "Copy this key now. It will not be displayed again after closing.",
+    "token": "API key (proxy password)",
+    "copy": "Copy",
+    "copyFailed": "Copy failed. Select and copy the key manually.",
+    "keyLabel": "Key label",
+    "createKey": "Create API key",
+    "revoke": "Revoke",
+    "revokeConfirm": "Revoke key “{label}”? New authentications will be rejected; existing tunnels may drain for up to 30 seconds.",
+    "noKeys": "No user API keys.",
+    "pinned": "Pinned by the command line: {settings}"
   }
 }

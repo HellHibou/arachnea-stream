@@ -259,7 +259,13 @@ impl TauriCloudflareSolverEngine {
                 "Tauri/Wry requires the effective proxy URL before navigation".into(),
             ));
         }
-        let proxy = proxy_url.map(WebviewProxy::parse).transpose()?;
+        #[cfg(feature = "arachnea-proxy")]
+        let internal = matches!(config.proxy, crate::HttpProxyConfig::Arachnea(_));
+        #[cfg(not(feature = "arachnea-proxy"))]
+        let internal = false;
+        let proxy = proxy_url
+            .map(|value| WebviewProxy::parse_with_origin(value, internal))
+            .transpose()?;
         let mut engine = Self::new(config);
         engine.proxy = Ok(proxy);
         Ok(engine)

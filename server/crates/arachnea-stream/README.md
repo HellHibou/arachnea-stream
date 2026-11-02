@@ -525,3 +525,72 @@ language tags to `fr` and exposes tags through `service_stream_metadata`. Editab
 are dark-stream `base_url` and TF1 `country` (`fr`, `be`, `lu`, `ch`, including `fr-ch`).
 See the English/French Scrapyfy and Stream specifications for schema, migration, API
 operations and filter configuration.
+
+## Administrator-managed proxy access
+
+The settings page separates **Serveur Web - Arachnéa Stream** from **Arachnéa
+Proxy**. Proxy access has its own activation switch, port, network mode and user
+API keys. It is disabled by default: internal requests continue on an automatic
+IPv4 loopback listener with an in-memory key generated at process startup.
+Disabling user access ignores requested port/network values and rejects stored
+user keys while retaining them for reactivation. An explicit `--proxy-server-port`
+alone does not enable user access.
+
+Example configuration (omit `proxy-api-keys` until creating keys in the admin):
+
+```json
+{
+  "proxy-enabled": "true",
+  "proxy-server-port": "18080",
+  "proxy-network": "local"
+}
+```
+
+CLI options with these names override file settings and lock their fields in the
+admin. Enabled access requires a fixed nonzero port. Modes are `local` (loopback),
+`private` (all IPv4 interfaces, filtered to local interface subnets) and `public`
+(all IPv4 interfaces). The internal key is accepted only over loopback. The
+restricted desktop settings popup keeps network and key management hidden;
+backend proxy settings are nevertheless supported in desktop mode.
+
+Create named API keys from the proxy block. Each contains 64 random bytes, encoded
+as 86 unpadded Base64url characters. Copy the token when created: it is displayed
+once. Only SHA-256 verifiers and metadata are stored in the JSON string option
+`proxy-api-keys`; a lost token must be replaced. Tokens are never logged or placed
+in CLI arguments. Use the token as the client proxy **password**, and an empty
+username, `default`, or optional parameters such as `countries=BE,FR` as username.
+No hardcoded authentication password is accepted, including `default:local`.
+The internal routing username is reserved and cannot be used with a user key.
+
+Settings apply live without changing the admin URL when only the proxy changes.
+Port moves rebuild scraper transports and browser sessions on the new endpoint;
+bind/build/persistence failures are reported and restoration of the old policy is
+attempted. Retired listeners reject new user authentication and drain for at most
+30 seconds. Key revocation and access restriction likewise bound existing user
+tunnels to 30 seconds. A same-port loopback/all-interface change briefly replaces
+the socket, closing its established connections. HTTP Basic does not encrypt the
+client-to-proxy hop; use a separately secured transport for remote access. A
+container deployment must publish the chosen proxy port explicitly.
+
+## Administration ownership
+
+Stream assembles Scrapyfy's `ScrapyfyAdminRuntimeAdapter` with the application
+configuration path, encrypted source credentials, optional REST handle and its
+`ReloadableStreamScraper` hooks. Scrapyfy owns generic configuration parsing,
+CLI precedence, key creation/revocation, public metadata, JSON persistence, REST
+report conversion and proxy transition rollback. The startup path calls
+Scrapyfy's `scrapyfy::proxy_settings::configuration` directly.
+
+The Stream hooks only choose service groups requiring an application rebuild,
+apply scraper overrides to the current instance, expose the shared proxy runtime
+and execute the generic proxy transition under Stream's reconstruction lock.
+Concrete scraper/resolver construction, public route/DRM endpoint restoration and
+instance publication remain in Stream. The path to config.json, the credential
+encryption key and the default Stream namespace are still supplied by Stream.
+
+For source compatibility, `admin_composition::StreamAdminRuntimeAdapter` aliases
+`ScrapyfyAdminRuntimeAdapter<ReloadableStreamScraper>`;
+`admin_composition::proxy_configuration`, `TypedServiceCredentialsStore` (including
+its former module path), the public proxy option constants and
+`STREAM_SERVICES_STORE_NAME` remain available through reexports. No configuration,
+API-key, database-schema or encrypted-credential migration is necessary.

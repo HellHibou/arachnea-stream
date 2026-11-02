@@ -41,6 +41,7 @@ Ce fichier suit les tâches DNS, HTTP et proxy prévues qui restent pertinentes 
 
 ## Server/Proxy
 
+- Qualifier l’interface proxy dans les navigateurs ciblés (login vide et alternative `default`) et sur Windows/Linux ; vérifier les modes réseau depuis un client distant. Implémentation admin, clés API de 64 octets et application à chaud livrées ; voir l’[analyse et validation](dev-tracking/proxy-admin-configuration-analysis.md).
 - Surveiller la croissance de la base SQLite `proxy-inventory` ; les proxys dont la dernière validation dépasse 24 heures ne sont supprimés qu'après un échec observé, donc un très grand nombre de proxys jamais réutilisés justifiera un suivi de volume et, au besoin, une politique de nettoyage ou un vacuum planifié.
 - Évaluer MASQUE CONNECT-UDP après la stabilisation du socle UDP et d'une pile Rust HTTP/3 compatible.
 - Ajouter l'orchestration `ExternalTunnel` pour les processus locaux comme obfs4proxy, WebTunnel, les plugins Shadowsocks ou un daemon Tor local.

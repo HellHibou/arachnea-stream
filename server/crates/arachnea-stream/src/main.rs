@@ -13,11 +13,9 @@ use arachnea_core::{
 };
 use arachnea_scrapyfy::admin::{register_admin_service, ReloadCoordinator};
 use arachnea_scrapyfy::*;
-use arachnea_stream::{
-    admin_composition::StreamAdminRuntimeAdapter, ReloadableStreamScraper, StreamScraper,
-    StreamScraperBuildOptions, TypedServiceCredentialsStore,
-};
+use arachnea_stream::{ReloadableStreamScraper, StreamScraper, StreamScraperBuildOptions};
 
+use arachnea_scrapyfy::{admin::ScrapyfyAdminRuntimeAdapter, TypedServiceCredentialsStore};
 use arachnea_stream::DEFAULT_SERVER_CREDENTIALS_KEY;
 
 use arachnea_stream::CONFIGURATION_PATH;
@@ -88,6 +86,8 @@ fn parse_runtime_options() -> Result<CliAction> {
             | "--network"
             | "--entrypoint-root"
             | "--proxy-server-port"
+            | "--proxy-enabled"
+            | "--proxy-network"
             | "--current-country"
             | "--cache-max-disk-bytes"
             | "--cache-max-memory-bytes"
@@ -220,11 +220,15 @@ async fn main() -> Result<()> {
         .unwrap_or_default();
 
     let mut build_options = StreamScraperBuildOptions::new(credentials_store, stores.clone());
-    build_options.proxy_runtime = Arc::new(arachnea_proxy::server::LoopbackProxyRuntime::new(
-        options
-            .proxy_server_port
-            .unwrap_or(arachnea_stream::DEFAULT_LOOPBACK_PROXY_PORT),
-    ));
+    build_options.proxy_runtime = Arc::new(arachnea_proxy::server::LoopbackProxyRuntime::default());
+    let (proxy_settings, proxy_keys) = arachnea_scrapyfy::scrapyfy::proxy_settings::configuration(
+        &configuration,
+        &options.cli_proxy,
+    )?;
+    build_options
+        .proxy_runtime
+        .configure(proxy_settings, proxy_keys)
+        .await?;
     let runtime_options = ScraperRuntimeOptions {
         cache_config: options
             .scraper_cache_config()
@@ -274,21 +278,25 @@ async fn main() -> Result<()> {
     // Command-line-pinned scraper overrides, captured before the application
     // options field is moved into the controller constructor.
     let cli_scraper = options.cli_scraper_settings().clone();
+    let cli_proxy = options.cli_proxy.clone();
 
     let mut controler = arachnea_core::create_application_controler!(options.application_option);
     let reloadable = reloadable.register_service(controler.as_mut());
 
     // Hot application of server settings is owned by Core's REST supervisor;
-    // Core's factory combines the Stream-owned persisted configuration reader
+    // Core's factory combines the shared persisted configuration reader
     // with the command-line overrides.
     let rest_server_handle = controler.rest_server_handle();
-    let adapter = Arc::new(StreamAdminRuntimeAdapter::new(
-        configuration.clone(),
-        configuration_path(),
-        typed_credentials_store,
-        Arc::clone(&reloadable),
-        rest_server_handle.clone(),
-    ));
+    let adapter = Arc::new(
+        ScrapyfyAdminRuntimeAdapter::new(
+            configuration.clone(),
+            configuration_path(),
+            typed_credentials_store,
+            Arc::clone(&reloadable),
+            rest_server_handle.clone(),
+        )
+        .with_proxy_cli(cli_proxy),
+    );
     if let Some(rest_server) = &rest_server_handle {
         let configuration = adapter.configuration();
         let persisted: Arc<dyn Fn() -> Option<CoreApplicationOptions> + Send + Sync> =

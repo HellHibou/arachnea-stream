@@ -1017,67 +1017,79 @@ acceptance matrix, measurements and remaining production checks are recorded in
 `docs/dev-tracking/proxy/analyse-optimisation-proxies-localises.md`, section 21 at the
 repository root. No production thresholds were increased from these samples.
 
-## Shared embedded HTTP loopback runtime
+## Shared application proxy runtime
 
-`server::LoopbackProxyRuntime::new(port)` owns one listening socket on
-`127.0.0.1`. `start().await` synchronizes concurrent initialization, returns the
-actual bound address and logs it at info level. The proxy service also prints
-`Proxy Server Application launched: http://127.0.0.1:<port>` once after binding,
-independently of tracing filters. Zero selects an OS-assigned port;
-a fixed port never silently falls back to another port. There is no embedded
-public-bind option or second SOCKS/IPv6 listener. Incoming peers must be loopback.
-The runtime caps concurrent connections at 1,024 and HTTP header reads at 16 KiB/30 s.
-The same socket also recognizes SOCKS5 for native macOS WebViews. This internal
-path requires username/password authentication with a live `arachnea-context`
-routing lease; anonymous access, public profiles, expired contexts, BIND and UDP
-are rejected. SOCKS negotiation is bounded to 30 seconds. HTTP and SOCKS5 share
-the same core, context registry, connection limits and shutdown lifecycle; no
-additional port is opened. External applications should keep using the HTTP
-profile protocol described below.
+`server::LoopbackProxyRuntime::new(port)` creates an internal-only runtime on
+IPv4 loopback, with a fresh in-memory API key. `start().await` synchronizes
+initialization and logs the listening address without credentials. Zero selects
+an OS-assigned port; a fixed-port bind failure never silently selects another
+port. `configure(ProxyListenerSettings, keys).await` enables user access and
+replaces the listener when required. Disabled application access always forces
+loopback and an automatic port, ignoring stored user keys and requested exposure.
 
-Use `register(core, context, allow_parameter_headers)` for a connection-owned
-routing lease and keep the returned `Arc<LoopbackRoute>` alive. The weak registry
-removes expired entries on registration and allows at most 8,192 live contexts.
-`set_default_route(&lease)` publishes an externally usable core without owning
-it. The application must retain that lease. This avoids cycles through provider
-HTTP clients. `ArachneaRquestLoopback::start_on_runtime(...)` adapts Rquest and
-browser proxy URLs to such leases. The older standalone `start(...)` convenience
-constructor still creates an independent runtime; applications sharing a port
-must inject the same runtime explicitly.
+User access requires an explicitly configured port in 1..65535. Network modes
+are `local` (127.0.0.1), `private` (all IPv4 interfaces, restricted to local
+interface subnets), and `public` (all IPv4 interfaces). Network admission is
+checked before authentication. The internal API key is accepted only from
+loopback, even in public mode. No IPv6 listener is created. The runtime caps
+concurrent connections per listener at 1,024 and HTTP header reads at 16 KiB/30 s.
 
-Internal URLs contain an opaque random credential. Unknown/expired contexts are
-rejected with `403`; they never fall back to the public default route. Pinned
-leases reject parameter overrides and their cores enforce destination identity.
-Dropping a helper releases its lease, not the shared listener. Dropping the last
-runtime reference aborts acceptance and all tracked connection tasks. Calling
-`shutdown()` explicitly does so even while clients retain runtime references;
-shutdown is terminal. A running
-connection retains its context until relay completion.
+Internal and user API keys contain 64 cryptographically random bytes, encoded
+as 86 unpadded Base64url characters. User keys are supplied as SHA-256 verifiers
+and metadata (`ProxyApiKey`); the reusable crate does not read application files.
+`generate_api_key()` and `api_key_digest()` provide generation and verification
+primitives. The internal key exists only in memory and survives listener rebinds
+and source reloads until process restart. Never log credentials or proxy URLs
+containing them.
 
-The embedded listener alone supports routing profiles through HTTP Basic proxy
-credentials. Username `countries=BE,FR&proxy_affinity=session-1`, password `local`,
-selects the corresponding parameters; username `default` selects the default
-route. Names and values use URL form encoding; countries are comma-separated ISO
-alpha-2 codes, normalized into the core's JSON country set. Unknown parameters,
-malformed profiles, invalid country codes and conflicting duplicate values are
-rejected with `400`. Supported names come from the default core's parameter
-registry (including `fallback_direct` when registered).
+Use `register(core, context, allow_parameter_headers)` and retain the returned
+`Arc<LoopbackRoute>` for connection-owned routing. The weak registry prunes
+expired entries and admits at most 8,192 live contexts. `set_default_route`
+publishes a user route without retaining ownership. Internal authentication uses
+username `context=<opaque-route-id>` and the internal token as password; use
+`internal_credentials(&route)` rather than reconstructing this format.
+`ArachneaRquestLoopback::start_on_runtime` performs this setup for HTTP clients.
+Unknown/expired internal leases return 403 and never fall back to the user route;
+pinned leases reject routing overrides. A user key cannot select an internal lease.
 
-Without a profile or recognized parameter headers, the embedded listener returns
-`407 Proxy Authentication Required` before opening the destination. Clients
-capable of sending proxy headers can instead use `Arachnea-Proxy-Countries:
-["BE","FR"]`, `Arachnea-Proxy-Affinity`, and the other registered headers on the
-absolute-form HTTP request or HTTPS CONNECT. Conflicting values across channels
-are rejected. Routing headers are consumed locally unless a custom parameter
-definition explicitly enables forwarding; incoming proxy credentials are always
-removed.
-A browser must configure proxy credentials through its supported authentication
-flow; putting custom headers on an HTTPS origin request cannot configure CONNECT.
+The same socket detects SOCKS5 for native macOS WebViews. SOCKS5 accepts only
+internal credentials and live routing leases; anonymous access, user keys, expired
+contexts, BIND and UDP are rejected. SOCKS negotiation is bounded to 30 seconds.
+The 86-character token fits the protocol's 255-byte password limit.
 
-The conventional password is a routing convention, not local-user access
-control. This behavior does not change the standalone server's existing optional
-static authentication. HTTPS is tunneled without interception; the embedded
-server cannot classify encrypted origin response statuses for external clients.
+External HTTP/CONNECT clients use the **API key as password**. The username is
+empty or `default` for default routing, or optional URL-form-encoded routing
+parameters, e.g. `countries=BE,FR&proxy_affinity=session-1`. `default` is a public
+marker, not an authentication secret; it also accommodates clients requiring a
+nonempty username. Authentication failures return 407 before opening a destination.
+There is no `default:local` compatibility access and headers alone never authenticate.
+
+After successful authentication, registered proxy parameter headers such as
+`Arachnea-Proxy-Countries: ["BE","FR"]` and `Arachnea-Proxy-Affinity` remain
+available on absolute HTTP requests and CONNECT. Names come from the default
+core's parameter registry. Invalid profiles, unknown parameters, invalid countries
+and conflicting values return 400. Parameter headers are consumed unless their
+definition enables forwarding; incoming proxy credentials are always removed.
+Browser HTTPS-origin headers cannot configure the proxy's CONNECT request; use
+its proxy authentication dialog or supported proxy integration.
+
+An unchanged socket can receive key/ACL updates without rebinding. Port changes
+prepare the replacement before retiring the old listener. Retired generations
+reject new user authentication immediately; established connections and internal
+clients can drain for at most 30 seconds. Revocation, disabling access and network
+restrictions also bound existing user tunnels to a 30-second drain. Changing
+loopback/all-interface exposure on the same port requires a brief socket
+replacement; existing connections on that socket close and a failed bind attempts
+to restore the old endpoint. Applications must rebuild clients/pools with the new
+endpoint after a port move; Stream coordinates this reconstruction and rollback.
+
+`shutdown()` is terminal and terminates active and retired listeners even when
+clients retain runtime references. Dropping the last runtime owner also aborts
+its owned listeners. HTTP Basic and SOCKS5 authentication do not encrypt the
+client-to-proxy hop: remote use requires a separately secured transport. HTTPS
+CONNECT tunnels remain opaque; external HTTPS response statuses cannot drive
+scraper response classification. Standalone `ProxyServer` authentication remains
+independent from this application runtime.
 
 ### Redirect transport retention policies
 
