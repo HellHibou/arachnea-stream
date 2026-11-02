@@ -3,7 +3,7 @@
 use super::{
     execution,
     report::Report,
-    source_checks::{Input, Operation, Selection, SourceCheck, Step},
+    source_checks::{Input, InputReference, Operation, Selection, SourceCheck, Step},
     Prepared,
 };
 use anyhow::{ensure, Context, Result};
@@ -16,6 +16,15 @@ use std::{
     time::Duration,
 };
 use tokio::time::{timeout, Instant};
+
+/// Contract inputs resolved for one step.
+#[derive(Debug)]
+struct ResolvedStep {
+    /// Typed facade inputs.
+    inputs: HashMap<String, Value>,
+    /// Provider-defined runtime parameters forwarded to the source.
+    source_params: HashMap<String, String>,
+}
 
 /// Diagnostic overrides never become provider-specific defaults in Rust.
 pub(super) struct Overrides {
@@ -102,12 +111,12 @@ impl Overrides {
                     continue;
                 }
                 if let Input::Reference(reference) = input {
-                    let upstream = contract
-                        .steps
-                        .iter()
-                        .position(|step| step.id == reference.from_step)
-                        .context("invalid_configuration: missing dependency")?;
-                    selected.insert(upstream);
+                    add_reference_dependencies(contract, &mut selected, reference)?;
+                }
+            }
+            for input in step.source_params.values() {
+                if let Input::Reference(reference) = input {
+                    add_reference_dependencies(contract, &mut selected, reference)?;
                 }
             }
         }
@@ -139,42 +148,176 @@ impl Overrides {
         step: &Step,
         contract: &SourceCheck,
         passed: &HashMap<String, Vec<Value>>,
-    ) -> Result<HashMap<String, Value>> {
-        let mut inputs = HashMap::new();
-        for (key, input) in &step.inputs {
-            let value = if let Some((name, value)) = self.value(step, key) {
-                println!(
-                    "source={} step={} diagnostic_override={name} reference={}",
-                    contract.source,
-                    step.id,
-                    execution::reference(value)
-                );
-                Value::String(value.to_string())
-            } else {
-                match input {
-                    Input::Literal(value) => Value::String(value.clone()),
-                    Input::Page(value) => Value::from(*value as u64),
-                    Input::Reference(reference) => {
-                        let roots = passed.get(&reference.from_step).with_context(|| {
-                            format!("Upstream step `{}` did not pass", reference.from_step)
-                        })?;
-                        let upstream = contract
-                            .steps
-                            .iter()
-                            .find(|step| step.id == reference.from_step)
-                            .context("Missing validated upstream step")?;
-                        let value = match reference.select {
-                            Selection::FirstValid => upstream
-                                .expect
-                                .first_valid_string(roots, &reference.value_path)?,
-                        };
-                        Value::String(value)
+    ) -> Result<ResolvedStep> {
+        let inputs = step
+            .inputs
+            .iter()
+            .map(|(key, input)| {
+                Ok((
+                    key.clone(),
+                    self.resolve_input(step, contract, passed, key, input)?,
+                ))
+            })
+            .collect::<Result<HashMap<_, _>>>()?;
+        let source_params = step
+            .source_params
+            .iter()
+            .map(|(key, input)| {
+                let value = self.resolve_input(step, contract, passed, key, input)?;
+                let value = value
+                    .as_str()
+                    .with_context(|| format!("Source parameter `{key}` is not a string"))?
+                    .to_string();
+                Ok((key.clone(), value))
+            })
+            .collect::<Result<HashMap<_, _>>>()?;
+        Ok(ResolvedStep {
+            inputs,
+            source_params,
+        })
+    }
+
+    fn resolve_input(
+        &self,
+        step: &Step,
+        contract: &SourceCheck,
+        passed: &HashMap<String, Vec<Value>>,
+        key: &str,
+        input: &Input,
+    ) -> Result<Value> {
+        if let Some((name, value)) = self.value(step, key) {
+            println!(
+                "source={} step={} diagnostic_override={name} reference={}",
+                contract.source,
+                step.id,
+                execution::reference(value)
+            );
+            return Ok(Value::String(value.to_string()));
+        }
+        match input {
+            Input::Literal(value) => Ok(Value::String(value.clone())),
+            Input::Page(value) => Ok(Value::from(*value as u64)),
+            Input::Reference(reference) => Ok(Value::String(
+                self.resolve_reference(step, contract, passed, key, reference)?,
+            )),
+        }
+    }
+
+    fn resolve_reference(
+        &self,
+        step: &Step,
+        contract: &SourceCheck,
+        passed: &HashMap<String, Vec<Value>>,
+        key: &str,
+        reference: &InputReference,
+    ) -> Result<String> {
+        let mut attempts = Vec::new();
+        let mut resolved = None;
+        match reference_value(
+            contract,
+            passed,
+            &reference.from_step,
+            reference.select,
+            &reference.value_path,
+        ) {
+            Ok(value) => {
+                resolved = Some(("primary".to_string(), reference.from_step.clone(), value));
+            }
+            Err(error) => attempts.push(format!("primary `{}`: {error:#}", reference.from_step)),
+        }
+        if resolved.is_none() {
+            for (index, fallback) in reference.fallbacks.iter().enumerate() {
+                let label = format!("fallback[{}]", index + 1);
+                match reference_value(
+                    contract,
+                    passed,
+                    &fallback.from_step,
+                    fallback.select,
+                    &fallback.value_path,
+                ) {
+                    Ok(value) => {
+                        resolved = Some((label, fallback.from_step.clone(), value));
+                        break;
+                    }
+                    Err(error) => {
+                        attempts.push(format!("{label} `{}`: {error:#}", fallback.from_step))
                     }
                 }
-            };
-            inputs.insert(key.clone(), value);
+            }
         }
-        Ok(inputs)
+        let (label, from_step, value) = resolved.with_context(|| {
+            format!(
+                "No reference supplied a usable value: {}",
+                attempts.join("; ")
+            )
+        })?;
+        if label != "primary" {
+            println!(
+                "source={} step={} input={} reference_source={label} from_step={from_step} reference={}",
+                contract.source,
+                step.id,
+                key,
+                execution::reference(&value)
+            );
+        }
+        Ok(value)
+    }
+}
+
+/// Adds every step referenced by a validated input, including fallbacks.
+fn add_reference_dependencies(
+    contract: &SourceCheck,
+    selected: &mut BTreeSet<usize>,
+    reference: &InputReference,
+) -> Result<()> {
+    for from_step in std::iter::once(reference.from_step.as_str()).chain(
+        reference
+            .fallbacks
+            .iter()
+            .map(|fallback| fallback.from_step.as_str()),
+    ) {
+        let upstream = contract
+            .steps
+            .iter()
+            .position(|step| step.id == from_step)
+            .context("invalid_configuration: missing dependency")?;
+        selected.insert(upstream);
+    }
+    Ok(())
+}
+
+/// Resolves one validated reference target from an upstream passed step.
+///
+/// # Arguments
+/// * `contract` - Validated contract owning the upstream expectations.
+/// * `passed` - Public roots of steps that completed successfully.
+/// * `from_step` - Earlier step supplying the value.
+/// * `select` - Validated selection strategy.
+/// * `value_path` - Literal path resolving to a nonblank string.
+///
+/// # Errors
+/// Returns a contextual error when the upstream step did not pass or no valid
+/// selected object carries the requested nonblank string.
+fn reference_value(
+    contract: &SourceCheck,
+    passed: &HashMap<String, Vec<Value>>,
+    from_step: &str,
+    select: Selection,
+    value_path: &[String],
+) -> Result<String> {
+    let roots = passed
+        .get(from_step)
+        .with_context(|| format!("Upstream step `{from_step}` did not pass"))?;
+    let upstream = contract
+        .steps
+        .iter()
+        .find(|step| step.id == from_step)
+        .context("Missing validated upstream step")?;
+    match select {
+        Selection::FirstValid => upstream
+            .expect
+            .first_valid_string(roots, value_path)
+            .with_context(|| format!("Upstream step `{from_step}` has no usable value")),
     }
 }
 
@@ -264,8 +407,8 @@ pub(super) async fn run_source(
         let step_start = Instant::now();
         println!("source={source} step={} operation={} planned_path={:?} min_count={} min_valid_count={}",
             step.id, step.operation.name(), step.expect.items_path, step.expect.min_count, step.expect.min_valid_count);
-        let inputs = match overrides.resolve(step, &prepared.contract, &passed) {
-            Ok(inputs) if step_start < deadline => inputs,
+        let resolved = match overrides.resolve(step, &prepared.contract, &passed) {
+            Ok(resolved) if step_start < deadline => resolved,
             result => {
                 blocked += 1;
                 let reason = if step_start >= deadline {
@@ -288,6 +431,10 @@ pub(super) async fn run_source(
                 continue;
             }
         };
+        let ResolvedStep {
+            inputs,
+            source_params,
+        } = resolved;
         let references = inputs
             .iter()
             .map(|(key, value)| {
@@ -300,8 +447,12 @@ pub(super) async fn run_source(
                 )
             })
             .collect::<std::collections::BTreeMap<_, _>>();
+        let source_param_references = source_params
+            .iter()
+            .map(|(key, value)| (key, execution::reference(value)))
+            .collect::<std::collections::BTreeMap<_, _>>();
         println!(
-            "source={source} step={} operation={} inputs={references:?}",
+            "source={source} step={} operation={} inputs={references:?} source_params={source_param_references:?}",
             step.id,
             step.operation.name()
         );
@@ -352,6 +503,7 @@ pub(super) async fn run_source(
                 &prepared.contract,
                 step.operation,
                 &inputs,
+                &source_params,
             )
             .await
         })
@@ -414,7 +566,11 @@ pub(super) async fn run_source(
             Ok(Err(failure)) => {
                 failures += 1;
                 let mut cause = format!("{:#}", failure.error);
-                for value in inputs.values().filter_map(Value::as_str) {
+                for value in inputs
+                    .values()
+                    .filter_map(Value::as_str)
+                    .chain(source_params.values().map(String::as_str))
+                {
                     cause = cause.replace(value, &execution::reference(value));
                 }
                 let cause = execution::sanitize(&cause);

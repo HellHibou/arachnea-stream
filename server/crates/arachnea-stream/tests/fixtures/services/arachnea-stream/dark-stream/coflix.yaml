@@ -31,6 +31,16 @@ steps:
         - ["label"]
         - ["request","query_url"]
 
+  - id: home_sections
+    operation: load_home
+    expect:
+      items_path: ["sections","*","entries"]
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["title"]
+        - ["link"]
+
   - id: category
     operation: get_category
     inputs:
@@ -54,6 +64,11 @@ steps:
         items_path: ["sections"]
         select: first_valid
         value_path: ["link"]
+        fallbacks:
+          - from_step: home
+            items_path: ["categories"]
+            select: first_valid
+            value_path: ["request","query_url"]
     expect:
       items_path: ["entries"]
       min_count: 1
@@ -82,6 +97,11 @@ steps:
         items_path: ["entries"]
         select: first_valid
         value_path: ["link"]
+        fallbacks:
+          - from_step: home_sections
+            items_path: ["sections","*","entries"]
+            select: first_valid
+            value_path: ["link"]
     expect:
       items_path: []
       min_count: 1

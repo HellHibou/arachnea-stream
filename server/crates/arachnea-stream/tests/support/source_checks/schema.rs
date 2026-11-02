@@ -45,6 +45,11 @@ fn extended_operations_accept_existing_input_forms() -> anyhow::Result<()> {
         contract(operation, "    inputs:\n      query_url: reference")?.validate()?;
     }
     contract("list_lives", "")?.validate()?;
+    contract(
+        "get_entry",
+        "    inputs:\n      query_url:\n        from_step: metadata\n        items_path: []\n        select: first_valid\n        value_path: [title]\n        fallbacks:\n          - from_step: metadata\n            items_path: []\n            select: first_valid\n            value_path: [id]",
+    )?
+    .validate()?;
     Ok(())
 }
 
@@ -70,6 +75,60 @@ fn extended_operations_reject_extra_parameters() -> anyhow::Result<()> {
             .validate()
             .is_err()
     );
+    let fallback_base = "    inputs:\n      query_url:\n        from_step: metadata\n        items_path: []\n        select: first_valid\n        value_path: [title]\n        fallbacks: ";
+    for fallbacks in [
+        "[{from_step: metadata, items_path: [entries], select: first_valid, value_path: [title]}]",
+        "[{from_step: content, items_path: [], select: first_valid, value_path: [title]}]",
+        "[{from_step: missing, items_path: [], select: first_valid, value_path: [title]}]",
+    ] {
+        assert!(
+            contract("get_entry", &format!("{fallback_base}{fallbacks}"))?
+                .validate()
+                .is_err()
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn source_params_are_operation_scoped_and_typed() -> anyhow::Result<()> {
+    for operation in ["get_category", "get_section", "get_recommendations"] {
+        contract(
+            operation,
+            "    inputs:\n      query_url: reference\n    source_params:\n      channel: example",
+        )?
+        .validate()?;
+        contract(
+            operation,
+            "    inputs:\n      query_url:\n        from_step: metadata\n        items_path: []\n        select: first_valid\n        value_path: [title]\n    source_params:\n      channel:\n        from_step: metadata\n        items_path: []\n        select: first_valid\n        value_path: [id]",
+        )?
+        .validate()?;
+    }
+    for operation in ["get_live", "resolve_stream", "get_entry"] {
+        assert!(contract(
+            operation,
+            "    inputs:\n      query_url: reference\n    source_params:\n      channel: example",
+        )?
+        .validate()
+        .is_err());
+    }
+    for source_params in [
+        "      channel: 0",
+        "      channel: \"\"",
+        "      query_url: example",
+        "      page: 2",
+        "      name: example",
+        "      source: example",
+    ] {
+        assert!(contract(
+            "get_category",
+            &format!(
+                "    inputs:\n      query_url: reference\n    source_params:\n{source_params}"
+            ),
+        )?
+        .validate()
+        .is_err());
+    }
     Ok(())
 }
 

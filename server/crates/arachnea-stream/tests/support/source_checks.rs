@@ -60,6 +60,9 @@ pub(super) struct Step {
     /// Only the keys allowed for this operation may be supplied.
     #[serde(default)]
     pub inputs: HashMap<String, Input>,
+    /// Provider-defined runtime parameters forwarded to the source.
+    #[serde(default)]
+    pub source_params: HashMap<String, Input>,
     /// Useful-data minima and per-object field requirements.
     pub expect: Expectations,
 }
@@ -122,6 +125,14 @@ impl Operation {
     pub fn is_content(self) -> bool {
         !matches!(self, Self::ServiceStreamMetadata | Self::LoadHome)
     }
+
+    /// Whether the typed facade forwards provider-defined runtime parameters.
+    pub fn supports_source_params(self) -> bool {
+        matches!(
+            self,
+            Self::GetCategory | Self::GetSection | Self::GetRecommendations
+        )
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -146,9 +157,25 @@ pub(super) struct InputReference {
     pub select: Selection,
     /// Literal field path resolving to a nonblank string.
     pub value_path: Vec<String>,
+    /// Ordered alternatives tried only when the primary reference yields no value.
+    #[serde(default)]
+    pub fallbacks: Vec<ReferenceTarget>,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct ReferenceTarget {
+    /// Earlier step supplying the fallback input.
+    pub from_step: String,
+    /// Must equal the upstream expectation's item path.
+    pub items_path: Vec<String>,
+    /// Bounded selection strategy.
+    pub select: Selection,
+    /// Literal field path resolving to a nonblank string.
+    pub value_path: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, Clone, Copy)]
 #[serde(rename_all = "snake_case")]
 pub(super) enum Selection {
     /// First upstream valid item possessing the input; no request retry.
@@ -296,25 +323,16 @@ impl SourceCheck {
                 .with_context(|| format!("Step `{}` expectations", step.id))?;
             step.validate_inputs()
                 .with_context(|| format!("Step `{}` inputs", step.id))?;
-            for input in step.inputs.values() {
-                if let Input::Reference(reference) = input {
-                    let upstream =
-                        previous
-                            .get(reference.from_step.as_str())
-                            .with_context(|| {
-                                format!(
-                                    "Step `{}` references a missing, forward or cyclic dependency",
-                                    step.id
-                                )
-                            })?;
-                    ensure!(
-                        reference.items_path == upstream.expect.items_path,
-                        "Step `{}` input path differs from upstream expectations",
-                        step.id
-                    );
-                    validate_path(&reference.items_path, true)?;
-                    validate_path(&reference.value_path, false)?;
-                }
+            for (key, input) in &step.inputs {
+                validate_input_reference(&step.id, &format!("input `{key}`"), input, &previous)?;
+            }
+            for (key, input) in &step.source_params {
+                validate_input_reference(
+                    &step.id,
+                    &format!("source parameter `{key}`"),
+                    input,
+                    &previous,
+                )?;
             }
             covered.insert(step.operation.name());
             previous.insert(&step.id, step);
@@ -348,9 +366,20 @@ impl SourceCheck {
 
     fn has_content_dependent(&self, id: &str) -> bool {
         self.steps.iter().any(|step| {
-            step.inputs.values().any(
-                |input| matches!(input, Input::Reference(reference) if reference.from_step == id),
-            ) && (step.operation.is_content() || self.has_content_dependent(&step.id))
+            step.inputs
+                .values()
+                .chain(step.source_params.values())
+                .any(|input| match input {
+                    Input::Reference(reference) => {
+                        reference.from_step == id
+                            || reference
+                                .fallbacks
+                                .iter()
+                                .any(|fallback| fallback.from_step == id)
+                    }
+                    _ => false,
+                })
+                && (step.operation.is_content() || self.has_content_dependent(&step.id))
         })
     }
 
@@ -448,14 +477,109 @@ impl Step {
                         ensure!(!value.trim().is_empty(), "Blank input `{key}`")
                     }
                     Input::Reference(reference) => {
-                        ensure!(!reference.from_step.trim().is_empty(), "Blank from_step")
+                        ensure!(!reference.from_step.trim().is_empty(), "Blank from_step");
+                        for fallback in reference.fallbacks.iter() {
+                            ensure!(
+                                !fallback.from_step.trim().is_empty(),
+                                "Blank fallback from_step"
+                            );
+                        }
                     }
                     Input::Page(_) => anyhow::bail!("Input `{key}` must be a string or reference"),
                 }
             }
         }
+        self.validate_source_params()
+    }
+
+    fn validate_source_params(&self) -> Result<()> {
+        if !self.operation.supports_source_params() {
+            ensure!(
+                self.source_params.is_empty(),
+                "Source parameters are not supported for `{}`",
+                self.operation.name()
+            );
+            return Ok(());
+        }
+        for (key, input) in &self.source_params {
+            ensure!(!key.trim().is_empty(), "Blank source parameter name");
+            ensure!(
+                !matches!(key.as_str(), "name" | "source" | "query_url" | "page"),
+                "Reserved source parameter `{key}`"
+            );
+            match input {
+                Input::Literal(value) => {
+                    ensure!(!value.trim().is_empty(), "Blank source parameter `{key}`")
+                }
+                Input::Reference(reference) => {
+                    ensure!(
+                        !reference.from_step.trim().is_empty(),
+                        "Blank source parameter `{key}` from_step"
+                    );
+                    for fallback in reference.fallbacks.iter() {
+                        ensure!(
+                            !fallback.from_step.trim().is_empty(),
+                            "Blank source parameter `{key}` fallback from_step"
+                        );
+                    }
+                }
+                Input::Page(_) => {
+                    anyhow::bail!("Source parameter `{key}` must be a string or reference")
+                }
+            }
+        }
         Ok(())
     }
+}
+
+fn validate_input_reference(
+    step_id: &str,
+    label: &str,
+    input: &Input,
+    previous: &HashMap<&str, &Step>,
+) -> Result<()> {
+    let Input::Reference(reference) = input else {
+        return Ok(());
+    };
+    validate_reference(
+        step_id,
+        label,
+        &reference.from_step,
+        &reference.items_path,
+        &reference.value_path,
+        previous,
+    )?;
+    for (index, fallback) in reference.fallbacks.iter().enumerate() {
+        validate_reference(
+            step_id,
+            &format!("{label} fallback[{}]", index + 1),
+            &fallback.from_step,
+            &fallback.items_path,
+            &fallback.value_path,
+            previous,
+        )?;
+    }
+    Ok(())
+}
+
+fn validate_reference(
+    step_id: &str,
+    label: &str,
+    from_step: &str,
+    items_path: &[String],
+    value_path: &[String],
+    previous: &HashMap<&str, &Step>,
+) -> Result<()> {
+    let upstream = previous.get(from_step).with_context(|| {
+        format!("Step `{step_id}` {label} references a missing, forward or cyclic dependency")
+    })?;
+    ensure!(
+        items_path == upstream.expect.items_path,
+        "Step `{step_id}` {label} input path differs from upstream expectations"
+    );
+    validate_path(items_path, true)?;
+    validate_path(value_path, false)?;
+    Ok(())
 }
 
 fn unique_names(names: &[String]) -> Result<HashSet<&str>> {

@@ -79,15 +79,26 @@ table separates status (`Passed`, `Skip`, `Blocked`, `Failed`) from severity
 (`Ok`, `Warning`, `Error`). A missing source contract also appears as `Skip`/`Warning`
 and continues to fail the aggregate for incomplete source coverage.
 
-The [2026-10-30 coverage qualification](../../../docs/dev-tracking/source-checks-coverage-2026-10-30.md)
-records the corrected section/category/player scenarios and remaining gaps.
-The runner now supports 14 operations, including seasons, live catalogs and
-channels, banners, recommendations, legacy episodes and source-owned YAML stream
-resolution. The 55 previously unsupported production operations now have scenarios.
-The existing `inputs` format is preserved, without `source_params`: `get_live`
-uses `query_url` as its channel argument. Three operations still require parameters
-that the format cannot forward (`channel` or `home_type`), and remain
-`Skip`/`Warning`. See the [extended qualification](../../../docs/dev-tracking/source-checks-expanded-2026-10-30.md).
+Reference inputs may declare ordered `fallbacks`: the runner tries the primary
+reference first, then each fallback in declaration order, and only blocks the
+consumer when no target yields a usable value. Every fallback is validated as a
+backward reference that mirrors its upstream `expect.items_path`, and diagnostics
+name the reference that supplied the input.
+
+Steps for `get_category`, `get_section` and `get_recommendations` may declare
+`source_params`, a mapping of provider-defined runtime parameters. Values are
+nonblank literals or references with the same dependency rules as inputs, and the
+runner forwards them to the typed facade for the selected source. Reserved keys
+(`name`, `source`, `query_url`, `page`) and other operations are rejected;
+pagination stays derived from `page` and the manifest `page_size`. This lets the
+Antenne Réunion `home_type` and TF1 `channel` category/section steps run without
+provider branches in Rust.
+
+The runner supports 14 operations, including seasons, live catalogs and channels,
+banners, recommendations, legacy episodes and source-owned YAML stream resolution.
+The 55 previously unsupported production operations now have scenarios.
+`get_live` uses `query_url` as its channel argument; do not duplicate it as a
+source parameter.
 
 At batch 5 completion, the scan discovers 21 configurations with nine contracts
 and twelve missing contracts. An all-source run executes the nine covered sources

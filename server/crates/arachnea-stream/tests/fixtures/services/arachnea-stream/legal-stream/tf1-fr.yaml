@@ -4,7 +4,7 @@ source: tf1-fr
 source_config: arachnea-stream/legal-stream/tf1-fr.yaml
 
 capabilities:
-  expected: ["service_stream_metadata", "load_home", "search", "get_entry", "get_live", "get_recommendations", "get_season", "list_lives"]
+  expected: ["service_stream_metadata", "load_home", "get_category", "get_section", "search", "get_entry", "get_live", "get_recommendations", "get_season", "list_lives"]
   not_expected: []
 
 steps:
@@ -24,6 +24,62 @@ steps:
 
   - id: home
     operation: load_home
+    expect:
+      items_path: ["sections","*","entries"]
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["title"]
+        - ["link"]
+
+  - id: home_categories
+    operation: load_home
+    expect:
+      items_path: ["categories"]
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["label"]
+        - ["request","query_url"]
+        - ["request","channel"]
+
+  - id: category
+    operation: get_category
+    inputs:
+      query_url:
+        from_step: home_categories
+        items_path: ["categories"]
+        select: first_valid
+        value_path: ["request","query_url"]
+    source_params:
+      channel:
+        from_step: home_categories
+        items_path: ["categories"]
+        select: first_valid
+        value_path: ["request","channel"]
+    expect:
+      items_path: ["sections"]
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["label"]
+        - ["link"]
+        - ["request","channel"]
+
+  - id: section
+    operation: get_section
+    inputs:
+      query_url:
+        from_step: category
+        items_path: ["sections"]
+        select: first_valid
+        value_path: ["link"]
+    source_params:
+      channel:
+        from_step: category
+        items_path: ["sections"]
+        select: first_valid
+        value_path: ["request","channel"]
     expect:
       items_path: ["sections","*","entries"]
       min_count: 1

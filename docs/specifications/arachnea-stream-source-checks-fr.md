@@ -28,8 +28,7 @@ Pour **un service**, exécutez :
 
 ```sh
 ARACHNEA_TEST_QUERY_SOURCE=anime-sama \
-  cargo test --manifest-path server/Cargo.toml -p arachnea-stream --lib \
-  stream_scraper::tests::test_all_services -- --exact --ignored --nocapture
+  cargo test --manifest-path server/Cargo.toml -p arachnea-stream --lib stream_scraper::tests::test_all_services -- --exact --ignored --nocapture
 ```
 
 Remplacez `anime-sama` par l'`id` du YAML de production ou par son chemin relatif à
@@ -40,8 +39,7 @@ Pour **toutes les sources**, laissez `ARACHNEA_TEST_QUERY_SOURCE` non définie e
 exécutez :
 
 ```sh
-cargo test --manifest-path server/Cargo.toml -p arachnea-stream --lib \
-  stream_scraper::tests::test_all_services -- --exact --ignored --nocapture
+cargo test --manifest-path server/Cargo.toml -p arachnea-stream --lib stream_scraper::tests::test_all_services -- --exact --ignored --nocapture
 ```
 
 Pour sélectionner explicitement toutes les sources même si un sélecteur a été
@@ -50,8 +48,7 @@ indiqué :
 
 ```sh
 ARACHNEA_TEST_QUERY_SOURCE='*' \
-  cargo test --manifest-path server/Cargo.toml -p arachnea-stream --lib \
-  stream_scraper::tests::test_all_services -- --exact --ignored --nocapture
+  cargo test --manifest-path server/Cargo.toml -p arachnea-stream --lib stream_scraper::tests::test_all_services -- --exact --ignored --nocapture
 ```
 
 Ce sont des commandes d'intégration en direct. Le test est ignoré par un
@@ -81,8 +78,7 @@ vous rédigez un contrat manquant.
 
 ```sh
 ARACHNEA_TEST_QUERY_SOURCE=anime-sama \
-  cargo test --manifest-path server/Cargo.toml -p arachnea-stream --lib \
-  stream_scraper::tests::test_query_service_stream_metadata -- --exact --nocapture
+  cargo test --manifest-path server/Cargo.toml -p arachnea-stream --lib stream_scraper::tests::test_query_service_stream_metadata -- --exact --nocapture
 ```
 
 Cela charge et valide le **contrat sélectionné dans son ensemble**, vérifie ses
@@ -105,8 +101,7 @@ avec `*` pour cette vérification de couverture.
 
 ```sh
 ARACHNEA_TEST_QUERY_SOURCE=anime-sama \
-  cargo test --manifest-path server/Cargo.toml -p arachnea-stream --lib \
-  stream_scraper::tests::test_query_search -- --exact --ignored --nocapture
+  cargo test --manifest-path server/Cargo.toml -p arachnea-stream --lib stream_scraper::tests::test_query_search -- --exact --ignored --nocapture
 ```
 
 Utilisez exactement l'un de ces noms de test existants :
@@ -437,6 +432,7 @@ Chaque étape accepte exactement ces clés :
 | `id` | Oui | Chaîne non vide unique dans ce fichier ; les références utilisent cet ID |
 | `operation` | Oui | Un nom exact pris en charge dans le tableau ci-dessous |
 | `inputs` | Non | Mapping, `{}` par défaut ; uniquement les clés autorisées pour cette opération |
+| `source_params` | Non | Mapping, `{}` par défaut ; paramètres d'exécution définis par le fournisseur, autorisés seulement sur `get_category`, `get_section` et `get_recommendations` |
 | `expect` | Oui | Mapping décrit à la section 10 |
 
 Plusieurs étapes peuvent utiliser la même opération, par exemple une entrée
@@ -468,6 +464,11 @@ Les URL et les identifiants de requête internes sont passés comme des chaînes
 définies par la source ; le format de test n'exige pas que toutes les entrées
 `query_url` soient des URL HTTP.
 
+`get_category`, `get_section` et `get_recommendations` acceptent en plus
+`source_params` pour les paramètres d'exécution définis par le fournisseur. Les
+autres opérations rejettent toute entrée `source_params`, y compris `get_live` :
+son identifiant de canal reste dans `query_url`.
+
 Les nouvelles opérations conservent la structure `inputs` et les formes littérales
 ou références existantes. `get_live` utilise `query_url` pour l'argument `channel`
 de la façade ; n'ajoutez pas d'entrée `channel`. `page` est autorisé uniquement
@@ -480,17 +481,21 @@ utilisent les méthodes typées de la façade. `resolve_stream` utilise le réso
 `scraper-query` pour la source sélectionnée, sans pays imposé et sans réécriture
 des manifestes. Il vérifie le descripteur normalisé, sans qualifier la lecture,
 l'acquisition DRM ni la disponibilité des segments. Les paramètres spécifiques
-aux résolveurs et `source_params` restent exclus.
+aux résolveurs restent exclus ; les paramètres d'exécution du fournisseur passent
+par `source_params` (section 9).
 
 
-L'adaptateur choisit la source à partir du contrat. Pour `get_category`, il construit
-le descripteur typé `{name: source, query_url: resolved_value}` et passe des
-paramètres de source supplémentaires vides. Les appels de section, de détail et de
-lecteur ciblent également la même source. N'ajoutez pas `source`, `name`, `channel`,
-`source_params`, d'en-têtes de requête, d'identifiants, de filtres de média ni de
-paramètres arbitraires aux `inputs`. Si l'opération de production exige une entrée
-non prise en charge, signalez la limitation au lieu d'inventer une clé ou d'ajouter
-une exception de fournisseur en Rust.
+L'adaptateur choisit la source à partir du contrat. Pour `get_category`,
+`get_section` et `get_recommendations`, il construit le descripteur typé
+`{name: source, query_url: resolved_value}` et transmet les `source_params`
+résolus de l'étape pour cette source. Les autres appels passent des paramètres de
+source supplémentaires vides. Les appels de section, de détail et de lecteur
+ciblent également la même source. N'ajoutez pas `source`, `name`, `channel`,
+d'en-têtes de requête, d'identifiants, de filtres de média ni de paramètres
+arbitraires aux `inputs`, et ne dupliquez pas une clé de `source_params` en
+entrée. Si l'opération de production exige une entrée non prise en charge,
+signalez la limitation au lieu d'inventer une clé ou d'ajouter une exception de
+fournisseur en Rust.
 
 Les assertions examinent la `data` publique sérialisée, **pas** l'enveloppe, les
 `ScraperDataNode.values/children/items` internes ni une réponse reconstruite. Ne
@@ -585,7 +590,7 @@ variables d'environnement dans le document de test. Ne supposez pas que
 `{base_url}`, `${VARIABLE}` ou un champ YAML `value` seront résolus comme entrée de
 référence.
 
-### Entrée dynamique : les quatre clés de référence sont obligatoires
+### Entrée dynamique : clés de référence et replis facultatifs
 
 ```yaml
 inputs:
@@ -602,10 +607,11 @@ inputs:
 | `items_path` | Doit être exactement égal au `expect.items_path` de l'étape amont |
 | `select` | Exactement `first_valid` ; aucune autre stratégie n'existe |
 | `value_path` | Chemin littéral relatif à un objet amont sélectionné ; doit se résoudre à l'exécution en une chaîne JSON non vide |
+| `fallbacks` | Liste ordonnée facultative de mappings de repli utilisant les mêmes quatre clés de référence |
 
 Les dépendances manquantes, avant, sur soi-même et cycliques sont invalides avant
-tout appel réseau. N'utilisez pas un nom d'opération de production comme
-`from_step` sauf si c'est aussi l'ID réel de l'étape amont.
+tout appel réseau, y compris dans `fallbacks`. N'utilisez pas un nom d'opération
+de production comme `from_step` sauf si c'est aussi l'ID réel de l'étape amont.
 
 `first_valid` parcourt les objets amont sélectionnés dans l'ordre de la réponse et
 choisit le premier objet satisfaisant toutes les assertions amont par objet **et**
@@ -614,6 +620,89 @@ possédant la chaîne non vide demandée. Il ne choisit pas simplement le premie
 amont entière doit avoir réussi ; sinon ses dépendantes sont bloquées, même si
 certaines données étaient disponibles. Une étape amont réussie sans valeur d'entrée
 utilisable bloque aussi le consommateur et signale le chemin de valeur manquant.
+
+Une référence peut déclarer `fallbacks` lorsqu'une autre étape déjà réussie peut
+fournir la même entrée par un chemin de navigation différent. Chaque repli est une
+référence complète : il doit cibler une étape antérieure, copier exactement son
+`expect.items_path` et respecter les mêmes règles `select` et `value_path`.
+L'exécuteur résout d'abord la référence primaire, puis chaque repli dans l'ordre de
+déclaration. La première cible dont l'étape amont a réussi et dont les objets
+sélectionnés fournissent une chaîne non vide à `value_path` alimente l'entrée ; les
+cibles suivantes ne sont pas tentées. Un repli ne relance pas la requête primaire,
+ne contourne pas un échec amont et n'affaiblit aucune assertion : il permet
+seulement au consommateur de s'exécuter lorsqu'une autre étape réussie expose déjà
+une valeur utilisable. Si aucune cible ne fournit de valeur, le consommateur est
+bloqué et les diagnostics listent chaque référence tentée.
+
+```yaml
+inputs:
+  query_url:
+    from_step: category
+    items_path: [sections, "*", entries]
+    select: first_valid
+    value_path: [link]
+    fallbacks:
+      - from_step: home_sections
+        items_path: [sections, "*", entries]
+        select: first_valid
+        value_path: [link]
+```
+
+Un repli ne peut référencer qu'une étape dont le `items_path` déclaré correspond.
+Lorsque l'alternative provient de la même opération avec une forme différente,
+déclarez d'abord une étape de découverte dédiée. Par exemple, une page d'accueil
+exposant à la fois des catégories et des rails d'entrées peut avoir deux étapes
+`load_home`, l'une avec `items_path: [categories]` et l'autre avec
+`items_path: [sections, "*", entries]`, et utiliser la seconde comme repli de
+l'entrée.
+
+### Paramètres d'exécution du fournisseur : `source_params`
+
+Certaines sources exigent un paramètre d'exécution supplémentaire qui n'est ni
+l'URL de requête ni un numéro de page. `source_params` transmet ces valeurs
+définies par le fournisseur à la façade typée de la source sélectionnée. Il n'est
+accepté que sur `get_category`, `get_section` et `get_recommendations` ; toute
+entrée sur une autre opération est une erreur de schéma.
+
+```yaml
+- id: category
+  operation: get_category
+  inputs:
+    query_url:
+      from_step: home_categories
+      items_path: [categories]
+      select: first_valid
+      value_path: [request, query_url]
+  source_params:
+    home_type:
+      from_step: home_categories
+      items_path: [categories]
+      select: first_valid
+      value_path: [request, home_type]
+  expect:
+    items_path: [sections, "*", entries]
+    min_count: 1
+    min_valid_count: 1
+    required_non_empty:
+      - [title]
+      - [link]
+```
+
+| Règle de `source_params` | Comportement exact |
+| --- | --- |
+| Clé | Nom de paramètre fournisseur non vide ; `name`, `source`, `query_url` et `page` sont réservés |
+| Valeur | Chaîne littérale non vide ou référence avec les mêmes clés, `select` et replis que `inputs` |
+| Portée | Uniquement `get_category`, `get_section` et `get_recommendations` |
+| Pagination | Non exprimable ici : `offset`/`page_size` dérivent génériquement de `page` et du `page_size` du manifeste |
+| Échec | Une valeur vide ou non résolue bloque l'étape avant l'appel réseau |
+
+Les paramètres de source suivent les mêmes règles de dépendance que les entrées :
+une référence doit cibler une étape antérieure, copier exactement son
+`expect.items_path` et peut déclarer des `fallbacks`. Ce ne sont pas des entrées :
+ils ne modifient pas la signature de la façade et n'ajoutent aucune branche
+fournisseur en Rust. N'inventez pas de nom de paramètre : lisez le YAML de
+production pour trouver la clé exacte et l'étape de découverte qui expose sa
+valeur.
 
 ### Choisir une recette de navigation à partir de la sortie réelle
 
@@ -813,7 +902,7 @@ champ, ne changent jamais la source et ne modifient pas le fichier de contrat.
 | `retrieval_failed` | Échec de transport typé ou délai d'expiration ; conservez la cause contextuelle |
 | `extraction_failed` | Aucune erreur de forme, mais moins d'éléments que `min_count` ; examinez la référence, l'accès et l'extraction sans supposer une cause |
 | `contract_failed` | L'enveloppe, la forme ou les assertions d'objet ont échoué ; inspectez l'erreur, les chemins invalides et les types JSON observés |
-| `blocked` | L'étape n'a pas été appelée car son entrée n'a pas pu être découverte, une étape amont a échoué ou l'échéance de la source a expiré |
+| `blocked` | L'étape n'a pas été appelée car son entrée n'a pas pu être découverte depuis la référence primaire ou un repli déclaré, une étape amont a échoué ou l'échéance de la source a expiré |
 | `not_applicable` | L'opération est explicitement absente de la production et n'est pas exécutée ; zéro appel n'est pas un contrôle en direct réussi |
 
 Les étapes indépendantes continuent après un échec dans la limite de l'échéance de
@@ -915,8 +1004,8 @@ complète, la validité DRM/licence ni la disponibilité future de chaque segmen
 
 Les fonctionnalités non prises en charge du schéma v1 incluent les
 scripts/sélecteurs/transformations arbitraires, les conditionnels, les boucles, les
-nouvelles tentatives, les dépendances entre sources, les replis vers une référence
-alternative, l'indexation numérique de chemin, JSONPath, les assertions de
+nouvelles tentatives, les dépendances entre sources, la sélection implicite ou non
+déclarée d'un repli, l'indexation numérique de chemin, JSONPath, les assertions de
 valeur constante/regex, les types nullables/union, les paramètres d'opération
 arbitraires et la lecture de bout en bout (acquisition DRM et validation des segments).
 Signalez séparément un besoin réel d'extension générique ; n'ajoutez pas de YAML non
@@ -937,7 +1026,7 @@ pris en charge ni de raccourci Rust propre à une source.
 - [ ] Chaque opération attendue a une étape, les métadonnées sont incluses et une
   vraie opération de contenu peut établir une exécution complète réussie.
 - [ ] Les ID d'étape sont uniques ; les références pointent vers l'arrière et
-  copient exactement le `expect.items_path` amont.
+  copient exactement le `expect.items_path` amont, y compris chaque repli déclaré.
 - [ ] Les chemins utilisent des segments de chaînes littéraux et des jokers
   explicites entre guillemets. Les chemins de valeur et de champ n'ont pas de joker
   et n'incluent pas la clé `data` de l'enveloppe.
@@ -947,8 +1036,9 @@ pris en charge ni de raccourci Rust propre à une source.
   absentes et nulles sont traitées selon les règles documentées. Aucun chemin de
   champ n'est déclaré deux fois.
 - [ ] Les entrées sont des valeurs de référence délibérées ou des références de
-  découverte bornées ; les surcharges d'environnement non pertinentes sont
-  supprimées pour la qualification.
+  découverte bornées ; `source_params` ne contient que des clés fournisseur,
+  jamais de clé réservée ou de pagination ; les surcharges d'environnement non
+  pertinentes sont supprimées pour la qualification.
 - [ ] La commande de métadonnées propre à la source a réellement sélectionné et
   exécuté son test.
 - [ ] La commande en direct pour un service a été exécutée si l'accès était

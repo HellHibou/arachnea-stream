@@ -27,8 +27,7 @@ For **one service**, execute:
 
 ```sh
 ARACHNEA_TEST_QUERY_SOURCE=anime-sama \
-  cargo test --manifest-path server/Cargo.toml -p arachnea-stream --lib \
-  stream_scraper::tests::test_all_services -- --exact --ignored --nocapture
+  cargo test --manifest-path server/Cargo.toml -p arachnea-stream --lib stream_scraper::tests::test_all_services -- --exact --ignored --nocapture
 ```
 
 Replace `anime-sama` with the production YAML's `id` or its services-relative path.
@@ -37,8 +36,7 @@ This executes all contract steps for that source, including declared navigation.
 For **all sources**, leave `ARACHNEA_TEST_QUERY_SOURCE` undefined and execute:
 
 ```sh
-cargo test --manifest-path server/Cargo.toml -p arachnea-stream --lib \
-  stream_scraper::tests::test_all_services -- --exact --ignored --nocapture
+cargo test --manifest-path server/Cargo.toml -p arachnea-stream --lib stream_scraper::tests::test_all_services -- --exact --ignored --nocapture
 ```
 
 To explicitly select all sources even if a selector was previously set, use the
@@ -46,9 +44,7 @@ literal wildcard. Quote `*` as shown:
 
 ```sh
 ARACHNEA_TEST_QUERY_SOURCE='*' \
-  cargo test --manifest-path server/Cargo.toml -p arachnea-stream --lib \
-  stream_scraper::tests::test_all_services -- --exact --ignored --nocapture
-```
+  cargo test --manifest-path server/Cargo.toml -p arachnea-stream --lib ``
 
 These are live integration commands. The test is ignored by ordinary `cargo test`;
 "all by default" applies only when this integration test is explicitly executed.
@@ -75,8 +71,7 @@ fixed limit. Select one covered service while authoring one missing contract.
 ```sh
 ARACHNEA_TEST_QUERY_SOURCE=anime-sama \
   cargo test --manifest-path server/Cargo.toml -p arachnea-stream --lib \
-  stream_scraper::tests::test_query_service_stream_metadata -- --exact --nocapture
-```
+  stream_scraper::tests::test_query_service_stream_metadata -- --exact -`
 
 This loads and validates the **whole selected contract**, checks its production
 capabilities, then executes metadata only. It does not execute the navigation,
@@ -97,8 +92,7 @@ coverage check.
 ```sh
 ARACHNEA_TEST_QUERY_SOURCE=anime-sama \
   cargo test --manifest-path server/Cargo.toml -p arachnea-stream --lib \
-  stream_scraper::tests::test_query_search -- --exact --ignored --nocapture
-```
+  stream_scraper::tests::test_query_search -- --exact --ignored --nocapt`
 
 Use exactly one of these existing test names:
 
@@ -395,6 +389,7 @@ Each step accepts exactly these keys:
 | `id` | Yes | Unique nonblank string within this file; references use this ID |
 | `operation` | Yes | One exact supported name from the table below |
 | `inputs` | No | Mapping, default `{}`; only this operation's allowed keys |
+| `source_params` | No | Mapping, default `{}`; provider-defined runtime parameters, allowed only on `get_category`, `get_section` and `get_recommendations` |
 | `expect` | Yes | Mapping described in section 10 |
 
 Multiple steps may use the same operation, for example a discovered entry and a
@@ -423,6 +418,11 @@ there are no runner retries, loops or automatic pagination.
 URLs and internal query identifiers are passed as source-defined strings; the
 test format does not require all `query_url` inputs to be HTTP URLs.
 
+`get_category`, `get_section` and `get_recommendations` additionally accept
+`source_params` for provider-defined runtime parameters. Other operations reject
+any `source_params` entry, including `get_live`: its channel identifier stays in
+`query_url`.
+
 The additional operations preserve the existing `inputs` structure and literal/
 reference forms. `get_live` deliberately uses `query_url` for the typed facade's
 `channel` argument; do not add an input named `channel`. `page` is allowed only on
@@ -434,16 +434,19 @@ and the same envelope checks. All other operations use typed facade methods.
 `resolve_stream` uses the `scraper-query` resolver for the selected source, with
 no country hints and manifest rewriting disabled. It validates the normalized
 stream descriptor, not playback, DRM acquisition or segment availability.
-Source-specific resolver parameters and `source_params` remain unsupported.
+Source-specific resolver parameters remain unsupported; provider runtime
+parameters use `source_params` instead (section 9).
 
 
-The adapter chooses the source from the contract. For `get_category`, it builds
-the typed descriptor `{name: source, query_url: resolved_value}` and passes empty
-extra source parameters. Section, detail and player calls also target the same
-source. Do not add `source`, `name`, `channel`, `source_params`, request headers,
-credentials, media filters or arbitrary parameters to `inputs`. If the production
-operation requires an unsupported input, report the limitation instead of
-inventing a key or adding a provider exception to Rust.
+The adapter chooses the source from the contract. For `get_category`,
+`get_section` and `get_recommendations`, it builds the typed descriptor
+`{name: source, query_url: resolved_value}` and forwards the step's resolved
+`source_params` for that source. Other calls pass empty extra source parameters.
+Section, detail and player calls also target the same source. Do not add
+`source`, `name`, `channel`, request headers, credentials, media filters or
+arbitrary parameters to `inputs`, and do not duplicate a `source_params` key as
+an input. If the production operation requires an unsupported input, report the
+limitation instead of inventing a key or adding a provider exception to Rust.
 
 Assertions examine the public serialized `data`, **not** the envelope, internal
 `ScraperDataNode.values/children/items` or a reconstructed response. Do not start
@@ -528,7 +531,7 @@ production placeholders or environment-variable syntax in the test document.
 Do not assume that `{base_url}`, `${VARIABLE}` or a YAML `value` field will be
 resolved as a reference input.
 
-### Dynamic input: all four reference keys are required
+### Dynamic input: reference keys and optional fallbacks
 
 ```yaml
 inputs:
@@ -545,10 +548,11 @@ inputs:
 | `items_path` | Must equal that upstream step's `expect.items_path` exactly |
 | `select` | Exactly `first_valid`; no other strategy exists |
 | `value_path` | Literal path relative to a selected upstream object; must resolve to a nonblank JSON string at runtime |
+| `fallbacks` | Optional ordered list of fallback mappings using the same four reference keys |
 
-Missing, forward, self and cyclic dependencies are invalid before network calls.
-Do not use a production operation name as `from_step` unless that is also the
-actual upstream step ID.
+Missing, forward, self and cyclic dependencies are invalid before network calls,
+including inside `fallbacks`. Do not use a production operation name as
+`from_step` unless that is also the actual upstream step ID.
 
 `first_valid` scans upstream selected objects in response order and chooses the
 first object satisfying all upstream per-object assertions **and** possessing the
@@ -557,6 +561,86 @@ try another candidate after the downstream request fails. The entire upstream
 step must have passed; otherwise its dependents are blocked, even if some data
 were available. A passing upstream step with no usable input value also blocks
 the consumer and reports the missing value path.
+
+A reference may declare `fallbacks` when another already-passed step can provide
+the same input through a different navigation path. Each fallback is a complete
+reference: it must target an earlier step, copy that step's `expect.items_path`
+exactly and use the same `select` and `value_path` rules. The runner resolves the
+primary reference first, then each fallback in declaration order. The first target
+whose upstream step passed and whose selected objects yield a nonblank string at
+`value_path` supplies the input; later targets are not attempted. A fallback does
+not retry the primary request, bypass an upstream failure or weaken assertions:
+it only lets the consumer run when an alternative passed step already exposes a
+usable value. When no target yields a value, the consumer is blocked and the
+diagnostics list every attempted reference.
+
+```yaml
+inputs:
+  query_url:
+    from_step: category
+    items_path: [sections, "*", entries]
+    select: first_valid
+    value_path: [link]
+    fallbacks:
+      - from_step: home_sections
+        items_path: [sections, "*", entries]
+        select: first_valid
+        value_path: [link]
+```
+
+A fallback can only reference a step whose declared `items_path` matches. When
+the alternative comes from the same operation with a different shape, declare a
+dedicated discovery step first. For example, a home page exposing both categories
+and entry rails can have two `load_home` steps, one with `items_path: [categories]`
+and one with `items_path: [sections, "*", entries]`, and use the second as the
+entry fallback.
+
+### Provider runtime parameters: `source_params`
+
+Some sources need an extra runtime parameter that is neither the query URL nor a
+page number. `source_params` forwards such provider-defined values to the typed
+facade for the selected source. It is accepted only on `get_category`,
+`get_section` and `get_recommendations`; any entry on another operation is a
+schema error.
+
+```yaml
+- id: category
+  operation: get_category
+  inputs:
+    query_url:
+      from_step: home_categories
+      items_path: [categories]
+      select: first_valid
+      value_path: [request, query_url]
+  source_params:
+    home_type:
+      from_step: home_categories
+      items_path: [categories]
+      select: first_valid
+      value_path: [request, home_type]
+  expect:
+    items_path: [sections, "*", entries]
+    min_count: 1
+    min_valid_count: 1
+    required_non_empty:
+      - [title]
+      - [link]
+```
+
+| `source_params` rule | Exact behavior |
+| --- | --- |
+| Key | Nonblank provider parameter name; `name`, `source`, `query_url` and `page` are reserved |
+| Value | Nonblank literal string or a reference using the same keys, `select` and fallbacks as `inputs` |
+| Scope | Only `get_category`, `get_section` and `get_recommendations` |
+| Pagination | Not expressible here: `offset`/`page_size` derive generically from `page` and the manifest `page_size` |
+| Failure | An unresolved or blank value blocks the step before the network call |
+
+Source parameters follow the same dependency rules as inputs: a reference must
+target an earlier step, copy that step's `expect.items_path` exactly, and may
+declare `fallbacks`. They are not inputs, so they do not change the facade method
+signature or add provider branches in Rust. Do not invent a parameter name: read
+the production YAML to find the exact key and the discovery step that exposes its
+value.
 
 ### Choose a navigation recipe from the actual output
 
@@ -740,7 +824,7 @@ field assertions, never change the source and do not edit the contract file.
 | `retrieval_failed` | Typed transport failure or timeout; preserve the contextual cause |
 | `extraction_failed` | No shape error, but fewer items than `min_count`; investigate reference/access/extraction without assuming a cause |
 | `contract_failed` | Envelope, shape or object assertions failed; inspect the error, invalid paths and observed JSON kinds |
-| `blocked` | Step was not called because its input could not be discovered, an upstream step failed or the source deadline expired |
+| `blocked` | Step was not called because its input could not be discovered from the primary reference or any declared fallback, an upstream step failed or the source deadline expired |
 | `not_applicable` | Operation is explicitly absent in production and is not executed; zero calls is not a passed live control |
 
 Independent steps continue after a failure within the source deadline. Dependents
@@ -825,8 +909,8 @@ contract. These checks do not prove CDN cache bypass, complete video playback,
 DRM/license validity or every segment's future availability.
 
 Unsupported schema-v1 features include arbitrary scripts/selectors/transforms,
-conditionals, loops, retries, cross-source dependencies, alternate-reference
-fallbacks, numeric path indexing, JSONPath, constant-value/regex assertions,
+conditionals, loops, retries, cross-source dependencies, implicit or undeclared
+fallback selection, numeric path indexing, JSONPath, constant-value/regex assertions,
 nullable/union types, arbitrary operation parameters and end-to-end playback
 (including DRM acquisition and segment validation). Report a real need for a generic extension separately;
 do not add unsupported YAML or a source-specific Rust shortcut.
@@ -843,7 +927,7 @@ do not add unsupported YAML or a source-specific Rust shortcut.
 - [ ] Every expected operation has a step, metadata is included and a real content
   operation can establish a successful full run.
 - [ ] Step IDs are unique; references point backward and copy the upstream
-  `expect.items_path` exactly.
+  `expect.items_path` exactly, including every declared fallback.
 - [ ] Paths use literal string segments and explicit quoted wildcards. Value and
   field paths have no wildcard and do not include the envelope's `data` key.
 - [ ] Each expectation has positive minima and a useful required field beyond
@@ -851,6 +935,7 @@ do not add unsupported YAML or a source-specific Rust shortcut.
 - [ ] Optional fields use verified public JSON types; absent and null values are
   handled according to the documented rules. No field path is declared twice.
 - [ ] Inputs are deliberate reference values or bounded discovery references;
+  `source_params` hold only provider keys, never reserved or pagination keys;
   irrelevant environment overrides are removed for qualification.
 - [ ] The source-specific metadata command actually selected and executed its test.
 - [ ] The one-service live command was run if access was available; otherwise the

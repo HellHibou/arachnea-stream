@@ -4,7 +4,7 @@ source: antennereunion-fr
 source_config: arachnea-stream/legal-stream/antennereunion-fr.yaml
 
 capabilities:
-  expected: ["service_stream_metadata", "load_home", "get_section", "search", "get_entry", "get_live", "get_season", "list_lives", "resolve_stream"]
+  expected: ["service_stream_metadata", "load_home", "get_category", "get_section", "search", "get_entry", "get_live", "get_season", "list_lives", "resolve_stream"]
   not_expected: []
 
 steps:
@@ -23,6 +23,39 @@ steps:
 
   - id: home
     operation: load_home
+    expect:
+      items_path: ["sections","*","entries"]
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["title"]
+        - ["link"]
+
+  - id: home_categories
+    operation: load_home
+    expect:
+      items_path: ["categories"]
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["label"]
+        - ["request","query_url"]
+        - ["request","home_type"]
+
+  - id: category
+    operation: get_category
+    inputs:
+      query_url:
+        from_step: home_categories
+        items_path: ["categories"]
+        select: first_valid
+        value_path: ["request","query_url"]
+    source_params:
+      home_type:
+        from_step: home_categories
+        items_path: ["categories"]
+        select: first_valid
+        value_path: ["request","home_type"]
     expect:
       items_path: ["sections","*","entries"]
       min_count: 1

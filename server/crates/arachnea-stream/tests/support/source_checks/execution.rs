@@ -6,7 +6,7 @@ use super::{
 };
 use anyhow::{ensure, Result};
 use arachnea_core::controler::RequestControlerContext;
-use arachnea_scrapyfy::scrapyfy::scraper_result::ScraperAggregationResult;
+use arachnea_scrapyfy::scrapyfy::{scraper_result::ScraperAggregationResult, ScraperSourceParams};
 use regex::Regex;
 use serde::Serialize;
 use serde_json::Value;
@@ -52,6 +52,15 @@ impl From<anyhow::Error> for Failure {
     }
 }
 
+/// Wraps provider-defined parameters for the selected source.
+fn scoped_source_params(source: &str, params: &HashMap<String, String>) -> ScraperSourceParams {
+    if params.is_empty() {
+        ScraperSourceParams::new()
+    } else {
+        HashMap::from([(source.to_string(), params.clone())])
+    }
+}
+
 /// Executes one recognized operation with a fresh context and the selected source.
 ///
 /// # Arguments
@@ -59,6 +68,7 @@ impl From<anyhow::Error> for Failure {
 /// * `contract` - Validated source identity and expectations.
 /// * `operation` - Generic facade adapter to execute.
 /// * `inputs` - Resolved string inputs and optional page.
+/// * `source_params` - Provider-defined runtime parameters forwarded by the facade.
 ///
 /// # Errors
 /// Preserves transport causes and fails on any envelope error or foreign source.
@@ -67,7 +77,15 @@ pub(super) async fn execute(
     contract: &SourceCheck,
     operation: Operation,
     inputs: &HashMap<String, Value>,
+    source_params: &HashMap<String, String>,
 ) -> std::result::Result<Vec<Value>, Failure> {
+    if !source_params.is_empty() && !operation.supports_source_params() {
+        return Err(anyhow::anyhow!(
+            "Source parameters are not supported for `{}`",
+            operation.name()
+        )
+        .into());
+    }
     let context = RequestControlerContext::default();
     if context.get_header("If-None-Match").is_some() {
         return Err(anyhow::anyhow!("Source-check context contains a client validator").into());
@@ -127,7 +145,7 @@ pub(super) async fn execute(
                         ("query_url".to_string(), string("query_url")?),
                     ])],
                     page,
-                    Default::default(),
+                    scoped_source_params(&source, source_params),
                 )
                 .await?
                 .0,
@@ -142,7 +160,7 @@ pub(super) async fn execute(
                     source.clone(),
                     string("query_url")?,
                     page,
-                    Default::default(),
+                    scoped_source_params(&source, source_params),
                 )
                 .await?
                 .0,
@@ -208,7 +226,7 @@ pub(super) async fn execute(
                     source.clone(),
                     string("query_url")?,
                     page,
-                    Default::default(),
+                    scoped_source_params(&source, source_params),
                 )
                 .await?
                 .0,
