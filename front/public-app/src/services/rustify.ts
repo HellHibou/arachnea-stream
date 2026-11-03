@@ -1,4 +1,4 @@
-import type { Collection, MediaItem } from '@/types/media'
+import type { CatalogItem, LiveSelectionTarget, Collection, MediaItem } from '@/types/media'
 import type {
   EntryDetails,
   EntryEmbedFallback,
@@ -24,6 +24,7 @@ import type {
   HomeSectionSubsection,
   HomeSectionSource,
 } from '@/types/home'
+import { mediaRouteIdentity, normalizeMediaTypes, resolveMediaRouting } from '@/services/mediaRouting'
 import { t, tm } from '@/i18n'
 import { resolveAppPath } from '@/services/baseUrl'
 import { normalizePriceAccess } from '@/services/priceAccess'
@@ -47,6 +48,7 @@ const restApiBaseUrl = import.meta.env.VITE_RUSTIFY_API_BASE_URL ?? resolveAppPa
 
 /** Supported media type values used for filtering. */
 export const mediaTypeValues = [
+  'collection',
   'video/movie',
   'video/show/serie',
   'video/show/anime',
@@ -725,6 +727,7 @@ export async function loadHomeSectionPage(
     const responseSection = readRecordList(responseRecord.sections)[0] ?? responseRecord
     const normalizedSection = normalizeHomeSection(
       {
+        ...responseSection,
         label: section.label,
         entries: readRecordList(responseSection.entries),
         current_page: responseSection.current_page ?? page,
@@ -840,7 +843,7 @@ export async function listLiveMediaItems(): Promise<MediaItem[]> {
 
   // Every live catalog entry is a live channel, so its media-type label is redundant in the list.
   return response.map((entry, index) =>
-    normalizeMediaItem(entry, index, null, { includeMediaTypeInMetaLine: false }),
+    normalizeMediaItem(entry, index, null, { includeMediaTypeInMetaLine: false, preserveLiveEntryUrl: true }),
   )
 }
 
@@ -848,7 +851,7 @@ export async function listLiveMediaItems(): Promise<MediaItem[]> {
  * Executes the backend live endpoint and normalizes the returned embedded players.
  *
  * @param source Backend source name that owns the live channel.
- * @param channel Source-specific live channel identifier.
+ * @param channel Source-specific opaque live channel or event identifier.
  * @returns Normalized players available for the selected live channel.
  */
 export async function getLivePlayers(source: string, channel: string): Promise<EntryPlayer[]> {
@@ -1087,6 +1090,13 @@ function normalizeHomeBanner(
     videoUrl,
     player,
     source,
+    target: normalizeMediaItem({
+      ...record,
+      source,
+      link: entryUrl ?? webUrl,
+      'web-link': webUrl,
+      'img/url': { link: imageUrl },
+    }, index, source),
     entryUrl: entryUrl ?? webUrl,
     webUrl: webUrl ?? entryUrl,
   }
@@ -1127,6 +1137,27 @@ function extractBannerPlayer(record: Record<string, unknown>): HomeBannerPlayer 
   }
 
   return null
+}
+
+/**
+ * Builds the live-details presentation for a target that need not appear in list_lives.
+ * @param target Explicit source, live identifier and optional catalog presentation.
+ * @returns A media presentation consumed by the existing live player page.
+ */
+export function liveTargetMediaItem(target: LiveSelectionTarget): MediaItem {
+  return {
+    ...normalizeMediaItem({
+      source: target.source,
+      link: target.channel,
+      title: target.title ?? t('live.title'),
+      description: target.description,
+      'web-link': target.webUrl,
+      'img/url': { link: target.imageUrl },
+      'media-type': 'video/live',
+    }, 0, target.source),
+    id: `live:${JSON.stringify([target.source, target.channel])}`,
+    entryUrl: target.channel,
+  }
 }
 
 /**
@@ -1331,7 +1362,7 @@ function normalizeHomeSection(
       label,
     ),
     preferenceKey: buildHomeSectionPreferenceKey(label, id),
-    items: rawItems.map((item, itemIndex) => normalizeMediaItem(item, itemIndex, inheritedSource)),
+    items: normalizeCatalogItems(rawItems, inheritedSource),
     sourceOrder: [inheritedSource ?? id],
     sources,
     currentPage,
@@ -1342,6 +1373,84 @@ function normalizeHomeSection(
         )
       : undefined,
   }
+}
+
+/**
+ * Normalizes catalog presentation and media-type targets; unavailable destinations remain non-openable.
+ * @param records Backend cards in their original order.
+ * @param inheritedSource Source inherited from the enclosing rail.
+ * @returns Cards retaining their normalized media types and target descriptors.
+ */
+function normalizeCatalogItems(records: JsonRecord[], inheritedSource: string | null): CatalogItem[] {
+  return records.map((record, index) => normalizeMediaItem(record, index, inheritedSource))
+}
+
+/**
+ * Derives source-owned target descriptors using the central media-type registry.
+ * @param record Raw source card, including provider request parameters.
+ * @param media Common presentation before target enrichment.
+ * @param index Position used only for legacy category display fallbacks.
+ * @param options Compatibility options for the existing live-details presentation.
+ * @returns Presentation with the descriptor required by its registered destination.
+ */
+function normalizeMediaNavigation(
+  record: JsonRecord,
+  media: MediaItem,
+  index: number,
+  options: NormalizeMediaItemOptions,
+): MediaItem {
+  const handler = resolveMediaRouting(media.mediaTypeValues)
+  if (!handler) {
+    console.warn('Unsupported or conflicting media types', { source: media.source, mediaTypes: media.mediaTypeValues })
+    return media
+  }
+  if (handler.operation === 'get_entry') return media
+  const request = readStringParamMap(record.request)
+  if (handler.operation === 'get_live') {
+    const channel = firstNonEmptyString([request.channel, record.link])
+    if (!media.source || !channel) return { ...media, entryUrl: null }
+    const item: MediaItem = {
+      ...media,
+      entryUrl: options.preserveLiveEntryUrl ? channel : null,
+      durationLabel: null,
+      price: null,
+      live: {
+        source: media.source,
+        channel,
+        title: media.title,
+        imageUrl: media.imageLandscapeUrl ?? media.imagePosterUrl ?? media.imageUrl,
+        description: media.overview,
+        webUrl: media.webUrl,
+      },
+    }
+    return { ...item, id: mediaRouteIdentity(item) ?? item.id }
+  }
+  if (handler.operation !== 'get_category') return media
+  const source = firstNonEmptyString([request.name, request.source, media.source])
+  if (!source || !firstNonEmptyString([request.query_url])) return { ...media, entryUrl: null }
+  const category = normalizeHomeCategory({
+    ...record,
+    label: media.title,
+    image: media.imageUrl ?? media.imagePosterUrl ?? media.imagePortraitUrl ?? media.imageLandscapeUrl,
+    source: { ...request, name: source },
+  }, index, source)
+  const item: MediaItem = {
+    ...media,
+    source,
+    entryUrl: null,
+    category,
+    mediaTypeLabel: null,
+    themeLabels: [],
+    audioLabel: null,
+    durationLabel: null,
+    rating: null,
+    episodeLabel: null,
+    releaseDateLabel: null,
+    expireLabel: null,
+    price: null,
+    metaLine: null,
+  }
+  return { ...item, id: mediaRouteIdentity(item) ?? item.id }
 }
 
 /**
@@ -1374,7 +1483,7 @@ function normalizeHomeSectionSubsection(
       { ...readStringParamMap(record.request), ...readStringParamMap({ link: record.link }) },
       label,
     ),
-    items: rawItems.map((item, itemIndex) => normalizeMediaItem(item, itemIndex, inheritedSource)),
+    items: normalizeCatalogItems(rawItems, inheritedSource),
     sourceOrder: [inheritedSource ?? key],
     sources: normalizeHomeSectionSources(record, inheritedSource, currentPage, haveMore, rawItems.length > 0),
     currentPage,
@@ -1425,7 +1534,7 @@ function normalizeHomeSectionSources(
  */
 function mergeHomeSections(sections: HomeSection[]): HomeSection[] {
   const sectionsByPreferenceKey = new Map<string, HomeSection>()
-  const itemListsByPreferenceKey = new Map<string, MediaItem[][]>()
+  const itemListsByPreferenceKey = new Map<string, CatalogItem[][]>()
   const subsectionsByPreferenceKey = new Map<string, HomeSectionSubsection[]>()
   const mergedSections: HomeSection[] = []
 
@@ -1491,7 +1600,7 @@ function mergeHomeSections(sections: HomeSection[]): HomeSection[] {
  */
 function mergeHomeSectionSubsections(subsections: HomeSectionSubsection[]): HomeSectionSubsection[] {
   const subsectionsByKey = new Map<string, HomeSectionSubsection>()
-  const itemListsByKey = new Map<string, MediaItem[][]>()
+  const itemListsByKey = new Map<string, CatalogItem[][]>()
   const mergedSubsections: HomeSectionSubsection[] = []
 
   subsections.forEach((subsection) => {
@@ -1564,8 +1673,8 @@ export function interleaveLists<T>(lists: T[][]): T[] {
 function interleaveInitialSectionItems(
   section: HomeSection,
   loadedSources: Array<{ source: HomeSectionSource, normalizedSection: HomeSection }>,
-): MediaItem[] {
-  const itemsBySource = new Map<string, MediaItem[]>()
+): CatalogItem[] {
+  const itemsBySource = new Map<string, CatalogItem[]>()
   const sourceOrder = [...section.sourceOrder]
 
   section.items.forEach((item) => {
@@ -1776,6 +1885,8 @@ interface NormalizeMediaItemOptions {
    * @default true
    */
   includeMediaTypeInMetaLine?: boolean
+  /** Keeps the opaque live link used internally by the existing live-details page. @default false */
+  preserveLiveEntryUrl?: boolean
 }
 
 /**
@@ -1820,7 +1931,7 @@ function normalizeMediaItem(
   )
   const entryUrl = resolveEntryUrl(link, source)
   const webUrl = resolveEntryUrl(webLink, source)
-  const mediaTypeValues = dedupeDisplayStrings(readStringList(record['media-type']))
+  const mediaTypeValues = normalizeMediaTypes(record['media-type'])
   const mediaTypeLabel = firstNonEmptyString(readStringList(record['media-type']).map(toDisplayMediaType))
   const themeLabels = dedupeDisplayStrings(readStringList(record.theme))
   const audioLabel = firstNonEmptyString([record.lang, record.audio, record.language])
@@ -1833,15 +1944,16 @@ function normalizeMediaItem(
   const price = normalizePriceAccess(record.price)
   const metaLine = buildMetaLine(record, options.includeMediaTypeInMetaLine ?? true)
 
-return {
-     id: buildMediaId(index, link, title, source),
-     title,
-     alternativeTitleLabel,
-     imagePosterUrl,
-     imagePortraitUrl,
-     imageLandscapeUrl,
-     imageUrl,
-     source,
+  const media: MediaItem = {
+    request: readStringParamMap(record.request),
+    id: buildMediaId(index, link, title, source),
+    title,
+    alternativeTitleLabel,
+    imagePosterUrl,
+    imagePortraitUrl,
+    imageLandscapeUrl,
+    imageUrl,
+    source,
     entryUrl,
     webUrl,
     mediaTypeLabel,
@@ -1857,6 +1969,7 @@ return {
     price,
     metaLine,
   }
+  return normalizeMediaNavigation(record, media, index, options)
 }
 
 /**
@@ -3231,14 +3344,14 @@ function serializeHomeCategorySource(source: HomeCategorySource): string {
 }
 
 /**
- * Deduplicates media items while preserving their first-seen order.
+ * Deduplicates typed catalog cards while preserving their first-seen order.
  *
- * @param items Media items collected inside one merged section rail.
- * @returns Deduplicated media items.
+ * @param items Cards collected inside one merged section rail.
+ * @returns Deduplicated cards with their original types.
  */
-export function dedupeMediaItems(items: MediaItem[]): MediaItem[] {
+export function dedupeMediaItems<T extends CatalogItem>(items: T[]): T[] {
   const seen = new Set<string>()
-  const dedupedItems: MediaItem[] = []
+  const dedupedItems: T[] = []
 
   items.forEach((item) => {
     const dedupeKey = buildMediaDeduplicationKey(item)
@@ -3256,10 +3369,12 @@ export function dedupeMediaItems(items: MediaItem[]): MediaItem[] {
 /**
  * Builds the comparison key used to collapse duplicate media items in merged rails.
  *
- * @param item Media item rendered inside a catalog rail.
- * @returns Stable deduplication key.
+ * @param item Entry, category or live card rendered inside a catalog rail.
+ * @returns Stable deduplication key including the navigation role.
  */
-function buildMediaDeduplicationKey(item: MediaItem): string {
+function buildMediaDeduplicationKey(item: CatalogItem): string {
+  const routeIdentity = mediaRouteIdentity(item)
+  if (routeIdentity) return routeIdentity
   const normalizedSource = normalizeString(item.source ?? '')
   const normalizedEntryUrl = normalizeString(item.entryUrl ?? '')
   if (normalizedSource && normalizedEntryUrl) {

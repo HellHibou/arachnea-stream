@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 
-import type { MediaItem } from '@/types/media'
+import type { CatalogItem } from '@/types/media'
 import { useI18n } from '@/i18n'
 import { formatPriceAccess } from '@/services/priceAccess'
 
@@ -10,9 +10,9 @@ import { formatPriceAccess } from '@/services/priceAccess'
  */
 interface Props {
   /**
-   * Media item rendered by the card.
+   * Entry, category or live card rendered by the component.
    */
-  item: MediaItem
+  item: CatalogItem
   /**
    * Layout variant rendered by the details block.
    * @default 'preview'

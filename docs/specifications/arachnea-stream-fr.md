@@ -95,6 +95,7 @@ alias YAML :
 ```yaml
 shared:
   media_types_ma_source: &media_types_ma_source
+    - collection
     - video/movie
     - video/show/serie
     - video/show/anime
@@ -111,6 +112,7 @@ Hiérarchie des types :
 
 | Type | Description |
 |---|---|
+| `collection` | Collection / catégorie |
 | `video/movie` | Film |
 | `video/show/serie` | Série TV |
 | `video/show/anime` | Animé / dessin animé |
@@ -123,6 +125,10 @@ Hiérarchie des types :
 | `video/other` | Vidéo non classée |
 | `images/manga` | Manga / scan |
 | `images/webtoon` | Webtoon |
+
+`media_types` sur une requête déclare ses capacités de sélection/filtrage backend ;
+il est distinct du `media-type` de sortie qui route chaque carte. Déclarer
+`collection` pour les requêtes qui retournent des collections.
 
 ---
 
@@ -246,7 +252,7 @@ Structure produite par chaque source :
           type: string
         - name: link
           type: string
-        - name: entries       # Objets MediaItem
+        - name: entries       # Cartes de fiches/catégories/directs
           type: object[]
           entries: [ … ]
         - name: subsections   # Rails sélectionnables optionnels
@@ -256,7 +262,7 @@ Structure produite par chaque source :
               type: string
             - name: label
               type: string
-            - name: entries   # Objets MediaItem propres à la sous-section
+            - name: entries   # Cartes de fiches/catégories/directs propres à la sous-section
               type: object[]
               entries: [ … ]
 
@@ -303,7 +309,7 @@ de catégorie consommé par `get_category`. `request > name` (ou
 |---|---|---|
 | `label` | `string` | Titre du rail (ex: « Derniers ajouts », « Tendances ») |
 | `key` | `string` | Identité persistante du rail, à portée source et indépendante du titre |
-| `entries` | `object[]` | Objets `MediaItem` (voir section suivante) |
+| `entries` | `object[]` | Cartes de fiches, catégories ou directs (voir section suivante) |
 | `link` | `string` | URL pour `get_section` (pagination) |
 | `subsections` | `object[]` | Rails optionnels sélectionnables sous la section parente |
 
@@ -362,18 +368,116 @@ disponible.
 
 ### 5.3 Objet MediaItem (entrée catalogue)
 
-Structure commune utilisée dans `sections[].entries`, `search.entries`,
-`get_category.sections[].entries` et `list_lives.entries`.
+Présentation utilisée dans les rails d'accueil/catégorie, sous-sections,
+recherches, recommandations, bannières et listes de directs. Le `media-type` de
+chaque carte choisit sa page via le registre frontend unique
+`front/public-app/src/services/mediaRouting.ts` :
+
+| Type | Route | Opération backend |
+|---|---|---|
+| `collection` | `category` | `get_category` |
+| `video/live` | `live-details` | `get_live` |
+| `video` ou `video/*` | `entry-details` | `get_entry` |
+| `audio` / `audio/*`, `images` / `images/*` | `entry-details` | `get_entry` (compatibilité temporaire) |
+
+Les contenus audio et images ne disposent pas encore de vues dédiées ; ce mapping
+ne fournit pas leur prise en charge complète. Les identifiants sont nettoyés,
+convertis en minuscules et dédupliqués. `video/live` prime sur les autres types
+vidéo. Les familles respectent la frontière `/`. Plusieurs types résolus vers le
+même gestionnaire sont acceptés ; les combinaisons incompatibles comme
+`collection` et `video/movie`, les types explicites inconnus et les valeurs non
+textuelles rendent la carte non ouvrable, avec un diagnostic de normalisation
+pour les types inconnus ou contradictoires. Un type absent/null/vide préserve la
+fiche historique, notamment pour les anciens signets. Une cible de collection ou
+de direct incomplète ne se replie jamais vers `get_entry`.
+
+Une collection fournit `title`, une source émise ou héritée et `request.query_url`.
+Les autres paramètres textuels de `request` sont conservés ; `request.name` ou
+`request.source` peuvent remplacer la source héritée. `link` ne remplace pas ce
+descripteur. Les collections normalisées conservent leurs types bruts et requêtes,
+vident les métadonnées exclusivement média et n'ont aucune URL de fiche. Leur
+présentation garde l'effet de vignettes empilées. La déduplication utilise
+l'opération et les descripteurs complets de source. La bande des catégories
+utilise le même registre.
+
+Un direct fournit une source et `request.channel`, l'identifiant opaque accepté
+par `get_live`. Les listes live historiques peuvent le fournir dans `link`. Les
+cartes de catalogue conservent une cible dédiée sans URL de fiche ; la présentation
+historique des listes live conserve son lien opaque en interne. La déduplication
+utilise la source et l'identifiant live. Les libellés de durée et de prix sont vidés.
+
+Les directs appellent immédiatement `get_live`, indépendamment de la présence,
+de la disponibilité ou du chargement de `list_lives`. Les champs facultatifs de
+titre, image, description et URL publique restent dans la route live v1 ; les
+anciens liens source/channel restent valides. Une réponse tardive de liste,
+sélection ou résolution de flux ne remplace pas une cible plus récente.
+
+Les vrais liens et les sélections utilisent le même constructeur de route, y
+compris les recherches, recommandations et bannières. Les rails différés/paginés,
+sous-sections fusionnées et accueils personnalisés conservent types et cibles.
+Les descripteurs de rails choisissent toujours `get_section` ; aucun champ de type
+de carte ou section supplémentaire n'est utilisé. Les versions de routes et
+références sauvegardées ne nécessitent aucune migration. Les futures familles
+prises en charge enregistreront leur destination et présentation dans ce registre.
+
+France TV conserve l'ordre amont : programmes/replays utilisent les types vidéo,
+collections/catégories/événements éditoriaux utilisent `collection`, et les vidéos
+`is_live: true` utilisent `video/live`, même avec `integrale`, `unitaire` ou `flux`.
+`request.channel` contient le `si_id` du contenu sélectionné. Les rails `live` et
+`playlist_collection` sont inclus. L'extraction partagée des collections type aussi
+les collections de recherche/recommandations et fournit leur requête de catégorie.
+`get_live` France TV émet statiquement le résolveur existant `francetv-live` sans
+charger la liste des chaînes. Les autorisations et restrictions géographiques de
+lecture restent inchangées.
+
+TF1+ complète les rails de programmes Android de l’accueil avec les rails
+`SliderOfCollection` de la page HTML publique, dont « Vous êtes plutôt... ».
+Une seule requête publique fournit toutes les cartes du rail, leurs titres et
+leurs images paysage ; la réponse Android ne contient que les dix premiers
+slugs de collections. Les cartes utilisent `media-type: collection` et une page
+publique de collection dans `request.query_url`. `get_category` accepte ces
+pages, restitue leur grille complète de programmes dans une section
+(`current_page: 1`, `have_more: false`) et extrait aussi les rails de collections
+présents sur une page publique de catégorie. Les descripteurs GraphQL par chaîne
+et leur pagination via `get_section` restent pris en charge.
+
+```yaml
+entries:
+  - media-type: collection
+    source: fawesome-tv
+    title: Horror
+    request:
+      query_url: "https://fawesome.tv/home/new/v469/api/shows.php?searchType=listoflist&keys=9244&appId=9&siteId=236&auth-token=1217575"
+  - source: example
+    title: Example movie
+    link: "https://example.org/movie/1"
+    media-type: video/movie
+  - source: francetv
+    title: Example live event
+    media-type: video/live
+    request:
+      channel: "<content-si-id>"
+```
+
+Fawesome classe d'abord les `item_type` reconnus (`movie`, `tvshow`, `miniseries`)
+comme fiches, puis utilise `actiontype: category` ou le chemin public `category/...`
+pour identifier les catégories ; `series_name` sert de repli pour les fiches.
+Ni `type: listoflist` ni `feed_type: category` ne distinguent seuls une vraie série
+d'une catégorie éditoriale. La requête catégorie accepte les rails amont en
+`name`/`url` et en `title`/`feed`, et conserve les regroupements des catégories de
+genres et d'acteurs. Chaque carte retournée porte son propre type média. Recherche
+et recommandations Fawesome ne conservent que les cartes vidéo reconnues.
 
 | Champ YAML | Type YAML | Obligatoire | Description |
 |---|---|---|---|
 | `source` | `string` | oui pour une carte ouvrable | Identifiant de la source. Il doit être émis par le YAML sur chaque `MediaItem`, ou sur son enveloppe de résultat afin que le frontend puisse l'hériter. Il n'est pas injecté automatiquement pour toutes les formes de réponse. |
 | `title` | `string` | oui | Titre principal |
 | `title/alt` | `string` | non | Titre alternatif |
-| `link` | `string` | oui | URL interne pour `get_entry` |
+| `link` | `string` | pour les fiches | URL interne pour `get_entry` |
+| `request` | `object` | pour les catégories/directs | Paramètres textuels de cible : `query_url` pour une catégorie, `channel` pour un direct |
 | `web-link` | `string` | non | URL publique du contenu |
 | `description` | `string` | non | Synopsis / description |
-| `media-type` | `string` ou `string[]` | non | Type de média (ex: `video/show/serie`). Les formes personnalisées `video/other/<libellé>` et `video/show/other/<libellé>` affichent directement leur libellé dans le frontend. |
+| `media-type` | `string` ou `string[]` | pour la navigation typée | Type de routage (ex : `collection`, `video/live`) et sous-type média (ex: `video/show/serie`). Les formes personnalisées `video/other/<libellé>` et `video/show/other/<libellé>` affichent directement leur libellé dans le frontend. |
 | `duration` | `number` ou `string` numérique | non | Durée formatée |
 | `release-date` | `string` | non | Date de publication (`YYYY-MM-DD`) |
 | `expire` | `string` | non | Date d'expiration |
@@ -407,7 +511,7 @@ Structure commune utilisée dans `sections[].entries`, `search.entries`,
 ### 5.4 Page catégorie — `get_category`
 
 Reprend la structure de `load_home` (catégories + sections). Les sections
-contiennent des `entries` (MediaItem) et des métadonnées de pagination :
+contiennent des `entries` (cartes de fiches/catégories/directs) et des métadonnées de pagination :
 
 ```yaml
 - name: get_category
@@ -421,7 +525,7 @@ contiennent des `entries` (MediaItem) et des métadonnées de pagination :
         - name: total_pages
         - name: page_size
         - name: total
-        - name: entries   # MediaItem[]
+        - name: entries   # Cartes de fiches/catégories/directs
     post_process:
       - type: compute_items_field
       - type: derive_pagination
@@ -436,7 +540,7 @@ Ne pas précharger chaque catégorie dans `load_home` par des `sub_queries`.
 
 ### 5.5 Section paginée — `get_section`
 
-Retourne une liste d'entrées avec pagination. C'est le pendant chargé à la
+Retourne des cartes de fiches, catégories ou directs avec pagination. C'est le pendant chargé à la
 demande d'une section émise par `load_home` : le backend reçoit le `link` de la
 section et la valeur `page` un basée demandée.
 
@@ -447,7 +551,7 @@ section et la valeur `page` un basée demandée.
 | `total_pages` | `number` | Nombre total de pages (consommé par `derive_pagination`) |
 | `page_size` | `number` | Taille de page |
 | `infer_have_more_from_full_page` | `boolean` | Inférer `have_more` depuis une page pleine |
-| `entries` | `object[]` | Objets MediaItem |
+| `entries` | `object[]` | Cartes typées de fiches ou catégories |
 
 La pagination est généralement calculée via le post-processeur
 `derive_pagination` :

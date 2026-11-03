@@ -79,8 +79,8 @@ steps:
     operation: get_entry
     inputs:
       query_url:
-        from_step: home
-        items_path: ["sections","*","entries"]
+        from_step: search
+        items_path: ["entries"]
         select: first_valid
         value_path: ["link"]
     expect:

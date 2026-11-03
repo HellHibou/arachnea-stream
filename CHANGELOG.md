@@ -324,6 +324,10 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- France TV catalog rails now distinguish entry, category and live cards, include live/collection rails and retain upstream card order. Editorial collections target `get_category`; live targets retain their content identifier. Static `get_live` emits the existing resolver without depending on the channel-list endpoint.
+
+- Fawesome home/category sections now expose per-card `item-kind` navigation, preserving genre/actor categories and real film/series entries. Category requests support both upstream channel shapes (`name`/`url` and `title`/`feed`), with optional descriptive `items-kind` rail metadata; shaping stays in YAML.
+
 - Added application-owned proxy configuration and user-key persistence in config.json, CLI precedence, one-time token creation/revocation and coordinated transport reconstruction on proxy endpoint changes. Failed runtime/persistence changes attempt restoration of the previous policy.
 - Populated availability-country tags for the specified Belgian/French services and added content-type metadata for every Stream source: local TV, movies/series, and documentaries on the requested providers. TF1 availability remains independent of its editable catalog country.
 - Added optional service metadata tags exposed by `service_stream_metadata`, with initial French video-language tags for every source, editable dark-stream base URLs, and TF1 country selection including Switzerland (`fr-ch`) with English/French labels. Administrator overrides use the new `arachnea-services-parameters` table in the existing services SQLite store.
@@ -388,6 +392,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Migrated Fawesome and France TV cards to `media-type` as the sole navigation classification; retained collection request descriptors and live targets. France TV search/recommendation collections now carry `collection` and their category requests. Dynamic Rust transport and saved route/storage formats remain unchanged.
+
 - Delegated source-state table construction and generic resolver node reads to Scrapyfy. Stream retains application database assembly, field names/aliases, video conversion and validation; persistence names, schemas, shared connections and credentials encoding are unchanged.
 
 - Delegated resolver HTML fallback fetching to Scrapyfy with the existing 1 MiB acceptance limit and explicit 16-hop JavaScript policy alongside the separate HTTP budget. Stream retains client configuration, resolver recognition and video-specific errors/conversion; existing resolver scenarios stay in Stream.
@@ -397,6 +403,8 @@ All notable changes to the server workspace are recorded here.
 - Coflix (`dark-stream/coflix.yaml`): home categories and `get_category` scraped the retired JSON `wp-json/apiflix/v1/options` endpoints and returned no cards. They now scrape the HTML catalogue pages (`/movies/`, `/series/`, `/animes/`), parse the entry cards from the page markup, derive `media-type` from the category URL, and paginate through `derive_pagination`, restoring category browsing.
 
 #### Fixed
+
+- Restore TF1+ collection rails such as “Vous êtes plutôt...” on the home page, with complete public-page cards, titles, artwork and typed category requests. `get_category` now opens collection pages and extracts nested collection rails while preserving channel programme pagination.
 
 - Fixed the executable’s second argument scan rejecting values supplied to `--server-port`, `--network`, and `--entrypoint-root` as unknown arguments. Standard option/value pairs such as `--server-port 8080 --network local` now work.
 - Initialize application data before constructing resolver test fixtures so they also run in isolation, and add an atomic suffix to prevent temporary-directory collisions between concurrent fixtures. Update the existing home-entry test helper to traverse nested subsections, matching current Anime-Sama home output without changing production scraping.
@@ -721,6 +729,17 @@ All notable changes to the server workspace are recorded here.
 
 #### Fixed
 
+- Expanding or collapsing a section no longer creates a persisted section preference or resets its thumbnail orientation/image fit. Missing preference records created from the display menu now use the section's current effective display options.
+- Restored artwork on both rear category-thumbnail layers after the foreground image loads, retaining `--bg-surface-strong` as the missing-image fallback.
+- Category thumbnail rear layers now use `--bg-surface-strong` for stronger contrast.
+
+- Category thumbnail stacks now use `--bg-surface` on both rear layers, with artwork confined to the foreground thumbnail.
+
+- Category cards now show two offset thumbnail layers behind their main artwork, making catalog navigation visually distinct in grid, single-row and list layouts, including missing-image fallbacks.
+- Mixed catalog rails now route explicit live cards to the live player. Direct targets retain catalog presentation across reloads and load independently of the live channel list, including empty/failing lists; outdated player/stream responses cannot replace a newer selection. Legacy entry, category and live links remain compatible.
+
+- Category cards inside catalog rails now open category routes instead of entry details, including keyboard and native link navigation. Typed targets survive deferred loading, pagination, merging and custom homes; missing kinds preserve legacy entry behavior and invalid explicit category targets are skipped.
+
 - YouTube URL normalization now requires HTTP(S) and an exact YouTube domain or a dot-separated subdomain. Lookalike domains such as `evilyoutube.com` no longer inherit YouTube trust through the video source allowlist or bypass safe iframe mode.
 
 - Deferred episode players now count as playable when the player looks for the first playable episode of a season: the lookup accepts `players.link` like the other episode selection paths, so episodes whose players are loaded through `get_players` are still auto-selected and navigable.
@@ -752,6 +771,10 @@ All notable changes to the server workspace are recorded here.
 - Source-home section additions (including M6play) now compare discovery keys without the source-scoped preference namespace. Displayed same-title groups retain all distinct source-owned references, while ambiguous identities still reject the addition.
 
 #### Changed
+
+- Category catalogs now render a single section as a multi-row grid and multiple sections as one row each, while home rails keep their saved layout. A chevron beside both home and category section titles toggles between single-row and multi-row layouts, showing only the arrow that matches the current mode. The chevron choice is local to the current screen and is never persisted.
+- The home/category floating scroll button now scrolls up to the nearest expanded (multi-row) section title, positioned just below the sticky toolbar. When no expanded section starts above the viewport, it returns to the page top.
+- Centralized content routing and artwork capabilities in `mediaRouting.ts`, replacing card/section-kind fields. `collection` opens categories, `video/live` opens live details before generic video matching, and video/audio/images families open entry details (audio/images temporarily). Native links and selections share the registry across catalogs, search, recommendations and banners; unknown/conflicting types stay non-openable and legacy untyped entry targets remain compatible.
 
 - Add a persistent desktop sidebar toggle at the left of the toolbar, retaining independent Video Services expansion persistence. Move Settings to a bold sidebar entry opening a scrollable modal and remove the toolbar settings popover.
 - Rename the service home route to `/source/:sourceId` (singular); named source-home navigation uses the updated URL.
@@ -806,6 +829,9 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Documented the proposed migration from card-kind fields to centralized media-type routing, including collection/live/video precedence, compatibility rules, target validation and affected catalog surfaces. Implemented after approval; the analysis records final behavior and validation.
+- Documented France TV category/live card gaps, public catalogue observations and a proposed `live` navigation discriminant, including direct targets absent from the live channel list. Implementation awaits contract approval.
+- Added the Fawesome category-versus-entry analysis, tracing YAML extraction, backend contracts and frontend navigation, with a proposed typed-card contract and validation plan. Implementation awaits confirmation.
 - Added the Stream/Scrapyfy administration responsibility audit and a proposed migration of generic proxy administration, shared configuration, REST adaptation and encrypted source credentials into Scrapyfy. Application-specific reconstruction stays in Stream; implementation awaits approval.
 - Documented the approved source-parameter persistence correction: one row per parameter, atomic scope replacement, and direct schema opening without legacy data migration.
 - Documented the three remaining long-signature execution interface migrations, including two public Scrapyfy APIs and Stream's internal resolver trait. The proposal uses borrowed parameter structures and awaits confirmation; the eight-diagnostic inventory remains unchanged.

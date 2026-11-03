@@ -87,6 +87,7 @@
     "theme": "Filtrer par theme"
   },
   "mediaTypes": {
+    "collection": "Collection",
     "video/movie": "Film",
     "video/show/serie": "Serie",
     "video/show/anime": "Anime",
@@ -262,7 +263,9 @@
     "viewDetails": "Voir la fiche",
     "subsectionNavigation": "Navigation des sous-sections",
     "previousSubsection": "Sous-section précédente",
-    "nextSubsection": "Sous-section suivante"
+    "nextSubsection": "Sous-section suivante",
+    "expandToMultipleRows": "Afficher sur plusieurs lignes",
+    "collapseToSingleRow": "Afficher sur une seule ligne"
   },
   "home": {
     "bookmarksSection": "Favoris"
@@ -351,6 +354,7 @@
     "streams": "Streams"
   },
   "category": {
+    "open": "Ouvrir la catégorie",
     "unavailableTitle": "Catégorie indisponible",
     "label": "Catégorie",
     "defaultLabel": "Catégorie {index}",

@@ -535,6 +535,117 @@ shared:
       pointer: /image/sourcesWithScales/0/src
       actions: *actions_android_photo_url
 
+  html_program_entries: &html_program_entries
+    - name: source
+      type: string
+      actions:
+        - type: format_text
+          argument: "{source}"
+    - name: title
+      type: string
+      selector: "h3 a"
+      select: first
+      actions:
+        - type: get_attribut
+          argument: title
+    - name: link
+      type: string
+      actions:
+        - type: get_html
+        - type: regex_find_all
+          pattern: 'data-tracking-poc-id="([^"]+)"[\s\S]*?href="/(?:fr-fr/|fr-be/|fr-lu/)?([^/"?]+)/([^/"?]+)"'
+          format: '{smarttv_api_root}?id=379fec96081ab1a2&variables=%7B%22programId%22%3A%22{1}%22%7D&programSlug={3}&channel={2}'
+    - name: web-link
+      type: string
+      selector: "h3 a"
+      select: first
+      actions:
+        - type: get_attribut
+          argument: href
+        - type: resolve_url
+    - name: img/poster > link
+      type: string
+      selector: "article picture img"
+      select: first
+      actions:
+        - type: get_attribut
+          argument: src
+        - type: resolve_url
+    - name: img/portrait > link
+      type: string
+      selector: "article picture img"
+      select: first
+      actions:
+        - type: get_attribut
+          argument: src
+        - type: resolve_url
+
+  html_collection_sections: &html_collection_sections
+    name: sections
+    type: object[]
+    selector: 'section[data-tracking-typename="SliderOfCollection"]'
+    select: all
+    entries:
+      - name: key
+        type: string
+        actions:
+          - type: get_html
+          - type: regex_find_all
+            pattern: '^[\s\S]*?data-tracking-item-id="([0-9a-f]{24})-[^"]+"'
+            format: 'rail:{1}'
+      - name: label
+        type: string
+        selector: h2
+        select: first
+        actions:
+          - type: get_text
+      - name: entries
+        type: object[]
+        selector: 'div[data-tracking-typename="CollectionItem"]:has(a[href])'
+        select: all
+        entries:
+          - name: source
+            type: string
+            actions:
+              - type: format_text
+                argument: "{source}"
+          - name: media-type
+            type: string[]
+            actions:
+              - type: format_text
+                argument: collection
+          - name: title
+            type: string
+            selector: picture img
+            select: first
+            actions:
+              - type: get_attribut
+                argument: alt
+          - name: request > query_url
+            type: string
+            selector: a[href]
+            select: first
+            actions:
+              - type: get_attribut
+                argument: href
+              - type: resolve_url
+          - name: web-link
+            type: string
+            selector: a[href]
+            select: first
+            actions:
+              - type: get_attribut
+                argument: href
+              - type: resolve_url
+          - name: img/landscape > link
+            type: string
+            selector: picture img
+            select: first
+            actions:
+              - type: get_attribut
+                argument: src
+              - type: resolve_url
+
   category_program_entries: &category_program_entries
     - name: source
       type: string
@@ -813,81 +924,138 @@ queries:
                 fields:
                   slug: /program/slug
                   channel: /program/mainChannel/slug
-    
+    sub_queries:
+      - scraper_type: html
+        request_pointer: /
+        request_actions:
+          - type: format_text
+            argument: "{base_url}"
+        row_selector: html
+        entries:
+          - *html_collection_sections
+
   # ---------------------------------------------------------------
   # Category listing
   # ---------------------------------------------------------------
   - name: get_category
-    scraper_type: json
+    scraper_type: html
     base_url: "{base_url}"
-    query_url: "{graphql_url}?id=483ce0f&variables=%7B%22context%22%3A%7B%22persona%22%3A%22PERSONA_2%22%2C%22application%22%3A%22WEB%22%2C%22device%22%3A%22DESKTOP%22%2C%22os%22%3A%22WINDOWS%22%7D%2C%22filter%22%3A%7B%22channel%22%3A%22{channel}%22%7D%2C%22offset%22%3A{offset}%2C%22limit%22%3A{page_size}%7D"
+    query_url: "{query_url}"
     request_headers: *generic_request_headers
     media_types: *media_types_tf1
-    row_pointer: /data/programs
+    row_selector: html
     entries:
       - name: source
         type: string
         actions:
           - type: format_text
             argument: "{source}"
+      # Channel descriptors still use the paged GraphQL programmes query.
+      - name: _programs_url
+        type: string
+        actions:
+          - type: get_request_url
+          - type: regex_find_all
+            pattern: '^https://www\.tf1\.fr/graphql/[^/]+/web\?.+$'
+            format: "{graphql_url}?id=483ce0f&variables=%7B%22context%22%3A%7B%22persona%22%3A%22PERSONA_2%22%2C%22application%22%3A%22WEB%22%2C%22device%22%3A%22DESKTOP%22%2C%22os%22%3A%22WINDOWS%22%7D%2C%22filter%22%3A%7B%22channel%22%3A%22{channel}%22%7D%2C%22offset%22%3A{offset}%2C%22limit%22%3A{page_size}%7D"
+        sub_queries:
+          - scraper_type: json
+            target: parent
+            request_headers: *generic_request_headers
+            row_pointer: /data/programs
+            entries:
+              - name: source
+                type: string
+                actions:
+                  - type: format_text
+                    argument: "{source}"
+              - name: sections
+                type: object[]
+                entries:
+                  - name: label
+                    type: string
+                    actions:
+                      - type: format_text
+                        argument: "Programmes"
+                  - name: current_page
+                    type: number
+                    actions:
+                      - type: format_text
+                        argument: "{page}"
+                  - name: page_size
+                    type: number
+                    actions:
+                      - type: format_text
+                        argument: "{page_size}"
+                  - name: total
+                    type: number
+                    select: first
+                    pointer: /total
+                  - name: link
+                    type: string
+                    actions:
+                      - type: format_text
+                        argument: "{graphql_url}?id=483ce0f&variables=%7B%22context%22%3A%7B%22persona%22%3A%22PERSONA_2%22%2C%22application%22%3A%22WEB%22%2C%22device%22%3A%22DESKTOP%22%2C%22os%22%3A%22WINDOWS%22%7D%2C%22filter%22%3A%7B%22channel%22%3A%22{channel}%22%7D%2C%22offset%22%3A{offset}%2C%22limit%22%3A{page_size}%7D"
+                  - name: request > channel
+                    type: string
+                    actions:
+                      - type: format_text
+                        argument: "{channel}"
+                  - name: request > page_size
+                    type: number
+                    actions:
+                      - type: format_text
+                        argument: "{page_size}"
+                  - name: entries
+                    type: object[]
+                    pointer: /items/*
+                    select: all
+                    entries: *category_program_entries
+            post_process:
+              - type: compute_items_field
+                source: sections
+                target: total_pages
+                expression: "ceil({total} / {page_size})"
+              - type: derive_pagination
+                source: sections
+                entries_field: entries
+                current_page_field: current_page
+                total_pages_field: total_pages
+                have_more_field: have_more
+                remove_fields:
+                  - total
+                  - total_pages
+                  - page_size
       - name: sections
         type: object[]
+        selector: 'main:has(ul[data-testid="grid-container"])'
+        select: all
         entries:
           - name: label
             type: string
+            selector: h1
+            select: first
             actions:
-              - type: format_text
-                argument: "Programmes"
+              - type: get_text
           - name: current_page
             type: number
             actions:
               - type: format_text
-                argument: "{page}"
-          - name: page_size
-            type: number
+                argument: "1"
+          - name: have_more
+            type: boolean
             actions:
               - type: format_text
-                argument: "{page_size}"
-          - name: total
-            type: number
-            select: first
-            pointer: /total
-          - name: link
-            type: string
-            actions:
-              - type: format_text
-                argument: "{graphql_url}?id=483ce0f&variables=%7B%22context%22%3A%7B%22persona%22%3A%22PERSONA_2%22%2C%22application%22%3A%22WEB%22%2C%22device%22%3A%22DESKTOP%22%2C%22os%22%3A%22WINDOWS%22%7D%2C%22filter%22%3A%7B%22channel%22%3A%22{channel}%22%7D%2C%22offset%22%3A{offset}%2C%22limit%22%3A{page_size}%7D"
-          - name: request > channel
-            type: string
-            actions:
-              - type: format_text
-                argument: "{channel}"
-          - name: request > page_size
-            type: number
-            actions:
-              - type: format_text
-                argument: "{page_size}"
+                argument: "false"
           - name: entries
             type: object[]
-            pointer: /items/*
+            selector: 'ul[data-testid="grid-container"] div[data-tracking-typename="Program"]:has(h3 a[href])'
             select: all
-            entries: *category_program_entries
+            entries: *html_program_entries
+      - *html_collection_sections
     post_process:
-      - type: compute_items_field
-        source: sections
-        target: total_pages
-        expression: "ceil({total} / {page_size})"
-      - type: derive_pagination
-        source: sections
-        entries_field: entries
-        current_page_field: current_page
-        total_pages_field: total_pages
-        have_more_field: have_more
-        remove_fields:
-          - total
-          - total_pages
-          - page_size
-
+      - type: remove_fields
+        fields: [_programs_url]
 
   # ---------------------------------------------------------------
   # Section listing
@@ -1383,50 +1551,7 @@ queries:
         type: object[]
         selector: 'section[data-tracking-typename="SliderOfProgram"][data-tracking-poc-id^="si-vous-aimez-"] div[data-tracking-typename="Program"]:has(h3 a[href])'
         select: all
-        entries:
-          - name: source
-            type: string
-            actions:
-              - type: format_text
-                argument: "{source}"
-          - name: title
-            type: string
-            selector: "h3 a"
-            select: first
-            actions:
-              - type: get_attribut
-                argument: title
-          - name: link
-            type: string
-            actions:
-              - type: get_html
-              - type: regex_find_all
-                pattern: 'data-tracking-poc-id="([^"]+)"[\s\S]*?href="/(?:fr-fr/|fr-be/|fr-lu/)?([^/"?]+)/([^/"?]+)"'
-                format: '{smarttv_api_root}?id=379fec96081ab1a2&variables=%7B%22programId%22%3A%22{1}%22%7D&programSlug={3}&channel={2}'
-          - name: web-link
-            type: string
-            selector: "h3 a"
-            select: first
-            actions:
-              - type: get_attribut
-                argument: href
-              - type: resolve_url
-          - name: img/poster > link
-            type: string
-            selector: "article picture img"
-            select: first
-            actions:
-              - type: get_attribut
-                argument: src
-              - type: resolve_url
-          - name: img/portrait > link
-            type: string
-            selector: "article picture img"
-            select: first
-            actions:
-              - type: get_attribut
-                argument: src
-              - type: resolve_url
+        entries: *html_program_entries
 
 
   # ---------------------------------------------------------------

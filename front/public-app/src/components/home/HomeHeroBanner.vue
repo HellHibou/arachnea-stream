@@ -12,7 +12,7 @@ import {
 import { getStream } from '@/services/rustify'
 import { useStorage } from '@/services/storage'
 import { isMediaSourceAllowedBySecurity } from '@/services/videoSourceAllowlist'
-import { encodeEntryRouteParam } from '@/router/routePayloads'
+import { mediaPresentation, mediaRoute } from '@/services/mediaRouting'
 import VideoPlayer from '@/components/media/VideoPlayer.vue'
 import type { VideoJsMediaDimensions } from '@/composables/video/useVideoJsMediaRenderer'
 import { useI18n } from '@/i18n'
@@ -313,10 +313,11 @@ const shouldLoopActiveBannerVideo = computed(() =>
 )
 
 /**
- * Returns the target that should open the entry details screen for the active banner.
+ * Returns the type-driven target for the active banner, including legacy entry targets.
  */
 const activeBannerTarget = computed<MediaSelectionTarget | null>(() => {
   const banner = activeBanner.value
+  if (banner?.target) return banner.target
   const entryUrl = banner?.entryUrl ?? banner?.webUrl ?? null
 
   if (!banner?.source || !entryUrl) {
@@ -335,25 +336,17 @@ const activeBannerTarget = computed<MediaSelectionTarget | null>(() => {
 const router = useRouter()
 
 /**
- * Resolves the internal entry-details route targeted by the banner action.
+ * Resolves the registered route targeted by the banner action.
  */
 const bannerActionHref = computed(() => {
   const target = activeBannerTarget.value
-  if (!target?.source || !target.entryUrl) {
-    return undefined
-  }
-
-  return router.resolve({
-    name: 'entry-details',
-    params: {
-      encodedEntry: encodeEntryRouteParam({
-        source: target.source,
-        entryUrl: target.entryUrl,
-        title: target.title,
-      }),
-    },
-  }).href
+  const destination = target ? mediaRoute(target) : null
+  return destination ? router.resolve(destination).href : undefined
 })
+
+/** Action label selected by the same registry as the banner route. */
+const bannerActionLabel = computed(() => activeBannerTarget.value
+  ? mediaPresentation(activeBannerTarget.value).bannerActionLabel : 'catalog.viewDetails')
 
 watch(
   () => props.banners,
@@ -472,14 +465,17 @@ function showBanner(index: number) {
 }
 
 /**
- * Emits the active banner target so the parent can open the entry details screen.
+ * Emits the active banner target through the common media navigation flow.
+ * @param event Mouse event, retaining native modified link navigation.
  */
-function handleSelectBanner() {
+function handleSelectBanner(event: MouseEvent) {
+  if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return
+  event.preventDefault()
   if (!activeBannerTarget.value) {
     return
   }
 
-  emit('select-item', activeBannerTarget.value)
+  if (mediaRoute(activeBannerTarget.value)) emit('select-item', activeBannerTarget.value)
 }
 
 /**
@@ -646,12 +642,12 @@ onBeforeUnmount(() => {
         </div>
 
         <a
-          v-if="activeBannerTarget"
+          v-if="bannerActionHref"
           class="home-hero-banner__action"
           :href="bannerActionHref"
-          @click.prevent="handleSelectBanner"
+          @click="handleSelectBanner"
         >
-          {{ t('catalog.viewDetails') }}
+          {{ t(bannerActionLabel) }}
         </a>
        </div>
      </div>

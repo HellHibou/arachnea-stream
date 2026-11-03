@@ -27,6 +27,11 @@ interface UseScrollToTopOptions {
    * Optional custom visibility rule for screens with more specific layout constraints.
    */
   shouldShow?: () => boolean
+  /**
+   * Optional resolver for the click destination offset, taking precedence over `target`.
+   * Useful when the destination depends on the current viewport content.
+   */
+  resolveScrollTop?: () => number
 }
 
 /**
@@ -68,6 +73,10 @@ export function useScrollToTop(options: UseScrollToTopOptions = {}) {
    * @returns The vertical offset in pixels from the top of the document.
    */
   function getScrollTop(): number {
+    if (options.resolveScrollTop) {
+      return options.resolveScrollTop()
+    }
+
     const target = options.target ? toValue(options.target) : null
 
     if (target instanceof HTMLElement) {

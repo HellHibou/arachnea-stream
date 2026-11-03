@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, shallowRef, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
 
 import EntryDetails from './EntryDetails.vue'
 import EntryDetailsCatalogSection from './entry-details/EntryDetailsCatalogSection.vue'
 import {
   getLivePlayers,
+  liveTargetMediaItem,
   listLiveMediaItems,
   getStream,
 } from '@/services/rustify'
@@ -16,7 +17,7 @@ import {
 } from '@/services/players'
 import { useI18n } from '@/i18n'
 import type { EntryDetails as EntryDetailsModel, EntryPlayableItem, EntryPlayer, EntryResolvedPlayerStream } from '@/types/entry'
-import type { MediaItem, ThumbnailImageFit } from '@/types/media'
+import type { LiveSelectionTarget, MediaItem, ThumbnailImageFit } from '@/types/media'
 import { MSG_LIVE_TV, MSG_LIVE, MSG_LIVE_PLAYING } from '@/i18n/index.ts';
 import { resolveImageUrl } from '@/composables/media/useFailedImageUrls'
 
@@ -24,6 +25,8 @@ import { resolveImageUrl } from '@/composables/media/useFailedImageUrls'
   * Props accepted by the live details page.
   */
  interface Props {
+   /** Explicit route target and optional catalog presentation. @default null */
+   initialTarget?: LiveSelectionTarget | null
    /**
     * Initial live source restored from a direct route.
     * @default null
@@ -72,6 +75,7 @@ function scrollToTitleSection() {
 
 /** Component props with applied defaults. */
 const props = withDefaults(defineProps<Props>(), {
+   initialTarget: null,
    initialSource: null,
    initialChannel: null,
    isBackgroundAnimated: false,
@@ -94,6 +98,8 @@ const liveItems = ref<MediaItem[]>([])
 const livePlayersByItemId = shallowRef<Record<string, EntryPlayer[]>>({})
 /** ID of the currently selected live item. */
 const selectedLiveId = shallowRef<string | null>(null)
+/** Explicitly requested target retained independently from the channel list. */
+const requestedLiveItem = shallowRef<MediaItem | null>(null)
 /** Whether live items are currently loading. */
 const isLoading = shallowRef(false)
 /** Error message from live items loading. */
@@ -132,7 +138,8 @@ const selectedLiveItem = computed<MediaItem | null>(() => {
     return null
   }
 
-  return liveItems.value.find((item) => item.id === selectedLiveId.value) ?? null
+  return liveItems.value.find((item) => item.id === selectedLiveId.value) ??
+    (requestedLiveItem.value?.id === selectedLiveId.value ? requestedLiveItem.value : null)
 })
 
 /**
@@ -306,6 +313,7 @@ async function resolveSelectedLiveMedia(player: EntryPlayer | null) {
   isResolvedLiveMediaLoading.value = true
 
   try {
+    let nextResolvedStream: EntryResolvedPlayerStream | null = null
     const nextMediaSource = player.resolver
       ? await getStream(player).then((resolvedStream) =>
           !resolvedStream
@@ -313,7 +321,7 @@ async function resolveSelectedLiveMedia(player: EntryPlayer | null) {
             : 'embedLink' in resolvedStream
               ? resolveIframeMediaSource(resolvedStream.embedLink)
               : (() => {
-                  resolvedLiveStream.value = resolvedStream
+                  nextResolvedStream = resolvedStream
                   return resolveBackendStreamMediaSource({
                     streamUrl: resolvedStream.streamUrl[0] ?? null,
                     manifestType: resolvedStream.manifestType,
@@ -330,6 +338,7 @@ async function resolveSelectedLiveMedia(player: EntryPlayer | null) {
       return
     }
 
+    resolvedLiveStream.value = nextResolvedStream
     if (!nextMediaSource) {
       resolvedLiveMediaErrorMessage.value = t('entry.videoUnavailable')
       return
@@ -389,23 +398,20 @@ async function loadLiveItems() {
 
     liveItems.value = nextLiveItems
 
-    if (nextLiveItems.length === 0) {
+    if (nextLiveItems.length === 0 && !requestedLiveItem.value) {
       errorMessage.value = t('live.none')
-      selectedLiveId.value = null
-      return
     }
 
-    selectedLiveId.value = null
-
-    // Restore initial live selection from route after list is loaded
-    const source = props.initialSource?.trim()
-    const channel = props.initialChannel?.trim()
-    if (source && channel) {
-      const matchingLiveItem = nextLiveItems.find(
-        (item) => item.source === source && item.entryUrl === channel,
-      )
-      if (matchingLiveItem) {
-        void selectLiveItem(matchingLiveItem, { shouldEmit: false })
+    const requested = requestedLiveItem.value
+    const matching = requested && nextLiveItems.find((item) =>
+      item.source === requested.source && item.entryUrl === requested.entryUrl)
+    if (matching && requested) {
+      requestedLiveItem.value = {
+        ...matching,
+        id: requested.id,
+        title: props.initialTarget?.title ?? matching.title,
+        imageUrl: props.initialTarget?.imageUrl ?? matching.imageUrl,
+        overview: props.initialTarget?.description ?? matching.overview,
       }
     }
   } catch (error) {
@@ -414,9 +420,10 @@ async function loadLiveItems() {
     }
 
     liveItems.value = []
-    selectedLiveId.value = null
-    errorMessage.value =
-      error instanceof Error ? error.message : t('errors.live')
+    if (!requestedLiveItem.value) {
+      selectedLiveId.value = null
+      errorMessage.value = error instanceof Error ? error.message : t('errors.live')
+    }
   } finally {
     if (requestId === latestListRequestId) {
       isLoading.value = false
@@ -434,6 +441,8 @@ async function selectLiveItem(liveItem: MediaItem, options: { shouldEmit?: boole
      return
    }
 
+   const requestId = ++latestSelectionRequestId
+   selectedLiveId.value = liveItem.id
    if (options.shouldEmit ?? true) {
      emit('select-live', liveItem)
    }
@@ -442,6 +451,7 @@ async function selectLiveItem(liveItem: MediaItem, options: { shouldEmit?: boole
 
    const cachedPlayers = livePlayersByItemId.value[liveItem.id]
    if (cachedPlayers && cachedPlayers.length > 0) {
+     isLiveSelectionLoading.value = false
      selectedLiveId.value = liveItem.id
      const cachedPlayer = cachedPlayers.find((player) => player.id === activePlayerId.value) ?? cachedPlayers[0] ?? null
      if (cachedPlayer) {
@@ -452,7 +462,6 @@ async function selectLiveItem(liveItem: MediaItem, options: { shouldEmit?: boole
      return
    }
 
-   const requestId = ++latestSelectionRequestId
    isLiveSelectionLoading.value = true
 
    try {
@@ -512,19 +521,48 @@ function handleActivePlayerIdUpdate(value: string | null) {
   }
 }
 
-// Le watch d'initialisation a été supprimé volontairement. La restauration
-// du live depuis la route est gérée directement dans loadLiveItems() après
-// le chargement de la liste. Un watch séparé sur initialSource/initialChannel
-// créerait un appel supplémentaire à getLivePlayers quand liveItems change
-// (via JSON.stringify dans le watch), ce qui déclencherait un doublon.
+/** Restores explicit routes without waiting for, or requiring membership in, list_lives. */
+watch(() => JSON.stringify([props.initialSource, props.initialChannel]), () => {
+  const source = props.initialSource?.trim()
+  const channel = props.initialChannel?.trim()
+  if (source && channel && selectedLiveItem.value?.source === source &&
+      selectedLiveItem.value.entryUrl === channel) return
+
+  latestSelectionRequestId++
+  latestMediaResolutionRequestId++
+  selectedLiveId.value = null
+  requestedLiveItem.value = null
+  activePlayerId.value = null
+  isLiveSelectionLoading.value = false
+  isResolvedLiveMediaLoading.value = false
+  resolvedLiveMediaSource.value = null
+  resolvedLiveStream.value = null
+  resolvedLiveMediaOpenUrl.value = null
+  liveSelectionErrorMessage.value = null
+  resolvedLiveMediaErrorMessage.value = null
+
+  if (!source || !channel) return
+  errorMessage.value = null
+  const item = liveItems.value.find((item) => item.source === source && item.entryUrl === channel) ??
+    liveTargetMediaItem({ ...props.initialTarget, source, channel })
+  requestedLiveItem.value = item
+  void selectLiveItem(item, { shouldEmit: false })
+}, { immediate: true })
+
+onBeforeUnmount(() => {
+  latestListRequestId++
+  latestSelectionRequestId++
+  latestMediaResolutionRequestId++
+})
+
 void loadLiveItems()
 </script>
 
 <template>
 <EntryDetails
      :error-message="errorMessage"
-     :is-loading="isLoading"
-     :has-content="liveItems.length > 0"
+     :is-loading="isLoading && !selectedLiveItem"
+     :has-content="liveItems.length > 0 || Boolean(selectedLiveItem)"
      :loading-description="t('live.loadingMessage')"
      :background-video-url="null"
      :hero-background-url="heroBackgroundUrl"
@@ -598,7 +636,6 @@ void loadLiveItems()
       :item-section-label="t('live.streams')"
       :state-eyebrow="t('live.streams')"
       :thumbnail-image-fit="props.thumbnailImageFit"
-      item-route-name="live-details"
       @select-item="selectLiveItem"
     />
   </EntryDetails>

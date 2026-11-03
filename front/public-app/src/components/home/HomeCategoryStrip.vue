@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
 
-import { encodeCategoryRouteParam } from '@/router/routePayloads'
+import { categoryMediaTarget, mediaRoute } from '@/services/mediaRouting'
 import type { HomeCategory } from '@/types/home'
 import { useI18n } from '@/i18n'
 import HomePinButton from '@/components/home/HomePinButton.vue'
@@ -37,19 +37,20 @@ const router = useRouter()
  * @param category Category from the strip.
  * @returns Browser href for the category route.
  */
-function categoryHref(category: HomeCategory): string {
-  return router.resolve({
-    name: 'category',
-    params: { categoryToken: encodeCategoryRouteParam(category) },
-  }).href
+function categoryHref(category: HomeCategory): string | undefined {
+  const destination = mediaRoute(categoryMediaTarget(category))
+  return destination ? router.resolve(destination).href : undefined
 }
 
 /**
  * Emits the selected category so the parent can load its aggregated catalog.
  *
  * @param category Category selected from the strip.
+ * @param event Mouse event, preserving native modified link navigation.
  */
-function handleCategorySelect(category: HomeCategory) {
+function handleCategorySelect(category: HomeCategory, event: MouseEvent) {
+   if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return
+   event.preventDefault()
    emit('select-category', category)
 }
 </script>
@@ -74,7 +75,7 @@ function handleCategorySelect(category: HomeCategory) {
         <a
           class="home-category-strip__card"
          :href="categoryHref(category)"
-         @click.prevent="handleCategorySelect(category)"
+         @click="handleCategorySelect(category, $event)"
        >
          <span
            class="home-category-strip__media"

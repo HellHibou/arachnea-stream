@@ -248,6 +248,18 @@ export interface Parameters {
 }
 
 /**
+ * Display options applied when one section record is created.
+ */
+interface SectionRecordDefaults {
+  /** Initial collection mode for the new record. */
+  collectionMode?: MediaCardCollectionMode
+  /** Initial thumbnail orientation for the new record. */
+  thumbnailOrientation?: ThumbnailOrientation
+  /** Initial thumbnail image fit for the new record. */
+  thumbnailImageFit?: ThumbnailImageFit
+}
+
+/**
  * Home catalog preferences persisted locally.
  */
 export interface HomePreferences {
@@ -586,9 +598,13 @@ export const useStorage = defineStore('storage', () => {
      * move actions work before their lazy record creation completes.
      *
      * @param sectionKey - Preference key of the section.
+     * @param defaults - Display options applied only when the record is missing.
      * @returns The existing or newly created record, or `null` on write failure.
      */
-    async function ensureSectionRecord(sectionKey: string): Promise<HomeSectionRecord | null> {
+    async function ensureSectionRecord(
+      sectionKey: string,
+      defaults: SectionRecordDefaults = {},
+    ): Promise<HomeSectionRecord | null> {
       const existing = sectionRecords.value.find((r) => r.name === sectionKey)
 
       if (existing) {
@@ -598,9 +614,9 @@ export const useStorage = defineStore('storage', () => {
       const record: HomeSectionRecord = {
         name: sectionKey,
         order: sectionRecords.value.length,
-        collectionMode: 'single-row',
-        thumbnailOrientation: 'portrait',
-        thumbnailImageFit: 'cover',
+        collectionMode: defaults.collectionMode ?? 'single-row',
+        thumbnailOrientation: defaults.thumbnailOrientation ?? 'portrait',
+        thumbnailImageFit: defaults.thumbnailImageFit ?? 'cover',
       }
       sectionRecords.value = [...sectionRecords.value, record]
       await saveSection(record)
@@ -664,9 +680,14 @@ export const useStorage = defineStore('storage', () => {
      *
      * @param sectionKey - Preference key of the section.
      * @param mode - New collection mode.
+     * @param defaults - Display options applied only when the record is missing.
      */
-    async function updateSectionCollectionMode(sectionKey: string, mode: MediaCardCollectionMode): Promise<void> {
-      const record = await ensureSectionRecord(sectionKey)
+    async function updateSectionCollectionMode(
+      sectionKey: string,
+      mode: MediaCardCollectionMode,
+      defaults: Omit<SectionRecordDefaults, 'collectionMode'> = {},
+    ): Promise<void> {
+      const record = await ensureSectionRecord(sectionKey, { ...defaults, collectionMode: mode })
       if (!record) {
         return
       }
@@ -685,9 +706,14 @@ export const useStorage = defineStore('storage', () => {
      *
      * @param sectionKey - Preference key of the section.
      * @param orientation - New thumbnail orientation.
+     * @param defaults - Display options applied only when the record is missing.
      */
-    async function updateSectionThumbnailOrientation(sectionKey: string, orientation: ThumbnailOrientation): Promise<void> {
-      const record = await ensureSectionRecord(sectionKey)
+    async function updateSectionThumbnailOrientation(
+      sectionKey: string,
+      orientation: ThumbnailOrientation,
+      defaults: Omit<SectionRecordDefaults, 'thumbnailOrientation'> = {},
+    ): Promise<void> {
+      const record = await ensureSectionRecord(sectionKey, { ...defaults, thumbnailOrientation: orientation })
       if (!record) {
         return
       }
@@ -706,9 +732,14 @@ export const useStorage = defineStore('storage', () => {
      *
      * @param sectionKey - Preference key of the section.
      * @param imageFit - New thumbnail image fit.
+     * @param defaults - Display options applied only when the record is missing.
      */
-    async function updateSectionThumbnailImageFit(sectionKey: string, imageFit: ThumbnailImageFit): Promise<void> {
-      const record = await ensureSectionRecord(sectionKey)
+    async function updateSectionThumbnailImageFit(
+      sectionKey: string,
+      imageFit: ThumbnailImageFit,
+      defaults: Omit<SectionRecordDefaults, 'thumbnailImageFit'> = {},
+    ): Promise<void> {
+      const record = await ensureSectionRecord(sectionKey, { ...defaults, thumbnailImageFit: imageFit })
       if (!record) {
         return
       }

@@ -1,4 +1,5 @@
 import { buildUrlSlug } from '@/services/textUtils'
+import type { LiveSelectionTarget } from '@/types/media'
 import type { HomeCategory, HomeCategorySource } from '@/types/home'
 
 /** Base interface for versioned route payloads. */
@@ -34,13 +35,8 @@ export interface CategoryRoutePayload extends VersionedRoutePayload {
   sources: HomeCategorySource[]
 }
 
-/** Payload for live channel routes. */
-export interface LiveRoutePayload extends VersionedRoutePayload {
-  /** Backend source identifier for the live channel. */
-  source: string
-  /** Source-specific live channel identifier. */
-  channel: string
-}
+/** Compatible v1 payload for live channels or events, with optional catalog presentation. */
+export interface LiveRoutePayload extends VersionedRoutePayload, LiveSelectionTarget {}
 
 /** Text encoder used for payload serialization. */
 const textEncoder = new TextEncoder()
@@ -214,6 +210,10 @@ export function decodeLiveRoutePayload(token: string): LiveRoutePayload | null {
     v: 1,
     source,
     channel,
+    title: readNonEmptyString(payload.title),
+    imageUrl: readNonEmptyString(payload.imageUrl),
+    description: readNonEmptyString(payload.description),
+    webUrl: readNonEmptyString(payload.webUrl),
   }
 }
 

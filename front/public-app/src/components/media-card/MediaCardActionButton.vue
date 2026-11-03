@@ -19,12 +19,15 @@ interface Props {
    * @default null
    */
   href?: string | null
+  /** Optional action label; defaults to the translated entry watch action. */
+  label?: string
 }
 
 /** Component props with applied defaults. */
 withDefaults(defineProps<Props>(), {
   isList: false,
   href: null,
+  label: undefined,
 })
 
 const emit = defineEmits<{
@@ -35,9 +38,12 @@ const emit = defineEmits<{
 const { t } = useI18n()
 
 /**
- * Emits the current selection when the card action is available.
+ * Emits ordinary clicks while preserving native modified link navigation.
+ * @param event Mouse event emitted by the action.
  */
-function handleSelect() {
+function handleSelect(event: MouseEvent) {
+  if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return
+  event.preventDefault()
   emit('select')
 }
 </script>
@@ -51,9 +57,9 @@ function handleSelect() {
       { 'media-card__action--list': isList },
     ]"
     :href="href"
-    @click.stop.prevent="handleSelect"
+    @click.stop="handleSelect"
   >
-    {{ t('entry.watch') }}
+    {{ label ?? t('entry.watch') }}
   </a>
   <button
     v-else
@@ -66,7 +72,7 @@ function handleSelect() {
     :disabled="!canSelectItem"
     @click.stop="handleSelect"
   >
-    {{ t('entry.watch') }}
+    {{ label ?? t('entry.watch') }}
   </button>
 </template>
 

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 
-import type { MediaItem, ThumbnailImageFit, ThumbnailOrientation } from '@/types/media'
+import type { CatalogItem, ThumbnailImageFit, ThumbnailOrientation } from '@/types/media'
 
 import { mediaCardPreview } from '@/composables/media-card/mediaCardPreview'
 
@@ -13,9 +13,11 @@ import MediaCardPreviewPanel from './MediaCardPreviewPanel.vue'
  */
 interface Props {
   /**
-   * Media item rendered by the card.
+   * Entry, category or live card rendered by the component.
    */
-  item: MediaItem
+  item: CatalogItem
+  /** Whether the registered media presentation uses stacked collection artwork. */
+  stackedArtwork: boolean
   /**
    * Stable title shown when the backend title is missing.
    */
@@ -172,6 +174,7 @@ function handleCardClick(event: MouseEvent): void {
       @click="handleCardClick"
     >
       <MediaCardPoster
+        :is-category="stackedArtwork"
         :display-title="displayTitle"
         :image-poster-url="item.imagePosterUrl"
         :image-landscape-url="item.imageLandscapeUrl"

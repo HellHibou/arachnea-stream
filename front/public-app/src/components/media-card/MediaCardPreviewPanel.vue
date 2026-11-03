@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { toRef, useTemplateRef, watch } from 'vue'
 
-import type { MediaItem, ThumbnailOrientation } from '@/types/media'
+import type { CatalogItem, ThumbnailOrientation } from '@/types/media'
 import { useMediaCardPreviewPosition } from '@/composables/media-card/useMediaCardPreviewPosition'
 
 import MediaCardDetailsContent from './MediaCardDetailsContent.vue'
@@ -11,9 +11,9 @@ import MediaCardDetailsContent from './MediaCardDetailsContent.vue'
  */
 interface Props {
   /**
-   * Media item rendered by the card.
+   * Entry, category or live card rendered by the component.
    */
-  item: MediaItem
+  item: CatalogItem
   /**
    * Stable title shown when the backend title is missing.
    */

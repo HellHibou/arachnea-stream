@@ -31,6 +31,7 @@ import type { EntryPlayer } from '@/types/entry'
 import type {
   BackgroundMediaCandidate,
   MediaCardCollectionMode,
+  CatalogItem,
   MediaItem,
   ThumbnailImageFit,
   ThumbnailOrientation,
@@ -53,7 +54,7 @@ const BACKGROUND_MEDIA_VIDEO_ITEMS_LIMIT = 5
  * @param item Media item rendered in a catalog section.
  * @returns Trimmed image URL, or null when no image is available.
  */
-function toBackgroundThumbnailImageUrl(item: MediaItem): string | null {
+function toBackgroundThumbnailImageUrl(item: CatalogItem): string | null {
   return item.imageLandscapeUrl?.trim() || item.imageUrl?.trim() || item.imagePosterUrl?.trim() || null
 }
 

@@ -4,6 +4,7 @@ import { computed, shallowRef, toRef } from 'vue'
 import HomeCategoryStrip from '@/components/home/HomeCategoryStrip.vue'
 import HomeHeroBanner from '@/components/home/HomeHeroBanner.vue'
 import HomeSectionActions from '@/components/home/HomeSectionActions.vue'
+import HomeSectionCollectionToggle from '@/components/home/HomeSectionCollectionToggle.vue'
 import CustomHomeManager from '@/components/home/CustomHomeManager.vue'
 import MediaCardCollection from '@/components/MediaCardCollection.vue'
 import ScrollToTopButton from '@/components/ScrollToTopButton.vue'
@@ -15,6 +16,7 @@ import type { HomeCategory, HomeSection, HomeSectionSubsection } from '@/types/h
 import type { CustomHomeDefinition, CustomHomeAddIntent } from '@/types/customHome'
 import type {
   MediaCardCollectionMode,
+  CatalogItem,
   MediaItem,
   MediaSelectionTarget,
   BackgroundMediaCandidate,
@@ -22,17 +24,75 @@ import type {
   ThumbnailOrientation,
 } from '@/types/media'
 
-/** Collection mode for category page media card displays. */
-const categoryCollectionMode: MediaCardCollectionMode = 'grid'
 /** Storage service instance. */
 const storage = useStorage()
-/** Update section collection mode in preferences. */
-function updateSectionCollectionMode(sectionPreferenceKey: string, mode: MediaCardCollectionMode | null): void {
+
+/**
+ * Updates one section collection mode while preserving its current thumbnail options.
+ *
+ * @param section Section whose collection mode should be updated.
+ * @param mode New collection mode, or null to ignore the update.
+ */
+function updateSectionCollectionMode(section: HomeSection, mode: MediaCardCollectionMode | null): void {
   if (!mode) {
     return
   }
 
-  void storage.updateSectionCollectionMode(sectionPreferenceKey, mode)
+  clearSectionCollectionModeOverride(section.preferenceKey)
+
+  void storage.updateSectionCollectionMode(section.preferenceKey, mode, {
+    thumbnailOrientation: getSectionThumbnailOrientation(section) ?? props.thumbnailOrientation,
+    thumbnailImageFit: getSectionThumbnailImageFit(section) ?? props.thumbnailImageFit,
+  })
+}
+
+/**
+ * Removes the ephemeral collection mode override applied by the section toggle.
+ *
+ * @param sectionPreferenceKey Preference key of the section to reset.
+ */
+function clearSectionCollectionModeOverride(sectionPreferenceKey: string): void {
+  if (!(sectionPreferenceKey in sectionCollectionModeOverrides.value)) {
+    return
+  }
+
+  const nextOverrides = { ...sectionCollectionModeOverrides.value }
+  delete nextOverrides[sectionPreferenceKey]
+  sectionCollectionModeOverrides.value = nextOverrides
+}
+
+/**
+ * Updates one section thumbnail orientation while preserving its other display options.
+ *
+ * @param section Section whose thumbnail orientation should be updated.
+ * @param orientation New orientation, or null to ignore the update.
+ */
+function updateSectionThumbnailOrientation(section: HomeSection, orientation: ThumbnailOrientation | null): void {
+  if (!orientation) {
+    return
+  }
+
+  void storage.updateSectionThumbnailOrientation(section.preferenceKey, orientation, {
+    collectionMode: getSectionCollectionMode(section),
+    thumbnailImageFit: getSectionThumbnailImageFit(section) ?? props.thumbnailImageFit,
+  })
+}
+
+/**
+ * Updates one section thumbnail image fit while preserving its other display options.
+ *
+ * @param section Section whose thumbnail image fit should be updated.
+ * @param imageFit New image fit, or null to ignore the update.
+ */
+function updateSectionThumbnailImageFit(section: HomeSection, imageFit: ThumbnailImageFit | null): void {
+  if (!imageFit) {
+    return
+  }
+
+  void storage.updateSectionThumbnailImageFit(section.preferenceKey, imageFit, {
+    collectionMode: getSectionCollectionMode(section),
+    thumbnailOrientation: getSectionThumbnailOrientation(section) ?? props.thumbnailOrientation,
+  })
 }
 
 /**
@@ -135,10 +195,6 @@ const {
   getSectionLoadError,
   /** Function to handle loading more section items. */
   handleLoadMoreSection,
-  /** Function to update section thumbnail orientation. */
-  updateSectionThumbnailOrientation,
-  /** Function to update section thumbnail image fit. */
-  updateSectionThumbnailImageFit,
 } = useHomeCatalog({
   mode: toRef(props, 'mode'),
   category: toRef(props, 'category'),
@@ -149,8 +205,58 @@ const {
   },
 })
 
+/**
+ * Resolves the sticky toolbar height inherited by one catalog section.
+ *
+ * @param element Element inheriting the application toolbar height variable.
+ * @returns Toolbar height in pixels, or 0 when the variable is unavailable.
+ */
+function getCatalogToolbarHeight(element: HTMLElement): number {
+  const value = Number.parseFloat(
+    getComputedStyle(element).getPropertyValue('--app-toolbar-height'),
+  )
+
+  return Number.isFinite(value) ? value : 0
+}
+
+/**
+ * Resolves the catalog scroll-to-top destination.
+ *
+ * The button scrolls up to the nearest expanded (multi-row) section title.
+ * When no expanded section starts above the viewport, the page scrolls to the
+ * top instead.
+ *
+ * @returns Absolute vertical scroll offset in pixels.
+ */
+function resolveCatalogScrollTop(): number {
+  const renderedSections = props.mode === 'category'
+    ? renderedCatalogSections.value
+    : [...renderedPinnedSections.value, ...renderedOtherSections.value]
+  const expandedSectionKeys = new Set(
+    renderedSections
+      .filter(({ section }) => getActiveSectionCollectionMode(section) === 'grid')
+      .map(({ section }) => section.preferenceKey),
+  )
+  const sectionElements = Array.from(document.querySelectorAll<HTMLElement>('[data-section-key]'))
+  const toolbarHeight = sectionElements[0] ? getCatalogToolbarHeight(sectionElements[0]) : 0
+
+  const targetTitle = sectionElements
+    .filter((section) => expandedSectionKeys.has(section.dataset.sectionKey ?? ''))
+    .reverse()
+    .map((section) => section.querySelector<HTMLElement>('.media-card-collection__title'))
+    .find((title) => title !== null && title.getBoundingClientRect().top < toolbarHeight)
+
+  if (!targetTitle) {
+    return 0
+  }
+
+  return Math.max(0, targetTitle.getBoundingClientRect().top + window.scrollY - toolbarHeight - 8)
+}
+
 /** Scroll-to-top button state and handler. */
-const { showScrollToTop, scrollToTop } = useScrollToTop()
+const { showScrollToTop, scrollToTop } = useScrollToTop({
+  resolveScrollTop: resolveCatalogScrollTop,
+})
 /** Internationalization utilities. */
 const { t } = useI18n()
 const addIntent = shallowRef<CustomHomeAddIntent | null>(null)
@@ -164,7 +270,7 @@ const activeSubsectionIndexes = shallowRef<Record<string, number>>({})
 interface RenderedHomeSection {
   section: HomeSection
   subsection: HomeSectionSubsection | null
-  items: MediaItem[]
+  items: CatalogItem[]
   label: string | null
   haveMore: boolean
 }
@@ -213,6 +319,67 @@ const renderedPinnedSections = computed(() => pinnedSections.value.map(toRendere
 const renderedOtherSections = computed(() => otherSections.value.map(toRenderedHomeSection))
 /** Rendered category-mode section rails. */
 const renderedCatalogSections = computed(() => currentCatalog.value.sections.map(toRenderedHomeSection))
+/**
+ * Default collection mode of the category catalog: a single section keeps the
+ * multi-row grid, while multiple sections each display as one compact row.
+ */
+const categoryDefaultCollectionMode = computed<MediaCardCollectionMode>(() =>
+  renderedCatalogSections.value.length === 1 ? 'grid' : 'single-row',
+)
+/**
+ * Ephemeral single-row/multi-row overrides applied by the section toggle.
+ * These choices are never persisted as section preferences.
+ */
+const sectionCollectionModeOverrides = shallowRef<Record<string, MediaCardCollectionMode>>({})
+
+/**
+ * Resolves the collection mode rendered for one section in the active catalog.
+ *
+ * @param section Section displayed in the current catalog.
+ * @returns Collection mode used by the section media rail.
+ */
+function getActiveSectionCollectionMode(section: HomeSection): MediaCardCollectionMode {
+  const override = sectionCollectionModeOverrides.value[section.preferenceKey]
+
+  if (override) {
+    return override
+  }
+
+  return props.mode === 'category' ? categoryDefaultCollectionMode.value : getSectionCollectionMode(section)
+}
+
+/**
+ * Returns whether a collection mode supports the single-row/multi-row toggle.
+ *
+ * @param collectionMode Collection mode rendered by the section.
+ * @returns True for grid and single-row layouts.
+ */
+function canToggleSectionCollectionMode(collectionMode: MediaCardCollectionMode): boolean {
+  return collectionMode === 'grid' || collectionMode === 'single-row'
+}
+
+/**
+ * Switches one section between the single-row and multi-row layouts.
+ *
+ * The choice stays local to the current screen and is never written to section
+ * preferences.
+ *
+ * @param section Section whose layout should be toggled.
+ */
+function toggleSectionCollectionMode(section: HomeSection): void {
+  const collectionMode = getActiveSectionCollectionMode(section)
+
+  if (!canToggleSectionCollectionMode(collectionMode)) {
+    return
+  }
+
+  const nextMode: MediaCardCollectionMode = collectionMode === 'single-row' ? 'grid' : 'single-row'
+
+  sectionCollectionModeOverrides.value = {
+    ...sectionCollectionModeOverrides.value,
+    [section.preferenceKey]: nextMode,
+  }
+}
 
 /**
  * Cycles a parent section through its selectable subsections.
@@ -323,7 +490,7 @@ function handleSelectCollectionItem(item: MediaItem) {
                 :items="renderedSection.items"
                 :label="renderedSection.label ?? undefined"
                 :label-icon="renderedSection.section.preferenceKey === bookmarkPreferenceKey ? 'mdi-bookmark' : undefined"
-                :mode="getSectionCollectionMode(renderedSection.section)"
+                :mode="getActiveSectionCollectionMode(renderedSection.section)"
                 :thumbnail-orientation="getSectionThumbnailOrientation(renderedSection.section) ?? props.thumbnailOrientation"
                 :thumbnail-image-fit="getSectionThumbnailImageFit(renderedSection.section) ?? props.thumbnailImageFit"
                 :thumbnail-size-multiplier="props.thumbnailSizeMultiplier"
@@ -334,15 +501,22 @@ function handleSelectCollectionItem(item: MediaItem) {
                 :on-load-more="() => handleLoadMoreSection(renderedSection.section)"
                 @select="handleSelectCollectionItem"
               >
-                <template v-if="renderedSection.subsection" #header-leading>
-                  <button
-                    class="home-catalog__subsection-navigation-button"
-                    type="button"
-                    :aria-label="t('catalog.previousSubsection')"
-                    @click="cycleSubsection(renderedSection.section, -1)"
-                  >
-                    <v-icon icon="mdi-chevron-left" size="20" aria-hidden="true" />
-                  </button>
+                <template #header-leading>
+                  <div class="home-catalog__section-leading">
+                    <button
+                      v-if="renderedSection.subsection"
+                      class="home-catalog__subsection-navigation-button"
+                      type="button"
+                      :aria-label="t('catalog.previousSubsection')"
+                      @click="cycleSubsection(renderedSection.section, -1)"
+                    >
+                      <v-icon icon="mdi-chevron-left" size="20" aria-hidden="true" />
+                    </button>
+                    <HomeSectionCollectionToggle
+                      :mode="getActiveSectionCollectionMode(renderedSection.section)"
+                      @toggle="toggleSectionCollectionMode(renderedSection.section)"
+                    />
+                  </div>
                 </template>
                 <template #header-actions>
                   <div
@@ -369,10 +543,10 @@ function handleSelectCollectionItem(item: MediaItem) {
                     hide-move-buttons
                     :thumbnail-orientation="getSectionThumbnailOrientation(renderedSection.section) ?? props.thumbnailOrientation"
                     :thumbnail-image-fit="getSectionThumbnailImageFit(renderedSection.section) ?? props.thumbnailImageFit"
-                    :collection-mode="getSectionCollectionMode(renderedSection.section)"
-                    @update-thumbnail-orientation="updateSectionThumbnailOrientation"
-                    @update-thumbnail-image-fit="updateSectionThumbnailImageFit"
-                    @update-collection-mode="updateSectionCollectionMode"
+                    :collection-mode="getActiveSectionCollectionMode(renderedSection.section)"
+                    @update-thumbnail-orientation="(_key, orientation) => updateSectionThumbnailOrientation(renderedSection.section, orientation)"
+                    @update-thumbnail-image-fit="(_key, imageFit) => updateSectionThumbnailImageFit(renderedSection.section, imageFit)"
+                    @update-collection-mode="(_key, mode) => updateSectionCollectionMode(renderedSection.section, mode)"
                   />
                 </template>
               </MediaCardCollection>
@@ -400,7 +574,7 @@ function handleSelectCollectionItem(item: MediaItem) {
               <MediaCardCollection
                 :items="renderedSection.items"
                 :label="renderedSection.label ?? undefined"
-                :mode="getSectionCollectionMode(renderedSection.section)"
+                :mode="getActiveSectionCollectionMode(renderedSection.section)"
                 :thumbnail-orientation="getSectionThumbnailOrientation(renderedSection.section) ?? props.thumbnailOrientation"
                 :thumbnail-image-fit="getSectionThumbnailImageFit(renderedSection.section) ?? props.thumbnailImageFit"
                 :thumbnail-size-multiplier="props.thumbnailSizeMultiplier"
@@ -411,15 +585,22 @@ function handleSelectCollectionItem(item: MediaItem) {
                 :on-load-more="() => handleLoadMoreSection(renderedSection.section)"
                 @select="handleSelectCollectionItem"
               >
-                <template v-if="renderedSection.subsection" #header-leading>
-                  <button
-                    class="home-catalog__subsection-navigation-button"
-                    type="button"
-                    :aria-label="t('catalog.previousSubsection')"
-                    @click="cycleSubsection(renderedSection.section, -1)"
-                  >
-                    <v-icon icon="mdi-chevron-left" size="20" aria-hidden="true" />
-                  </button>
+                <template #header-leading>
+                  <div class="home-catalog__section-leading">
+                    <button
+                      v-if="renderedSection.subsection"
+                      class="home-catalog__subsection-navigation-button"
+                      type="button"
+                      :aria-label="t('catalog.previousSubsection')"
+                      @click="cycleSubsection(renderedSection.section, -1)"
+                    >
+                      <v-icon icon="mdi-chevron-left" size="20" aria-hidden="true" />
+                    </button>
+                    <HomeSectionCollectionToggle
+                      :mode="getActiveSectionCollectionMode(renderedSection.section)"
+                      @toggle="toggleSectionCollectionMode(renderedSection.section)"
+                    />
+                  </div>
                 </template>
                 <template #header-actions>
                   <div
@@ -446,10 +627,10 @@ function handleSelectCollectionItem(item: MediaItem) {
                     hide-move-buttons
                     :thumbnail-orientation="getSectionThumbnailOrientation(renderedSection.section) ?? props.thumbnailOrientation"
                     :thumbnail-image-fit="getSectionThumbnailImageFit(renderedSection.section) ?? props.thumbnailImageFit"
-                    :collection-mode="getSectionCollectionMode(renderedSection.section)"
-                    @update-thumbnail-orientation="updateSectionThumbnailOrientation"
-                    @update-thumbnail-image-fit="updateSectionThumbnailImageFit"
-                    @update-collection-mode="updateSectionCollectionMode"
+                    :collection-mode="getActiveSectionCollectionMode(renderedSection.section)"
+                    @update-thumbnail-orientation="(_key, orientation) => updateSectionThumbnailOrientation(renderedSection.section, orientation)"
+                    @update-thumbnail-image-fit="(_key, imageFit) => updateSectionThumbnailImageFit(renderedSection.section, imageFit)"
+                    @update-collection-mode="(_key, mode) => updateSectionCollectionMode(renderedSection.section, mode)"
                   />
                 </template>
               </MediaCardCollection>
@@ -466,7 +647,7 @@ function handleSelectCollectionItem(item: MediaItem) {
               <MediaCardCollection
                 :items="renderedSection.items"
                 :label="renderedSection.label ?? undefined"
-                :mode="categoryCollectionMode"
+                :mode="getActiveSectionCollectionMode(renderedSection.section)"
                 :thumbnail-orientation="props.thumbnailOrientation"
                 :thumbnail-image-fit="props.thumbnailImageFit"
                 :thumbnail-size-multiplier="props.thumbnailSizeMultiplier"
@@ -477,15 +658,22 @@ function handleSelectCollectionItem(item: MediaItem) {
                 :on-load-more="() => handleLoadMoreSection(renderedSection.section)"
                 @select="handleSelectCollectionItem"
               >
-                <template v-if="renderedSection.subsection" #header-leading>
-                  <button
-                    class="home-catalog__subsection-navigation-button"
-                    type="button"
-                    :aria-label="t('catalog.previousSubsection')"
-                    @click="cycleSubsection(renderedSection.section, -1)"
-                  >
-                    <v-icon icon="mdi-chevron-left" size="20" aria-hidden="true" />
-                  </button>
+                <template #header-leading>
+                  <div class="home-catalog__section-leading">
+                    <button
+                      v-if="renderedSection.subsection"
+                      class="home-catalog__subsection-navigation-button"
+                      type="button"
+                      :aria-label="t('catalog.previousSubsection')"
+                      @click="cycleSubsection(renderedSection.section, -1)"
+                    >
+                      <v-icon icon="mdi-chevron-left" size="20" aria-hidden="true" />
+                    </button>
+                    <HomeSectionCollectionToggle
+                      :mode="getActiveSectionCollectionMode(renderedSection.section)"
+                      @toggle="toggleSectionCollectionMode(renderedSection.section)"
+                    />
+                  </div>
                 </template>
                 <template #header-actions>
                   <div
@@ -575,6 +763,12 @@ function handleSelectCollectionItem(item: MediaItem) {
 .home-catalog__section-shell {
   display: grid;
   gap: 12px;
+}
+
+.home-catalog__section-leading {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .home-catalog__subsection-navigation {

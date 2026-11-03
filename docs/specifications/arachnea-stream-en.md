@@ -91,6 +91,7 @@ Sources declare their media types via a `shared` section with a YAML anchor:
 ```yaml
 shared:
   media_types_my_source: &media_types_my_source
+    - collection
     - video/movie
     - video/show/serie
     - video/show/anime
@@ -107,6 +108,7 @@ Type hierarchy:
 
 | Type | Description |
 |---|---|
+| `collection` | Collection / category |
 | `video/movie` | Movie |
 | `video/show/serie` | TV series |
 | `video/show/anime` | Anime / cartoon |
@@ -119,6 +121,10 @@ Type hierarchy:
 | `video/other` | Unclassified video |
 | `images/manga` | Manga / scan |
 | `images/webtoon` | Webtoon |
+
+`media_types` on a query declares backend selection/filtering capabilities; it
+is distinct from the output `media-type` used to route each card. Declare
+`collection` for queries that return collections.
 
 ---
 
@@ -239,7 +245,7 @@ Structure produced by each source:
           type: string
         - name: link
           type: string
-        - name: entries       # MediaItem objects
+        - name: entries       # Entry/category/live cards
           type: object[]
           entries: [ … ]
         - name: subsections   # Optional selectable rails
@@ -249,7 +255,7 @@ Structure produced by each source:
               type: string
             - name: label
               type: string
-            - name: entries   # MediaItem objects specific to this subsection
+            - name: entries   # Entry/category/live cards specific to this subsection
               type: object[]
               entries: [ … ]
 
@@ -296,7 +302,7 @@ source that owns that endpoint.
 |---|---|---|
 | `label` | `string` | Rail title (e.g. `Latest additions`, `Trending`) |
 | `key` | `string` | Source-owned persistent rail identity, independent of its title |
-| `entries` | `object[]` | `MediaItem` objects (see next section) |
+| `entries` | `object[]` | Entry, category or live cards (see next section) |
 | `link` | `string` | URL for `get_section` (pagination) |
 | `subsections` | `object[]` | Optional selectable rails below the parent section |
 
@@ -351,18 +357,111 @@ array. Do not fetch banner details through a `load_home` `sub_query` when
 
 ### 5.3 MediaItem object (catalogue entry)
 
-Common structure used in `sections[].entries`, `search.entries`,
-`get_category.sections[].entries` and `list_lives.entries`.
+Content presentation used in home/category rails, subsections, search,
+recommendations, banners and live lists. Each card's `media-type` selects its
+page through the single frontend registry
+`front/public-app/src/services/mediaRouting.ts`:
+
+| Type | Route | Backend operation |
+|---|---|---|
+| `collection` | `category` | `get_category` |
+| `video/live` | `live-details` | `get_live` |
+| `video` or `video/*` | `entry-details` | `get_entry` |
+| `audio` / `audio/*`, `images` / `images/*` | `entry-details` | `get_entry` (temporary compatibility) |
+
+Audio and image content do not yet have dedicated views; this mapping does not
+provide complete support for those formats. Type identifiers are trimmed,
+lowercased and deduplicated. Exact `video/live` takes precedence over other video
+types. Family matching respects `/` boundaries. Multiple types resolving to the
+same handler are accepted; incompatible combinations such as `collection` plus
+`video/movie`, unknown explicit types and invalid non-string types leave the card
+non-openable, with a normalization diagnostic for unsupported/conflicting types.
+Absent/null/empty types preserve legacy entry navigation, including old bookmarks.
+Incomplete collection/live targets never fall back to `get_entry`.
+
+A collection requires `title`, a source (emitted or inherited), and
+`request.query_url`. Additional string-valued `request` parameters are preserved;
+`request.name` or `request.source` can override the inherited source. `link` cannot
+replace the category descriptor. Normalized collections retain their raw types
+and request, clear media-only metadata, and have no entry URL. Their artwork uses
+the existing thumbnail stack. Deduplication uses the operation and full category
+source descriptors. Category-strip selections use this same registry.
+
+A live target requires a source and `request.channel`, the opaque identifier
+accepted by `get_live`. Legacy live lists may provide this identifier through
+`link`. Catalog cards retain a dedicated live descriptor without an entry URL;
+legacy live-list presentation retains its opaque link internally. Deduplication
+uses the source and live identifier. Live duration/price labels are cleared.
+
+Live cards call `get_live` immediately, independently of `list_lives` membership,
+availability or completion. Optional title, artwork, description and public URL
+are retained in the existing v1 live route; older source/channel-only links remain
+valid. Late list/selection/stream responses cannot replace a newer target.
+
+Native links and selection events use the same route builder, including search,
+recommendations and banners. Deferred/paginated rails, merged subsections and
+custom homes preserve media types and targets. Rail descriptors still select
+`get_section`; no separate card-kind or section-kind field is used. Existing route
+versions and saved custom-home references require no migration. Future supported
+media families register their destination and presentation in the same registry.
+
+France TV preserves source item order: programmes/replays use video types,
+editorial collections/categories/events use `collection`, and `is_live: true`
+videos use `video/live`, including `integrale`, `unitaire` and `flux`.
+`request.channel` carries the selected content's `si_id`. The `live` and
+`playlist_collection` rails are included. Shared collection extraction also types
+search/recommendation collections and supplies their category request.
+France TV `get_live` statically emits the existing `francetv-live` resolver without
+fetching the channel list. Playback authorization and geographical restrictions
+remain unchanged.
+
+TF1+ supplements its Android home programme rails with `SliderOfCollection`
+rails from the public HTML page, including “Vous êtes plutôt...”. The public
+page provides the complete collection rail, titles and landscape artwork in one
+request; the Android response only contains the first ten collection slugs.
+Collection cards use `media-type: collection` and a public collection page in
+`request.query_url`. `get_category` accepts these pages, returns their complete
+programme grid as one section (`current_page: 1`, `have_more: false`), and also
+extracts collection rails when present on a public category page. Existing
+GraphQL channel descriptors and `get_section` pagination remain supported.
+
+```yaml
+entries:
+  - media-type: collection
+    source: fawesome-tv
+    title: Horror
+    request:
+      query_url: "https://fawesome.tv/home/new/v469/api/shows.php?searchType=listoflist&keys=9244&appId=9&siteId=236&auth-token=1217575"
+  - source: example
+    title: Example movie
+    link: "https://example.org/movie/1"
+    media-type: video/movie
+  - source: francetv
+    title: Example live event
+    media-type: video/live
+    request:
+      channel: "<content-si-id>"
+```
+
+Fawesome classifies recognized `item_type` values (`movie`, `tvshow`, `miniseries`)
+as entries, then uses `actiontype: category` or a `category/...` public path for
+category navigation; `series_name` is an entry fallback. Neither `type: listoflist`
+nor `feed_type: category` alone distinguishes a series from an editorial category.
+The category query accepts upstream channel objects with `name`/`url` as well as
+`title`/`feed`, preserving the rail grouping returned by genre and actor categories.
+Each returned card carries its own media type. Search/recommendations keep only
+recognized video cards.
 
 | YAML field | YAML type | Required | Description |
 |---|---|---|---|
 | `source` | `string` | yes for an openable card | Source identifier. It must be emitted by YAML on each `MediaItem`, or on its enclosing result row so the frontend can inherit it. It is not automatically injected for every response shape. |
 | `title` | `string` | yes | Main title |
 | `title/alt` | `string` | no | Alternative title |
-| `link` | `string` | yes | Internal URL for `get_entry` |
+| `link` | `string` | for entry cards | Internal URL for `get_entry` |
+| `request` | `object` | for category/live cards | String-valued target parameters: `query_url` for a category, `channel` for a live target |
 | `web-link` | `string` | no | Public content URL |
 | `description` | `string` | no | Synopsis / description |
-| `media-type` | `string` or `string[]` | no | Media type (e.g. `video/show/serie`). Custom `video/other/<label>` and `video/show/other/<label>` forms display their label directly in the frontend. |
+| `media-type` | `string` or `string[]` | for typed navigation | Routing type (e.g. `collection`, `video/live`) and media subtype (e.g. `video/show/serie`). Custom `video/other/<label>` and `video/show/other/<label>` forms display their label directly in the frontend. |
 | `duration` | `number` or numeric `string` | no | Formatted duration |
 | `release-date` | `string` | no | Publication date (`YYYY-MM-DD`) |
 | `expire` | `string` | no | Expiration date |
@@ -394,7 +493,7 @@ Common structure used in `sections[].entries`, `search.entries`,
 ### 5.4 Category page — `get_category`
 
 Follows the structure of `load_home` (categories + sections). Sections
-contain `entries` (MediaItem) and pagination metadata:
+contain `entries` (entry/category/live cards) and pagination metadata:
 
 ```yaml
 - name: get_category
@@ -408,7 +507,7 @@ contain `entries` (MediaItem) and pagination metadata:
         - name: total_pages
         - name: page_size
         - name: total
-        - name: entries   # MediaItem[]
+        - name: entries   # Entry/category/live cards
     post_process:
       - type: compute_items_field
       - type: derive_pagination
@@ -423,7 +522,7 @@ Do not prefetch every category in `load_home` through `sub_queries`.
 
 ### 5.5 Paginated section — `get_section`
 
-Returns a list of entries with pagination. It is the on-demand counterpart of
+Returns a list of entry, category or live cards with pagination. It is the on-demand counterpart of
 a section emitted by `load_home`: the backend receives the section `link` and
 the requested one-based `page` value.
 
@@ -434,7 +533,7 @@ the requested one-based `page` value.
 | `total_pages` | `number` | Total number of pages (consumed by `derive_pagination`) |
 | `page_size` | `number` | Page size |
 | `infer_have_more_from_full_page` | `boolean` | Infer `have_more` from a full page |
-| `entries` | `object[]` | MediaItem objects |
+| `entries` | `object[]` | Typed entry, category or live cards |
 
 Pagination is typically computed via the `derive_pagination` post-processor:
 

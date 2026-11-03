@@ -34,6 +34,7 @@ constants:
 # ############################################################################
 shared:
   media_types_francetv: &media_types_francetv
+    - collection
     - video/movie
     - video/show/serie
     - video/show/documentary
@@ -184,6 +185,11 @@ shared:
 
   collection_card_entries: &collection_card_entries
     - *source_entry
+    - name: media-type
+      type: string
+      actions:
+        - type: format_text
+          argument: collection
     - name: title
       type: string
       select: first
@@ -196,19 +202,11 @@ shared:
       type: string
       select: first
       pointer: /subtitle
-    - name: media-type
-      type: string[]
-      pointer: /category/url_complete
-      actions: *actions_francetv_category_media_type
-    - name: media-type
-      type: string[]
-      pointer: /type
-      actions: *actions_francetv_item_media_type
     - name: link
       type: string
       select: first
       pointer: /collection_path
-      actions:
+      actions: &francetv_collection_query
         - type: format_text
           argument: "{api_mobile}/apps/collections/{}?platform=apps&page=0"
     - name: theme
@@ -221,10 +219,21 @@ shared:
     - *common_image_landscape_thumbnail
     - *common_image_logo
 
+    - name: request > query_url
+      type: string
+      select: first
+      pointer: /collection_path
+      actions: *francetv_collection_query
+
   # Discovery rails can contain collections alongside programmes. Keep their
   # catalogue API links and expose the corresponding public collection page.
   recommendation_collection_entries: &recommendation_collection_entries
     - *source_entry
+    - name: media-type
+      type: string
+      actions:
+        - type: format_text
+          argument: collection
     - name: title
       type: string
       select: first
@@ -237,7 +246,7 @@ shared:
       type: string
       select: first
       pointer: /collection_path
-      actions:
+      actions: &francetv_recommendation_collection_query
         - type: format_text
           argument: "{api_mobile}/apps/collections/{}?platform=apps&page=0"
     - name: web-link
@@ -250,15 +259,21 @@ shared:
           format: "{1}"
         - type: format_text
           argument: "{base_url}/collection/{}/"
-    - name: media-type
-      type: string[]
-      pointer: /category/url_complete
-      actions: *actions_francetv_category_media_type
     - *common_image_poster_3x4
     - *common_image_landscape_thumbnail
+    - name: request > query_url
+      type: string
+      select: first
+      pointer: /collection_path
+      actions: *francetv_recommendation_collection_query
 
   category_card_entries: &category_card_entries
     - *source_entry
+    - name: media-type
+      type: string
+      actions:
+        - type: format_text
+          argument: collection
     - name: title
       type: string
       select: first
@@ -271,15 +286,11 @@ shared:
       type: string
       select: first
       pointer: /synopsis
-    - name: media-type
-      type: string[]
-      pointer: /url_complete
-      actions: *actions_francetv_category_media_type
     - name: link
       type: string
       select: first
       pointer: /url_complete
-      actions:
+      actions: &francetv_category_query
         - type: format_text
           argument: "{api_mobile}/apps/sub-categories/{}?platform=apps&page=0"
     - name: web-link
@@ -295,9 +306,19 @@ shared:
     - *common_image_landscape_background
     - *common_image_landscape_thumbnail
     - *common_image_logo
+    - name: request > query_url
+      type: string
+      select: first
+      pointer: /url_complete
+      actions: *francetv_category_query
 
   event_card_entries: &event_card_entries
     - *source_entry
+    - name: media-type
+      type: string
+      actions:
+        - type: format_text
+          argument: collection
     - name: title
       type: string
       select: first
@@ -306,19 +327,11 @@ shared:
       type: string
       select: first
       pointer: /description
-    - name: media-type
-      type: string[]
-      pointer: /category/url_complete
-      actions: *actions_francetv_category_media_type
-    - name: media-type
-      type: string[]
-      pointer: /type
-      actions: *actions_francetv_item_media_type
     - name: link
       type: string
       select: first
       pointer: /url_complete
-      actions: 
+      actions: &francetv_event_query
          - type: format_text
            argument: "{api_mobile}/apps/events/{}?platform=apps&page=0"
     - name: theme
@@ -331,6 +344,11 @@ shared:
     - *common_image_landscape_background
     - *common_image_landscape_thumbnail
     - *common_image_logo
+    - name: request > query_url
+      type: string
+      select: first
+      pointer: /url_complete
+      actions: *francetv_event_query
 
   video_card_entries: &video_card_entries
     - *source_entry
@@ -481,7 +499,207 @@ shared:
       pointer: /images/*[type=vignette_3x4]/urls/w:1024
       select: first
 
+  catalog_card_entries: &catalog_card_entries
+    - *source_entry
+    - name: title
+      type: string
+      select: first
+      pointer: /label
+    - name: title
+      type: string
+      select: first
+      pointer: /episode_title
+    - name: title
+      type: string
+      select: first
+      pointer: /title
+    - name: title/alt
+      type: string
+      select: first
+      pointer: /program/label
+    - name: description
+      type: string
+      select: first
+      pointer: /description
+    - name: description
+      type: string
+      select: first
+      pointer: /synopsis
+    - name: description
+      type: string
+      select: first
+      pointer: /subtitle
+    - name: description
+      type: string
+      select: first
+      pointer: /text
+    - name: media-type
+      type: string[]
+      actions:
+        - type: build_url
+          base: "{kind}|{live}|{category}"
+          fields:
+            kind: /type
+            live: /is_live
+            category: /category/url_complete
+        - type: regex_replace_all
+          pattern: '^.*\|true\|.*$'
+          replacement: video/live
+        - type: regex_replace_all
+          pattern: '^(collection|categorie|sous_categorie|event)\|.*$'
+          replacement: collection
+        - type: regex_replace_all
+          pattern: '^[^|]*\|[^|]*\|(.+)$'
+          replacement: '$1'
+        - type: map
+          argument:
+            collection: collection
+            video/live: video/live
+            series-et-fictions: video/show/serie
+            documentaires: video/show/documentary
+            films: video/movie
+            societe: video/news
+            info: video/news
+            sport: video/show/sport
+          default: video/show/other
+    - name: link
+      type: string
+      select: first
+      actions:
+        - type: build_url
+          base: "{kind}|{collection}|{program}|{path}|{id}|{api_mobile}|{api_front}"
+          fields:
+            kind: /type
+            collection: /collection_path
+            program: /program_path
+            path: /url_complete
+            id: /id
+        - type: regex_replace_all
+          pattern: '^collection\|([^|]+)\|[^|]*\|[^|]*\|[^|]*\|([^|]+)\|.*$'
+          replacement: '$2/apps/collections/$1?platform=apps&page=0'
+        - type: regex_replace_all
+          pattern: '^program\|[^|]*\|([^|]+)\|[^|]*\|[^|]*\|([^|]+)\|.*$'
+          replacement: '$2/apps/program/$1?platform=apps&page=0'
+        - type: regex_replace_all
+          pattern: '^(categorie|sous_categorie)\|[^|]*\|[^|]*\|([^|]+)\|[^|]*\|([^|]+)\|.*$'
+          replacement: '$3/apps/sub-categories/$2?platform=apps&page=0'
+        - type: regex_replace_all
+          pattern: '^event\|[^|]*\|[^|]*\|([^|]+)\|[^|]*\|([^|]+)\|.*$'
+          replacement: '$2/apps/events/$1?platform=apps&page=0'
+        - type: regex_replace_all
+          pattern: '^(integrale|unitaire|extrait|resume|bonus|bande-annonce)\|[^|]*\|[^|]*\|[^|]*\|([^|]+)\|[^|]*\|([^|]+)$'
+          replacement: '$3/standard/publish/contents/$2'
+        - type: regex_find_all
+          pattern: '^(https://[^|{}]+)$'
+          format: '{1}'
+    - name: request > query_url
+      type: string
+      select: first
+      actions:
+        - type: build_url
+          base: "{kind}|{collection}|{path}|{api_mobile}"
+          fields:
+            kind: /type
+            collection: /collection_path
+            path: /url_complete
+        - type: regex_replace_all
+          pattern: '^collection\|([^|]+)\|[^|]*\|([^|]+)$'
+          replacement: '$2/apps/collections/$1?platform=apps&page=0'
+        - type: regex_replace_all
+          pattern: '^(categorie|sous_categorie)\|[^|]*\|([^|]+)\|([^|]+)$'
+          replacement: '$3/apps/sub-categories/$2?platform=apps&page=0'
+        - type: regex_replace_all
+          pattern: '^event\|[^|]*\|([^|]+)\|([^|]+)$'
+          replacement: '$2/apps/events/$1?platform=apps&page=0'
+        - type: regex_find_all
+          pattern: '^(https://[^|{}]+)$'
+          format: '{1}'
+    - name: request > channel
+      type: string
+      select: first
+      actions: &catalog_live_target
+        - type: build_url
+          base: "{live}|{id}"
+          fields:
+            live: /is_live
+            id: /si_id
+        - type: regex_find_all
+          pattern: '^true\|([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$'
+          format: '{1}'
+    - name: link
+      type: string
+      select: first
+      actions: *catalog_live_target
+    - name: web-link
+      type: string
+      select: first
+      pointer: /program_path
+      actions: *actions_program_web_link
+    - name: web-link
+      type: string
+      select: first
+      pointer: /collection_path
+      actions:
+        - type: regex_find_all
+          pattern: '^collection_(.+)$'
+          format: '{base_url}/collection/{1}/'
+    - name: duration
+      type: string
+      select: first
+      pointer: /duration
+    - name: theme
+      type: string[]
+      pointer: /category/label
+    - name: theme
+      type: string[]
+      pointer: /categories/*/label
+      select: all
+    - name: theme
+      type: string[]
+      pointer: /sub_categories/*/label
+      select: all
+    - name: count-season
+      type: number
+      select: first
+      pointer: /number_of_seasons
+    - name: count-season
+      type: number
+      select: first
+      pointer: /number_of_episodes
+    - name: channel
+      type: string
+      select: first
+      pointer: /channel/label
+    - name: director
+      type: string[]
+      pointer: /director
+    - name: casting
+      type: string[]
+      pointer: /casting
+    - name: content-advisor
+      type: string
+      select: first
+      pointer: /rating_csa
+    - name: content-advisor
+      type: string
+      select: first
+      pointer: /rating_csa_code
+    - *common_image_poster_3x4
+    - *common_image_poster_2x3
+    - *common_image_poster_square
+    - *common_image_landscape_background
+    - *common_image_landscape_thumbnail
+    - *common_image_logo
+
   section_entries: &section_entries
+    - name: key
+      type: string
+      select: first
+      pointer: /type
+      actions:
+        - type: map
+          argument: {live: 'rail:live-channels'}
+          default: null
     - name: key
       type: string
       select: first
@@ -501,49 +719,9 @@ shared:
           argument: "false"
     - name: entries
       type: object[]
-      pointer: /items/*[type=program]
+      pointer: /items/*
       select: all
-      entries: *program_card_entries
-    - name: entries
-      type: object[]
-      pointer: /items/*[type=collection]
-      select: all
-      entries: *collection_card_entries
-    - name: entries
-      type: object[]
-      pointer: /items/*[type=event]
-      select: all
-      entries: *event_card_entries
-    - name: entries
-      type: object[]
-      pointer: /items/*[type=integrale]
-      select: all
-      entries: *video_card_entries
-    - name: entries
-      type: object[]
-      pointer: /items/*[type=unitaire]
-      select: all
-      entries: *video_card_entries
-    - name: entries
-      type: object[]
-      pointer: /items/*[type=extrait]
-      select: all
-      entries: *video_card_entries
-    - name: entries
-      type: object[]
-      pointer: /items/*[type=resume]
-      select: all
-      entries: *video_card_entries
-    - name: entries
-      type: object[]
-      pointer: /items/*[type=bonus]
-      select: all
-      entries: *video_card_entries
-    - name: entries
-      type: object[]
-      pointer: /items/*[type=bande-annonce]
-      select: all
-      entries: *video_card_entries
+      entries: *catalog_card_entries
 
 
 # ############################################################################
@@ -642,6 +820,16 @@ queries:
       - name: sections
         type: object[]
         pointer: /collections/*[type=playlist_video]
+        select: all
+        entries: *section_entries
+      - name: sections
+        type: object[]
+        pointer: /collections/*[type=live]
+        select: all
+        entries: *section_entries
+      - name: sections
+        type: object[]
+        pointer: /collections/*[type=playlist_collection]
         select: all
         entries: *section_entries
 
@@ -1152,33 +1340,14 @@ queries:
   # Get live
   # ---------------------------------------------------------------
   - name: get_live
-    scraper_type: json
-    base_url: "{base_url}"
-    query_url: "{api_mobile}/generic/directs?platform=apps"
-    request_headers: *generic_request_headers
+    scraper_type: static
     media_types:
       - video/live
-    row_pointer: /
     entries:
       - name: players
         type: object[]
-        entries:
-          - name: name
-            type: string
-            actions:
-              - type: format_text
-                argument: "FranceTV"
-          - name: resolver
-            type: object
-            select: first
-            entries:
-              - name: kind
-                type: string
-                actions:
-                  - type: format_text
-                    argument: "francetv-live"
-              - name: target_id
-                type: string
-                actions:
-                  - type: format_text
-                    argument: "{channel}"
+        value:
+          - name: FranceTV
+            resolver:
+              kind: francetv-live
+              target_id: "{channel}"

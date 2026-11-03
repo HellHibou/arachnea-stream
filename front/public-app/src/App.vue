@@ -7,12 +7,8 @@ import {
   buildSearchRouteQuery,
   readSearchRouteQuery,
 } from '@/router/searchQuery'
-import {
-  encodeCategoryRouteParam,
-  encodeEntryRouteParam,
-  encodeLiveRoutePayload,
-} from '@/router/routePayloads'
-import type { BackgroundMediaCandidate, MediaSelectionTarget } from '@/types/media'
+import { categoryMediaTarget, liveMediaTarget, mediaRoute } from '@/services/mediaRouting'
+import type { BackgroundMediaCandidate, MediaSelectionTarget, LiveSelectionTarget } from '@/types/media'
 /** Measured desktop navigation width used to reserve the content gutter. */
 const sidebarWidth = shallowRef(260)
 import type { HomeCategory } from '@/types/home'
@@ -169,25 +165,13 @@ function handleSearchSubmit() {
 }
 
 /**
- * Opens the detail route for a selected catalog/search entry.
+ * Opens the registered view for selected catalog or search content.
  *
- * @param item Entry target selected from a rendered media card or banner.
+ * @param item Content target selected from a rendered media card or banner.
  */
 function handleSelectedItem(item: MediaSelectionTarget) {
-  if (!item.source || !item.entryUrl) {
-    return
-  }
-
-  navigateTo({
-    name: 'entry-details',
-    params: {
-      encodedEntry: encodeEntryRouteParam({
-        source: item.source,
-        entryUrl: item.entryUrl,
-        title: item.title,
-      }),
-    },
-  })
+  const destination = mediaRoute(item)
+  if (destination) navigateTo(destination)
 }
 
 /**
@@ -196,34 +180,16 @@ function handleSelectedItem(item: MediaSelectionTarget) {
  * @param category Category selected from the home/category strip.
  */
 function handleSelectedCategory(category: HomeCategory) {
-  navigateTo({
-    name: 'category',
-    params: {
-      categoryToken: encodeCategoryRouteParam(category),
-    },
-  })
+  handleSelectedItem(categoryMediaTarget(category))
 }
 
 /**
  * Opens the route for one selected live stream.
  *
- * @param item Live target selected from the live list.
+ * @param item Explicit catalog live target or legacy media target from the live list.
  */
-function handleSelectedLive(item: MediaSelectionTarget) {
-  if (!item.source || !item.entryUrl) {
-    return
-  }
-
-  navigateTo({
-    name: 'live-details',
-    params: {
-      encodedLive: encodeLiveRoutePayload({
-        v: 1,
-        source: item.source,
-        channel: item.entryUrl,
-      }),
-    },
-  })
+function handleSelectedLive(item: MediaSelectionTarget | LiveSelectionTarget) {
+  handleSelectedItem('channel' in item ? liveMediaTarget(item) : item)
 }
 
 /**

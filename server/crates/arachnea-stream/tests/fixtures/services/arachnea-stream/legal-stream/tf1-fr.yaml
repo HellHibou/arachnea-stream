@@ -30,7 +30,8 @@ steps:
       min_valid_count: 1
       required_non_empty:
         - ["title"]
-        - ["link"]
+        # Videos and collections share a public URL; collections use request.query_url for navigation.
+        - ["web-link"]
 
   - id: home_categories
     operation: load_home

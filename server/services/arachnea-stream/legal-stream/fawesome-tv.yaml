@@ -1,0 +1,1590 @@
+id: fawesome-tv
+title: "Fawesome"
+logo: "https://fawesome.tv/home/new/v469/assets/img/favicons/apple-touch-icon.png"
+description:
+  fr: "Films et series en streaming gratuit (AVOD) sur Fawesome TV."
+  en: "Free AVOD movies and TV shows on Fawesome TV."
+http:
+  mode: direct
+  user_agent_profile: firefox
+
+constants:
+  - name: public_base
+    value: "https://fawesome.tv"
+    description: "Public website base URL."
+  - name: api_version
+    value: "v469"
+    description: "API version segment used by the public site API."
+  - name: api_base
+    value: "{public_base}/home/new/{api_version}/api"
+    description: "Base URL of the public site API."
+  - name: app_id
+    value: "9"
+    description: "Application identifier expected by the API."
+  - name: site_id
+    value: "236"
+    description: "Site identifier expected by the API."
+  - name: platform_id
+    value: "1217575"
+    description: "Platform/auth token expected by the API."
+  - name: api_semver
+    value: "sv9.0"
+    description: "API semantic version expected by the API."
+  - name: common_query
+    value: "appId={app_id}&siteId={site_id}&auth-token={platform_id}"
+    description: "Common query string appended to API requests."
+
+shared:
+  media_types_fawesome_tv: &media_types_fawesome_tv
+    - collection
+    - video/movie
+    - video/show/serie
+  rewrite_rapi: &rewrite_rapi
+    - type: regex_find_all
+      pattern: "^https://rapi\\.ifood\\.tv(/.*)$"
+      format: "{api_base}{1}"
+  strip_empty_query_param: &strip_empty_query_param
+    type: regex_replace_all
+    pattern: "&[^&=?#]+=(&|$)"
+    replacement: "$1"
+  fawesome_origin_headers: &fawesome_origin_headers
+    - name: Referer
+      actions:
+        - type: format_text
+          argument: "{public_base}/"
+    - name: Origin
+      actions:
+        - type: format_text
+          argument: "{public_base}"
+  fawesome_api_headers: &fawesome_api_headers
+    - name: token
+      actions:
+        - type: format_text
+          argument: "{_token}"
+    - name: Cookie
+      actions:
+        - type: format_text
+          argument: "_token={_token}"
+    - name: Referer
+      actions:
+        - type: format_text
+          argument: "{public_base}/"
+    - name: Origin
+      actions:
+        - type: format_text
+          argument: "{public_base}"
+  entries_catalog_cards: &entries_catalog_cards
+    - name: source
+      type: string
+      select: first
+      actions:
+        - type: format_text
+          argument: "fawesome-tv"
+    - name: media-type
+      type: string
+      select: first
+      actions:
+        - type: build_url
+          base: "{kind}|{action}|{web}|{series}"
+          fields:
+            kind: /item_type
+            action: /actiontype
+            web: /web_url
+            series: /series_name
+        - type: regex_replace_all
+          pattern: "^movie\\|.*$"
+          replacement: "video/movie"
+        - type: regex_replace_all
+          pattern: "^(tvshow|miniseries)\\|.*$"
+          replacement: "video/show/serie"
+        - type: regex_replace_all
+          pattern: "^[^|]*\\|category\\|.*$"
+          replacement: "collection"
+        - type: regex_replace_all
+          pattern: "^[^|]*\\|[^|]*\\|(?:https?://[^/]+/)?category/.*$"
+          replacement: "collection"
+        - type: regex_replace_all
+          pattern: "^[^|]*\\|[^|]*\\|[^|]*\\|.+$"
+          replacement: "video/show/serie"
+        - type: map
+          argument:
+            video/movie: video/movie
+            video/show/serie: video/show/serie
+            collection: collection
+          default: null
+    - name: title
+      type: string
+      pointer: /title
+      select: first
+    - name: link
+      type: string
+      select: first
+      actions: &catalog_card_link
+        - type: build_url
+          base: "{typ}|{nid}|{u}|{api_base}|{platform_id}|{common_query}"
+          fields:
+            typ: /type
+            nid: /node_id
+            u: /url
+        - type: regex_replace_all
+          pattern: "^listoflist\\|[^|]*\\|https://rapi\\.ifood\\.tv(.*?)\\|([^|]*)\\|[^|]*\\|.*$"
+          replacement: "$2$1"
+        - type: regex_replace_all
+          pattern: "^[^|]*\\|(\\d+)\\|[^|]*\\|([^|]*)\\|([^|]*)\\|(.*)$"
+          replacement: "$2/recipes.php?searchType=nodeid&start-index=0&gridstyle=flat-movie&max-results=1&platform_id=$3&$4&dltype=1&nid=$1"
+    - name: request > query_url
+      type: string
+      select: first
+      actions: *catalog_card_link
+    - name: web-link
+      type: string
+      pointer: /web_url
+      select: first
+      actions:
+        - type: map
+          argument:
+            "": null
+
+        - type: format_text
+          argument: "{public_base}/{}"
+    - name: description
+      type: string
+      pointer: /description
+      select: first
+    - name: duration
+      type: number
+      pointer: /runtime
+      select: first
+    - name: year
+      type: number
+      pointer: /release_date
+      select: first
+      actions:
+        - type: regex_find_all
+          pattern: "((?:19|20)\\d{2})"
+          format: "{1}"
+    - name: theme
+      type: string[]
+      pointer: /content_genre
+      select: all
+      actions:
+        - type: split
+          argument: ","
+        - type: map
+          argument:
+            "": null
+
+    - name: lang
+      type: string[]
+      pointer: /content_language_iso2
+      select: all
+    - name: rating
+      type: number
+      pointer: /popularity_rating
+      select: first
+      actions:
+        - type: format_text
+          argument: "{} / 10.0"
+        - type: math_formula
+    - name: price
+      type: string
+      select: first
+      actions:
+        - type: format_text
+          argument: "free"
+    - name: content-advisor
+      type: string
+      pointer: /age_appropriate_rating
+      select: first
+      actions:
+        - type: map
+          argument:
+            UN: null
+
+    - name: episode > label
+      type: string
+      select: first
+      actions:
+        - type: build_url
+          base: "S{season} E{episode}"
+          fields:
+            season: /season
+            episode: /episode
+        - type: regex_find_all
+          pattern: "^(S.+ E.+)$"
+          format: "{1}"
+    - name: season
+      type: string
+      pointer: /season
+      select: first
+    - name: tags
+      type: string[]
+      pointer: /mood_tags
+      select: all
+      actions:
+        - type: split
+          argument: ","
+        - type: map
+          argument:
+            "": null
+
+    - name: img/poster > link
+      type: string
+      pointer: /main_picture
+      select: first
+    - name: img/portrait > link
+      type: string
+      pointer: /bg_image_portrait
+      select: first
+    - name: img/landscape > link
+      type: string
+      pointer: /bg_image_landscape
+      select: first
+    - name: img/logo > link
+      type: string
+      pointer: /content_logo
+      select: first
+    - name: casting
+      type: string[]
+      pointer: /actors/*
+      select: all
+    - name: director
+      type: string[]
+      pointer: /directors/*
+      select: all
+  post_process_catalog_cards: &post_process_catalog_cards
+    - type: filter_items
+      source: entries
+      field: title
+      pattern: "^Live$"
+      keep_matching: false
+    - type: filter_items
+      source: entries
+      field: media-type
+      pattern: "^video/"
+      keep_matching: true
+
+queries:
+  - name: service_stream_metadata
+    scraper_type: static
+    entries:
+      - name: id
+        type: string
+        value: "{service_id}"
+      - name: title
+        type: string
+        value: "{service_title}"
+      - name: logo
+        type: string
+        value: "{service_logo}"
+      - name: description
+        type: object
+        value: "{service_description}"
+
+  - name: load_home
+    scraper_type: json
+    base_url: "{api_base}"
+    query_url: "{api_base}/getSecurityToken.php?&{common_query}"
+    request_headers: *fawesome_origin_headers
+    media_types: *media_types_fawesome_tv
+    row_pointer: /
+    entries:
+      - name: _token
+        type: string
+        pointer: /securityToken
+        select: first
+        actions:
+          - type: extract_variables
+            regex: "^(.*)$"
+            name: "@security_token"
+            value: "{1}"
+            on_duplicate: replace
+      - name: _home_url
+        type: string
+        select: first
+        actions:
+          - type: format_text
+            argument: "{api_base}/index.php?parent=home&{common_query}"
+        sub_queries:
+          - scraper_type: json
+            target: "parent"
+            request_headers: *fawesome_api_headers
+            row_pointer: /
+            entries:
+              - name: categories
+                type: object[]
+                pointer: /channels/*[actiontype=parent-category]
+                select: all
+                entries:
+                  - name: key
+                    type: string
+                    pointer: /category_id
+                    select: first
+                  - name: label
+                    type: string
+                    pointer: /name
+                    select: first
+                  - name: description
+                    type: string
+                    pointer: /description
+                    select: first
+                  - name: link
+                    type: string
+                    pointer: /url
+                    select: first
+                    actions: *rewrite_rapi
+                  - name: request > query_url
+                    type: string
+                    pointer: /url
+                    select: first
+                    actions: *rewrite_rapi
+                  - name: request > source
+                    type: string
+                    select: first
+                    actions:
+                      - type: format_text
+                        argument: "fawesome-tv"
+                  - name: request > channel
+                    type: string
+                    pointer: /name
+                    select: first
+      - name: _home_category_url
+        type: string
+        select: first
+        actions:
+          # The home index only exposes the parent-category tiles; the home
+          # content rails are the feed of the "Home" category itself.
+          - type: format_text
+            argument: "{api_base}/sub-categories.php?parent=Home&{common_query}"
+        sub_queries:
+          - scraper_type: json
+            target: "parent"
+            request_headers: *fawesome_api_headers
+            row_pointer: /
+            entries:
+              - name: sections
+                type: object[]
+                pointer: /channels/*
+                select: all
+                entries:
+                  - name: label
+                    type: string
+                    pointer: /name
+                    select: first
+                  - name: _row_type
+                    type: string
+                    pointer: /row_type
+                    select: first
+                  - name: key
+                    type: string
+                    pointer: /url
+                    select: first
+                    actions:
+                      - type: regex_find_all
+                        pattern: "[?&]keys=([^&]+)"
+                        format: "rail:{1}"
+                  - name: link
+                    type: string
+                    pointer: /url
+                    select: first
+                    actions: *rewrite_rapi
+    post_process:
+      - type: filter_items
+        source: categories
+        field: label
+        pattern: "^Live$"
+        keep_matching: false
+      - type: filter_items
+        source: sections
+        field: _row_type
+        pattern: "^(live|app-suggestions)$"
+        keep_matching: false
+      - type: filter_items
+        source: sections
+        field: label
+        pattern: "^(Queue|Recently Watched|[Ss]uggested [Cc]hannels)$"
+        keep_matching: false
+      - type: filter_fields
+        source: sections
+        field: label
+        pattern: "."
+        keep_matching: true
+        remove:
+          - _row_type
+      - type: remove_fields
+        fields:
+          - _token
+          - _home_url
+          - _home_category_url
+
+  - name: get_category
+    scraper_type: json
+    base_url: "{api_base}"
+    query_url: "{api_base}/getSecurityToken.php?&{common_query}"
+    request_headers: *fawesome_origin_headers
+    media_types: *media_types_fawesome_tv
+    row_pointer: /
+    entries:
+      - name: _catalog_url
+        type: string
+        select: first
+        actions:
+          - type: format_text
+            argument: "{query_url}"
+          - type: regex_replace_all
+            pattern: "^https://rapi\\.ifood\\.tv"
+            replacement: "{api_base}"
+          - *strip_empty_query_param
+          - *strip_empty_query_param
+          - *strip_empty_query_param
+          - *strip_empty_query_param
+        sub_queries:
+          - scraper_type: json
+            target: "parent"
+            request_headers: *fawesome_api_headers
+            row_pointer: /
+            entries:
+              - name: sections
+                type: object[]
+                pointer: /channels/*
+                select: all
+                entries:
+                  - name: label
+                    type: string
+                    pointer: /name
+                    select: first
+                  - name: label
+                    type: string
+                    pointer: /title
+                    select: first
+                  - name: _row_type
+                    type: string
+                    pointer: /row_type
+                    select: first
+                  - name: key
+                    type: string
+                    pointer: /url
+                    select: first
+                    actions:
+                      - type: regex_find_all
+                        pattern: "[?&]keys=([^&]+)"
+                        format: "rail:{1}"
+                  - name: link
+                    type: string
+                    pointer: /url
+                    select: first
+                    actions: *rewrite_rapi
+                  - name: key
+                    type: string
+                    pointer: /feed
+                    select: first
+                    actions:
+                      - type: regex_find_all
+                        pattern: "[?&]keys=([^&]+)"
+                        format: "rail:{1}"
+                  - name: link
+                    type: string
+                    pointer: /feed
+                    select: first
+                    actions: *rewrite_rapi
+            post_process:
+              - type: filter_items
+                source: sections
+                field: _row_type
+                pattern: "^(live|app-suggestions)$"
+                keep_matching: false
+              - type: filter_items
+                source: sections
+                field: label
+                pattern: "^(Queue|Recently Watched|[Ss]uggested [Cc]hannels)$"
+                keep_matching: false
+              - type: filter_fields
+                source: sections
+                field: label
+                pattern: "."
+                keep_matching: true
+                remove:
+                  - _row_type
+      - name: _token
+        type: string
+        pointer: /securityToken
+        select: first
+        actions:
+          - type: extract_variables
+            regex: "^(.*)$"
+            name: "@security_token"
+            value: "{1}"
+            on_duplicate: replace
+    post_process:
+      - type: remove_fields
+        fields:
+          - _catalog_url
+          - _token
+
+  - name: get_section
+    scraper_type: json
+    base_url: "{api_base}"
+    query_url: "{api_base}/getSecurityToken.php?&{common_query}"
+    request_headers: *fawesome_origin_headers
+    media_types: *media_types_fawesome_tv
+    row_pointer: /
+    entries:
+      - name: _catalog_url
+        type: string
+        select: first
+        actions:
+          - type: format_text
+            argument: "{query_url}&start-index={page_index}"
+          - type: regex_replace_all
+            pattern: "^https://rapi\\.ifood\\.tv"
+            replacement: "{api_base}"
+          - *strip_empty_query_param
+          - *strip_empty_query_param
+          - *strip_empty_query_param
+          - *strip_empty_query_param
+        sub_queries:
+          - scraper_type: json
+            target: "parent"
+            request_headers: *fawesome_api_headers
+            row_pointer: /
+            entries:
+              - name: current_page
+                type: number
+                select: first
+                actions:
+                  - type: format_text
+                    argument: "{page}"
+              - name: page_size
+                type: number
+                pointer: /params/limit
+                select: first
+              - name: total
+                type: number
+                pointer: /count
+                select: first
+              - name: total_pages
+                type: number
+                pointer: /count
+                select: first
+                actions:
+                  - type: format_text
+                    argument: "({} + 19) / 20"
+                  - type: math_formula
+              - name: entries
+                type: object[]
+                pointer: /results/*
+                select: all
+                entries: *entries_catalog_cards
+      - name: _token
+        type: string
+        pointer: /securityToken
+        select: first
+        actions:
+          - type: extract_variables
+            regex: "^(.*)$"
+            name: "@security_token"
+            value: "{1}"
+            on_duplicate: replace
+    post_process:
+      - type: filter_items
+        source: entries
+        field: title
+        pattern: "^Live$"
+        keep_matching: false
+      - type: filter_fields
+        source: entries
+        field: media-type
+        pattern: "^collection$"
+        remove:
+          - duration
+          - year
+          - theme
+          - lang
+          - rating
+          - price
+          - content-advisor
+          - episode
+          - season
+          - tags
+          - casting
+          - director
+      - type: filter_fields
+        source: entries
+        field: media-type
+        pattern: "^video(?:/|$)"
+        remove:
+          - request
+      - type: filter_items
+        source: entries
+        field: media-type
+        pattern: "^(collection|video(?:/.*)?)$"
+        keep_matching: true
+      - type: derive_pagination
+        total_pages_field: total_pages
+        page_size_field: page_size
+      - type: remove_fields
+        fields:
+          - _catalog_url
+          - _token
+          - total_pages
+          - page_size
+
+  - name: search
+    scraper_type: json
+    base_url: "{api_base}"
+    query_url: "{api_base}/getSecurityToken.php?&{common_query}"
+    request_headers: *fawesome_origin_headers
+    media_types: *media_types_fawesome_tv
+    row_pointer: /
+    entries:
+      - name: _catalog_url
+        type: string
+        select: first
+        actions:
+          - type: format_text
+            argument: "{api_base}/recipes.php?searchType=search&keys={search_terms}&platform_id={platform_id}&{common_query}&start-index={page_index}"
+        sub_queries:
+          - scraper_type: json
+            target: "parent"
+            request_headers: *fawesome_api_headers
+            row_pointer: /
+            entries:
+              - name: source
+                type: string
+                select: first
+                actions:
+                  - type: format_text
+                    argument: "fawesome-tv"
+              - name: current_page
+                type: number
+                select: first
+                actions:
+                  - type: format_text
+                    argument: "{page}"
+              - name: page_size
+                type: number
+                pointer: /params/limit
+                select: first
+              - name: total
+                type: number
+                pointer: /count
+                select: first
+              - name: total_pages
+                type: number
+                pointer: /count
+                select: first
+                actions:
+                  - type: format_text
+                    argument: "({} + 19) / 20"
+                  - type: math_formula
+              - name: entries
+                type: object[]
+                pointer: /results/*
+                select: all
+                entries: *entries_catalog_cards
+      - name: _token
+        type: string
+        pointer: /securityToken
+        select: first
+        actions:
+          - type: extract_variables
+            regex: "^(.*)$"
+            name: "@security_token"
+            value: "{1}"
+            on_duplicate: replace
+    post_process:
+      - type: filter_items
+        source: entries
+        field: title
+        pattern: "^Live$"
+        keep_matching: false
+      - type: filter_items
+        source: entries
+        field: media-type
+        pattern: "^video/"
+        keep_matching: true
+      - type: filter_items
+        source: entries
+        field: media-type
+        pattern: "^video(?:/|$)"
+        keep_matching: true
+      - type: filter_fields
+        source: entries
+        field: media-type
+        pattern: "^video(?:/|$)"
+        remove:
+          - request
+      - type: derive_pagination
+        total_pages_field: total_pages
+        page_size_field: page_size
+      - type: remove_fields
+        fields:
+          - _catalog_url
+          - _token
+          - total_pages
+          - page_size
+
+  - name: get_entry
+    scraper_type: json
+    base_url: "{api_base}"
+    query_url: "{api_base}/getSecurityToken.php?&{common_query}"
+    request_headers: *fawesome_origin_headers
+    media_types: *media_types_fawesome_tv
+    row_pointer: /
+    entries:
+      - name: _catalog_url
+        type: string
+        select: first
+        actions:
+          - type: format_text
+            argument: "{query_url}"
+          - type: regex_replace_all
+            pattern: "^https://rapi\\.ifood\\.tv"
+            replacement: "{api_base}"
+          - *strip_empty_query_param
+          - *strip_empty_query_param
+          - *strip_empty_query_param
+          - *strip_empty_query_param
+        sub_queries:
+          - scraper_type: json
+            target: "parent"
+            request_headers: *fawesome_api_headers
+            row_pointer: /
+            entries:
+              - name: source
+                type: string
+                select: first
+                actions:
+                  - type: format_text
+                    argument: "fawesome-tv"
+              - name: title
+                type: string
+                select: first
+                actions:
+                  - type: extract_field
+                    path: /results/0/title
+              - name: title
+                type: string
+                select: first
+                actions:
+                  - type: extract_field
+                    path: /showdetails/title
+              - name: description
+                type: string
+                select: first
+                actions:
+                  - type: extract_field
+                    path: /results/0/description
+              - name: description
+                type: string
+                select: first
+                actions:
+                  - type: extract_field
+                    path: /showdetails/description
+              - name: media-type
+                type: string
+                select: first
+                actions:
+                  - type: extract_field
+                    path: /results/0/item_type
+                  - type: map
+                    argument:
+                      movie: video/movie
+                      tvshow: video/show/serie
+                      miniseries: video/show/serie
+                    default: video/show/serie
+              - name: media-type
+                type: string
+                select: first
+                actions:
+                  - type: extract_field
+                    path: /showdetails/item_type
+                  - type: map
+                    argument:
+                      movie: video/movie
+                      tvshow: video/show/serie
+                      miniseries: video/show/serie
+                    default: video/show/serie
+              - name: link
+                type: string
+                select: first
+                actions:
+                  - type: format_text
+                    argument: "{query_url}"
+                  - type: regex_replace_all
+                    pattern: "^https://rapi\\.ifood\\.tv"
+                    replacement: "{api_base}"
+              - name: web-link
+                type: string
+                pointer: /results/0/web_url
+                select: first
+                actions:
+                  - type: map
+                    argument:
+                      "": null
+      
+                  - type: format_text
+                    argument: "{public_base}/{}"
+              - name: program-id
+                type: string
+                select: first
+                actions:
+                  - type: extract_field
+                    path: /results/0/node_id
+              - name: program-id
+                type: string
+                select: first
+                actions:
+                  - type: extract_field
+                    path: /showdetails/video_id
+              - name: video/trailer
+                type: string
+                pointer: /results/0/trailer_url
+                select: first
+                actions:
+                  - type: map
+                    argument:
+                      "": null
+      
+              - name: duration
+                type: number
+                select: first
+                actions:
+                  - type: extract_field
+                    path: /results/0/runtime
+              - name: duration
+                type: number
+                select: first
+                actions:
+                  - type: extract_field
+                    path: /showdetails/runtime
+              - name: year
+                type: number
+                pointer: /results/0/release_date
+                select: first
+                actions:
+                  - type: regex_find_all
+                    pattern: "((?:19|20)\\d{2})"
+                    format: "{1}"
+              - name: year
+                type: number
+                pointer: /showdetails/release_date
+                select: first
+                actions:
+                  - type: regex_find_all
+                    pattern: "((?:19|20)\\d{2})"
+                    format: "{1}"
+              - name: theme
+                type: string[]
+                pointer: /results/0/content_genre
+                select: all
+                actions:
+                  - type: split
+                    argument: ","
+                  - type: map
+                    argument:
+                      "": null
+      
+              - name: lang/audio
+                type: string[]
+                pointer: /results/0/content_language
+                select: all
+              - name: lang/subtitles
+                type: string[]
+                pointer: /results/0/cc_path_multi_lang/*/language
+                select: all
+              - name: lang
+                type: string[]
+                pointer: /results/0/content_language_iso2
+                select: all
+              - name: rating
+                type: number
+                select: first
+                actions:
+                  - type: extract_field
+                    path: /results/0/popularity_rating
+                  - type: format_text
+                    argument: "{} / 10.0"
+                  - type: math_formula
+              - name: rating
+                type: number
+                select: first
+                actions:
+                  - type: extract_field
+                    path: /showdetails/popularity_rating
+                  - type: format_text
+                    argument: "{} / 10.0"
+                  - type: math_formula
+              - name: price
+                type: string
+                select: first
+                actions:
+                  - type: format_text
+                    argument: "free"
+              - name: content-advisor
+                type: string
+                select: first
+                actions:
+                  - type: extract_field
+                    path: /results/0/age_appropriate_rating
+                  - type: map
+                    argument:
+                      UN: null
+      
+              - name: content-advisor
+                type: string
+                select: first
+                actions:
+                  - type: extract_field
+                    path: /showdetails/age_appropriate_rating
+                  - type: map
+                    argument:
+                      UN: null
+      
+              - name: img/poster > link
+                type: string
+                select: first
+                actions:
+                  - type: extract_field
+                    path: /results/0/main_picture
+              - name: img/poster > link
+                type: string
+                select: first
+                actions:
+                  - type: extract_field
+                    path: /showdetails/hd_image_portrait
+              - name: img/portrait > link
+                type: string
+                pointer: /results/0/bg_image_portrait
+                select: first
+              - name: img/portrait > link
+                type: string
+                pointer: /showdetails/bg_image_portrait
+                select: first
+              - name: img/landscape > link
+                type: string
+                select: first
+                actions:
+                  - type: extract_field
+                    path: /results/0/bg_image_landscape
+              - name: img/landscape > link
+                type: string
+                select: first
+                actions:
+                  - type: extract_field
+                    path: /showdetails/hd_image_landscape
+              - name: img/logo > link
+                type: string
+                pointer: /results/0/content_logo
+                select: first
+              - name: casting
+                type: string[]
+                pointer: /results/0/actors/*
+                select: all
+              - name: casting
+                type: string[]
+                pointer: /showdetails/actors/*
+                select: all
+              - name: director
+                type: string[]
+                pointer: /results/0/directors/*
+                select: all
+              - name: director
+                type: string[]
+                pointer: /showdetails/directors/*
+                select: all
+              - name: recommendations > link
+                type: string
+                pointer: /results/0/node_id
+                select: first
+                actions:
+                  - type: regex_find_all
+                    pattern: "^(\\d+)$"
+                    format: "{api_base}/recipes.php?searchType=similar&keys={1}&{common_query}"
+              - name: seasons
+                type: object[]
+                pointer: /channels/*
+                select: all
+                entries:
+                  - name: label
+                    type: string
+                    pointer: /title
+                    select: first
+                  - name: link
+                    type: string
+                    pointer: /feed
+                    select: first
+                    actions: *rewrite_rapi
+              - name: players
+                type: object[]
+                pointer: /results/*
+                select: all
+                entries:
+                  - name: name
+                    type: string
+                    select: first
+                    actions:
+                      - type: format_text
+                        argument: "Fawesome"
+                  - name: lang
+                    type: string
+                    pointer: /content_language_iso2
+                    select: first
+                    actions:
+                      - type: map
+                        argument:
+                          "": en
+          
+                  - name: _drm
+                    type: string
+                    pointer: /drm
+                    select: first
+                  - name: direct-link
+                    type: string
+                    pointer: /video_hls_url
+                    select: first
+                    actions:
+                      - type: map
+                        argument:
+                          "": null
+          
+                  - name: resolver
+                    type: string
+                    pointer: /drm
+                    select: first
+                    actions:
+                      - type: map
+                        argument:
+                          "1": scraper-query
+                        default: null
+                  - name: resolver > source
+                    type: string
+                    pointer: /drm
+                    select: first
+                    actions:
+                      - type: map
+                        argument:
+                          "1": fawesome-tv
+                        default: null
+                  - name: target
+                    type: string
+                    pointer: /video_url
+                    select: first
+      - name: _token
+        type: string
+        pointer: /securityToken
+        select: first
+        actions:
+          - type: extract_variables
+            regex: "^(.*)$"
+            name: "@security_token"
+            value: "{1}"
+            on_duplicate: replace
+    post_process:
+      - type: filter_fields
+        source: players
+        field: resolver
+        pattern: "^scraper-query$"
+        keep_matching: true
+        remove:
+          - direct-link
+          - _drm
+      - type: filter_fields
+        source: players
+        field: _drm
+        pattern: "^0$"
+        keep_matching: true
+        remove:
+          - resolver
+          - resolver > source
+          - target
+          - _drm
+      - type: filter_items
+        source: players
+        field: direct-link
+        pattern: "comingsoon"
+        keep_matching: false
+      - type: filter_items
+        source: players
+        field: target
+        pattern: "comingsoon"
+        keep_matching: false
+      - type: remove_fields
+        fields:
+          - _catalog_url
+          - _token
+
+  - name: get_season
+    scraper_type: json
+    base_url: "{api_base}"
+    query_url: "{api_base}/getSecurityToken.php?&{common_query}"
+    request_headers: *fawesome_origin_headers
+    media_types: *media_types_fawesome_tv
+    row_pointer: /
+    entries:
+      - name: _catalog_url
+        type: string
+        select: first
+        actions:
+          - type: format_text
+            argument: "{query_url}&start-index={page_index}"
+          - type: regex_replace_all
+            pattern: "^https://rapi\\.ifood\\.tv"
+            replacement: "{api_base}"
+          - *strip_empty_query_param
+          - *strip_empty_query_param
+          - *strip_empty_query_param
+          - *strip_empty_query_param
+        sub_queries:
+          - scraper_type: json
+            target: "parent"
+            request_headers: *fawesome_api_headers
+            row_pointer: /
+            entries:
+              - name: current_page
+                type: number
+                select: first
+                actions:
+                  - type: format_text
+                    argument: "{page}"
+              - name: page_size
+                type: number
+                pointer: /params/limit
+                select: first
+              - name: total
+                type: number
+                pointer: /count
+                select: first
+              - name: total_pages
+                type: number
+                pointer: /count
+                select: first
+                actions:
+                  - type: format_text
+                    argument: "({} + 19) / 20"
+                  - type: math_formula
+              - name: episodes
+                type: object[]
+                pointer: /results/*
+                select: all
+                entries:
+                  - name: title
+                    type: string
+                    pointer: /title
+                    select: first
+                  - name: description
+                    type: string
+                    pointer: /description
+                    select: first
+                  - name: duration
+                    type: number
+                    pointer: /runtime
+                    select: first
+                  - name: season
+                    type: string
+                    pointer: /season
+                    select: first
+                  - name: season-name
+                    type: string
+                    pointer: /series_name
+                    select: first
+                  - name: episode-number
+                    type: string
+                    pointer: /episode
+                    select: first
+                  - name: link
+                    type: string
+                    pointer: /node_id
+                    select: first
+                    actions:
+                      - type: regex_find_all
+                        pattern: "^(\\d+)$"
+                        format: "{api_base}/recipes.php?searchType=nodeid&start-index=0&gridstyle=flat-movie&max-results=1&platform_id={platform_id}&{common_query}&dltype=1&nid={1}"
+              - name: web-link
+                type: string
+                pointer: /web_url
+                select: first
+                actions:
+                  - type: map
+                    argument:
+                      "": null
+          
+                  - type: format_text
+                    argument: "{public_base}/{}"
+              - name: img/poster > link
+                type: string
+                pointer: /main_picture
+                select: first
+              - name: img/preview > link
+                type: string
+                pointer: /bg_image_landscape
+                select: first
+              - name: players
+                type: object[]
+                pointer: /
+                select: all
+                entries:
+                  - name: name
+                    type: string
+                    select: first
+                    actions:
+                      - type: format_text
+                        argument: "Fawesome"
+                  - name: lang
+                    type: string
+                    pointer: /content_language_iso2
+                    select: first
+                    actions:
+                      - type: map
+                        argument:
+                          "": en
+              
+                  - name: _drm
+                    type: string
+                    pointer: /drm
+                    select: first
+                  - name: direct-link
+                    type: string
+                    pointer: /video_hls_url
+                    select: first
+                    actions:
+                      - type: map
+                        argument:
+                          "": null
+              
+                  - name: resolver
+                    type: string
+                    pointer: /drm
+                    select: first
+                    actions:
+                      - type: map
+                        argument:
+                          "1": scraper-query
+                        default: null
+                  - name: resolver > source
+                    type: string
+                    pointer: /drm
+                    select: first
+                    actions:
+                      - type: map
+                        argument:
+                          "1": fawesome-tv
+                        default: null
+                  - name: target
+                    type: string
+                    pointer: /video_url
+                    select: first
+      - name: _token
+        type: string
+        pointer: /securityToken
+        select: first
+        actions:
+          - type: extract_variables
+            regex: "^(.*)$"
+            name: "@security_token"
+            value: "{1}"
+            on_duplicate: replace
+    post_process:
+      - type: set_nested_fields
+        source: episodes
+        nested_source: players
+        fields:
+          - target: name
+            value: "Fawesome"
+      - type: derive_pagination
+        entries_field: episodes
+        total_pages_field: total_pages
+        page_size_field: page_size
+      - type: remove_fields
+        fields:
+          - _catalog_url
+          - _token
+          - total_pages
+          - page_size
+
+  - name: get_recommendations
+    scraper_type: json
+    base_url: "{api_base}"
+    query_url: "{api_base}/getSecurityToken.php?&{common_query}"
+    request_headers: *fawesome_origin_headers
+    media_types: *media_types_fawesome_tv
+    row_pointer: /
+    entries:
+      - name: _catalog_url
+        type: string
+        select: first
+        actions:
+          - type: format_text
+            argument: "{query_url}&start-index={page_index}"
+          - type: regex_replace_all
+            pattern: "^https://rapi\\.ifood\\.tv"
+            replacement: "{api_base}"
+          - *strip_empty_query_param
+          - *strip_empty_query_param
+          - *strip_empty_query_param
+          - *strip_empty_query_param
+        sub_queries:
+          - scraper_type: json
+            target: "parent"
+            request_headers: *fawesome_api_headers
+            row_pointer: /
+            entries:
+              - name: current_page
+                type: number
+                select: first
+                actions:
+                  - type: format_text
+                    argument: "{page}"
+              - name: page_size
+                type: number
+                pointer: /params/limit
+                select: first
+              - name: total
+                type: number
+                pointer: /count
+                select: first
+              - name: total_pages
+                type: number
+                pointer: /count
+                select: first
+                actions:
+                  - type: format_text
+                    argument: "({} + 19) / 20"
+                  - type: math_formula
+              - name: entries
+                type: object[]
+                pointer: /results/*
+                select: all
+                entries: *entries_catalog_cards
+      - name: _token
+        type: string
+        pointer: /securityToken
+        select: first
+        actions:
+          - type: extract_variables
+            regex: "^(.*)$"
+            name: "@security_token"
+            value: "{1}"
+            on_duplicate: replace
+    post_process:
+      - type: filter_items
+        source: entries
+        field: title
+        pattern: "^Live$"
+        keep_matching: false
+      - type: filter_items
+        source: entries
+        field: media-type
+        pattern: "^video/"
+        keep_matching: true
+      - type: filter_items
+        source: entries
+        field: media-type
+        pattern: "^video(?:/|$)"
+        keep_matching: true
+      - type: filter_fields
+        source: entries
+        field: media-type
+        pattern: "^video(?:/|$)"
+        remove:
+          - request
+      - type: derive_pagination
+        total_pages_field: total_pages
+        page_size_field: page_size
+      - type: remove_fields
+        fields:
+          - _catalog_url
+          - _token
+          - total_pages
+          - page_size
+
+  - name: get_players
+    scraper_type: json
+    base_url: "{api_base}"
+    query_url: "{api_base}/getSecurityToken.php?&{common_query}"
+    request_headers: *fawesome_origin_headers
+    media_types: *media_types_fawesome_tv
+    row_pointer: /
+    entries:
+      - name: _catalog_url
+        type: string
+        select: first
+        actions:
+          - type: format_text
+            argument: "{query_url}"
+          - type: regex_replace_all
+            pattern: "^https://rapi\\.ifood\\.tv"
+            replacement: "{api_base}"
+          - *strip_empty_query_param
+          - *strip_empty_query_param
+          - *strip_empty_query_param
+          - *strip_empty_query_param
+        sub_queries:
+          - scraper_type: json
+            target: "parent"
+            request_headers: *fawesome_api_headers
+            row_pointer: /
+            entries:
+              - name: players
+                type: object[]
+                pointer: /results/*
+                select: all
+                entries:
+                  - name: name
+                    type: string
+                    select: first
+                    actions:
+                      - type: format_text
+                        argument: "Fawesome"
+                  - name: lang
+                    type: string
+                    pointer: /content_language_iso2
+                    select: first
+                    actions:
+                      - type: map
+                        argument:
+                          "": en
+          
+                  - name: _drm
+                    type: string
+                    pointer: /drm
+                    select: first
+                  - name: direct-link
+                    type: string
+                    pointer: /video_hls_url
+                    select: first
+                    actions:
+                      - type: map
+                        argument:
+                          "": null
+          
+                  - name: resolver
+                    type: string
+                    pointer: /drm
+                    select: first
+                    actions:
+                      - type: map
+                        argument:
+                          "1": scraper-query
+                        default: null
+                  - name: resolver > source
+                    type: string
+                    pointer: /drm
+                    select: first
+                    actions:
+                      - type: map
+                        argument:
+                          "1": fawesome-tv
+                        default: null
+                  - name: target
+                    type: string
+                    pointer: /video_url
+                    select: first
+      - name: _token
+        type: string
+        pointer: /securityToken
+        select: first
+        actions:
+          - type: extract_variables
+            regex: "^(.*)$"
+            name: "@security_token"
+            value: "{1}"
+            on_duplicate: replace
+    post_process:
+      - type: filter_fields
+        source: players
+        field: resolver
+        pattern: "^scraper-query$"
+        keep_matching: true
+        remove:
+          - direct-link
+          - _drm
+      - type: filter_fields
+        source: players
+        field: _drm
+        pattern: "^0$"
+        keep_matching: true
+        remove:
+          - resolver
+          - resolver > source
+          - target
+          - _drm
+      - type: filter_items
+        source: players
+        field: direct-link
+        pattern: "comingsoon"
+        keep_matching: false
+      - type: filter_items
+        source: players
+        field: target
+        pattern: "comingsoon"
+        keep_matching: false
+      - type: remove_fields
+        fields:
+          - _catalog_url
+          - _token
+
+  - name: resolve_stream
+    scraper_type: json
+    base_url: "{api_base}"
+    query_url: "{api_base}/getSecurityToken.php?&{common_query}"
+    request_headers: *fawesome_origin_headers
+    row_pointer: /
+    entries:
+      - name: stream_url
+        type: string[]
+        select: first
+        actions:
+          - type: format_text
+            argument: "{url}"
+          - type: regex_replace_all
+            pattern: "comingsoon"
+            replacement: ""
+          - type: map
+            argument:
+              "": null
+  
+      - name: manifest_type
+        type: string
+        select: first
+        actions:
+          - type: format_text
+            argument: "mpd"
+      - name: license_url
+        type: string
+        select: first
+        actions:
+          - type: format_text
+            argument: "{api_base}/drmService.php?platform_id={platform_id}&{common_query}&apiEnv=production&drm_type=widevine&drm-type=widevine"
+      - name: license_headers > token
+        type: string
+        pointer: /securityToken
+        select: first
+      - name: license_headers > Cookie
+        type: string
+        pointer: /securityToken
+        select: first
+        actions:
+          - type: format_text
+            argument: "_token={}"
+      - name: license_headers > Referer
+        type: string
+        select: first
+        actions:
+          - type: format_text
+            argument: "{public_base}/"
+      - name: license_headers > Origin
+        type: string
+        select: first
+        actions:
+          - type: format_text
+            argument: "{public_base}"
+      - name: error_message
+        type: string
+        select: first
+        actions:
+          - type: format_text
+            argument: "{url}"
+          - type: regex_find_all
+            pattern: "comingsoon"
+            format: "This title is not yet available."

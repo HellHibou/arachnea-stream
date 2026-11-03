@@ -3,11 +3,8 @@ import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
 import { useServiceMetadata } from '@/composables/useServiceMetadata'
-import type { MediaItem, ThumbnailImageFit, ThumbnailOrientation } from '@/types/media'
-import {
-  encodeEntryRouteParam,
-  encodeLiveRoutePayload,
-} from '@/router/routePayloads'
+import type { CatalogItem, MediaItem, ThumbnailImageFit, ThumbnailOrientation } from '@/types/media'
+import { mediaPresentation, mediaRoute } from '@/services/mediaRouting'
 
 import MediaCardCardLayout from './media-card/MediaCardCardLayout.vue'
 import MediaCardListLayout from './media-card/MediaCardListLayout.vue'
@@ -15,17 +12,14 @@ import MediaCardListLayout from './media-card/MediaCardListLayout.vue'
 /** Available layout modes for the media card. */
 type MediaCardLayout = 'card' | 'list'
 
-/** Route targeted by the card action when the card is selected. */
-export type MediaCardRouteName = 'entry-details' | 'live-details'
-
 /**
  * Props accepted by the media card component.
  */
 interface Props {
   /**
-   * Media item rendered by the card.
+   * Entry, category or live card rendered by the component.
    */
-  item: MediaItem
+  item: CatalogItem
   /**
    * Thumbnail orientation applied to the card layout.
    */
@@ -54,11 +48,6 @@ interface Props {
    * @default true
    */
   showServiceLogo?: boolean
-  /**
-   * Route targeted by the card action when the card is selected.
-   * @default 'entry-details'
-   */
-  routeName?: MediaCardRouteName
 }
 
 /** Component props with applied defaults. */
@@ -67,11 +56,10 @@ const props = withDefaults(defineProps<Props>(), {
   hideMissingThumbnail: false,
   isPreviewOpen: false,
   showServiceLogo: true,
-  routeName: 'entry-details',
 })
 
 const emit = defineEmits<{
-  /** Emitted when the card is selected. */
+  /** Emitted when any catalog card with an available route is selected. */
   select: [item: MediaItem]
   /** Emitted when the preview should be opened. */
   previewOpen: [itemId: string]
@@ -127,47 +115,16 @@ const showListPoster = computed(() =>
  */
 const displayTitle = computed(() => props.item.title?.trim() || 'Titre indisponible')
 
-/**
- * Indicates whether the card can request loading entry details from the backend.
- */
-/** Whether the card can request loading entry details from the backend. */
-  const canSelectItem = computed(() => Boolean(props.item.source))
-
-/** Vue Router instance used to resolve the card action link. */
+/** Shared route used by both the native link and selection availability. */
+const destination = computed(() => mediaRoute(props.item))
+/** Whether the type and target are supported by the registered view. */
+const canSelectItem = computed(() => Boolean(destination.value))
+/** Shared presentation associated with the registered media type. */
+const presentation = computed(() => mediaPresentation(props.item))
+/** Vue Router instance used to resolve the native card link. */
 const router = useRouter()
-
-/**
- * Resolves the internal route targeted by the card action button.
- */
-const actionHref = computed(() => {
-  if (!props.item.source || !props.item.entryUrl) {
-    return null
-  }
-
-  if (props.routeName === 'live-details') {
-    return router.resolve({
-      name: 'live-details',
-      params: {
-        encodedLive: encodeLiveRoutePayload({
-          v: 1,
-          source: props.item.source,
-          channel: props.item.entryUrl,
-        }),
-      },
-    }).href
-  }
-
-  return router.resolve({
-    name: 'entry-details',
-    params: {
-      encodedEntry: encodeEntryRouteParam({
-        source: props.item.source,
-        entryUrl: props.item.entryUrl,
-        title: props.item.title,
-      }),
-    },
-  }).href
-})
+/** Native destination for ordinary, modified and context-menu link navigation. */
+const actionHref = computed(() => destination.value ? router.resolve(destination.value).href : null)
 
 /**
  * Formats the rating for display in the card badge.
@@ -204,7 +161,7 @@ function handleServiceLogoError() {
 }
 
 /**
- * Emits the current item when the preview action should load its detailed entry.
+ * Emits the typed navigation target when the card is selected.
  */
 function handleSelect() {
   if (!canSelectItem.value) {
@@ -257,6 +214,7 @@ function handlePopupRootChange(element: HTMLElement | null) {
   <MediaCardListLayout
     v-if="isListLayout"
     :item="item"
+    :stacked-artwork="presentation.stackedArtwork"
     :display-title="displayTitle"
     :can-select-item="canSelectItem"
     :formatted-rating="formattedRating"
@@ -264,6 +222,7 @@ function handlePopupRootChange(element: HTMLElement | null) {
     :thumbnail-orientation="thumbnailOrientation"
     :thumbnail-image-fit="thumbnailImageFit"
     :show-list-poster="showListPoster"
+    :action-label="presentation.actionLabel"
     :image-available="imageAvailable"
     :service-title="serviceTitle"
     :service-logo="serviceLogo"
@@ -277,6 +236,7 @@ function handlePopupRootChange(element: HTMLElement | null) {
   <MediaCardCardLayout
     v-else
     :item="item"
+    :stacked-artwork="presentation.stackedArtwork"
     :display-title="displayTitle"
     :can-select-item="canSelectItem"
     :formatted-rating="formattedRating"

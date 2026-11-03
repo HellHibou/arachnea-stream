@@ -1,4 +1,4 @@
-import type { Collection, MediaItem } from '@/types/media'
+import type { CatalogItem, MediaSelectionTarget, Collection } from '@/types/media'
 import type { HomeContentIdentity } from '@/types/customHome'
 
 /**
@@ -53,6 +53,8 @@ export interface HomeBannerPlayer {
  * Featured banner rendered at the top of the home catalog.
  */
 export interface HomeBanner {
+  /** Shared type-driven navigation target; absent on legacy locally constructed banners. */
+  target?: MediaSelectionTarget
   /** The unique identifier for the banner. */
   id: string
   /** The title to display on the banner. */
@@ -96,7 +98,7 @@ export interface HomeSectionSource {
 }
 
 /**
- * One selectable subsection within a grouped home media rail.
+ * One selectable subsection within a grouped home catalog rail.
  */
 export interface HomeSectionSubsection {
   /** Source-owned identity, scoped under the parent section. */
@@ -105,9 +107,9 @@ export interface HomeSectionSubsection {
   key: string
   /** The display label for the subsection. */
   label: string | null
-  /** The list of media items in this subsection. */
-  items: MediaItem[]
-  /** Source order used to interleave media items in this subsection. */
+  /** Entry, category and live cards in this subsection. */
+  items: CatalogItem[]
+  /** Source order used to interleave catalog cards in this subsection. */
   sourceOrder: string[]
   /** The list of source descriptors for this subsection. */
   sources: HomeSectionSource[]
@@ -118,7 +120,7 @@ export interface HomeSectionSubsection {
 }
 
 /**
- * One grouped media rail rendered below the featured content.
+ * One grouped catalog rail rendered below the featured content.
  */
 export interface HomeSection {
   /** Saved custom-block display defaults, overridden by explicit rendered-group preferences. */
@@ -141,9 +143,9 @@ export interface HomeSection {
    * Stable preference key used to persist frontend ordering choices.
    */
   preferenceKey: string
-  /** The list of media items in this section. */
-  items: MediaItem[]
-  /** Source order used to interleave media items in this section. */
+  /** Entry, category and live cards in this section. */
+  items: CatalogItem[]
+  /** Source order used to interleave catalog cards in this section. */
   sourceOrder: string[]
   /** The list of source descriptors for this section. */
   sources: HomeSectionSource[]

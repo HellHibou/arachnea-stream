@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from
 import type { MediaItem, ThumbnailImageFit } from '@/types/media'
 import { useI18n } from '@/i18n'
 
-import MediaCardCollection, { type MediaCardRouteName } from '../MediaCardCollection.vue'
+import MediaCardCollection from '../MediaCardCollection.vue'
 
 /**
  * Props accepted by the generic selectable catalog section rendered below the metadata.
@@ -37,18 +37,12 @@ interface Props {
    * @default 'cover'
    */
   thumbnailImageFit?: ThumbnailImageFit
-  /**
-   * Route targeted by each item card action.
-   * @default 'entry-details'
-   */
-  itemRouteName?: MediaCardRouteName
 }
 
 /** Component props with applied defaults. */
 const props = withDefaults(defineProps<Props>(), {
   showServiceLogo: true,
   thumbnailImageFit: 'cover',
-  itemRouteName: 'entry-details',
 })
 /** Internationalization utilities. */
 const { t } = useI18n()
@@ -225,7 +219,6 @@ watch(
         :thumbnail-image-fit="props.thumbnailImageFit"
         :hide-missing-list-thumbnails="true"
         :show-service-logo="props.showServiceLogo"
-        :route-name="props.itemRouteName"
         @select="handleItemSelect"
       />
 

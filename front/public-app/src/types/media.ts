@@ -1,4 +1,24 @@
 import type { ResolvedPlayerMediaSource } from '@/services/players'
+import type { HomeCategory } from '@/types/home'
+
+/** Explicit live target, independent of membership in the live channel list. */
+export interface LiveSelectionTarget {
+  /** Backend source that resolves the target. */
+  source: string
+  /** Opaque identifier accepted by get_live, including event identifiers. */
+  channel: string
+  /** Optional display title retained when opening a direct link. */
+  title?: string | null
+  /** Optional catalog artwork retained when opening a direct link. */
+  imageUrl?: string | null
+  /** Optional catalog description retained when opening a direct link. */
+  description?: string | null
+  /** Optional public page of the selected live content. */
+  webUrl?: string | null
+}
+
+/** Catalog cards share presentation and retain source-specific navigation descriptors. */
+export type CatalogItem = MediaItem
 
 /**
  * Determines the effective thumbnail orientation for a media item based on
@@ -10,7 +30,7 @@ import type { ResolvedPlayerMediaSource } from '@/services/players'
  * @returns The effective orientation for this item.
  */
 export function getEffectiveOrientation(
-  item: MediaItem,
+  item: CatalogItem,
   defaultOrientation: ThumbnailOrientation,
 ): ThumbnailOrientation {
   const hasPortrait = Boolean(item.imagePosterUrl ?? item.imagePortraitUrl)
@@ -49,12 +69,21 @@ export interface BackgroundMediaCandidate {
 export type MediaCardCollectionMode = 'grid' | 'single-row' | 'list'
 
 /**
- * Minimal target required to open an entry details screen.
+ * Content target routed by its media types and source-owned descriptors.
  */
 export interface MediaSelectionTarget {
+  /** Canonical media types used by the shared routing registry; absent for legacy targets. */
+  mediaTypeValues?: string[]
+  /** Source-owned request parameters retained for registered and future destinations. */
+  request?: Record<string, string>
+  /** Resolved category request descriptor, derived from the source payload. */
+  category?: HomeCategory
+  /** Resolved opaque live target, derived from the source payload. */
+  live?: LiveSelectionTarget
+
   /** The source identifier for the media entry. */
   source: string | null
-  /** The internal API URL to fetch entry details. */
+  /** Legacy entry URL or live-list opaque link; specialized descriptors take precedence. */
   entryUrl: string | null
   /** The public web URL to access the entry. */
   webUrl: string | null

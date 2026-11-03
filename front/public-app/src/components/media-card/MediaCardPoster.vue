@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import type { ThumbnailImageFit, ThumbnailOrientation } from '@/types/media'
 import { useI18n } from '@/i18n'
 import { formatPriceAccess } from '@/services/priceAccess'
@@ -8,6 +8,8 @@ import { formatPriceAccess } from '@/services/priceAccess'
  * Props accepted by the shared media poster component.
  */
 interface Props {
+  /** Shows two decorative thumbnail layers behind category artwork. @default false */
+  isCategory?: boolean
   /**
    * Stable title used as the accessible image label.
    */
@@ -75,6 +77,7 @@ interface Props {
 
 /** Component props with applied defaults. */
 const props = withDefaults(defineProps<Props>(), {
+  isCategory: false,
   mediaTypeLabel: null,
   audioLabel: null,
   durationLabel: null,
@@ -101,6 +104,24 @@ const imageSource = computed(() => {
   }
 })
 
+/** Artwork already loaded by the lazy foreground image. */
+const loadedImageSource = ref<string | null>(null)
+
+/** Reuses loaded artwork without making decorative layers fetch images eagerly. */
+const categoryStackStyle = computed(() =>
+  props.isCategory && imageSource.value && props.imageAvailable && loadedImageSource.value === imageSource.value
+    ? { '--media-card-stack-image': `url(${JSON.stringify(imageSource.value)})` }
+    : undefined,
+)
+
+/**
+ * Enables decorative artwork after the foreground has loaded.
+ * @param event Load event emitted by the foreground image.
+ */
+function handleImageLoad(event: Event): void {
+  loadedImageSource.value = (event.currentTarget as HTMLImageElement).getAttribute('src')
+}
+
 /** Display label for a paid-access badge, when the item needs one. */
 const priceLabel = computed(() =>
   formatPriceAccess(props.price, resolvedLanguage.value, t),
@@ -116,90 +137,137 @@ defineEmits<{
 
 <template>
   <div
-    class="media-card__poster"
-    :class="[
-      `media-card__poster--${thumbnailOrientation}`,
-      `media-card__poster--fit-${thumbnailImageFit}`,
-    ]"
+    class="media-card__poster-stack"
+    :class="{ 'media-card__poster-stack--category': isCategory }"
+    :style="categoryStackStyle"
   >
-    <!-- Reuse the poster as a decorative blurred backdrop when contain mode would otherwise expose empty edges. -->
-    <img
-      v-if="thumbnailImageFit === 'contain' && imageSource && imageAvailable"
-      class="media-card__image media-card__image--backdrop"
-      :src="imageSource"
-      loading="lazy"
-      alt=""
-      aria-hidden="true"
-    />
-
-    <img
-      v-if="imageSource && imageAvailable"
-      class="media-card__image media-card__image--foreground"
-      :src="imageSource"
-      loading="lazy"
-      :alt="displayTitle"
-      @error="$emit('imageError')"
-    />
-    <!-- Keep the visual fallback hidden from assistive tech because the card title already provides the accessible name. -->
-    <div v-else class="media-card__fallback" aria-hidden="true">
-      <span>{{ displayTitle }}</span>
-    </div>
-
     <div
-      v-if="serviceLogo || (showBadges && audioLabel)"
-      class="media-card__top-right-badges"
-      :class="{ 'media-card__top-right-badges--combined': serviceLogo && showBadges && audioLabel }"
+      class="media-card__poster"
+      :class="[
+        `media-card__poster--${thumbnailOrientation}`,
+        `media-card__poster--fit-${thumbnailImageFit}`,
+      ]"
     >
-      <span v-if="showBadges && audioLabel" class="media-card__audio">
-        {{ audioLabel }}
-      </span>
+      <!-- Reuse the poster as a decorative blurred backdrop when contain mode would otherwise expose empty edges. -->
+      <img
+        v-if="thumbnailImageFit === 'contain' && imageSource && imageAvailable"
+        class="media-card__image media-card__image--backdrop"
+        :src="imageSource"
+        loading="lazy"
+        alt=""
+        aria-hidden="true"
+      />
 
-      <span
-        v-if="serviceLogo"
-        class="media-card__preview-source-logo"
-        :title="serviceTitle ?? undefined"
+      <img
+        v-if="imageSource && imageAvailable"
+        class="media-card__image media-card__image--foreground"
+        :src="imageSource"
+        loading="lazy"
+        :alt="displayTitle"
+        @load="handleImageLoad"
+        @error="$emit('imageError')"
+      />
+      <!-- Keep the visual fallback hidden from assistive tech because the card title already provides the accessible name. -->
+      <div v-else class="media-card__fallback" aria-hidden="true">
+        <span>{{ displayTitle }}</span>
+      </div>
+
+      <div
+        v-if="serviceLogo || (showBadges && audioLabel)"
+        class="media-card__top-right-badges"
+        :class="{ 'media-card__top-right-badges--combined': serviceLogo && showBadges && audioLabel }"
       >
-        <img
-          class="media-card__preview-source-logo-image"
-          :src="serviceLogo"
-          :alt="serviceTitle ? `${serviceTitle} logo` : ''"
-          @error="$emit('serviceLogoError')"
-        />
-      </span>
-    </div>
-
-    <template v-if="showBadges">
-      <div v-if="priceLabel || mediaTypeLabel" class="media-card__top-left-badges">
-        <span
-          v-if="priceLabel"
-          class="media-card__premium-crown"
-          :title="priceLabel ?? undefined"
-          :aria-label="priceLabel ?? undefined"
-        >
-          <v-icon icon="mdi-crown" size="18" aria-hidden="true" />
+        <span v-if="showBadges && audioLabel" class="media-card__audio">
+          {{ audioLabel }}
         </span>
 
-        <span v-if="mediaTypeLabel" class="media-card__media-type">
-          {{ mediaTypeLabel }}
+        <span
+          v-if="serviceLogo"
+          class="media-card__preview-source-logo"
+          :title="serviceTitle ?? undefined"
+        >
+          <img
+            class="media-card__preview-source-logo-image"
+            :src="serviceLogo"
+            :alt="serviceTitle ? `${serviceTitle} logo` : ''"
+            @error="$emit('serviceLogoError')"
+          />
         </span>
       </div>
 
-      <span v-if="durationLabel" class="media-card__duration">
-        {{ durationLabel }}
-      </span>
+      <template v-if="showBadges">
+        <div v-if="priceLabel || mediaTypeLabel" class="media-card__top-left-badges">
+          <span
+            v-if="priceLabel"
+            class="media-card__premium-crown"
+            :title="priceLabel ?? undefined"
+            :aria-label="priceLabel ?? undefined"
+          >
+            <v-icon icon="mdi-crown" size="18" aria-hidden="true" />
+          </span>
 
-      <span
-        v-if="formattedRating != null"
-        class="media-card__rating"
-        :class="ratingClass"
-      >
-        {{ formattedRating }}
-      </span>
-    </template>
+          <span v-if="mediaTypeLabel" class="media-card__media-type">
+            {{ mediaTypeLabel }}
+          </span>
+        </div>
+
+        <span v-if="durationLabel" class="media-card__duration">
+          {{ durationLabel }}
+        </span>
+
+        <span
+          v-if="formattedRating != null"
+          class="media-card__rating"
+          :class="ratingClass"
+        >
+          {{ formattedRating }}
+        </span>
+      </template>
+    </div>
   </div>
 </template>
 
 <style scoped>
+.media-card__poster-stack--category {
+  position: relative;
+  isolation: isolate;
+  padding: 12px 12px 0 0;
+}
+
+.media-card__poster-stack--category::before,
+.media-card__poster-stack--category::after {
+  position: absolute;
+  content: '';
+  border: 1px solid var(--border-color-primary);
+  border-radius: var(--radius);
+  background-color: var(--bg-surface-strong);
+  background-image:
+    linear-gradient(rgba(12, 16, 24, 0.35), rgba(12, 16, 24, 0.35)),
+    var(--media-card-stack-image, none);
+  background-position: center;
+  background-size: cover;
+  box-shadow: 0 2px 5px var(--shadow-color);
+  pointer-events: none;
+}
+
+.media-card__poster-stack--category::before {
+  inset: 0 0 12px 12px;
+  z-index: 0;
+  filter: brightness(0.65);
+}
+
+.media-card__poster-stack--category::after {
+  inset: 6px;
+  z-index: 1;
+  filter: brightness(0.85);
+}
+
+.media-card__poster-stack--category > .media-card__poster {
+  z-index: 2;
+  border-radius: var(--radius);
+  box-shadow: 0 2px 6px var(--shadow-color);
+}
+
 .media-card__poster {
   position: relative;
   aspect-ratio: 0.72;

@@ -50,6 +50,7 @@ const isInvalidLivePayload = computed(() => Boolean(props.encodedLive) && !liveP
 
   <LiveEntryDetails
     v-else
+    :initial-target="livePayload"
     :initial-source="livePayload?.source ?? null"
     :initial-channel="livePayload?.channel ?? null"
     :is-background-animated="parameters.isBackgroundAnimated.value"

@@ -84,6 +84,18 @@ banner and section pagination updates are guarded against stale catalog loads.
 Navigation includes metadata refresh on errors and the catalog includes retry actions.
 Custom homes and source destinations are available through the permanent sidebar.
 
+## Catalog section layouts
+
+Home rails keep their saved collection mode (single row by default). Category
+catalogs display a single section as a multi-row grid and multiple sections as
+one row each. In both screens a chevron beside the section title toggles between
+the single-row and multi-row layouts without changing the section thumbnail
+orientation or image fit; the arrow only appears for those two modes. The
+chevron choice is local to the current screen and is not persisted.
+The floating scroll button scrolls up to the nearest expanded (multi-row)
+section title, positioned just below the sticky toolbar. When no expanded
+section starts above the viewport, it returns to the page top.
+
 ## Custom home rendering (lot 2B)
 
 Public accueil URLs use `/home/<title_slug>` (lowercase, accents removed, words
@@ -299,3 +311,33 @@ The tab strip supports creation, activation, closing and arrow/Home/End keyboard
 Settings are opened from the bold Settings entry below Video Services, in a scrollable
 modal dialog rather than a right toolbar popover. The toolbar settings button is removed.
 The Video Services expansion state remains persisted independently of sidebar visibility.
+
+Content navigation uses the single registry in `src/services/mediaRouting.ts`:
+`collection` opens `get_category`, exact `video/live` opens `get_live`, and `video`
+/ `video/*` opens `get_entry`. `audio/*` and `images/*` (and their base families)
+temporarily open `get_entry`; dedicated views remain future work. The same route
+builder serves native links, selections, banners, search and recommendations.
+Unknown/conflicting explicit types and incomplete targets are non-openable;
+absent/empty types preserve legacy entry navigation. Types are normalized and
+retained through pagination, merged rails and custom homes. Collection targets
+preserve the complete source request (`request.query_url` required), display an
+“Open category” action and have no entry URL. No saved-home migration is needed.
+Future media views extend this registry instead of individual card components.
+
+Category artwork uses two decorative thumbnail layers behind the foreground image
+in grid, single-row and list layouts. The rear layers reuse the foreground artwork
+after its lazy image loads, with a darker treatment. They use `--bg-surface-strong`
+when artwork is unavailable. The layers do not add interactive elements or alter
+entry/live cards.
+
+Live catalog cards carry `request.channel`, an opaque source-owned channel or
+event identifier, and navigate independently of the channel list. They retain a
+separate live target instead of an entry-details URL. Optional catalog title,
+artwork, description and public URL survive reloads in the existing v1 live route.
+The player requests `get_live` immediately even if `list_lives` is pending, empty
+or fails; stale selections and stream resolutions cannot overwrite a newer route.
+France TV classifies `is_live` videos per card, keeps collection/category/event
+navigation in its rails, includes live and collection rails, and preserves card
+order. Its static `get_live` emits the existing live resolver without a catalogue
+request. Search/recommendation media anchors and saved custom-home formats remain
+compatible. Actual authorized playback still depends on the provider.

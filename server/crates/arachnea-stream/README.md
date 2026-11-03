@@ -642,3 +642,30 @@ For source compatibility, `admin_composition::StreamAdminRuntimeAdapter` aliases
 its former module path), the public proxy option constants and
 `STREAM_SERVICES_STORE_NAME` remain available through reexports. No configuration,
 API-key, database-schema or encrypted-credential migration is necessary.
+
+Cards use `media-type` as their sole navigation classification: `collection`
+targets `get_category`, exact `video/live` targets `get_live`, and `video` /
+`video/*` targets `get_entry`. Existing `audio/*` and `images/*` content temporarily
+targets `get_entry` without dedicated format support. The frontend centralizes
+these rules in `src/services/mediaRouting.ts`, including links, selections,
+search, recommendations and banners. Unknown/conflicting explicit types are
+non-openable; absent/empty types retain legacy entry navigation.
+Collections carry a source and string-valued `request` parameters including
+`query_url`; live cards carry `request.channel`. Query `media_types` capabilities
+are distinct from each output card's `media-type`. The dynamic Rust facade
+transports these fields unchanged; extraction and response shaping remain
+YAML-owned. Fawesome preserves films/series and genre/actor collections, accepting
+both `name`/`url` and `title`/`feed` rail shapes; its search/recommendations remain
+video-only. France TV shared collection anchors now include their category
+requests in search/recommendations too. See the Stream FR/EN specifications.
+
+Live catalog cards carry `request.channel`, an opaque source-owned channel or
+event identifier, and navigate independently of the channel list. They retain a
+separate live target instead of an entry-details URL. Optional catalog title,
+artwork, description and public URL survive reloads in the existing v1 live route.
+The player requests `get_live` immediately even if `list_lives` is pending, empty
+or fails; stale selections and stream resolutions cannot overwrite a newer route.
+France TV classifies `is_live` videos per card, keeps collection/category/event
+navigation in its rails, includes live and collection rails, and preserves card
+order. Its static `get_live` emits the existing live resolver without a catalogue
+request. Saved custom-home formats remain compatible. Actual authorized playback still depends on the provider.

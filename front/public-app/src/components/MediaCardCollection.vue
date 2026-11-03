@@ -1,12 +1,11 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, toRef, useId, useSlots, useTemplateRef, watch } from 'vue'
 
-import type { MediaCardCollectionMode, MediaItem, ThumbnailImageFit, ThumbnailOrientation } from '@/types/media'
+import type { CatalogItem, MediaCardCollectionMode, MediaItem, ThumbnailImageFit, ThumbnailOrientation } from '@/types/media'
 import { getEffectiveOrientation } from '@/types/media'
 
-import MediaCard, { type MediaCardRouteName } from './MediaCard.vue'
+import MediaCard from './MediaCard.vue'
 
-export type { MediaCardRouteName }
 import { mediaCardCollectionPreviewManager } from '@/composables/media-card-collection/mediaCardCollectionPreviewManager'
 import { mediaCardCollectionScroll } from '@/composables/media-card-collection/mediaCardCollectionScroll'
 import { useI18n } from '@/i18n'
@@ -18,7 +17,7 @@ interface Props {
   /**
    * Items rendered by the collection.
    */
-  items: MediaItem[]
+  items: CatalogItem[]
   /**
    * Optional title displayed above the collection and exposed to assistive technology.
    */
@@ -103,11 +102,7 @@ interface Props {
      * @default true
      */
     showServiceLogo?: boolean
-    /**
-     * Route targeted by each card action when a card is selected.
-     * @default 'entry-details'
-     */
-    routeName?: MediaCardRouteName
+
   }
 
   /** Component props with applied defaults. */
@@ -122,7 +117,6 @@ interface Props {
     onLoadMore: undefined,
     autoLoadMore: false,
     showServiceLogo: true,
-    routeName: 'entry-details',
   })
 const emit = defineEmits<{
   /** Emitted when a media item is selected. */
@@ -336,7 +330,6 @@ watch(
            :hide-missing-thumbnail="hideMissingListThumbnails"
            :is-preview-open="openPreviewItemId === item.id"
            :show-service-logo="showServiceLogo"
-           :route-name="routeName"
            @select="handleSelect"
             @preview-open="handlePreviewOpen"
             @preview-close="handlePreviewClose"

@@ -5,7 +5,7 @@ import { useRouter } from 'vue-router'
 import type { MediaItem, ThumbnailImageFit } from '@/types/media'
 import type { ResolvedPlayerMediaSource } from '@/services/players'
 import type { EntryEpisode } from '@/types/entry'
-import { encodeEntryRouteParam } from '@/router/routePayloads'
+import { mediaRoute } from '@/services/mediaRouting'
 
 import EntryDetails from './EntryDetails.vue'
 import EntryDetailsCatalogSection from './entry-details/EntryDetailsCatalogSection.vue'
@@ -228,20 +228,8 @@ watch(
  * @param item Recommendation card selected from the rail.
  */
 function handleRecommendationSelect(item: MediaItem) {
-  if (!item.source || !item.entryUrl) {
-    return
-  }
-
-  void router.push({
-    name: 'entry-details',
-    params: {
-      encodedEntry: encodeEntryRouteParam({
-        source: item.source,
-        entryUrl: item.entryUrl,
-        title: item.title,
-      }),
-    },
-  })
+  const destination = mediaRoute(item)
+  if (destination) void router.push(destination)
 }
 
 /** Entry episode selection composable results. */

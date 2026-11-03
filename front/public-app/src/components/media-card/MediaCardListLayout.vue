@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import type { MediaItem, ThumbnailImageFit, ThumbnailOrientation } from '@/types/media'
+import type { CatalogItem, ThumbnailImageFit, ThumbnailOrientation } from '@/types/media'
+import { useI18n } from '@/i18n'
 
 import MediaCardActionButton from './MediaCardActionButton.vue'
 import MediaCardListContent from './MediaCardListContent.vue'
@@ -10,9 +11,13 @@ import MediaCardPoster from './MediaCardPoster.vue'
  */
 interface Props {
   /**
-   * Media item rendered by the card.
+   * Entry, category or live card rendered by the component.
    */
-  item: MediaItem
+  item: CatalogItem
+  /** Whether the registered media presentation uses stacked collection artwork. */
+  stackedArtwork: boolean
+  /** Translation key supplied by the shared media routing registry. */
+  actionLabel: string
   /**
    * Stable title shown when the backend title is missing.
    */
@@ -66,6 +71,9 @@ interface Props {
 /** Component props without defaults. */
 defineProps<Props>()
 
+/** Translated labels for category and entry actions. */
+const { t } = useI18n()
+
 defineEmits<{
   /** Emitted when the poster image fails to load. */
   imageError: []
@@ -87,6 +95,7 @@ defineEmits<{
   >
     <div v-if="showListPoster" class="media-card__list-poster">
       <MediaCardPoster
+        :is-category="stackedArtwork"
         :display-title="displayTitle"
         :image-poster-url="item.imagePosterUrl"
         :image-landscape-url="item.imageLandscapeUrl"
@@ -115,6 +124,7 @@ defineEmits<{
       <MediaCardActionButton
         :can-select-item="canSelectItem"
         :href="href"
+        :label="t(actionLabel)"
         is-list
         @select="$emit('select')"
       />

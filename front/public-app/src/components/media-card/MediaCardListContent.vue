@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { MediaItem } from '@/types/media'
+import type { CatalogItem } from '@/types/media'
 
 import MediaCardDetailsContent from './MediaCardDetailsContent.vue'
 
@@ -8,9 +8,9 @@ import MediaCardDetailsContent from './MediaCardDetailsContent.vue'
  */
 interface Props {
   /**
-   * Media item rendered by the card.
+   * Entry, category or live card rendered by the component.
    */
-  item: MediaItem
+  item: CatalogItem
   /**
    * Stable title shown when the backend title is missing.
    */
