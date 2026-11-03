@@ -75,116 +75,34 @@ impl StreamResolver<'_> {
         Ok(None)
     }
 
-    /// Fetches an embed page once for HTML-content resolver detection.
+    /// Fetches HTML for resolver recognition using Stream's existing limits.
     ///
-    /// The returned URL is the final HTTP redirect target, or the final simple JavaScript
-    /// redirect target when one was followed.
-    ///
-    /// Follows HTTP redirects (handled by the HTTP client, bounded by
-    /// `DEFAULT_MAX_REDIRECTS`) and additionally follows a **simple** JavaScript
-    /// redirect (`window.location.href = "…"` string-literal assignment) so content-based
-    /// detection operates on the final document instead of a redirecting shim. JavaScript is
-    /// never executed: only the target of the first plain literal assignment is extracted and
-    /// re-fetched via HTTP. The number of followed JS hops is bounded and each hop is validated
-    /// like the initial fetch (success status, `text/html`, size limit).
+    /// HTTP and literal JavaScript redirect budgets are independent. The size
+    /// limit checks the materialized body, not the number of downloaded bytes.
     ///
     /// # Arguments
     /// * `url` - Initial embed URL.
     ///
     /// # Errors
-    /// Returns an error on HTTP failure, unsupported content type, oversized body
-    /// or excessive JavaScript redirects.
+    /// Returns document retrieval, acceptance or redirect-limit errors.
     ///
     /// # Returns
-    /// The final document URL and its HTML body.
-    pub(super) async fn fetch_embed_html(&self, url: &str) -> Result<FetchedEmbedHtml> {
+    /// The final document URL and decoded HTML body.
+    pub(super) async fn fetch_embed_html(&self, url: &str) -> Result<FetchedHtmlDocument> {
         let http_config = ScraperHttpConfig {
             max_redirects: Some(DEFAULT_MAX_REDIRECTS),
             ..ScraperHttpConfig::default()
         };
         let client = self.scraper_agregator.create_http_client(http_config);
-
-        let mut current_url = url.to_string();
-        let mut visited: Vec<String> = Vec::new();
-
-        for _ in 0..=DEFAULT_MAX_REDIRECTS {
-            if visited.iter().any(|value| value == &current_url) {
-                break;
-            }
-            visited.push(current_url.clone());
-
-            let response = client
-                .send_for_request(http::Method::GET, &current_url, &HashMap::new(), None)
-                .await
-                .with_context(|| format!("Failed to fetch embed HTML `{}`", current_url))?;
-            let response_url = response.url().to_string();
-
-            if !response.status().is_success() {
-                bail!(
-                    "Failed to fetch embed HTML `{}`: HTTP status {}",
-                    current_url,
-                    response.status()
-                );
-            }
-
-            let content_type = response
-                .headers()
-                .get(http::header::CONTENT_TYPE)
-                .and_then(|value| value.to_str().ok())
-                .unwrap_or_default();
-            let mime_type = content_type
-                .split(';')
-                .next()
-                .map(str::trim)
-                .unwrap_or_default();
-
-            if !mime_type.eq_ignore_ascii_case("text/html") {
-                bail!(
-                    "Failed to inspect embed HTML `{}`: unsupported Content-Type `{}`",
-                    current_url,
-                    content_type
-                );
-            }
-
-            let bytes = response.bytes().await?;
-            if bytes.len() > MAX_EMBED_HTML_BYTES {
-                bail!(
-                    "Failed to inspect embed HTML `{}`: body is {} bytes, limit is {} bytes",
-                    current_url,
-                    bytes.len(),
-                    MAX_EMBED_HTML_BYTES
-                );
-            }
-
-            let body = response
-                .text()
-                .await
-                .with_context(|| format!("Failed to read embed HTML `{}`", current_url))?;
-
-            if let Some(target) = extract_simple_js_redirect_target(&body) {
-                if let Some(resolved) = resolve_redirect_target(&response_url, &target) {
-                    if resolved != response_url {
-                        tracing::debug!(target: "arachnea_stream::stream_resolver",
-                            current = %response_url,
-                            redirect = %resolved,
-                            "Following simple JS window.location.href redirect while fetching embed HTML"
-                        );
-                        current_url = resolved;
-                        continue;
-                    }
-                }
-            }
-
-            return Ok(FetchedEmbedHtml {
-                url: response_url,
-                html: body,
-            });
-        }
-
-        bail!(
-            "Failed to fetch embed HTML `{}`: too many JS redirects",
-            url
-        );
+        fetch_html_document(
+            &client,
+            url,
+            &HtmlFetchPolicy {
+                max_html_bytes: MAX_EMBED_HTML_BYTES,
+                max_js_redirects: Some(DEFAULT_MAX_REDIRECTS),
+            },
+        )
+        .await
     }
 
     /// Runs optional `can_resolve_html` on one service with `{url, html}` params.

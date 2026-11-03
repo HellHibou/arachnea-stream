@@ -40,6 +40,10 @@ pub use http_client::{
     SharedProxyConfigHandle,
 };
 
+/// HTML document retrieval with optional literal JavaScript redirects.
+pub mod html_fetch;
+pub use html_fetch::{fetch_html_document, FetchedHtmlDocument, HtmlFetchPolicy};
+
 /// Text extraction and normalization actions.
 pub mod actions;
 pub use actions::{
@@ -107,7 +111,8 @@ pub use proxy_provider::{
 pub mod ip_country_provider;
 #[cfg(feature = "arachnea-proxy")]
 pub use ip_country_provider::{
-    refresh_ip_country_store, IpCountryRefreshConfig, ScrapyfyIpCountryDataProvider,
+    refresh_ip_country_store, refresh_ip_country_store_from_inventory, IpCountryRefreshConfig,
+    ScrapyfyIpCountryDataProvider,
 };
 
 /// Encrypted credentials over generic typed service records.
@@ -134,8 +139,9 @@ pub use scraper_agregator::{
 /// Source activation policy contracts and persistence-backed implementation.
 pub mod source_enabled;
 pub use source_enabled::{
-    PersistenceSourceEnabled, ScraperSourceDescriptor, ScraperSourceEnabled,
-    SourceEnabledRepository, SourceServiceKey, SourceServiceRecord, TypedSourceEnabledRepository,
+    synchronize_service_defaults, synchronize_service_defaults_async, PersistenceSourceEnabled,
+    ScraperSourceDescriptor, ScraperSourceEnabled, SourceEnabledRepository, SourceServiceKey,
+    SourceServiceRecord, TypedSourceEnabledRepository,
 };
 /// Editable service parameter contracts and resolution.
 pub mod service_parameters;

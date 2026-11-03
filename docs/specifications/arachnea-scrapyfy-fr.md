@@ -2051,6 +2051,17 @@ Ceci crée la structure :
 { "media": { "images": { "poster": "..." } } }
 ```
 
+L’API Rust fournit aussi des lectures sans mutation : `trimmed_value()` lit
+uniquement le premier scalaire et retourne `None` s’il est vide après nettoyage ;
+`trimmed_values()` conserve les scalaires directs nettoyés non vides dans leur
+ordre, doublons compris. `first_child_value(name)` privilégie un enfant direct
+présent, même sans valeur, et ne consulte l’enfant du premier item explicite que
+si l’enfant direct est absent ; le premier scalaire est retourné brut et le nom
+n’est pas interprété comme un chemin. `trimmed_child_values()` ne lit que le
+premier scalaire de chaque enfant direct, en omettant les valeurs absentes ou
+vides après nettoyage, sans parcourir les items. Ces helpers ne changent ni les
+champs YAML ni le rendu JSON.
+
 ---
 
 ## 15. Exemple complet

@@ -6,19 +6,52 @@
 
 use anyhow::{Context, Result};
 use arachnea_core::persistence::{
-    EntityKey, EntityReader, EntitySchema, EntityWriter, Field, FieldType, PersistentEntity,
-    TypedEntityStore,
+    EntityKey, EntityReader, EntitySchema, EntityWriter, Field, FieldType, MemoryEntityStore,
+    PersistenceStoreConfig, PersistentEntity, TypedEntityStore,
 };
 use async_trait::async_trait;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 #[cfg(feature = "sqlite-persistence")]
-use arachnea_core::persistence::SqlKey;
+use arachnea_core::persistence::{PersistenceTableConfig, SqlKey, SqliteDatabase};
 #[cfg(feature = "sqlite-persistence")]
 use rusqlite::types::{Value as SqlValue, ValueRef};
 
 use super::ScraperQueryCollectionParameter;
+
+/// Creates an isolated in-memory source-state and encrypted-credentials table.
+///
+/// # Returns
+/// A new empty table; cloned handles share records, separate calls do not.
+///
+/// # Errors
+/// Returns an error if the crate-owned table configuration or schema is invalid.
+pub fn memory_source_store() -> Result<Arc<dyn TypedEntityStore<SourceServiceRecord>>> {
+    Ok(Arc::new(MemoryEntityStore::new(
+        PersistenceStoreConfig::new(crate::SERVICES_STORE_NAME, SourceServiceRecord::schema())?,
+    )?))
+}
+
+/// Opens the source-state table on an existing shared services database.
+///
+/// This does not open another database, migrate legacy stores, or change stored
+/// activation choices and encrypted credentials. Encryption remains caller-owned.
+///
+/// # Arguments
+/// * `database` - Open services database whose connection the table shares.
+///
+/// # Errors
+/// Returns an error if the table cannot be opened or its schema is incompatible.
+#[cfg(feature = "sqlite-persistence")]
+pub fn sqlite_source_store(
+    database: &SqliteDatabase,
+) -> Result<Arc<dyn TypedEntityStore<SourceServiceRecord>>> {
+    Ok(Arc::new(database.table(PersistenceTableConfig::new(
+        crate::SERVICES_STORE_NAME,
+        SourceServiceRecord::schema(),
+    )?)?))
+}
 
 /// Immutable source information provided to an activation policy.
 #[derive(Clone, Debug)]
@@ -364,4 +397,47 @@ impl ScraperSourceEnabled for PersistenceSourceEnabled {
             .map(|record| record.enabled)
             .unwrap_or(source.default_enabled))
     }
+}
+
+/// Creates missing persistent service states without changing existing choices.
+///
+/// Existing credentials and other fields on previously registered records are preserved.
+///
+/// # Arguments
+/// * `store` - Typed service-state store.
+/// * `sources` - Loaded source descriptors to register.
+///
+/// # Errors
+/// Returns an error when the store cannot be read or updated.
+pub async fn synchronize_service_defaults_async(
+    store: Arc<dyn TypedEntityStore<SourceServiceRecord>>,
+    sources: Vec<ScraperSourceDescriptor>,
+) -> Result<()> {
+    PersistenceSourceEnabled::with_typed_store(store)
+        .register_defaults(&sources)
+        .await
+}
+
+/// Blocking variant of [`synchronize_service_defaults_async`] for synchronous callers.
+///
+/// A dedicated worker thread and Tokio runtime keep this callable from within
+/// another Tokio runtime without nesting `block_on` on the calling thread.
+///
+/// # Arguments
+/// * `store` - Typed service-state store.
+/// * `sources` - Loaded source descriptors to register.
+///
+/// # Errors
+/// Returns an error when runtime creation or synchronization fails, or the worker thread panics.
+pub fn synchronize_service_defaults(
+    store: Arc<dyn TypedEntityStore<SourceServiceRecord>>,
+    sources: Vec<ScraperSourceDescriptor>,
+) -> Result<()> {
+    std::thread::spawn(move || {
+        tokio::runtime::Runtime::new()
+            .map_err(anyhow::Error::from)?
+            .block_on(synchronize_service_defaults_async(store, sources))
+    })
+    .join()
+    .map_err(|_| anyhow::anyhow!("service-state synchronization thread panicked"))?
 }

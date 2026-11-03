@@ -30,6 +30,77 @@ application. The localized-proxy test suites run with:
 cargo test --offline -p arachnea-scrapyfy --lib --features arachnea-proxy,sqlite-persistence
 ```
 
+## Source tables and node readers
+
+`scrapyfy::source_enabled::memory_source_store()` creates an isolated typed
+source-state table; `sqlite_source_store(&database)` opens that same schema on
+an existing services database and is gated by `sqlite-persistence`. Both use
+`SERVICES_STORE_NAME` (`arachnea-services`) and `SourceServiceRecord::schema()`.
+Applications retain database paths and connection assembly; the SQLite helper
+shares the supplied connection. Encryption keys, credentials encoding and legacy
+store handling are unchanged. Both helpers return configuration/backend errors.
+
+`ScraperDataNode` exposes explicit readers alongside its existing raw accessors:
+
+- `trimmed_value()` reads only the first scalar; absent or blank returns `None`,
+  even if a later scalar is nonblank.
+- `trimmed_values()` keeps all nonblank trimmed direct scalars in order, including
+  duplicates, and returns an empty vector if none remain.
+- `first_child_value(name)` reads the first raw scalar of a direct child. Only a
+  missing child enables fallback to that child's name in the first explicit item;
+  a present child without values still shadows items. No trimming or path parsing.
+- `trimmed_child_values()` maps direct child names to their first nonblank trimmed
+  scalar, without searching later scalars, items or nested children.
+
+These readers do not mutate nodes, change output types or alter JSON rendering.
+Field names and video-specific validation remain owned by Stream.
+
+## HTML document retrieval
+
+`fetch_html_document(&client, url, &policy)` returns a `FetchedHtmlDocument`
+containing the final response URL and decoded HTML. The caller supplies an
+`HtmlFetchPolicy` with `max_html_bytes` and `max_js_redirects`. `None` disables
+literal JavaScript redirect recognition; `Some(n)` explicitly follows at most
+`n` hops. `Some(0)` recognizes a redirect but rejects a hop requiring another
+fetch. This helper is available without Proxy or SQLite, and is not enabled
+implicitly for ordinary scraper queries.
+
+The supplied client's `ScraperHttpConfig::max_redirects` controls HTTP redirects
+independently on each fetch. Every retrieved document must have a successful
+status, `text/html` media type (parameters allowed), and an accepted body size.
+The size check happens after HTTP response materialization, before the existing
+HTTP text decoder: it does not bound downloads or allocations.
+
+Literal recognition scans for `window.location.href` assignments without parsing
+or executing JavaScript. Relative targets use the final response URL; only
+HTTP(S) targets are followed. Self-assignments to that final URL are ignored.
+Cycles compare exact requested URL strings, not all intermediate HTTP URLs, and
+report the same error as exhausted JavaScript hops. General diagnostics now
+refer to HTML documents under `arachnea_scrapyfy::scrapyfy::html_fetch`.
+
+## Source defaults and IP-country refresh
+
+`synchronize_service_defaults_async` registers missing source states through
+`PersistenceSourceEnabled::register_defaults`, preserving existing activation
+choices, credentials and other record fields. `synchronize_service_defaults`
+provides the synchronous adapter on a dedicated thread and Tokio runtime, so it
+can also be called from an existing Tokio runtime. Applications supply the typed
+store and loaded source descriptors and decide when to synchronize.
+
+With `arachnea-proxy`, `refresh_ip_country_store_from_inventory` collects literal
+IP hosts from the aggregator's current in-memory inventory and delegates to
+`refresh_ip_country_store`. It does not import SQLite records, discover proxies,
+resolve hostnames or deduplicate the IP list. The configured file is replaced
+with only the usable geolocation results, including `[]` for missing/empty
+inventory or no usable results. Existing mappings are not merged and active
+resolver maps are not reloaded. The default `data/ip-countries.json` is relative
+to the process working directory. These historical semantics are preserved;
+CLI bug fixes remain separate work.
+
+HTTP proxy-country normalization delegates to `arachnea_core::country` and keeps
+its permissive, sorted, deduplicated contract. It remains available without
+`arachnea-proxy` or `sqlite-persistence`.
+
 ## Test-only source-check support
 
 With `test-support`, `scrapyfy::scraper_manager::tests` retains the existing

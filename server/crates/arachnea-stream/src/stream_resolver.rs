@@ -15,14 +15,6 @@ use crate::services::player_resolver::{
 
 use crate::STREAM_RESOLVER_MAX_EMBED_HTML_BYTES as MAX_EMBED_HTML_BYTES;
 
-/// HTML fetched for content-based resolver recognition and its final URL after redirects.
-struct FetchedEmbedHtml {
-    /// Final HTTP(S) URL that delivered the document.
-    url: String,
-    /// Document body used by `can_resolve_html` and HTML resolvers.
-    html: String,
-}
-
 /// Functional result of one `resolve_stream` attempt for a single service.
 ///
 /// The previous binary outcome (`Some(stream)` / `None`) conflated "this service
@@ -491,23 +483,11 @@ impl std::error::Error for ResolveStreamNoStream {}
 /// # Returns
 /// Uppercase, deduplicated country codes in request order.
 fn normalize_scraper_query_proxy_countries(proxy_countries: &[String]) -> Result<Vec<String>> {
-    let mut countries = Vec::new();
-    for raw_country in proxy_countries {
-        let country = raw_country.trim();
-        if country.is_empty() {
-            continue;
-        }
-        if country.len() != 2 || !country.bytes().all(|byte| byte.is_ascii_alphabetic()) {
-            bail!(
-                "Invalid scraper-query proxy country `{country}`; expected a two-letter ISO code."
-            );
-        }
-        let country = country.to_ascii_uppercase();
-        if !countries.contains(&country) {
-            countries.push(country);
-        }
-    }
-    Ok(countries)
+    arachnea_core::country::validate_country_codes(proxy_countries).map_err(|country| {
+        anyhow::anyhow!(
+            "Invalid scraper-query proxy country `{country}`; expected a two-letter ISO code."
+        )
+    })
 }
 
 /// Proxies resolved stream URLs when the HTTP proxy endpoint is configured.
@@ -621,7 +601,5 @@ mod test_support;
 
 mod embed;
 
-mod redirects;
-use redirects::*;
 mod conversion;
 use conversion::*;

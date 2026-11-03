@@ -1,4 +1,4 @@
-//! Application store construction and service-default synchronization.
+//! Application store construction.
 
 use super::*;
 
@@ -51,10 +51,9 @@ pub fn sqlite_application_stores(
             CLOUDFLARE_SESSION_STORE_NAME,
             CachedChaserSession::schema(),
         )?)?),
-        source_enabled: Arc::new(services.table(PersistenceTableConfig::new(
-            STREAM_SERVICES_STORE_NAME,
-            SourceServiceRecord::schema(),
-        )?)?),
+        source_enabled: arachnea_scrapyfy::scrapyfy::source_enabled::sqlite_source_store(
+            &services,
+        )?,
     })
 }
 
@@ -78,47 +77,6 @@ pub fn memory_application_stores() -> Result<ApplicationStores> {
             CLOUDFLARE_SESSION_STORE_NAME,
             CachedChaserSession::schema(),
         )?)?),
-        source_enabled: Arc::new(MemoryEntityStore::new(PersistenceStoreConfig::new(
-            STREAM_SERVICES_STORE_NAME,
-            SourceServiceRecord::schema(),
-        )?)?),
+        source_enabled: arachnea_scrapyfy::scrapyfy::source_enabled::memory_source_store()?,
     })
-}
-
-/// Creates missing persistent service states without changing existing choices.
-///
-/// # Arguments
-/// * `store` - Typed service-state store.
-/// * `sources` - Loaded source descriptors to register.
-///
-/// # Errors
-/// Returns an error when the store cannot be read or updated.
-pub(super) async fn synchronize_service_defaults_async(
-    store: Arc<dyn TypedEntityStore<SourceServiceRecord>>,
-    sources: Vec<ScraperSourceDescriptor>,
-) -> Result<()> {
-    PersistenceSourceEnabled::with_typed_store(store)
-        .register_defaults(&sources)
-        .await
-}
-
-/// Blocking variant of [`synchronize_service_defaults_async`] for synchronous callers.
-///
-/// # Arguments
-/// * `store` - Typed service-state store.
-/// * `sources` - Loaded source descriptors to register.
-///
-/// # Errors
-/// Returns an error when the worker thread panics or synchronization fails.
-pub(super) fn synchronize_service_defaults(
-    store: Arc<dyn TypedEntityStore<SourceServiceRecord>>,
-    sources: Vec<ScraperSourceDescriptor>,
-) -> Result<()> {
-    std::thread::spawn(move || {
-        tokio::runtime::Runtime::new()
-            .map_err(anyhow::Error::from)?
-            .block_on(synchronize_service_defaults_async(store, sources))
-    })
-    .join()
-    .map_err(|_| anyhow::anyhow!("service-state synchronization thread panicked"))?
 }

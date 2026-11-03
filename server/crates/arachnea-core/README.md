@@ -2,6 +2,17 @@
 
 `arachnea-core` contains shared backend primitives used by the Arachnea stream executable and scraper engine.
 
+## Country-code primitives
+
+`arachnea_core::country` provides country-hint normalization without routing or
+scraper dependencies. `normalize_country_code` trims and uppercases without
+validation; `is_country_code` checks exactly two ASCII letters, without an ISO
+registry lookup. `normalize_country_codes` drops invalid hints and preserves
+first-occurrence order. `canonical_country_codes` drops invalid hints, sorts and
+deduplicates. `validate_country_codes` ignores empty hints but returns the first
+invalid nonempty trimmed hint for caller-owned diagnostics, preserving order for
+valid inputs. List operations normalize case before deduplication.
+
 ## Responsibilities
 
 - Define controller abstractions and the REST/Tauri controller backends under `src/controler/`.

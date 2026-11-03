@@ -84,28 +84,13 @@ pub(super) fn extract_image_title(
     let image_title = entry
         .get("image/title")
         .or_else(|| entry.get("image")?.children.get("title"))?;
-    let link = first_child_value(image_title, "link")?.trim().to_string();
+    let link = image_title.first_child_value("link")?.trim().to_string();
 
     if link.is_empty() {
         return None;
     }
 
     Some(ResolvedPlayerImageTitle { link })
-}
-
-/// Returns one named child value, including a group represented by one internal item.
-///
-/// # Arguments
-/// * `node` - Scraper data node to inspect.
-/// * `name` - Child field name.
-///
-/// # Returns
-/// The first resolvable child value, or `None` when absent.
-pub(super) fn first_child_value<'a>(node: &'a ScraperDataNode, name: &str) -> Option<&'a str> {
-    node.children
-        .get(name)
-        .or_else(|| node.items.first()?.children.get(name))?
-        .value_as_string()
 }
 
 /// Extracts an ordered list of strings from a scraper data entry field.
@@ -121,19 +106,12 @@ pub(super) fn extract_string_list(
     entry: &HashMap<String, ScraperDataNode>,
     key: &str,
 ) -> Option<Vec<String>> {
-    entry.get(key).and_then(|node| {
-        let values: Vec<String> = node
-            .values
-            .iter()
-            .map(|v| v.trim().to_string())
-            .filter(|v| !v.is_empty())
-            .collect();
-        if values.is_empty() {
-            None
-        } else {
-            Some(values)
-        }
-    })
+    let values = entry.get(key)?.trimmed_values();
+    if values.is_empty() {
+        None
+    } else {
+        Some(values)
+    }
 }
 
 /// Extracts the first string value from a scraper data entry field.
@@ -149,11 +127,7 @@ pub(super) fn extract_first_string(
     entry: &HashMap<String, ScraperDataNode>,
     key: &str,
 ) -> Option<String> {
-    entry
-        .get(key)
-        .and_then(|node| node.value_as_string())
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
+    entry.get(key)?.trimmed_value().map(str::to_string)
 }
 
 /// Extracts the non-empty normalized `error_message` from a resolver response entry.
@@ -183,18 +157,10 @@ pub(super) fn extract_string_map(
     entry: &HashMap<String, ScraperDataNode>,
     key: &str,
 ) -> HashMap<String, String> {
-    let mut map = HashMap::new();
-    if let Some(node) = entry.get(key) {
-        for (child_name, child_node) in &node.children {
-            if let Some(value) = child_node.value_as_string() {
-                let trimmed = value.trim().to_string();
-                if !trimmed.is_empty() {
-                    map.insert(child_name.clone(), trimmed);
-                }
-            }
-        }
-    }
-    map
+    entry
+        .get(key)
+        .map(ScraperDataNode::trimmed_child_values)
+        .unwrap_or_default()
 }
 
 /// Extracts an optional `SpriteThumbnail` from a scraper data entry field.
@@ -209,24 +175,31 @@ pub(super) fn extract_storyboard(
     entry: &HashMap<String, ScraperDataNode>,
 ) -> Option<SpriteThumbnail> {
     let storyboard = entry.get("storyboard")?;
-    let url =
-        first_child_value(storyboard, "url").or_else(|| first_child_value(storyboard, "link"))?;
+    let url = storyboard
+        .first_child_value("url")
+        .or_else(|| storyboard.first_child_value("link"))?;
     let url = url.trim().to_string();
     if url.is_empty() {
         return None;
     }
 
-    let width = first_child_value(storyboard, "width").and_then(|value| value.parse::<u32>().ok());
-    let height =
-        first_child_value(storyboard, "height").and_then(|value| value.parse::<u32>().ok());
-    let columns = first_child_value(storyboard, "columns")?
+    let width = storyboard
+        .first_child_value("width")
+        .and_then(|value| value.parse::<u32>().ok());
+    let height = storyboard
+        .first_child_value("height")
+        .and_then(|value| value.parse::<u32>().ok());
+    let columns = storyboard
+        .first_child_value("columns")?
         .parse::<u32>()
         .ok()?;
-    let rows = first_child_value(storyboard, "rows")?.parse::<u32>().ok()?;
-    let first_page_index = first_child_value(storyboard, "first_page_index")
+    let rows = storyboard.first_child_value("rows")?.parse::<u32>().ok()?;
+    let first_page_index = storyboard
+        .first_child_value("first_page_index")
         .and_then(|value| value.parse::<u32>().ok());
-    let interval =
-        first_child_value(storyboard, "interval").and_then(|value| value.parse::<f64>().ok());
+    let interval = storyboard
+        .first_child_value("interval")
+        .and_then(|value| value.parse::<f64>().ok());
 
     if width.is_some_and(|value| value == 0)
         || height.is_some_and(|value| value == 0)
@@ -301,7 +274,7 @@ pub(super) fn extract_subtitles(
 /// # Returns
 /// The normalized subtitle track, or `None` when unusable.
 pub(super) fn build_subtitle(item: &ScraperDataNode) -> Option<ResolvedPlayerSubtitle> {
-    let link = first_child_value(item, "link")?.trim().to_string();
+    let link = item.first_child_value("link")?.trim().to_string();
     if !is_browser_consumable_subtitle_link(&link) {
         return None;
     }
@@ -322,7 +295,7 @@ pub(super) fn build_subtitle(item: &ScraperDataNode) -> Option<ResolvedPlayerSub
 /// # Returns
 /// The trimmed non-empty value, or `None`.
 pub(super) fn normalize_optional_child_value(node: &ScraperDataNode, name: &str) -> Option<String> {
-    first_child_value(node, name)
+    node.first_child_value(name)
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
 }

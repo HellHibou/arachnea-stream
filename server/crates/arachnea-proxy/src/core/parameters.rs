@@ -692,16 +692,7 @@ pub fn normalize_parameter_value(name: &str, value: &str) -> String {
 ///
 /// - `countries`: Allowed country codes, in any order and with possible duplicates.
 pub fn canonical_proxy_countries(countries: &[String]) -> Vec<String> {
-    let mut normalized: Vec<_> = countries
-        .iter()
-        .map(|country| normalize_country(country))
-        .filter(|country| {
-            country.len() == 2 && country.bytes().all(|byte| byte.is_ascii_alphabetic())
-        })
-        .collect();
-    normalized.sort_unstable();
-    normalized.dedup();
-    normalized
+    arachnea_core::country::canonical_country_codes(countries)
 }
 
 /// Parses a JSON set of allowed countries into its canonical representation.

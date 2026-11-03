@@ -118,10 +118,8 @@ impl ScrapyfyIpCountryDataProvider {
 #[async_trait]
 impl IpCountryDataProvider for ScrapyfyIpCountryDataProvider {
     async fn load_ip_countries(&self) -> Result<Vec<IpCountryRecord>> {
-        // Full bulk refresh is delegated to the dedicated `refresh_ip_country_store`
-        // function which coordinates with the proxy inventory. The trait method
-        // returns empty here because this provider does not own a list of IPs to
-        // resolve in isolation.
+        // Inventory refresh is handled by `refresh_ip_country_store_from_inventory`.
+        // This provider does not own a list of IPs to resolve in isolation.
         Ok(Vec::new())
     }
 
@@ -250,10 +248,11 @@ impl Default for IpCountryRefreshConfig {
     }
 }
 
-/// Refreshes the IP-country store by resolving all known proxy IPs.
+/// Resolves the supplied IPs and replaces the complete IP-country file.
 ///
-/// This is the main entry point for populating the IP-country mapping.
-/// It resolves IPs without a known country and persists the results.
+/// Existing mappings are not loaded or merged. Every supplied IP is queried,
+/// including duplicates and IPs with an existing mapping. Only usable results
+/// are saved; empty input or no usable results replaces the file with `[]`.
 ///
 /// # Arguments
 ///
@@ -289,4 +288,54 @@ pub async fn refresh_ip_country_store(
     );
 
     Ok(())
+}
+
+/// Refreshes the IP-country file from the proxy inventory currently in memory.
+///
+/// This does not import the persistent proxy cache, discover proxies from providers,
+/// or resolve hostnames. Literal IP hosts are kept without additional deduplication.
+/// Missing core/inventory and empty IP lists still replace the file with an empty
+/// mapping. Existing mappings and active resolver caches are not merged or reloaded.
+///
+/// # Arguments
+/// * `aggregator` - Scraper runtime providing the inventory and geolocation queries.
+/// * `config` - Destination file, relative to the working directory when not absolute.
+///
+/// # Errors
+/// Returns an error when refreshing or writing the IP-country file fails.
+pub async fn refresh_ip_country_store_from_inventory(
+    aggregator: &ScraperAgregator,
+    config: &IpCountryRefreshConfig,
+) -> Result<()> {
+    let ip_addresses: Vec<IpAddr> = {
+        if let Some(proxy_core) = aggregator.proxy_core() {
+            let inventory = proxy_core.proxy_inventory();
+            let records = match inventory {
+                Some(inv) => inv.all_records().await,
+                None => {
+                    tracing::warn!(
+                        "no proxy inventory available; refresh will persist an empty mapping"
+                    );
+                    Vec::new()
+                }
+            };
+            let ips: Vec<IpAddr> = records
+                .iter()
+                .filter_map(|record| record.host.parse::<IpAddr>().ok())
+                .collect();
+            if !ips.is_empty() {
+                ips
+            } else {
+                tracing::warn!(
+                    "no proxy IPs found in inventory; refresh will persist an empty mapping"
+                );
+                Vec::new()
+            }
+        } else {
+            tracing::warn!("no proxy core available; refresh will persist an empty mapping");
+            Vec::new()
+        }
+    };
+
+    refresh_ip_country_store(aggregator, &ip_addresses, config).await
 }

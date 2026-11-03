@@ -3,7 +3,6 @@
 //! Arachnea backend executable: wires scraper sources and controller backends.
 
 use anyhow::{bail, Context, Result};
-use std::net::IpAddr;
 use std::sync::Arc;
 
 use arachnea_core::{
@@ -129,41 +128,14 @@ fn build_admin_runtime_settings(
 /// Runs the IP-country geolocation refresh and exits.
 ///
 /// Initialises the scraper aggregator, collects proxy IPs from the dynamic
-/// proxy inventory, resolves each IP to a country via the YAML-defined
-/// ip-api.com query, and persists the results to `data/ip-countries.json`.
+/// inventory currently in memory and replaces `data/ip-countries.json` with
+/// the resolved mappings, including an empty set when no IPs are available.
 async fn refresh_ip_countries_cli() -> Result<()> {
     let mut manager = StreamScraper::from_json(None)?;
     let agregator = manager.get_scraper_agregator_mut();
 
-    // Collect IPs from the proxy inventory if available
-    let ip_addresses: Vec<IpAddr> = {
-        if let Some(proxy_core) = agregator.proxy_core() {
-            let inventory = proxy_core.proxy_inventory();
-            let records = match inventory {
-                Some(inv) => inv.all_records().await,
-                None => {
-                    tracing::warn!("no proxy inventory available; refresh will be a no-op");
-                    Vec::new()
-                }
-            };
-            let ips: Vec<IpAddr> = records
-                .iter()
-                .filter_map(|record| record.host.parse::<IpAddr>().ok())
-                .collect();
-            if !ips.is_empty() {
-                ips
-            } else {
-                tracing::warn!("no proxy IPs found in inventory; refresh will be a no-op");
-                Vec::new()
-            }
-        } else {
-            tracing::warn!("no proxy core available; refresh will be a no-op");
-            Vec::new()
-        }
-    };
-
     let config = IpCountryRefreshConfig::default();
-    refresh_ip_country_store(agregator, &ip_addresses, &config).await?;
+    refresh_ip_country_store_from_inventory(agregator, &config).await?;
 
     Ok(())
 }

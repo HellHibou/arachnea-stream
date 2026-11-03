@@ -64,6 +64,58 @@ impl ScraperDataNode {
         self.values.first().map(String::as_str)
     }
 
+    /// Returns the trimmed first scalar, or `None` if it is absent or blank.
+    ///
+    /// A blank first value does not fall back to a later nonblank scalar.
+    /// Children and explicit items are not inspected.
+    pub fn trimmed_value(&self) -> Option<&str> {
+        self.value_as_string()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    }
+
+    /// Returns trimmed nonblank direct scalars, preserving order and duplicates.
+    ///
+    /// Returns an empty vector when no usable values exist. Children and explicit
+    /// items are not inspected.
+    pub fn trimmed_values(&self) -> Vec<String> {
+        self.values
+            .iter()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .collect()
+    }
+
+    /// Reads the first raw scalar of a direct child, falling back to the first item.
+    ///
+    /// A present direct child takes precedence even if it has no values or its
+    /// first value is blank. Only a missing child enables fallback to the first
+    /// explicit item's child; later items are never searched. No trimming occurs.
+    ///
+    /// # Arguments
+    /// * `name` - Exact child name to read, without interpreting path separators.
+    pub fn first_child_value(&self, name: &str) -> Option<&str> {
+        self.children
+            .get(name)
+            .or_else(|| self.items.first()?.children.get(name))?
+            .value_as_string()
+    }
+
+    /// Returns direct child names mapped to their trimmed nonblank first scalars.
+    ///
+    /// Children without a usable first value are omitted, even if later scalars
+    /// are nonblank. Explicit items and nested children are not traversed.
+    pub fn trimmed_child_values(&self) -> HashMap<String, String> {
+        self.children
+            .iter()
+            .filter_map(|(name, child)| {
+                child
+                    .trimmed_value()
+                    .map(|value| (name.clone(), value.to_string()))
+            })
+            .collect()
+    }
+
     /// Returns the first scalar value parsed as `u16`, or `None`.
     pub fn value_as_u16(&self) -> Option<u16> {
         self.values.first().and_then(|v| v.parse().ok())

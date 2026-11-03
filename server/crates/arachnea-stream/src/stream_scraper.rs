@@ -641,17 +641,7 @@ impl StreamScraper {
 /// Uppercase two-letter ISO codes in request order, excluding invalid and
 /// duplicate values.
 fn normalize_proxy_countries(proxy_countries: Vec<String>) -> Vec<String> {
-    let mut normalized = Vec::new();
-    for country in proxy_countries {
-        let country = country.trim().to_ascii_uppercase();
-        if country.len() == 2
-            && country.bytes().all(|byte| byte.is_ascii_alphabetic())
-            && !normalized.contains(&country)
-        {
-            normalized.push(country);
-        }
-    }
-    normalized
+    arachnea_core::country::normalize_country_codes(proxy_countries)
 }
 
 /// Groups the category filters sent by category requests.
@@ -796,5 +786,5 @@ mod playback;
 mod registration;
 
 mod persistence;
-use persistence::synchronize_service_defaults;
+use arachnea_scrapyfy::synchronize_service_defaults;
 pub use persistence::{memory_application_stores, sqlite_application_stores};

@@ -200,6 +200,11 @@ The retired design notes also reserved `censorship_resistance`; it remains track
 
 ## Country Routing Parameters
 
+`core::canonical_proxy_countries` retains its public path and sorted,
+deduplicated two-ASCII-letter contract, delegating normalization to
+`arachnea_core::country`. Canonical order defines routing identity, not request
+priority. Other permissive country/current-country policies remain separate.
+
 Country routing accepts only the JSON `countries` parameter, interpreted as an unordered set of allowed origins. HTTP proxy clients must send it in the `Arachnea-Proxy-Countries` header, for example `Arachnea-Proxy-Countries: ["FR", "DE"]`; SOCKS5 clients can provide `countries=["FR","DE"]` through the parameterized username format. Country codes are normalized to uppercase, invalid codes are ignored, and duplicates are removed with a stable alphabetical representation for parameters, pool markers and media URL headers. This representation does not define a routing priority. Dynamic selection ranks the combined candidates across all allowed countries; restored accepted histories select the newest eligible success. Static country routes choose by endpoint then node name, independently of country-list order; unrelated static pools retain their own ordering. The legacy singular `country` parameter and `Arachnea-Proxy-Country` header are not supported.
 
 Dynamic country routing emits INFO diagnostics for local-country bypass decisions

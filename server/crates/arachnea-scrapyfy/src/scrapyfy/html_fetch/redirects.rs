@@ -1,6 +1,6 @@
 //! Bounded literal JavaScript redirect recognition.
 
-use super::*;
+use url::Url;
 
 /// Extracts the target of the first **simple** JavaScript redirect from an HTML document.
 ///
@@ -41,6 +41,10 @@ pub(super) fn extract_simple_js_redirect_target(html: &str) -> Option<String> {
 ///
 /// Absolute `http(s)` targets are kept as-is. Relative targets are joined onto the current page
 /// URL. Returns `None` when the target cannot be resolved to an HTTP(S) URL.
+///
+/// # Arguments
+/// * `current_url` - Final response URL used as the base for relative targets.
+/// * `target` - Literal target extracted from the document.
 pub(super) fn resolve_redirect_target(current_url: &str, target: &str) -> Option<String> {
     if target.starts_with("http://") || target.starts_with("https://") {
         return Some(target.to_string());

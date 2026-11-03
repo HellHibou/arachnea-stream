@@ -2016,6 +2016,16 @@ This creates the structure:
 { "media": { "images": { "poster": "..." } } }
 ```
 
+The Rust API also provides non-mutating readers: `trimmed_value()` reads only
+the first scalar and returns `None` when blank; `trimmed_values()` keeps all
+nonblank trimmed direct scalars in order, including duplicates.
+`first_child_value(name)` prefers a present direct child, even when valueless,
+and uses the first explicit item's child only if the direct child is missing;
+it returns a raw first scalar without interpreting path separators.
+`trimmed_child_values()` reads only the first scalar of each direct child,
+omitting absent/blank values without traversing items. These helpers change
+neither YAML fields nor JSON rendering.
+
 ---
 
 ## 15. Complete example

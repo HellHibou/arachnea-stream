@@ -1,5 +1,42 @@
 # Arachnea Stream
 
+## Source table assembly and resolver conversion
+
+Stream opens its application databases and delegates the `SourceServiceRecord`
+table to Scrapyfy's `memory_source_store` / `sqlite_source_store` factories.
+The SQLite source table still shares the services database connection with the
+parameter table; database/table names, schemas and encryption keys are unchanged.
+Proxy and Cloudflare table assembly remains in Stream.
+
+Resolver conversion uses `ScraperDataNode` readers for trimmed scalar/list/map
+values and raw child lookup with first-item fallback. Stream retains field
+selection, aliases, missing-value handling and all video-specific conversion,
+including URLs/headers, DRM, subtitles, storyboard validation and Referer insertion.
+
+## Resolver HTML fallback
+
+Stream delegates fallback document retrieval to Scrapyfy's
+`fetch_html_document`, explicitly enabling literal JavaScript redirects. It
+retains its existing 1 MiB accepted body size and separate HTTP and JavaScript
+budgets of `DEFAULT_MAX_REDIRECTS` (currently 16 each). The HTTP budget resets on
+each JavaScript hop, and the size check occurs after the body is materialized.
+Resolver recognition, hoster errors, stream conversion and final iframe fallback
+remain in Stream. Literal redirect recognition is not enabled for other queries.
+
+## Shared source defaults and IP-country CLI
+
+Stream selects manifests and synchronization timing, then delegates missing
+source-state registration to Scrapyfy's synchronous adapter. Ordered country
+hints use Core's shared primitives; scraper-query validation retains its existing
+contextual error message and ignores empty values without sorting the hints.
+
+`--refresh-ip-countries` constructs the application and delegates inventory
+collection and file refresh to Scrapyfy. Its fresh inventory is not populated
+from SQLite or proxy-source queries before collection, so successful execution
+currently replaces `data/ip-countries.json` with `[]`. The path is relative to
+the process working directory. SQLite proxy records are not deleted. This
+existing CLI limitation is tracked separately; this extraction does not fix it.
+
 ## Source organization and validation
 
 `src/stream_scraper.rs` remains the public facade. Private modules under `src/stream_scraper/` implement catalog operations, playback, persistence setup and controller registration. `src/stream_resolver/` separates HTML fallback fetching, literal redirect recognition and conversion of extracted metadata. TF1 and RTLplay authentication/media/license helpers stay in private modules under their provider directories. Existing public import paths and controller commands remain available.

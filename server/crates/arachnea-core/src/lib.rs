@@ -1,6 +1,9 @@
 #![warn(missing_docs)]
 //! Shared Arachnea backend primitives.
 
+/// Country-code primitives independent of routing and scraping.
+pub mod country;
+
 /// Default maximum number of HTTP redirects followed by Arachnea HTTP clients.
 pub const DEFAULT_MAX_REDIRECTS: usize = 16;
 

@@ -83,6 +83,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Added dependency-independent country-code primitives for permissive ordered normalization, canonical sorting and strict ordered validation with caller-owned error diagnostics. Country shape validation remains limited to two ASCII letters.
+
 - Added atomic primary-key-scope replacement to SQLite, memory and file typed stores. File mutations now serialize snapshot persistence before publishing cached state.
 - Added two-level SQLite persistence: `SqliteStoreConfig` / `SqliteDatabase` own a physical database and shared connection, while `PersistenceTableConfig` / typed table views manage independent entity schemas. `PersistenceStoreConfig` remains a compatibility alias for table configuration.
 
@@ -181,6 +183,8 @@ All notable changes to the server workspace are recorded here.
 - Established the October 21 initial localized-proxy measurement baseline: twenty repetitions of existing inventory/repository scenarios and twenty FranceTV calls each for entry retrieval and video resolution, with raw samples, environment fingerprints, comparison thresholds and explicit remaining deployment evidence. Added DEBUG microsecond timings for selection/ranking, persistent country reads/imports and slot waits, request IDs on shared subscriptions, task IDs on executions, provider-call duration and reserve lifecycle correlation. Existing fixture timing output was extended without adding tests or changing routing, deadlines, reserve settings or durability.
 
 #### Changed
+
+- Delegated canonical country normalization to Core while preserving `canonical_proxy_countries`, routing identities and optional-feature boundaries.
 
 - Breaking Rust API change: renamed `ReplaceAll::new` to `ReplaceAll::config`, preserving its arguments, returned action configuration and allocation/serialization behavior. Migrated all six repository call sites; `ordered` is unchanged and the README documents external caller migration.
 - Renamed the private server implementation module to `runtime` without moving its source or changing public `server::ProxyServer` paths. The existing fragmented-reader fixture now stores its poll interval as `NonZeroUsize` and uses `is_multiple_of`, preserving the interval of three and its assertions.
@@ -384,6 +388,12 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Delegated source-state table construction and generic resolver node reads to Scrapyfy. Stream retains application database assembly, field names/aliases, video conversion and validation; persistence names, schemas, shared connections and credentials encoding are unchanged.
+
+- Delegated resolver HTML fallback fetching to Scrapyfy with the existing 1 MiB acceptance limit and explicit 16-hop JavaScript policy alongside the separate HTTP budget. Stream retains client configuration, resolver recognition and video-specific errors/conversion; existing resolver scenarios stay in Stream.
+
+- Delegated source-default synchronization and IP-country refresh collection to Scrapyfy, and ordered country normalization to Core. Stream retains CLI/configuration choices and contextual strict-validation errors; existing IP-country CLI limitations remain deferred.
+
 - Coflix (`dark-stream/coflix.yaml`): home categories and `get_category` scraped the retired JSON `wp-json/apiflix/v1/options` endpoints and returned no cards. They now scrape the HTML catalogue pages (`/movies/`, `/series/`, `/animes/`), parse the entry cards from the page markup, derive `media-type` from the category URL, and paginate through `derive_pagination`, restoring category browsing.
 
 #### Fixed
@@ -517,6 +527,12 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Added memory and SQLite source-state table factories using the existing record schema and shared database connection, plus non-mutating `ScraperDataNode` readers for trimmed scalars/lists/direct-child maps and raw child lookup with first-item fallback. Existing precedence, blank handling, duplicate order and JSON/YAML contracts are preserved; SQLite remains feature gated.
+
+- Added explicit HTML document retrieval (`fetch_html_document`, `HtmlFetchPolicy`, `FetchedHtmlDocument`) extracted from Stream, including private literal JavaScript redirect recognition. The helper preserves separate client-owned HTTP and optional JavaScript hop budgets, materialized-body size checks, MIME/status acceptance and exact-requested-URL cycle behavior. No implicit query-wide activation or transport changes; diagnostics use generic HTML wording and the Scrapyfy log target.
+
+- Moved source-default synchronization adapters (async and dedicated-thread blocking) and in-memory inventory IP-country refresh orchestration from Stream into reusable Scrapyfy APIs. Refresh remains proxy-feature gated and preserves full-file replacement on empty or partial results; diagnostics now describe empty mapping persistence accurately.
+
 - Added proxy settings DTOs and runtime adapter hooks, authenticated create-proxy-key/delete-proxy-key operations, and a shared configuration mutation lock. CLI proxy activation/network/port overrides are tracked separately from persisted settings.
 - Added YAML `constants`, validated editable `parameters` (`regex`/`select`), cross-section dependency resolution, atomic per-service override storage, and authenticated administration read/save/reset operations. Logos and player resolvers share effective configuration; cache identities include editable values. Nonempty legacy manifest parameter overrides are rejected with migration guidance. Nested string arrays in static JSON objects now retain their array shape.
 - Extended test-support assertion reports with observed JSON kinds at invalid paths, without recording field values or provider response bodies.
@@ -543,6 +559,8 @@ All notable changes to the server workspace are recorded here.
 - HTML row selectors are now templates resolved with the runtime parameters when rows are extracted, and the engine exposes `{url_fragment}`: the part after `#` in the resolved `query_url`, never sent to the server. A caller-supplied link such as `page.html#ep3` can therefore scope a query to a client-side tab or block that has no URL of its own. Selectors must stay parseable as written (`div[class~="{url_fragment}vs"]`) because the configuration is still validated at load time; unresolved placeholders simply match nothing.
 
 #### Changed
+
+- Shared canonical HTTP country normalization with Core without requiring Proxy or SQLite in minimal builds; YAML expansion behavior and sorted output are unchanged.
 
 - Moved generic proxy configuration, API-key management, policy rollback, shared application configuration, REST report adaptation and encrypted source credentials from Stream into reusable Scrapyfy modules. Added the generic administration composition and narrow application hooks; proxy modules remain feature-gated and persisted formats are unchanged.
 - Service parameter overrides now use one `(service_store_id, source_id, parameter_name, value)` row per parameter instead of a per-source JSON document. Source saves/resets atomically replace their row scope while keeping administration DTOs unchanged.
@@ -805,6 +823,9 @@ All notable changes to the server workspace are recorded here.
 #### Changed
 
 - Updated the approved Arachnéa Proxy administration analysis: API tokens belong in the password field, optional routing parameters in the username, and internal/user keys contain 128 random bytes encoded as 171 unpadded Base64url characters for SOCKS5 compatibility. Recorded approval of configuration, persistence, and hot application choices; implementation remains pending.
+- Revised the remaining Stream responsibility analysis with approved initial lots and activation synchronization APIs, a proposed Core/Proxy/Scrapyfy split for country normalization, confirmed in-memory IP inventory collection and full IP-country file replacement semantics, and separate HTTP/JavaScript redirect limits and materialized-body size checks. Linked pending work from the TODO; runtime behavior is unchanged.
+- Traced the IP-country CLI refresh startup: its fresh inventory remains empty before collection, so successful initialization and persistence replace the relative IP-country file with an empty array. Documented partial-result replacement, lazy resolver reload behavior, working-directory paths and the separate functional correction required; no runtime changes.
+- Recorded user approval to move IP-country refresh collection and orchestration into Scrapyfy while preserving current CLI behavior, including empty and partial-result replacement. Deferred CLI bug fixes explicitly remain separate and do not block extraction.
 - Recorded user authorization to reduce proxy API keys to 64 random bytes (86 unpadded Base64url characters) if client compatibility requires it; the analysis retains 128 bytes while no incompatibility is identified.
 - Finalized the proxy API key size at 64 random bytes (512 bits, encoded as 86 unpadded Base64url characters) for both internal and user keys, superseding the earlier 128-byte choice and conditional fallback. Updated the analysis and TODO.
 

@@ -379,15 +379,6 @@ impl ScraperHttpConfig {
     }
 }
 
-/// Trims country text and uppercases ASCII without validating the country code.
-///
-/// # Arguments
-///
-/// * `country` - Country-code text, trimmed and converted to uppercase ASCII.
-pub(super) fn normalize_country_code(country: &str) -> String {
-    country.trim().to_ascii_uppercase()
-}
-
 /// Keeps valid two-letter country codes, uppercases, sorts and deduplicates them.
 ///
 /// # Arguments
@@ -396,16 +387,7 @@ pub(super) fn normalize_country_code(country: &str) -> String {
 pub(super) fn normalize_proxy_countries(
     countries: impl IntoIterator<Item = String>,
 ) -> Vec<String> {
-    let mut countries: Vec<_> = countries
-        .into_iter()
-        .map(|country| normalize_country_code(&country))
-        .filter(|country| {
-            country.len() == 2 && country.bytes().all(|byte| byte.is_ascii_alphabetic())
-        })
-        .collect();
-    countries.sort_unstable();
-    countries.dedup();
-    countries
+    arachnea_core::country::canonical_country_codes(countries)
 }
 
 /// Resolves each country-list template and expands JSON array parameters.

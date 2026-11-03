@@ -35,12 +35,14 @@ Ce fichier suit les tâches DNS, HTTP et proxy prévues qui restent pertinentes 
 
 ## Server/HTTP
 
+- Lots 1 à 4 de l’[extraction des responsabilités Stream](dev-tracking/stream-scrapyfy-remaining-responsibilities-analysis.md) implémentés : activations, orchestration IP et récupération HTML dans Scrapyfy, primitives pays dans Core et adaptateurs conservés. Fabriques des tables de sources et lecteurs génériques de données également extraits ; assemblage applicatif et conversion vidéo conservés dans Stream. Le lot HTML conserve les budgets HTTP/JavaScript distincts, les cycles sur URL demandées et le contrôle de taille après matérialisation ; les éventuels durcissements restent séparés.
 - Préserver l'ordre de déclaration des paramètres YAML lors de la fusion des surcharges `services.json` dans Scrapyfy : la reconstruction actuelle via une table de hachage peut modifier l'ordre des pipelines de paramètres dépendants. Limite et contournement documentés dans les spécifications YAML ; vérifier le chargement via les manifestes concernés avant de modifier ce comportement.
 - Décider si `arachnea-http` doit exposer une API `tower::Service` en plus du constructeur de requêtes fluide.
 - Ajouter des garde-fous optionnels d'usage responsable, comme de la limitation de débit, des délais entre requêtes, des reprises bornées, des vérifications de masquage des cookies et un support optionnel de `robots.txt` si le crate évolue vers du crawling.
 
 ## Server/Proxy
 
+- Traiter ultérieurement les bugs éventuels du rafraîchissement CLI IP→pays : la commande crée un inventaire neuf vide, sans charger SQLite ni découvrir de proxys, puis remplace le fichier relatif `data/ip-countries.json` par `[]` si l’initialisation et l’écriture réussissent. Les résultats partiels du helper remplacent également tout le fichier. Décision utilisateur : conserver ces comportements pendant le transfert vers Scrapyfy ; ce suivi ne bloque pas l’extraction. Voir l’[analyse des responsabilités](dev-tracking/stream-scrapyfy-remaining-responsibilities-analysis.md).
 - Qualifier l’interface proxy dans les navigateurs ciblés (login vide et alternative `default`) et sur Windows/Linux ; vérifier les modes réseau depuis un client distant. Implémentation admin, clés API de 64 octets et application à chaud livrées ; voir l’[analyse et validation](dev-tracking/proxy-admin-configuration-analysis.md).
 - Surveiller la croissance de la base SQLite `proxy-inventory` ; les proxys dont la dernière validation dépasse 24 heures ne sont supprimés qu'après un échec observé, donc un très grand nombre de proxys jamais réutilisés justifiera un suivi de volume et, au besoin, une politique de nettoyage ou un vacuum planifié.
 - Évaluer MASQUE CONNECT-UDP après la stabilisation du socle UDP et d'une pile Rust HTTP/3 compatible.
