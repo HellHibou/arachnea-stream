@@ -981,10 +981,13 @@ Le champ `storyboard` contient :
 | `columns` | `number` | Nombre de colonnes dans le sprite |
 | `rows` | `number` | Nombre de lignes de vignettes par image sprite |
 | `first_page_index` | `number` | Index optionnel de la première image d'un modèle URL `{index}` ; vaut `0` par défaut |
+| `index_padding` | `number` | Largeur de remplissage optionnelle du `{index}` substitué avec des zéros ; sans remplissage si absent ou `0` |
 | `interval` | `number` | Intervalle optionnel entre vignettes (secondes) ; le frontend utilise la durée vidéo divisée par `rows × columns` lorsqu'il est absent |
 
 Par exemple, un storyboard à douze colonnes, six lignes et `first_page_index: 1` remplace `{index}`
 par `1` pour charger sa première image. Un sprite unique déclare tout de même `rows: 1`.
+Avec `index_padding: 3` et `first_page_index: 1`, les trois premières URL se terminent par
+`001`, `002`, `003`.
 Lorsque les dimensions sont absentes, le frontend précharge cette première image et calcule la taille
 d'une cellule à partir de sa largeur naturelle divisée par `columns` et de sa hauteur naturelle
 divisée par `rows`. Pour un sprite à image unique, les lignes de séparation homogènes entre les

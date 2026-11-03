@@ -57,7 +57,7 @@ pub(super) fn convert_resolver_entry_to_stream(
         license_headers: extract_string_map(entry, "license_headers"),
         storyboard_vtt_url: extract_first_string(entry, "storyboard_vtt_url"),
         storyboard: extract_storyboard(entry),
-        chapters: None,
+        chapters: extract_chapters(entry),
         subtitles: extract_subtitles(entry),
     };
 
@@ -197,6 +197,10 @@ pub(super) fn extract_storyboard(
     let first_page_index = storyboard
         .first_child_value("first_page_index")
         .and_then(|value| value.parse::<u32>().ok());
+    let index_padding = storyboard
+        .first_child_value("index_padding")
+        .and_then(|value| value.parse::<u32>().ok())
+        .filter(|value| *value > 0);
     let interval = storyboard
         .first_child_value("interval")
         .and_then(|value| value.parse::<f64>().ok());
@@ -217,6 +221,7 @@ pub(super) fn extract_storyboard(
         columns,
         rows,
         first_page_index,
+        index_padding,
         interval,
     })
 }
@@ -315,4 +320,89 @@ pub(super) fn is_browser_consumable_subtitle_link(link: &str) -> bool {
     link.starts_with("http://")
         || link.starts_with("https://")
         || (link.starts_with('/') && !link.starts_with("//"))
+}
+
+/// Extracts an ordered list of chapters from a resolver entry.
+///
+/// Reads every `chapters` item and keeps entries with finite, strictly
+/// increasing `start`/`end` values and a non-empty `type` (or
+/// `type`). `title` stays optional; blank values normalize to `None`.
+/// Order follows the resolver output.
+///
+/// # Arguments
+/// * `entry` - Resolver response fields.
+///
+/// # Returns
+/// The accepted chapters in resolver order, or `None` when none are valid.
+pub(super) fn extract_chapters(
+    entry: &HashMap<String, ScraperDataNode>,
+) -> Option<Vec<Chapter>> {
+    let node = entry.get("chapters")?;
+    let mut chapters = Vec::new();
+
+    if node.items.is_empty() {
+        if let Some(chapter) = build_chapter(node) {
+            chapters.push(chapter);
+        }
+    } else {
+        for item in &node.items {
+            if let Some(chapter) = build_chapter(item) {
+                chapters.push(chapter);
+            }
+        }
+    }
+
+    if chapters.is_empty() {
+        None
+    } else {
+        Some(chapters)
+    }
+}
+
+/// Builds one chapter from a `chapters` item node.
+///
+/// Returns `None` when `start` or `end` is missing, non-numeric, non-finite,
+/// or not strictly increasing, or when the chapter type is missing or blank.
+///
+/// # Arguments
+/// * `item` - Chapter item node.
+///
+/// # Returns
+/// The normalized chapter, or `None` when unusable.
+fn build_chapter(item: &ScraperDataNode) -> Option<Chapter> {
+    let start = item
+        .first_child_value("start")?
+        .trim()
+        .parse::<f64>()
+        .ok()?;
+    let end = item
+        .first_child_value("end")
+        .or_else(|| item.first_child_value("end"))?
+        .trim()
+        .parse::<f64>()
+        .ok()?;
+    if !start.is_finite() || !end.is_finite() || end <= start {
+        return None;
+    }
+
+    let chapter_type = item
+        .first_child_value("type")?
+        .trim()
+        .to_string();
+    if chapter_type.is_empty() {
+        return None;
+    }
+
+    let title = item
+        .first_child_value("title")
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+
+    Some(Chapter {
+        start,
+        end,
+        title,
+        chapter_type,
+    })
 }

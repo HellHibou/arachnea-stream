@@ -964,10 +964,12 @@ managed by their respective playback engines.
 | `columns` | `number` | Thumbnail columns per sprite image |
 | `rows` | `number` | Thumbnail rows per sprite image |
 | `first_page_index` | `number` | Optional first image index for an `{index}` URL template; defaults to `0` |
+| `index_padding` | `number` | Optional zero-padding width applied to the substituted `{index}` value; unpadded when omitted or `0` |
 | `interval` | `number` | Optional seconds between thumbnails; the frontend uses video duration divided by `rows × columns` when omitted |
 
 For example, a resolver with twelve columns, six rows and `first_page_index: 1` produces the
 first sprite URL by replacing `{index}` with `1`. A single-image sprite still declares `rows: 1`.
+With `index_padding: 3` and `first_page_index: 1`, the first three URLs end in `001`, `002`, `003`.
 When dimensions are omitted, the frontend preloads this first image and calculates the cell size as
 its natural width divided by `columns` and its natural height divided by `rows`. For a single-image
 sprite, uniform separator lines between cells are removed before passing it to the thumbnail renderer.

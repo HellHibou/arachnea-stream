@@ -263,6 +263,141 @@ shared:
       field: media-type
       pattern: "^video/"
       keep_matching: true
+  player_entries_fawesome: &player_entries_fawesome
+    - name: name
+      type: string
+      select: first
+      actions:
+        - type: format_text
+          argument: "Fawesome"
+    - name: lang
+      type: string
+      pointer: /content_language_iso2
+      select: first
+      actions:
+        - type: map
+          argument:
+            "": en
+    - name: _drm
+      type: string
+      pointer: /drm
+      select: first
+    - name: direct-link
+      type: string
+      pointer: /video_hls_url
+      select: first
+      actions:
+        - type: map
+          argument:
+            "": null
+    - name: resolver
+      type: string
+      pointer: /drm
+      select: first
+      actions:
+        - type: map
+          argument:
+            "1": scraper-query
+          default: null
+    - name: resolver > source
+      type: string
+      pointer: /drm
+      select: first
+      actions:
+        - type: map
+          argument:
+            "1": fawesome-tv
+          default: null
+    - name: target
+      type: string
+      pointer: /video_url
+      select: first
+    # Trickplay frames are one 266x150 image every 30 seconds, stored under the
+    # HLS directory as zero-padded tp/img-NNN.jpg files.
+    - name: storyboard
+      type: object
+      select: first
+      entries:
+        - name: url
+          type: string
+          pointer: /video_hls_url
+          select: first
+          actions:
+            - type: regex_replace_all
+              pattern: "/[^/]+\\.m3u8$"
+              replacement: "/tp/img-{index}.jpg"
+        - name: width
+          type: number
+          actions:
+            - type: format_text
+              argument: "266"
+        - name: height
+          type: number
+          actions:
+            - type: format_text
+              argument: "150"
+        - name: columns
+          type: number
+          actions:
+            - type: format_text
+              argument: "1"
+        - name: rows
+          type: number
+          actions:
+            - type: format_text
+              argument: "1"
+        - name: first_page_index
+          type: number
+          actions:
+            - type: format_text
+              argument: "1"
+        - name: index_padding
+          type: number
+          actions:
+            - type: format_text
+              argument: "3"
+        - name: interval
+          type: number
+          actions:
+            - type: format_text
+              argument: "30"
+
+    - name: chapters
+      type: object[]
+      select: all
+      entries:
+        - name: start
+          type: number
+          pointer: /intro_st
+          select: first
+        - name: end
+          type: number
+          pointer: /intro_et
+          select: first
+        - name: type
+          type: string
+          select: first
+          actions:
+            - type: format_text
+              argument: "intro"
+    - name: chapters
+      type: object[]
+      select: all
+      entries:
+        - name: start
+          type: number
+          pointer: /endcredit_st
+          select: first
+        - name: end
+          type: number
+          pointer: /endcredit_et
+          select: first
+        - name: type
+          type: string
+          select: first
+          actions:
+            - type: format_text
+              argument: "outro"
 
 queries:
   - name: service_stream_metadata
@@ -1019,57 +1154,7 @@ queries:
                 type: object[]
                 pointer: /results/*
                 select: all
-                entries:
-                  - name: name
-                    type: string
-                    select: first
-                    actions:
-                      - type: format_text
-                        argument: "Fawesome"
-                  - name: lang
-                    type: string
-                    pointer: /content_language_iso2
-                    select: first
-                    actions:
-                      - type: map
-                        argument:
-                          "": en
-          
-                  - name: _drm
-                    type: string
-                    pointer: /drm
-                    select: first
-                  - name: direct-link
-                    type: string
-                    pointer: /video_hls_url
-                    select: first
-                    actions:
-                      - type: map
-                        argument:
-                          "": null
-          
-                  - name: resolver
-                    type: string
-                    pointer: /drm
-                    select: first
-                    actions:
-                      - type: map
-                        argument:
-                          "1": scraper-query
-                        default: null
-                  - name: resolver > source
-                    type: string
-                    pointer: /drm
-                    select: first
-                    actions:
-                      - type: map
-                        argument:
-                          "1": fawesome-tv
-                        default: null
-                  - name: target
-                    type: string
-                    pointer: /video_url
-                    select: first
+                entries: *player_entries_fawesome
       - name: _token
         type: string
         pointer: /securityToken
@@ -1223,57 +1308,7 @@ queries:
                 type: object[]
                 pointer: /
                 select: all
-                entries:
-                  - name: name
-                    type: string
-                    select: first
-                    actions:
-                      - type: format_text
-                        argument: "Fawesome"
-                  - name: lang
-                    type: string
-                    pointer: /content_language_iso2
-                    select: first
-                    actions:
-                      - type: map
-                        argument:
-                          "": en
-              
-                  - name: _drm
-                    type: string
-                    pointer: /drm
-                    select: first
-                  - name: direct-link
-                    type: string
-                    pointer: /video_hls_url
-                    select: first
-                    actions:
-                      - type: map
-                        argument:
-                          "": null
-              
-                  - name: resolver
-                    type: string
-                    pointer: /drm
-                    select: first
-                    actions:
-                      - type: map
-                        argument:
-                          "1": scraper-query
-                        default: null
-                  - name: resolver > source
-                    type: string
-                    pointer: /drm
-                    select: first
-                    actions:
-                      - type: map
-                        argument:
-                          "1": fawesome-tv
-                        default: null
-                  - name: target
-                    type: string
-                    pointer: /video_url
-                    select: first
+                entries: *player_entries_fawesome
       - name: _token
         type: string
         pointer: /securityToken
@@ -1429,57 +1464,7 @@ queries:
                 type: object[]
                 pointer: /results/*
                 select: all
-                entries:
-                  - name: name
-                    type: string
-                    select: first
-                    actions:
-                      - type: format_text
-                        argument: "Fawesome"
-                  - name: lang
-                    type: string
-                    pointer: /content_language_iso2
-                    select: first
-                    actions:
-                      - type: map
-                        argument:
-                          "": en
-          
-                  - name: _drm
-                    type: string
-                    pointer: /drm
-                    select: first
-                  - name: direct-link
-                    type: string
-                    pointer: /video_hls_url
-                    select: first
-                    actions:
-                      - type: map
-                        argument:
-                          "": null
-          
-                  - name: resolver
-                    type: string
-                    pointer: /drm
-                    select: first
-                    actions:
-                      - type: map
-                        argument:
-                          "1": scraper-query
-                        default: null
-                  - name: resolver > source
-                    type: string
-                    pointer: /drm
-                    select: first
-                    actions:
-                      - type: map
-                        argument:
-                          "1": fawesome-tv
-                        default: null
-                  - name: target
-                    type: string
-                    pointer: /video_url
-                    select: first
+                entries: *player_entries_fawesome
       - name: _token
         type: string
         pointer: /securityToken

@@ -2162,7 +2162,8 @@ function normalizeEntryPlayer(
   const lang = firstNonEmptyString([entry.lang])
   const label = buildPlayerLabel(name, lang, index)
   const storyboard = normalizeEntryPlayerStoryboard(entry, source)
-
+  const chapters = normalizeRustifyChapters(entry.chapters ?? entry['chapters'])
+ 
   if (!embedLink && !directLink && !resolver) {
     return null
   }
@@ -2177,9 +2178,10 @@ function normalizeEntryPlayer(
       lang,
       resolver,
       storyboard,
+      chapters,
     }
   }
-
+ 
   return {
     id: buildMediaId(index, directLink ?? embedLink, label, source),
     label,
@@ -2189,6 +2191,7 @@ function normalizeEntryPlayer(
     lang,
     resolver,
     storyboard,
+    chapters,
   }
 }
 
@@ -2313,6 +2316,7 @@ function normalizeEntryPlayerStoryboard(
   const columns = toPositiveInteger(firstNumber(readPath(entry, 'storyboard', 'columns')))
   const rows = toPositiveInteger(firstNumber(readPath(entry, 'storyboard', 'rows'))) ?? 1
   const firstPageIndex = toNonNegativeInteger(firstNumber(readPath(entry, 'storyboard', 'first_page_index'))) ?? 0
+  const indexPadding = toNonNegativeInteger(firstNumber(readPath(entry, 'storyboard', 'index_padding'))) ?? 0
   const configuredInterval = firstNumber(readPath(entry, 'storyboard', 'interval'))
 
   if (!url || !columns) {
@@ -2331,6 +2335,7 @@ function normalizeEntryPlayerStoryboard(
     columns,
     rows,
     firstPageIndex,
+    indexPadding,
     interval: interval !== null && Number.isFinite(interval) && interval > 0 ? interval : null,
   }
 }
@@ -2426,10 +2431,10 @@ function normalizeRustifyChapters(value: unknown): EntryPlayerChapter[] | null {
       continue
     }
 
-    const start = item.start ?? item.tc_in
-    const end = item.end ?? item.tc_out
+    const start = item.start
+    const end = item.end
     const title = item.title ?? null
-    const chapterType = item.type ?? item.chapter_type
+    const chapterType = item.type
 
     if (
       typeof start !== 'number' ||
@@ -2460,6 +2465,7 @@ function normalizeRustifyStoryboard(value: unknown): EntryPlayerStoryboard | nul
   const columns = toPositiveInteger(firstNumber(value.columns))
   const rows = toPositiveInteger(firstNumber(value.rows)) ?? 1
   const firstPageIndex = toNonNegativeInteger(firstNumber(value.first_page_index ?? value.firstPageIndex)) ?? 0
+  const indexPadding = toNonNegativeInteger(firstNumber(value.index_padding ?? value.indexPadding)) ?? 0
   const interval = firstNumber(value.interval)
 
   if (!url || !columns) {
@@ -2473,6 +2479,7 @@ function normalizeRustifyStoryboard(value: unknown): EntryPlayerStoryboard | nul
     columns,
     rows,
     firstPageIndex,
+    indexPadding,
     interval: interval !== null && Number.isFinite(interval) && interval > 0 ? interval : null,
   }
 }

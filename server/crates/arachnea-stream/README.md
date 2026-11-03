@@ -443,7 +443,7 @@ the following shape:
 - `end` is the exclusive chapter end time in seconds and must be greater than
   `start`.
 - `type` identifies the chapter behavior. It is serialized from the Rust
-  `chapter_type` field.
+  `type` field.
 - `title` is optional. When omitted, the public frontend resolves a localized
   label from `type` when it knows that type.
 

@@ -126,8 +126,18 @@ function resolvePlayerStoryboard(player: EntryPlayer | null): ResolvedVideoSprit
   if (!player?.storyboard) {
     return null
   }
-
+ 
   return { ...player.storyboard }
+}
+
+/**
+ * Copies normalized player chapters into the media-source format consumed by Video.js.
+ *
+ * @param player Player currently selected in the UI.
+ * @returns Chapter list when available.
+ */
+function resolvePlayerChapters(player: EntryPlayer | null): ResolvedVideoChapter[] | null {
+  return player?.chapters ?? null
 }
 
 /**
@@ -464,12 +474,14 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
       ? attachStoryboardToVideoSource(
           resolvePlayerMediaSource(selectedPlayer.value.directLink),
           resolvePlayerStoryboard(selectedPlayer.value),
+          resolvePlayerChapters(selectedPlayer.value),
         )
       : shouldResolvePlayer.value
           ? null
           : attachStoryboardToVideoSource(
               resolvePlayerMediaSource(null),
               resolvePlayerStoryboard(selectedPlayer.value),
+              resolvePlayerChapters(selectedPlayer.value),
             ),
   )
 
@@ -715,6 +727,7 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
         lang: null,
         resolver,
         storyboard: null,
+        chapters: null,
       }
 
       try {

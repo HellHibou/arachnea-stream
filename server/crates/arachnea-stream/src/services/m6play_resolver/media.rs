@@ -123,6 +123,7 @@ pub(super) fn extract_storyboard_from_video_payload(
         columns: STORYBOARD_COLUMNS,
         rows: STORYBOARD_ROWS,
         first_page_index: None,
+        index_padding: None,
         interval: (interval > 0.0).then_some(interval),
     })
 }

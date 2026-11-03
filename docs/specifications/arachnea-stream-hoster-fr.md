@@ -146,6 +146,7 @@ préfixe proxy manuellement.
 | `columns`, `rows` | `number` | Entiers positifs obligatoires |
 | `width`, `height` | `number` | Dimensions positives facultatives d'une miniature ; déduites par le lecteur si absentes |
 | `first_page_index` | `number` | Entier non signé facultatif ; le lecteur utilise 0 par défaut |
+| `index_padding` | `number` | Largeur positive facultative de remplissage par zéros du `{index}` substitué |
 | `interval` | `number` | Secondes positives facultatives entre les miniatures |
 
 Une grille obligatoire absente, une URL vide ou une grille/dimension nulle fait

@@ -80,6 +80,8 @@ export interface EntryPlayerStoryboard {
   rows: number
   /** Index used for the first sprite image in a sequential URL template. */
   firstPageIndex: number
+  /** Zero-padding width applied to the substituted index, or `0` when unpadded. */
+  indexPadding: number
   /** The time interval between thumbnails in seconds, or `null` when derived from video duration. */
   interval: number | null
 }
@@ -177,6 +179,8 @@ export interface EntryPlayer {
   resolver: EntryPlayerResolver | null
   /** The storyboard configuration for this player. */
   storyboard: EntryPlayerStoryboard | null
+  /** Optional ordered list of chapters extracted from the player metadata. */
+  chapters: EntryPlayerChapter[] | null
 }
 
 /**

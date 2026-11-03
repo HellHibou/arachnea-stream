@@ -62,6 +62,9 @@ pub(crate) struct SpriteThumbnail {
     /// Optional index used for the first sprite image in a sequential URL template.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub first_page_index: Option<u32>,
+    /// Optional zero-padding width applied to the substituted `{index}` value.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub index_padding: Option<u32>,
     /// Optional time interval between thumbnails in seconds.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub interval: Option<f64>,

@@ -324,6 +324,9 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Fawesome `get_entry`, `get_players` and `get_season` responses now share one storyboard definition and expose a sequential trickplay storyboard derived from the video HLS directory (`tp/img-{index}.jpg`, 3-digit zero padding via `index_padding: 3`, 30-second interval, 266×150 frames), so movies and series episodes expose preview thumbnails to the player.
+- Fawesome player entries now expose `intro` and `outro` chapters built from the upstream `intro_st`/`intro_et` and `endcredit_st`/`endcredit_et` markers, so skip controls and auto-skip preferences can target the opening and closing credits.
+
 - France TV catalog rails now distinguish entry, category and live cards, include live/collection rails and retain upstream card order. Editorial collections target `get_category`; live targets retain their content identifier. Static `get_live` emits the existing resolver without depending on the channel-list endpoint.
 
 - Fawesome home/category sections now expose per-card `item-kind` navigation, preserving genre/actor categories and real film/series entries. Category requests support both upstream channel shapes (`name`/`url` and `title`/`feed`), with optional descriptive `items-kind` rail metadata; shaping stays in YAML.

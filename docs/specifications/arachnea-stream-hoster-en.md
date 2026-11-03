@@ -134,6 +134,7 @@ manual proxy prefix.
 | `columns`, `rows` | `number` | Required positive integers |
 | `width`, `height` | `number` | Optional positive integer thumbnail dimensions; inferred by the player when absent |
 | `first_page_index` | `number` | Optional unsigned integer; player defaults to 0 |
+| `index_padding` | `number` | Optional positive zero-padding width for the substituted `{index}` |
 | `interval` | `number` | Optional positive seconds between thumbnails |
 
 Missing required grid data, blank URL or zero grid/dimensions causes the storyboard

@@ -508,10 +508,24 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
   }
 
   /**
+   * Formats one sequential storyboard image index with its page offset and optional zero padding.
+   *
+   * @param index Zero-based image index selected for the current preview time.
+   * @param firstPageIndex Index used by the first sprite image in the URL template.
+   * @param indexPadding Zero-padding width applied to the formatted index.
+   * @returns Image index ready to replace the `{index}` template placeholder.
+   */
+  function formatStoryboardIndex(index: number, firstPageIndex: number, indexPadding: number): string {
+    const value = String(index + firstPageIndex)
+    return indexPadding > 0 ? value.padStart(indexPadding, '0') : value
+  }
+
+  /**
    * Preloads the first sprite image and derives one cell's dimensions from its declared grid.
    *
    * @param url Sprite image URL, which may contain an `{index}` placeholder.
    * @param firstPageIndex First index used by a sequential sprite URL.
+   * @param indexPadding Zero-padding width applied to the formatted index.
    * @param columns Number of sprite columns.
    * @param rows Number of sprite rows.
    * @returns Derived cell dimensions and a normalized sprite URL, or `null` when the grid is invalid.
@@ -519,10 +533,11 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
   function resolveSpriteThumbnailDimensions(
     url: string,
     firstPageIndex: number,
+    indexPadding: number,
     columns: number,
     rows: number,
   ): Promise<{ url: string, width: number, height: number } | null> {
-    const firstSpriteUrl = url.replace('{index}', String(firstPageIndex))
+    const firstSpriteUrl = url.replace('{index}', formatStoryboardIndex(0, firstPageIndex, indexPadding))
 
     return new Promise((resolve) => {
       const image = new Image()
@@ -634,12 +649,13 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
       return {}
     }
 
-    const { firstPageIndex, interval, width, height, ...spriteThumbnails } = source.storyboard
+    const { firstPageIndex, indexPadding, interval, width, height, ...spriteThumbnails } = source.storyboard
     const resolvedSprite = width && height
       ? { url: source.storyboard.url, width, height }
       : await resolveSpriteThumbnailDimensions(
         source.storyboard.url,
         firstPageIndex,
+        indexPadding,
         source.storyboard.columns,
         source.storyboard.rows,
       )
@@ -653,8 +669,8 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
       ? resolvedSpriteThumbnails
       : { ...resolvedSpriteThumbnails, interval }
 
-    return firstPageIndex > 0
-      ? { ...options, idxTag: (index: number) => index + firstPageIndex }
+    return firstPageIndex > 0 || indexPadding > 0
+      ? { ...options, idxTag: (index: number) => formatStoryboardIndex(index, firstPageIndex, indexPadding) }
       : options
   }
 

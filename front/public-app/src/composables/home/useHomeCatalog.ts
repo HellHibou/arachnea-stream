@@ -222,6 +222,7 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
       lang: null,
       resolver: banner.player,
       storyboard: null,
+      chapters: null,
     }
   }
 

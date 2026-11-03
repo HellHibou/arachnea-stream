@@ -9,7 +9,7 @@ use arachnea_scrapyfy::*;
 use url::Url;
 
 use crate::services::player_resolver::{
-    PlayerResolverEndpoints, ResolvedPlayerImageTitle, ResolvedPlayerStream,
+    Chapter, PlayerResolverEndpoints, ResolvedPlayerImageTitle, ResolvedPlayerStream,
     ResolvedPlayerSubtitle, SpriteThumbnail,
 };
 

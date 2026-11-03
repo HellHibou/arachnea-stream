@@ -129,6 +129,7 @@ function createBannerPlayer(banner: HomeBanner): EntryPlayer | null {
     lang: null,
     resolver: banner.player,
     storyboard: null,
+    chapters: null,
   }
 }
 
