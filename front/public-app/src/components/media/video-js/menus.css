@@ -139,7 +139,6 @@
   height: var(--storyboard-preview-height, auto) !important;
   padding-bottom: 4px !important;
   margin-right: 1px !important;
-  transform: translateY(5px) !important;
   font-size: var(--player-font-size, 1rem) !important;
   font-weight: 700 !important;
   border: 2px solid rgba(255, 255, 255, .8) !important;

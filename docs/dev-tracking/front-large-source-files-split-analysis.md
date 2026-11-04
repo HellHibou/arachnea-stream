@@ -543,7 +543,9 @@ Chaque lot est indépendant et laisse le front compilable : aucun lot ne doit la
 - [x] Lot 2 — extraction CSS `VideoJsMediaRenderer.vue` et `HomeHeroBanner.vue`.
 - [x] Lot 3 — `storage.ts` → `storage/`.
 - [x] Lot 4 — `rustify.ts` → `rustify/`.
-- [ ] Lot 5 — `useVideoJsMediaRenderer` helpers sans état.
+- [x] Lot 5.1 — `useVideoJsMediaRenderer` vague 1 (storyboard, sous-titres, attributs, autoplay).
+- [x] Lot 5.2 — `useVideoJsMediaRenderer` vague 2 (cycle de vie, application de source, état joueur).
+- [ ] Lot 5.3 — L'affichage de storyboard provenant d'un fichier .vtt ne s'affiche pas correctement: Il y a un glissement de l'image d'une vignette a l'autre et elle est affichée trop bas. Le mode d'affichage storyboard d'url d'images et de donnes divers en json fonctionne.
 - [ ] Lot 6 — `useVideoPlayer` → slices.
 - [ ] Lot 7 — `ProgramEntryDetails.vue` → composables `entry-details`.
 - [ ] Lot 8 — `useVideoJsMediaRenderer` cycle de vie et application de source.
