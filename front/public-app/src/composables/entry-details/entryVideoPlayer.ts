@@ -11,7 +11,7 @@ import {
 } from '@/services/players'
 import { getPlayers, getStream, normalizePlayersResponse } from '@/services/rustify'
 import { isMediaSourceAllowedBySecurity } from '@/services/videoSourceAllowlist'
-import type { EntryDetails, EntryPlayableItem, EntryPlayer, EntryResolvedPlayerStream } from '@/types/entry'
+import type { EntryDetails, EntryPlayableItem, EntryPlayer, EntryResolvedPlayerStream, ResolvedPlayerSubtitle } from '@/types/entry'
 
 /** Sentinel value used for players without a language code. */
 const unknownLanguageKey = '__unknown__'
@@ -141,16 +141,29 @@ function resolvePlayerChapters(player: EntryPlayer | null): ResolvedVideoChapter
 }
 
 /**
- * Enriches one resolved media source with storyboard metadata when it renders through Video.js.
+ * Copies normalized player subtitles into the media-source format consumed by Video.js.
+ *
+ * @param player Player currently selected in the UI.
+ * @returns Subtitle tracks carried by the player.
+ */
+function resolvePlayerSubtitles(player: EntryPlayer | null): ResolvedPlayerSubtitle[] {
+  return player?.subtitles ?? []
+}
+
+/**
+ * Enriches one resolved media source with storyboard and subtitle metadata when it renders through Video.js.
  *
  * @param mediaSource Resolved player media source.
  * @param storyboard Sprite thumbnail configuration carried by the selected player.
+ * @param chapters Chapter list carried by the selected player.
+ * @param subtitles Subtitle tracks to attach, or null to keep the media-source tracks.
  * @returns Video source including storyboard metadata when applicable.
  */
 function attachStoryboardToVideoSource(
   mediaSource: ResolvedPlayerMediaSource | null,
   storyboard: ResolvedVideoSpriteThumbnails | null,
   chapters: ResolvedVideoChapter[] | null = null,
+  subtitles: ResolvedPlayerSubtitle[] | null = null,
 ): ResolvedPlayerMediaSource | null {
   if (!mediaSource || mediaSource.renderer !== 'video') {
     return mediaSource
@@ -160,6 +173,7 @@ function attachStoryboardToVideoSource(
     ...mediaSource,
     storyboard,
     chapters: chapters ?? mediaSource.chapters,
+    subtitles: subtitles && subtitles.length > 0 ? subtitles : mediaSource.subtitles,
   }
 }
 
@@ -475,6 +489,7 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
           resolvePlayerMediaSource(selectedPlayer.value.directLink),
           resolvePlayerStoryboard(selectedPlayer.value),
           resolvePlayerChapters(selectedPlayer.value),
+          resolvePlayerSubtitles(selectedPlayer.value),
         )
       : shouldResolvePlayer.value
           ? null
@@ -482,6 +497,7 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
               resolvePlayerMediaSource(null),
               resolvePlayerStoryboard(selectedPlayer.value),
               resolvePlayerChapters(selectedPlayer.value),
+              resolvePlayerSubtitles(selectedPlayer.value),
             ),
   )
 
@@ -728,6 +744,7 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
         resolver,
         storyboard: null,
         chapters: null,
+        subtitles: [],
       }
 
       try {
@@ -812,10 +829,17 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
         const resolvedStoryboard = !resolvedStream || 'embedLink' in resolvedStream
           ? null
           : (resolvedStream.storyboard ?? resolvePlayerStoryboard(currentPlayer))
+        const resolvedSubtitles = !resolvedStream || 'embedLink' in resolvedStream
+          ? null
+          : (resolvedStream.subtitles.length > 0
+              ? resolvedStream.subtitles
+              : resolvePlayerSubtitles(currentPlayer))
 
         resolvedMediaSource.value = attachStoryboardToVideoSource(
           nextMediaSource,
           resolvedStoryboard,
+          null,
+          resolvedSubtitles,
         )
       } catch (error) {
         if (resolutionId !== activeResolutionId) {
@@ -863,6 +887,9 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
       }),
       stream.storyboard ?? resolvePlayerStoryboard(selectedPlayer.value),
       stream.chapters ?? null,
+      stream.subtitles.length > 0
+        ? stream.subtitles
+        : resolvePlayerSubtitles(selectedPlayer.value),
     )
   }
 

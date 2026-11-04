@@ -230,6 +230,7 @@ pub(super) fn extract_storyboard(
 ///
 /// Reads every `subtitles` item and keeps tracks with a usable `link`.
 /// `lang` and `label` stay optional; blank values normalize to `None`.
+/// `auto_translate` is an optional boolean flag parsed from its child value.
 /// Order follows the resolver output and exact `(lang, label, link)`
 /// duplicates are dropped.
 ///
@@ -288,6 +289,9 @@ pub(super) fn build_subtitle(item: &ScraperDataNode) -> Option<ResolvedPlayerSub
         lang: normalize_optional_child_value(item, "lang"),
         label: normalize_optional_child_value(item, "label"),
         link,
+        auto_translate: item
+            .first_child_value("auto_translate")
+            .and_then(|value| value.trim().parse::<bool>().ok()),
     })
 }
 

@@ -857,11 +857,15 @@ décrire les options de lecture.
 | `resolver > kind` | `string` | Type de résolveur (format objet legacy, ex: `tf1-video`, `m6play-video`) |
 | `resolver > target_id` | `string` | Identifiant cible pour le résolveur (format objet legacy) |
 | `resolver > stream > kind` | `string` | Type de flux (legacy, ex: `tf1-license-proxy`, `widevine-license-proxy`) |
+| `subtitles` | `object[]` | Pistes externes de sous-titres WebVTT ordonnées portées par le lecteur (optionnel) |
 
 Un joueur est soit un `direct-link` (média direct), soit un descripteur
 `{ resolver, target }` (résolution par le backend). Les deux champs `resolver`
 et `target` peuvent être déclarés en format plat (champs racine) ou en format
-objet legacy (`resolver > kind`, `resolver > target_id`).
+objet legacy (`resolver > kind`, `resolver > target_id`). Un lecteur peut aussi
+porter `subtitles` avec la même forme que les pistes des flux résolus ; le
+frontend utilise ces pistes lorsque `get_stream` n'en renvoie aucune et pour les
+lecteurs `direct-link`.
 
 Pour `m6play-video` et `m6play-live`, la préparation optionnelle de la clé d'API
 Gigya dispose de cinq secondes au total pour la page de connexion et le bundle
@@ -961,12 +965,14 @@ résolveur :
 | `lang` | `string` | Code de langue optionnel annoncé par la source ; il est conservé sans conversion |
 | `label` | `string` | Libellé humain optionnel affiché par le lecteur |
 | `link` | `string` | URL WebVTT HTTP(S), ou URL de proxy applicatif, obligatoire |
+| `auto_translate` | `boolean` | Indicateur optionnel de piste générée ou traduite automatiquement |
 
 Les pistes dont `link` est vide ou invalide sont ignorées. Les valeurs `lang` et `label` vides sont
-omises ; une piste reste toutefois conservée lorsqu'elles sont toutes les deux absentes. Une liste
-vide n'est pas sérialisée dans la réponse JSON. Les résolveurs doivent proxifier les URLs de
-sous-titres qui nécessitent des en-têtes de requête ou qui ne seraient pas lisibles directement par
-le navigateur. Le lecteur public ajoute ces pistes comme pistes distantes Video.js après avoir défini
+omises ; une piste reste toutefois conservée lorsqu'elles sont toutes les deux absentes.
+`auto_translate` est omis lorsqu'il est absent ou invalide. Une liste vide n'est pas sérialisée dans
+la réponse JSON. Les résolveurs doivent proxifier les URLs de sous-titres qui nécessitent des en-têtes
+de requête ou qui ne seraient pas lisibles directement par le navigateur. Le lecteur public ajoute ces
+pistes comme pistes distantes Video.js après avoir défini
 la source média, n'en active aucune par défaut et retire ses propres pistes distantes lors d'un
 changement de source ou de la destruction du lecteur. Les pistes texte natives HLS/DASH restent
 gérées par leurs moteurs de lecture respectifs.

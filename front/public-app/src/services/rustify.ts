@@ -2163,7 +2163,8 @@ function normalizeEntryPlayer(
   const label = buildPlayerLabel(name, lang, index)
   const storyboard = normalizeEntryPlayerStoryboard(entry, source)
   const chapters = normalizeRustifyChapters(entry.chapters ?? entry['chapters'])
- 
+  const subtitles = normalizeResolvedPlayerSubtitles(entry.subtitles ?? entry['subtitles'])
+
   if (!embedLink && !directLink && !resolver) {
     return null
   }
@@ -2179,6 +2180,7 @@ function normalizeEntryPlayer(
       resolver,
       storyboard,
       chapters,
+      subtitles,
     }
   }
  
@@ -2192,6 +2194,7 @@ function normalizeEntryPlayer(
     resolver,
     storyboard,
     chapters,
+    subtitles,
   }
 }
 
@@ -2402,11 +2405,15 @@ function normalizeResolvedPlayerSubtitles(value: unknown): ResolvedPlayerSubtitl
 
     const lang = typeof item.lang === 'string' ? item.lang.trim() : ''
     const label = typeof item.label === 'string' ? item.label.trim() : ''
+    const autoTranslate =
+      readOptionalBoolean(item.auto_translate) ??
+      readOptionalBoolean(item.autoTranslate)
 
     subtitles.push({
       link,
       ...(lang ? { lang } : {}),
       ...(label ? { label } : {}),
+      ...(autoTranslate !== null ? { autoTranslate } : {}),
     })
   }
 

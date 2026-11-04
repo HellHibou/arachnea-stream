@@ -264,6 +264,16 @@ shared:
       pattern: "^video/"
       keep_matching: true
   player_entries_fawesome: &player_entries_fawesome
+    - name: web-link
+      type: string
+      pointer: /web_url
+      select: first
+      actions:
+        - type: map
+          argument:
+            "": null
+        - type: format_text
+          argument: "{public_base}/{}"
     - name: name
       type: string
       select: first
@@ -398,6 +408,67 @@ shared:
           actions:
             - type: format_text
               argument: "outro"
+    - name: subtitles
+      type: object[]
+      select: all
+      entries:
+        - name: lang
+          type: string
+          pointer: /content_language_iso2
+          select: first
+        - name: label
+          type: string
+          pointer: /default_lang
+          select: first
+        - name: link
+          type: string
+          pointer: /cc_path
+          select: first
+          actions:
+            - type: map
+              argument:
+                "": null
+        - name: auto_translate
+          type: boolean
+          pointer: /aicc
+          select: first
+          actions:
+            - type: map
+              argument:
+                "true": "true"
+                "false": "false"
+              default: null
+    - name: subtitles
+      type: object[]
+      pointer: /cc_path_multi_lang/*
+      select: all
+      entries:
+        - name: lang
+          type: string
+          pointer: /language
+          select: first
+        - name: label
+          type: string
+          pointer: /language
+          select: first
+        - name: link
+          type: string
+          pointer: /file_path
+          select: first
+          actions:
+            - type: map
+              argument:
+                "": null
+        - name: auto_translate
+          type: boolean
+          pointer: /aicc
+          select: first
+          actions:
+            - type: map
+              argument:
+                "true": "true"
+                "false": "false"
+              default: null
 
 queries:
   - name: service_stream_metadata

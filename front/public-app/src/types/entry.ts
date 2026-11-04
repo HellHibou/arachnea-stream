@@ -110,6 +110,8 @@ export interface ResolvedPlayerSubtitle {
   label?: string
   /** Browser-consumable WebVTT URL. */
   link: string
+  /** Whether the track was generated or translated automatically. */
+  autoTranslate?: boolean
 }
 
 /**
@@ -181,6 +183,8 @@ export interface EntryPlayer {
   storyboard: EntryPlayerStoryboard | null
   /** Optional ordered list of chapters extracted from the player metadata. */
   chapters: EntryPlayerChapter[] | null
+  /** Subtitle tracks carried by the player descriptor. */
+  subtitles: ResolvedPlayerSubtitle[]
 }
 
 /**

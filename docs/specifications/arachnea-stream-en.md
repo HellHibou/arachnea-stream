@@ -831,10 +831,13 @@ playback options.
 | `resolver > kind` | `string` | Resolver type (legacy object form, e.g. `tf1-video`, `m6play-video`) |
 | `resolver > target_id` | `string` | Resolver target identifier (legacy object form) |
 | `resolver > stream > kind` | `string` | Stream type (legacy, e.g. `tf1-license-proxy`, `widevine-license-proxy`) |
+| `subtitles` | `object[]` | Optional ordered external WebVTT subtitle tracks carried by the player |
 
 A player is either a `direct-link` or a `{ resolver, target }` descriptor resolved by the backend.
 The `resolver` and `target` fields can use the flat form above or the legacy object form
-(`resolver > kind`, `resolver > target_id`).
+(`resolver > kind`, `resolver > target_id`). A player may also carry `subtitles` using the same
+track shape as resolved streams; the frontend uses those tracks when `get_stream` returns no
+subtitles and for direct-link players.
 
 For `m6play-video` and `m6play-live`, optional Gigya API-key preparation has a
 five-second total budget for the login page and JavaScript bundle, then uses the
@@ -945,11 +948,13 @@ available.
 | `lang` | `string` | Optional language code declared by the source; preserved without conversion |
 | `label` | `string` | Optional human-readable label displayed by the player |
 | `link` | `string` | Required HTTP(S) or application-proxy WebVTT URL |
+| `auto_translate` | `boolean` | Optional flag indicating the track was generated or translated automatically |
 
 Tracks with a blank or invalid `link` are discarded. Blank `lang` and `label` values are omitted;
-otherwise a track is retained even when both are absent. Empty subtitle lists are omitted from the
-JSON response. Resolver implementations must proxy subtitle URLs that require request headers or
-would otherwise be unreadable by the browser. The public player adds these tracks as Video.js remote
+otherwise a track is retained even when both are absent. `auto_translate` is omitted when absent or
+invalid. Empty subtitle lists are omitted from the JSON response. Resolver implementations must proxy
+subtitle URLs that require request headers or would otherwise be unreadable by the browser. The public
+player adds these tracks as Video.js remote
 subtitle tracks after its media source is set, does not enable one by default, and removes its own
 remote tracks when the source changes or the player is disposed. Embedded HLS/DASH text tracks remain
 managed by their respective playback engines.

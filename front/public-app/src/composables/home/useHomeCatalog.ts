@@ -223,6 +223,7 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
       resolver: banner.player,
       storyboard: null,
       chapters: null,
+      subtitles: [],
     }
   }
 

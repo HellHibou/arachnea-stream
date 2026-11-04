@@ -130,6 +130,7 @@ function createBannerPlayer(banner: HomeBanner): EntryPlayer | null {
     resolver: banner.player,
     storyboard: null,
     chapters: null,
+    subtitles: [],
   }
 }
 

@@ -88,6 +88,9 @@ pub(crate) struct ResolvedPlayerSubtitle {
     pub label: Option<String>,
     /// Browser-readable WebVTT URL.
     pub link: String,
+    /// Whether the track was generated or translated automatically.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auto_translate: Option<bool>,
 }
 
 /// Playback stream resolved by a source-specific player resolver.

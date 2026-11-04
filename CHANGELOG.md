@@ -326,6 +326,7 @@ All notable changes to the server workspace are recorded here.
 
 - Fawesome `get_entry`, `get_players` and `get_season` responses now share one storyboard definition and expose a sequential trickplay storyboard derived from the video HLS directory (`tp/img-{index}.jpg`, 3-digit zero padding via `index_padding: 3`, 30-second interval, 266×150 frames), so movies and series episodes expose preview thumbnails to the player.
 - Fawesome player entries now expose `intro` and `outro` chapters built from the upstream `intro_st`/`intro_et` and `endcredit_st`/`endcredit_et` markers, so skip controls and auto-skip preferences can target the opening and closing credits.
+- Fawesome player entries now expose external WebVTT subtitles from `cc_path` and `cc_path_multi_lang`, using `content_language_iso2`/`default_lang` for the default track and `language` for multi-language tracks. Resolver subtitle tracks also carry an optional `auto_translate` flag sourced from `aicc`.
 
 - France TV catalog rails now distinguish entry, category and live cards, include live/collection rails and retain upstream card order. Editorial collections target `get_category`; live targets retain their content identifier. Static `get_live` emits the existing resolver without depending on the channel-list endpoint.
 
@@ -406,6 +407,8 @@ All notable changes to the server workspace are recorded here.
 - Coflix (`dark-stream/coflix.yaml`): home categories and `get_category` scraped the retired JSON `wp-json/apiflix/v1/options` endpoints and returned no cards. They now scrape the HTML catalogue pages (`/movies/`, `/series/`, `/animes/`), parse the entry cards from the page markup, derive `media-type` from the category URL, and paginate through `derive_pagination`, restoring category browsing.
 
 #### Fixed
+
+- Fawesome players now expose `web-link` from the API result’s `web_url` field, prefixed with the public Fawesome base URL instead of the legacy iFood URL.
 
 - Restore TF1+ collection rails such as “Vous êtes plutôt...” on the home page, with complete public-page cards, titles, artwork and typed category requests. `get_category` now opens collection pages and extracts nested collection rails while preserving channel programme pagination.
 
@@ -797,6 +800,7 @@ All notable changes to the server workspace are recorded here.
 #### Added
 
 - Preserved generic service metadata tags while normalizing public service catalog responses.
+- The public player now consumes subtitle tracks carried by player descriptors as a fallback when `get_stream` returns none, and for direct-link players. Normalized tracks preserve the optional `autoTranslate` flag.
 - Responsive sidebar navigation (lot 2D): ordered custom homes with create/edit/manage actions, Lives and capability-filtered collapsible sources without provider-home preloading. Source expansion persists locally; focus/visibility refresh preserves independent-view definitions. Narrow screens use a modal drawer with keyboard containment, Escape/backdrop dismissal and trigger focus restoration; fullscreen hides navigation. The brand retains `/`, duplicate toolbar Lives/source selectors are removed, search/settings/back remain, and route changes clear stale background candidates.
 - Custom home editor (lot 2C): detached creation/rename/repair drafts, selected-source content picker, optional title merging and bookmarks, ordered banners/shortcuts/blocks, read-only previews, atomic revision-checked saves and navigation reordering, confirmed deletion and conflict-preserving errors. Edition-only additions target service banner collections (excluding custom banners), categories including custom-home shortcuts, and source sections through explicit destination/contribution choices. Permanent sidebar remains deferred.
 - Custom home foundations (lot 2A): versioned declarative types, strict runtime validation, additive `custom_homes` IndexedDB CRUD with atomic revision checks and non-destructive invalid-record diagnostics, and selected-source discovery without merging or deferred hydration. Source-owned reference identities distinguish provider keys, descriptor fallbacks, fragile labels and collisions. Composition and editor integration remain for subsequent lots.
