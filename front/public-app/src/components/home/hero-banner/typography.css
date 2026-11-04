@@ -1,0 +1,74 @@
+.home-hero-banner__eyebrow {
+  color: rgba(221, 233, 245, 0.88);
+  font-size: 0.88rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  -webkit-text-stroke: 0.45px var(--home-hero-banner-text-outline);
+  text-shadow:
+    -1px -1px 0 var(--home-hero-banner-text-outline),
+    1px -1px 0 var(--home-hero-banner-text-outline),
+    -1px 1px 0 var(--home-hero-banner-text-outline),
+    1px 1px 0 var(--home-hero-banner-text-outline);
+}
+
+.home-hero-banner__title {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: clamp(2rem, 1.45rem + 2.2vw, 3.5rem);
+  font-weight: 800;
+  line-height: 1.02;
+  -webkit-text-stroke: 0.7px var(--home-hero-banner-text-outline);
+  text-shadow:
+    -1px -1px 0 var(--home-hero-banner-text-outline),
+    1px -1px 0 var(--home-hero-banner-text-outline),
+    -1px 1px 0 var(--home-hero-banner-text-outline),
+    1px 1px 0 var(--home-hero-banner-text-outline),
+    0 2px 10px rgba(6, 10, 16, 0.55);
+}
+
+.home-hero-banner__description {
+  color: var(--text-primary);
+  font-size: clamp(0.98rem, 0.92rem + 0.24vw, 1.08rem);
+  line-height: 1.5;
+  -webkit-text-stroke: 0.4px var(--home-hero-banner-text-outline);
+  text-shadow:
+    -1px -1px 0 var(--home-hero-banner-text-outline),
+    1px -1px 0 var(--home-hero-banner-text-outline),
+    -1px 1px 0 var(--home-hero-banner-text-outline),
+    1px 1px 0 var(--home-hero-banner-text-outline),
+    0 2px 10px rgba(6, 10, 16, 0.55);
+}
+
+.home-hero-banner__action {
+  margin-top: auto;
+  align-self: start;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  min-height: var(--control-height);
+  padding: 0 20px;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--bg-accent-primary);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.98rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.home-hero-banner__action:hover {
+  filter: brightness(1.04);
+}
+
+.home-hero-banner__action:focus-visible,
+.home-hero-banner__sound-toggle:focus-visible,
+.home-hero-banner__arrow:focus-visible,
+.home-hero-banner__dot:focus-visible {
+  outline: var(--common-focus-ring);
+  outline-offset: 2px;
+}

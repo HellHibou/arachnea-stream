@@ -1,0 +1,35 @@
+.home-hero-banner__panel {
+  position: relative;
+  z-index: 4;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 16px;
+  min-width: 0;
+  min-height: 0;
+  padding: clamp(20px, 3vw, 34px);
+  background: transparent;
+  border-left: 0;
+}
+
+.home-hero-banner__content {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 100%;
+  height: 100%;
+  max-height: 100%;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 6px;
+}
+
+.home-hero-banner__logo {
+  max-width: min(100%, 480px);
+  max-height: 130px;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  object-position: left center;
+  filter: drop-shadow(0 6px 18px rgba(0, 0, 0, 0.45));
+
+}

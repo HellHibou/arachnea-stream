@@ -1,0 +1,101 @@
+.videojs-media-host :deep(.vjs-chapter-overlay) {
+  position: absolute;
+  z-index: 2;
+  display: none;
+  padding: 3px 8px;
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  transform: translateX(-50%);
+  box-sizing: border-box;
+  text-shadow: 1px 1px #000;
+}
+
+.videojs-media-host :deep(.vjs-chapter-overlay--visible) {
+  display: block;
+}
+
+.videojs-media-host :deep(.vjs-chapter-overlay--floating) {
+  width: max-content;
+  max-width: calc(100% - 16px);
+  transform: translate(-50%, calc(-100% - 6px));
+}
+
+.videojs-media-host :deep(.vjs-chapter-segments) {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.videojs-media-host :deep(.vjs-chapter-segment-divider) {
+  position: absolute;
+  top: 0;
+  width: 2px;
+  height: 100%;
+  background: rgb(255 255 255 / 0.5);
+  transform: translateX(-1px);
+}
+
+.videojs-media-host :deep(.vjs-skip-intro-button),
+.videojs-media-host :deep(.vjs-skip-previously-button),
+.videojs-media-host :deep(.vjs-skip-coming_next-button),
+.videojs-media-host :deep(.vjs-skip-outro-button),
+.videojs-media-host :deep(.vjs-skip-ads-button) {
+  display: none;
+  position: absolute;
+  bottom: 64px;
+  right: 24px;
+  padding: 8px 18px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--bg-surface);
+  border: 1px solid rgb(255 255 255 / 0.3);
+  border-radius: 99px !important;
+  cursor: pointer;
+  z-index: 2;
+  white-space: nowrap;
+  backdrop-filter: blur(4px);
+  transition: opacity 0.2s;
+  align-items: center;
+  gap: 8px;
+}
+
+.videojs-media-host :deep(.vjs-skip-chapter-button-icon) {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.videojs-media-host :deep(.vjs-skip-intro-button--visible),
+.videojs-media-host :deep(.vjs-skip-previously-button--visible),
+.videojs-media-host :deep(.vjs-skip-coming_next-button--visible),
+.videojs-media-host :deep(.vjs-skip-outro-button--visible),
+.videojs-media-host :deep(.vjs-skip-ads-button--visible) {
+  display: inline-flex;
+}
+
+/* While the control bar is hidden the button drops near the player bottom edge. */
+.videojs-media-host :deep(.vjs-skip-intro-button--controls-hidden),
+.videojs-media-host :deep(.vjs-skip-previously-button--controls-hidden),
+.videojs-media-host :deep(.vjs-skip-coming_next-button--controls-hidden),
+.videojs-media-host :deep(.vjs-skip-outro-button--controls-hidden),
+.videojs-media-host :deep(.vjs-skip-ads-button--controls-hidden) {
+  bottom: 20px;
+}
+
+.videojs-media-host :deep(.vjs-skip-intro-button:active),
+.videojs-media-host :deep(.vjs-skip-previously-button:active),
+.videojs-media-host :deep(.vjs-skip-coming_next-button:active),
+.videojs-media-host :deep(.vjs-skip-outro-button:active),
+.videojs-media-host :deep(.vjs-skip-ads-button:active) {
+  background: rgb(0 0 0 / 0.9);
+}

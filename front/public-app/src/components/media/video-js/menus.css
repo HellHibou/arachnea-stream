@@ -1,0 +1,174 @@
+/* Player popup menus (quality, subtitles, ...) must paint above the skip buttons. */
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-menu) {
+  z-index: 3;
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-menu-button-popup .vjs-menu) {
+  right: 0;
+  bottom: calc(100% - 0.1rem - 30px);
+  left: auto;
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-menu .vjs-menu-content) {
+  width: auto;
+  min-width: 8em;
+  padding: 0.45rem;
+  border: 1px solid var(--border-color-primary);
+  border-radius: 12px;
+  background: var(--bg-surface-strong);
+  box-shadow: var(--shadow-card);
+  bottom: 25px;
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-quality-menu-wrapper.vjs-menu-button-popup .vjs-menu),
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-quality-menu-button.vjs-menu-button-popup .vjs-menu) {
+  right: calc(var(--videojs-icon-control-width) * -1);
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-quality-menu-wrapper .vjs-menu .vjs-menu-content),
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-quality-menu-button .vjs-menu .vjs-menu-content) {
+  right: 0;
+  left: auto;
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-menu li) {
+  text-transform: none;
+  text-align: left;
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-menu-button-popup .vjs-menu .vjs-menu-content .vjs-menu-item) {
+  display: block !important;
+  width: max-content !important;
+  min-width: 100%;
+  padding: 0.45rem 3.2em 0.45rem 0.65rem;
+  color: var(--text-secondary);
+  font-size: var(--player-font-size);
+  text-align: left !important;
+  white-space: nowrap;
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-menu-button-popup.vjs-episode-autoplay-menu .vjs-menu .vjs-menu-content .vjs-menu-item) {
+  position: relative;
+  padding-left: 1.9rem;
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-episode-autoplay-menu .vjs-menu .vjs-menu-item.vjs-selected) {
+  font-weight: normal;
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-episode-autoplay-menu .vjs-menu .vjs-menu-item::before) {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0.65rem;
+  box-sizing: border-box;
+  width: 0.85rem;
+  height: 0.85rem;
+  border: 1px solid currentColor;
+  border-radius: 2px;
+  transform: translateY(-50%);
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-episode-autoplay-menu .vjs-menu .vjs-menu-item.vjs-selected::after) {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0.93rem;
+  box-sizing: border-box;
+  width: 0.25rem;
+  height: 0.5rem;
+  border: solid currentColor;
+  border-width: 0 2px 2px 0;
+  transform: translateY(-58%) rotate(45deg);
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-subs-caps-button.vjs-menu-button-popup .vjs-menu) {
+  width: max-content;
+  min-width: 10em;
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-subs-caps-button.vjs-menu-button-popup .vjs-menu .vjs-menu-content) {
+  width: max-content;
+  min-width: 100%;
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-subs-caps-button .vjs-menu-item-text) {
+  white-space: nowrap;
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-menu-item.vjs-selected) {
+  color: var(--color-primary) !important;
+  background: transparent;
+  border-radius: var(--radius);
+  font-weight: bolder;
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-menu-item:hover),
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-menu-item:focus-visible) {
+  color: var(--text-primary) !important;
+  background: var(--color-primary);
+  border-radius: var(--radius);
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-quality-menu-item-sub-label) {
+  width: 3.2em;
+  color: var(--text-secondary);
+  font-size: var(--player-font-size);
+  letter-spacing: 0.06em;
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-quality-menu-button-HD-flag::after),
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-quality-menu-button-4K-flag::after) {
+  border: 1px solid rgb(255 255 255 / 0.14);
+    background: rgb(70 163 255 / 0.18);
+    color: var(--text-primary);
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-time-tooltip) {
+  border-radius: 999px;
+  background: rgb(9 12 18 / 0.92);
+  color: var(--text-primary);
+  font-size: var(--player-font-size);
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-mouse-display .vjs-time-tooltip) {
+  display: flex !important;
+  align-items: flex-end !important;
+  justify-content: center !important;
+  width: var(--storyboard-preview-width, auto) !important;
+  height: var(--storyboard-preview-height, auto) !important;
+  padding-bottom: 4px !important;
+  margin-right: 1px !important;
+  transform: translateY(5px) !important;
+  font-size: var(--player-font-size, 1rem) !important;
+  font-weight: 700 !important;
+  border: 2px solid rgba(255, 255, 255, .8) !important;
+  background-color: rgba(0,0,0, 0.40);
+  background-size: var(--storyboard-preview-background-width, auto) auto !important;
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-play-progress .vjs-time-tooltip) {
+  display: none;
+}
+
+.videojs-media-host :deep(.vjs-sprite-thumbnails .vjs-mouse-display .vjs-time-tooltip) {
+  transform-origin: center bottom;
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-button:focus-visible),
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-menu-item:focus-visible) {
+  outline: var(--common-focus-ring);
+  outline-offset: 2px;
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-text-track-display > div > div > div) {
+  font-family: inherit;
+  text-shadow: var(--text-shadow-primary);
+}
+
+.videojs-media-host :deep(.vjs-sprite-thumbnails),
+.videojs-media-host :deep(.vjs-sprite-thumbnails *),
+.videojs-media-host :deep(.vjs-thumbnail),
+.videojs-media-host :deep(.vjs-thumbnail *) {
+  border-radius: 5px !important;
+}

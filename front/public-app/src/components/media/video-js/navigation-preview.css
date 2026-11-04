@@ -1,0 +1,69 @@
+/* Rich preview of the adjacent episode, anchored bottom-left above the control bar.
+   It replaces the native control tooltip and must stay display-only so the player
+   keeps receiving pointer events. */
+.videojs-media-navigation-preview {
+  position: absolute;
+  bottom: calc(var(--videojs-control-bar-height) + 12px);
+  left: 16px;
+  z-index: 3;
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  width: fit-content;
+  max-width: min(720px, calc(100% - 32px));
+  max-height: calc(100% - var(--videojs-control-bar-height) - 24px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  pointer-events: none;
+  padding: 14px 16px;
+  border: 1px solid var(--border-color-primary);
+  border-radius: var(--radius);
+  background: var(--bg-surface-strong);
+  box-shadow: var(--shadow-heavy);
+  backdrop-filter: var(--backdrop-filter-medium);
+  color: var(--text-primary);
+}
+
+.videojs-media-navigation-preview::-webkit-scrollbar {
+  display: none;
+}
+
+/* Preview image rendered to the left of the preview text, when the backend exposes one. */
+.videojs-media-navigation-preview__image {
+  flex: 0 0 auto;
+  width: 200px;
+  max-width: 45%;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--radius);
+  background: var(--bg-surface);
+  object-fit: cover;
+}
+
+.videojs-media-navigation-preview__copy {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.videojs-media-navigation-preview__label {
+  display: block;
+  overflow: visible;
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.videojs-media-navigation-preview__title {
+  display: block;
+  overflow: visible;
+  color: var(--text-primary);
+  font-size: 1.05rem;
+  font-weight: 800;
+  line-height: 1.2;
+}

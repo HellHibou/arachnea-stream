@@ -1,0 +1,77 @@
+.home-hero-banner__image {
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: right center;
+  pointer-events: none;
+  user-select: none;
+}
+
+.home-hero-banner :deep(.home-hero-banner__video) {
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  right: 0;
+  bottom: auto;
+  left: auto;
+  min-width: 0;
+  min-height: 0;
+  max-width: 100%;
+  max-height: 100%;
+  border: 0;
+  background: transparent;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 1;
+  transform: translateY(-50%);
+  transform-origin: right center;
+  will-change: auto;
+}
+
+.home-hero-banner :deep(.home-hero-banner__video .arachnea-videojs-theme) {
+  padding: 0;
+  background: transparent;
+}
+
+.home-hero-banner :deep(.home-hero-banner__video .video-js),
+.home-hero-banner :deep(.home-hero-banner__video .videojs-media-element),
+.home-hero-banner :deep(.home-hero-banner__video .vjs-tech),
+.home-hero-banner :deep(.home-hero-banner__video video) {
+  background: transparent;
+}
+
+.home-hero-banner :deep(.home-hero-banner__video .vjs-poster) {
+  background-color: transparent;
+  background-position: right center;
+  background-size: contain;
+}
+
+.home-hero-banner :deep(.home-hero-banner__video .vjs-poster img),
+.home-hero-banner :deep(.home-hero-banner__video .vjs-tech),
+.home-hero-banner :deep(.home-hero-banner__video video) {
+  object-fit: contain;
+  object-position: right center;
+}
+
+.home-hero-banner :deep(.home-hero-banner__video--frame) {
+  border: 0;
+  background: transparent;
+}
+
+.home-hero-banner__logo-background {
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  opacity: .8;
+  filter: var(--backdrop-filter-strong);
+  pointer-events: none;
+  user-select: none;
+}
+
+.home-hero-banner__backdrop {
+  z-index: 3;
+  background: transparent;
+}

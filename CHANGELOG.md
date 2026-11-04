@@ -733,6 +733,17 @@ All notable changes to the server workspace are recorded here.
 
 ### <u>front-public</u>
 
+#### Added
+
+- Added a source-size audit and responsibility-based file-splitting plan for the eight `front/public-app` files at or above 1,000 lines in `docs/dev-tracking/front-large-source-files-split-analysis.md`: public-API-preserving barrel strategy, CSS extraction, per-file module layouts, risks and staged order. `front/admin-app` has no file at that threshold.
+
+#### Changed
+
+- Split the DASH playback module into `composables/video/video-js-media-renderer/dash/` (`source`, `manifest`, `qualityBridge`, `periodChapters`, shared `events`) behind an `index.ts` barrel. `@/composables/video/video-js-media-renderer/dash` keeps the same public exports, the manifest merge hook still registers once, and no playback behavior changed.
+- Extracted the scoped player and hero skins into ordered CSS files referenced by `<style scoped src>`: `components/media/video-js/` (`host`, `control-bar`, `menus`, `chapters`, `navigation-preview`) and `components/home/hero-banner/` (`layout`, `media`, `panel`, `typography`, `controls`). Rule order, selectors and scoped attributes are unchanged, and both SFCs now stay below 710 lines.
+- Split the storage service into `services/storage/` (`types`, `keys`, `persistence`, `sanitizers`, `sectionRecords`, `bookmarks`, `videoPreferences`) behind an `index.ts` barrel that still holds the single `defineStore('storage')` instance and all persistence watchers. `@/services/storage` keeps the same exports and `useStorage` API; parameter, home-section, bookmark and player-preference behavior is unchanged.
+- Split the rustify service into `services/rustify/` (`index`, `types`, `desktop`, `apiClient`, `primitives/readers`, `primitives/formatting`, `media`, `search`, `live`, `home/{catalog,categories,sections,banners,serviceMetadata}`, `entry/{details,players,episodes,stream}`) behind an `index.ts` barrel re-exporting exactly the previous public API (`call_api`, `searchMediaItems`, `loadHomeCatalog`, `getEntryDetails`, `getStream`, `dedupeMediaItems`, `normalizePlayersResponse`, `mediaTypeValues`, `SearchFilterOption`, …). `@/services/rustify` keeps the same exports and all 21 importers are unchanged; ETag cache, `ReportedApiError`, `nextFrontendErrorCode` and `AggregationPayload<T>` remain singletons in `apiClient.ts`.
+
 #### Fixed
 
 - Expanding or collapsing a section no longer creates a persisted section preference or resets its thumbnail orientation/image fit. Missing preference records created from the display menu now use the section's current effective display options.

@@ -10,6 +10,7 @@ Ce fichier suit les tâches DNS, HTTP et proxy prévues qui restent pertinentes 
 
 ## Front
 
+- Découper les 8 fichiers sources ≥ 1000 lignes : lots 0–4 terminés (`dash.ts` → `dash/`, CSS `VideoJsMediaRenderer.vue`/`HomeHeroBanner.vue`, `storage.ts` → `storage/`, `rustify.ts` → `rustify/` selon [l’analyse](dev-tracking/front-large-source-files-split-analysis.md)). Restent : `useVideoJsMediaRenderer.ts`, `useVideoPlayer.ts`, `ProgramEntryDetails.vue`.
 - Si on affiche le dernier épisode chargé de la liste et que 'Charger plus' est dispo, il faut charger plus de données. Si le signet est actif, il faut charger plus si l'épisode courant n'a pas été chargé dans la liste.
 - Ajouter le support de diffusion ChromeCast et AirPlay.
 - Facultatif (frontend) : cesser d'envoyer `arachneaEtag` / `enableEtag` dans `front/src/services/rustify.ts` — l'en-tête `If-None-Match` suffit depuis la migration du contexte contrôleur (`docs/dev-tracking/request-context-query-parameters-analysis.md`).

@@ -1,0 +1,54 @@
+.home-hero-banner__service {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.home-hero-banner {
+  --home-hero-banner-height: clamp(380px, 40vw, 520px);
+  --home-hero-banner-text-outline: rgba(0, 0, 0, 0.5);
+  --home-hero-banner-action-offset-x: -130px;
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  grid-template-columns: 1fr;
+  min-height: var(--home-hero-banner-height);
+  height: var(--home-hero-banner-height);
+  border: 1px solid var(--border-color-primary);
+  border-radius: calc(var(--radius) + 6px);
+  overflow: hidden;
+  background-color: rgba(10, 14, 20, 1);
+  background-image: linear-gradient(140deg, rgba(12, 17, 25, 0.98), rgba(24, 35, 47, 0.92));
+  box-shadow:
+    var(--shadow-heavy),
+    var(--inset-light);
+}
+
+.home-hero-banner--loading {
+  animation: home-hero-banner-loading 1.2s ease-in-out infinite alternate;
+}
+
+@keyframes home-hero-banner-loading {
+  from {
+    opacity: 0.65;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+.home-hero-banner::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  box-shadow: inset 0 0 20px rgba(0, 0, 0, 1);
+}
+
+:deep(.home-hero-banner__image),
+:deep(.home-hero-banner__logo-background),
+:deep(.home-hero-banner__backdrop) {
+  position: absolute;
+  inset: 0;
+}
