@@ -1,0 +1,114 @@
+.entry-details__player-state {
+  display: grid;
+  place-items: center;
+  min-height: 240px;
+  padding: 24px;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.entry-details__player-state--loading {
+  gap: 20px;
+}
+
+.entry-details__player-loading-spinner {
+  width: 56px;
+  height: 56px;
+  animation: entry-details-spinner-rotate 1.4s linear infinite;
+}
+
+.entry-details__player-loading-spinner-track {
+  stroke: var(--border-color-primary);
+  opacity: 0.25;
+}
+
+.entry-details__player-loading-spinner-head {
+  stroke: var(--color-primary);
+  stroke-dasharray: 80, 200;
+  stroke-dashoffset: 0;
+  animation: entry-details-spinner-dash 1.4s ease-in-out infinite;
+}
+
+@keyframes entry-details-spinner-rotate {
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes entry-details-spinner-dash {
+  0% {
+    stroke-dasharray: 1, 200;
+    stroke-dashoffset: 0;
+  }
+  50% {
+    stroke-dasharray: 90, 200;
+    stroke-dashoffset: -35px;
+  }
+  100% {
+    stroke-dasharray: 90, 200;
+    stroke-dashoffset: -125px;
+  }
+}
+
+.entry-details__player-state--overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  aspect-ratio: 16 / 9;
+  z-index: 10;
+  min-height: 0;
+  background: var(--bg-surface);
+}
+
+.entry-details__player-state--confirmation {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 0;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  background: var(--bg-surface);
+}
+
+.entry-details__player-confirmation-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.entry-details__player-confirmation-button {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--control-height);
+  padding: 0 24px;
+  border: 1px solid var(--border-color-primary);
+  border-radius: 999px;
+  background: var(--bg-accent-red);
+  color: var(--text-primary);
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: var(--box-shadow-elevated);
+  transition: transform var(--duration-fast) ease, filter var(--duration-fast) ease;
+}
+
+.entry-details__player-confirmation-button:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.06);
+}
+
+.entry-details__player-confirmation-button:focus-visible {
+  outline: var(--common-focus-ring);
+  outline-offset: 2px;
+}
+
+.entry-details__player-state--blocked {
+  aspect-ratio: 16 / 9;
+  background: var(--bg-surface);
+}

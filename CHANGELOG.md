@@ -739,6 +739,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Split the entry player controller into selection, primary stream and trailer state owners, plus shared media helpers/types. `entryVideoPlayer` keeps its 24-property API and watcher order while shrinking from 992 to 209 lines. `VideoPlayer.vue` now reuses shared component contracts and ordered external scoped CSS for its surface, states and picker, shrinking from 845 to 294 lines with the same template, prop defaults and emitted events.
+
 - Split `ProgramEntryDetails.vue` into focused recommendation-rail, bookmark, episode-navigation and media-surface composables. Navigation owns its cancellation counter and transition flags; bookmark preferences initialize before data loading, with episode restoration bound after the existing reset watchers. The component shrinks from 1,140 to 341 lines while keeping its template, props, defaults and event wiring unchanged.
 
 - Split `useVideoPlayer` into shared player types and focused surface, iframe, video-attribute and handler slices. Transition intent stays with the retained source, iframe confirmation owns its state, and preference persistence stays with the event handlers. The entry point shrinks from 1,233 to 30 lines, preserving its 70 returned properties and existing `VideoPlayer.vue` defaults; `renderedMediaSource` now has an explicit computed source type instead of `any`.

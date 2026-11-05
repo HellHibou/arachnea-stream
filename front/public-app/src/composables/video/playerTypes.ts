@@ -1,3 +1,5 @@
+import type { MediaItem } from '@/types/media'
+import type { VideoJsMediaDimensions } from '@/composables/video/useVideoJsMediaRenderer'
 import type { EntryPlayer } from '@/types/entry'
 import type { EntryPlayerLanguageOption } from '@/composables/entry-details/entryVideoPlayer'
 import type { ResolvedPlayerMediaSource } from '@/services/players'
@@ -257,4 +259,50 @@ export interface VideoPlayerEmits {
   (evt: 'playback-ended'): void
   /** Emitted when video navigation is requested via control bar buttons. */
   (evt: 'navigate-video', direction: -1 | 1): void
+}
+
+/** Public component props before array defaults are applied by VideoPlayer.vue. */
+export interface VideoPlayerComponentProps extends Omit<VideoPlayerProps, 'availableLanguages' | 'filteredPlayers'> {
+  /**
+   * Language options rendered by the entry details player selector.
+   * @default []
+   */
+  availableLanguages?: EntryPlayerLanguageOption[]
+  /**
+   * Player options rendered by the entry details player selector.
+   * @default []
+   */
+  filteredPlayers?: EntryPlayer[]
+  /** Media item displayed when hovering the previous-video control. */
+  previousVideoItem?: MediaItem | null
+  /** Media item displayed when hovering the next-video control. */
+  nextVideoItem?: MediaItem | null
+  /** Service title of the entry. */
+  serviceTitle?: string | null
+}
+
+/** Events exposed by the unified video player component. */
+export interface VideoPlayerComponentEmits {
+  /** Emitted when the active language key changes. */
+  'update:active-language-key': [value: string | null]
+  /** Emitted to remember the current language selection. */
+  'remember-current-language': []
+  /** Emitted when the active player ID changes. */
+  'update:active-player-id': [value: string | null]
+  /** Emitted to remember the current player selection. */
+  'remember-current-player': []
+  /** Emitted when playback progress updates. */
+  'update:playback-progress': [value: number | null, duration: number | null]
+  /** Emitted when episode autoplay enabled state changes. */
+  'update:is-episode-autoplay-enabled': [value: boolean]
+  /** Emitted when media playback starts. */
+  'playback-started': [sourceUrl: string | null]
+  /** Emitted when media playback ends. */
+  'playback-ended': []
+  /** Emitted when video metadata is loaded. */
+  'video-metadata-loaded': [value: VideoJsMediaDimensions]
+  /** Emitted when video navigation is requested via control bar buttons. */
+  'navigate-video': [direction: -1 | 1]
+  /** Emitted when Video.js cannot play the active media source. */
+  'source-error': []
 }

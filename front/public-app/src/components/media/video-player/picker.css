@@ -1,0 +1,91 @@
+.entry-details__player-picker {
+  display: grid;
+  gap: 8px;
+  padding: 3px 16px 3px;
+  background: var(--bg-surface-soft);
+  border-radius: var(--radius);
+}
+
+.entry-details__player-picker-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 28px;
+  flex-wrap: wrap;
+}
+
+.entry-details__player-picker-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: center;
+  min-width: 0;
+}
+
+.entry-details__player-picker-label {
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.entry-details__player-select {
+  width: auto;
+  min-width: 180px;
+  min-height: var(--control-height);
+  padding: 0 14px;
+  border: 1px solid var(--border-color-primary);
+  border-radius: var(--radius);
+  background: var(--bg-surface-soft);
+  color: var(--text-primary);
+  font-size: 0.95rem;
+  font-weight: 600;
+  box-shadow: var(--inset-light);
+  backdrop-filter: var(--backdrop-filter-medium);
+}
+
+.entry-details__player-select:focus-visible {
+  outline: var(--common-focus-ring);
+  outline-offset: 2px;
+}
+
+.entry-details__player-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: calc(var(--control-height) - 10px);
+  padding: 0 20px;
+  border-radius: 999px;
+  background: var(--bg-accent-red);
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-decoration: none;
+  box-shadow: var(--inset-light);
+  transition: transform var(--duration-fast) ease, filter var(--duration-fast) ease;
+}
+
+.entry-details__player-btn:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.06);
+}
+
+@media (max-width: 720px) {
+  .entry-details__player-picker-row,
+  .entry-details__player-picker-group {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .entry-details__player-select {
+    width: 100%;
+  }
+
+  .entry-details__player-btn {
+    width: 100%;
+    justify-content: center;
+  }
+}
