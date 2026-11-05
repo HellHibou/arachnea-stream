@@ -19,6 +19,11 @@ interface Props {
    */
   items: CatalogItem[]
   /**
+   * Selects route targets or items handled locally by the parent.
+   * @default 'route'
+   */
+  selectionMode?: 'route' | 'local'
+  /**
    * Optional title displayed above the collection and exposed to assistive technology.
    */
   label?: string
@@ -107,6 +112,7 @@ interface Props {
 
   /** Component props with applied defaults. */
   const props = withDefaults(defineProps<Props>(), {
+    selectionMode: 'route',
     mode: 'grid',
     thumbnailSizeMultiplier: 1,
     hideMissingListThumbnails: false,
@@ -324,6 +330,7 @@ watch(
             v-for="item in items"
             :key="item.id"
             :item="item"
+            :selection-mode="selectionMode"
             :layout="mode === 'list' ? 'list' : 'card'"
             :thumbnail-orientation="cardOrientations.get(item.id) ?? thumbnailOrientation"
             :thumbnail-image-fit="thumbnailImageFit"

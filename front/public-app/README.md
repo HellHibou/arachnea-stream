@@ -324,6 +324,13 @@ preserve the complete source request (`request.query_url` required), display an
 “Open category” action and have no entry URL. No saved-home migration is needed.
 Future media views extend this registry instead of individual card components.
 
+Episode lists inside an entry use `selectionMode="local"` on the shared card
+collection. Their actions are buttons that select an episode in the current player,
+including episodes with inline players and no episode URL (such as Anime-Sama and
+French Animes). The episode mapper supplies a source only when inline players or a
+deferred player link are available. Other collections default to route selection
+and retain their validated native links.
+
 Category artwork uses two decorative thumbnail layers behind the foreground image
 in grid, single-row and list layouts. The rear layers reuse the foreground artwork
 after its lazy image loads, with a darker treatment. They use `--bg-surface-strong`

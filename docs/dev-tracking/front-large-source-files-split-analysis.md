@@ -536,6 +536,47 @@ Chaque lot est indépendant et laisse le front compilable : aucun lot ne doit la
 4. Vague 2 de `useVideoJsMediaRenderer` : incluse dans ce chantier ou reportée après validation des autres lots.
 5. `entryVideoPlayer.ts` et `VideoPlayer.vue` : traités dans la foulée (lot 9) ou laissés en surveillance.
 
+## Découpe retenue pour le lot 5 après revue (lot 5.4)
+
+La revue de `ccfaeab0` a montré que les extractions `sourceApplication.ts` et
+`playerLifecycle.ts` laissaient la propriété de l’état répartie entre les fichiers.
+La proposition initiale de contexte global et de découpe de la vague 2 est remplacée
+par quatre propriétaires instanciés une seule fois par appel du composable :
+
+| Module | Responsabilité et état possédé |
+|--------|-------------------------------|
+| `useVideoJsMediaRenderer.ts` | Assemblage, création/destruction du lecteur, intégrations et watchers des props ; API publique inchangée |
+| `qualityController.ts` | Préférence de qualité, état de pistes retenu pour DASH, bridge, retries, surcharge VHS et écoute du menu |
+| `storyboard.ts` | Parsing VTT, inférence des dimensions d’image et préparation des options sprite |
+| `storyboardController.ts` | Handle du plugin, cues courantes, grille, dimensions réactives, tooltip et intervalle dérivé |
+| `sourceController.ts` | Compteur d’opération, listeners de transition, sous-titres distants et restauration de lecture/état |
+| `playerUiState.ts` | Chargement, poster, aperçu de navigation et garde-fous d’émission |
+
+Le composable principal passe de 932 à 543 lignes. Les nouveaux modules comptent
+83 lignes pour l’UI, 225 pour les transitions, 252 pour la qualité et 256 pour
+l’intégration storyboard ; la préparation storyboard reste à 381 lignes.
+
+Les contrôleurs reçoivent des options typées et des lecteurs explicites du lecteur
+ou de la source courante. Le contrôleur de source ne voit que les opérations utiles
+aux transitions via des interfaces `Pick`, sans accès aux variables internes des autres
+contrôleurs. Aucun état mutable n’est partagé au niveau des modules.
+
+Une transition invalide d’abord l’opération précédente, libère ses listeners, ses
+pistes et ses ressources de qualité, puis prépare le storyboard. Après l’attente, le
+compteur et le lecteur courant sont vérifiés avant toute publication. Le cleanup des
+listeners est enregistré avant `player.src()`. La fin de chargement reste émise une
+fois par instance de lecteur ; les métadonnées restent émises une fois par source.
+
+La destruction reste dans l’orchestrateur : sauvegarde de l’état, invalidation et
+nettoyage de la source, destruction Video.js, puis remise à zéro du storyboard et
+de l’UI. Les fichiers `sourceApplication.ts` et `playerLifecycle.ts` sont supprimés.
+`subtitles.ts`, `playerAttributes.ts` et `autoplayMenu.ts` sont conservés.
+
+Validation : type-check, build et lint CSS ; aucune nouvelle infrastructure ni
+nouveau test. La checklist manuelle de la revue reste à exécuter sur des médias réels.
+Les nouveaux fichiers restent couverts par la règle de chunk `video-player-core`
+existante de Vite.
+
 ## Suivi
 
 - [x] Lot 0 — référence de validation (`type-check`, `build`, `lint:css`).
@@ -545,8 +586,9 @@ Chaque lot est indépendant et laisse le front compilable : aucun lot ne doit la
 - [x] Lot 4 — `rustify.ts` → `rustify/`.
 - [x] Lot 5.1 — `useVideoJsMediaRenderer` vague 1 (storyboard, sous-titres, attributs, autoplay).
 - [x] Lot 5.2 — `useVideoJsMediaRenderer` vague 2 (cycle de vie, application de source, état joueur).
-- [ ] Lot 5.3 — L'affichage de storyboard provenant d'un fichier .vtt ne s'affiche pas correctement: Il y a un glissement de l'image d'une vignette a l'autre et elle est affichée trop bas. Le mode d'affichage storyboard d'url d'images et de donnes divers en json fonctionne.
+- [x] Lot 5.3 — correction du storyboard VTT : lecture des dimensions/cues courantes via getters, sélection sur la barre de progression réelle et une seule mise à l’échelle après le plugin, avec positionnement au-dessus de la barre. Build (avec type-check) et lint CSS validés ; vérification visuelle sur une source réelle encore à effectuer. Revue du commit `ccfaeab0` : les sept constats sont corrigés, avec détail et validation dans le [rapport](review-ccfaeab0.md).
+- [x] Lot 5.4 — consolidation par propriétaires d’état (`qualityController`, `storyboardController`, `sourceController`, `playerUiState`) ; suppression des extractions partielles de cycle de vie/source.
 - [ ] Lot 6 — `useVideoPlayer` → slices.
 - [ ] Lot 7 — `ProgramEntryDetails.vue` → composables `entry-details`.
-- [ ] Lot 8 — `useVideoJsMediaRenderer` cycle de vie et application de source.
+- [x] Lot 8 — `useVideoJsMediaRenderer` cycle de vie et application de source, couvert par les lots 5.2 et 5.4.
 - [ ] Lot 9 — `entryVideoPlayer.ts` et `VideoPlayer.vue` (surveillance).

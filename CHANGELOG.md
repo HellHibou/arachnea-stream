@@ -739,6 +739,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Consolidated renderer splitting around per-instance state owners: `qualityController`, `storyboardController`, `sourceController` and `playerUiState`. Source cancellation, temporary listeners and remote tracks now live together; quality adapters own their preference, retries and cleanup; storyboard parsing is separated from plugin/tooltip integration. Removed the partial `sourceApplication` and `playerLifecycle` extractions, keeping player creation/disposal in the orchestrator and preserving its public API and loading-event lifetimes.
+
 - Split the DASH playback module into `composables/video/video-js-media-renderer/dash/` (`source`, `manifest`, `qualityBridge`, `periodChapters`, shared `events`) behind an `index.ts` barrel. `@/composables/video/video-js-media-renderer/dash` keeps the same public exports, the manifest merge hook still registers once, and no playback behavior changed.
 - Extracted the scoped player and hero skins into ordered CSS files referenced by `<style scoped src>`: `components/media/video-js/` (`host`, `control-bar`, `menus`, `chapters`, `navigation-preview`) and `components/home/hero-banner/` (`layout`, `media`, `panel`, `typography`, `controls`). Rule order, selectors and scoped attributes are unchanged, and both SFCs now stay below 710 lines.
 - Split the storage service into `services/storage/` (`types`, `keys`, `persistence`, `sanitizers`, `sectionRecords`, `bookmarks`, `videoPreferences`) behind an `index.ts` barrel that still holds the single `defineStore('storage')` instance and all persistence watchers. `@/services/storage` keeps the same exports and `useStorage` API; parameter, home-section, bookmark and player-preference behavior is unchanged.
@@ -747,6 +749,12 @@ All notable changes to the server workspace are recorded here.
 - Split `useVideoJsMediaRenderer` further (wave 2): `video-js-media-renderer/sourceApplication.ts` (`applySourceToPlayer`, `buildPlayerSource`) and `video-js-media-renderer/playerLifecycle.ts` (`destroyActivePlayer`, `markVideoInitialLoadStart`, `markVideoInitialLoadComplete`). All mutable state is passed as individual parameters and returned in results. The composable shrinks to 938 lines (−51 %), well below the 1 000-line threshold. Public signature `useVideoJsMediaRenderer(options)` is unchanged and all internal behavior is preserved.
 
 #### Fixed
+
+- Restored episode Watch actions for inline-player sources such as Anime-Sama and French Animes. Entry episode collections now select locally in the current player without requiring an episode route; unavailable episodes remain disabled and catalog collections retain validated native navigation.
+
+- Fixed renderer regressions from the source/lifecycle extraction: invalidate pending storyboard resolutions on newer transitions and disposal, restore the complete persisted player state, read the current DASH bridge, clear unavailable quality preferences before persistence, share the guarded load-completion event, and save UI state before disposal while resetting transient state. Source listeners publish their cleanup before assigning the source.
+
+- Fixed VTT storyboard previews after the renderer extraction: read current cue geometry and preview dimensions, select cues using the actual seek bar, and apply scaling once after the sprite plugin so crops stay aligned and the preview sits above the bar. Regular sprite positions retain the plugin’s responsive scaling.
 
 - Expanding or collapsing a section no longer creates a persisted section preference or resets its thumbnail orientation/image fit. Missing preference records created from the display menu now use the section's current effective display options.
 - Restored artwork on both rear category-thumbnail layers after the foreground image loads, retaining `--bg-surface-strong` as the missing-image fallback.

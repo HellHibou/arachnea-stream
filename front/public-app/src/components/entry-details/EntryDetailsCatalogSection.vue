@@ -214,6 +214,7 @@ watch(
       <MediaCardCollection
         v-else
         :items="props.displayedItems"
+        selection-mode="local"
         mode="list"
         thumbnail-orientation="landscape"
         :thumbnail-image-fit="props.thumbnailImageFit"

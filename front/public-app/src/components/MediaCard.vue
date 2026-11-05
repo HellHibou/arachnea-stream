@@ -17,9 +17,15 @@ type MediaCardLayout = 'card' | 'list'
  */
 interface Props {
   /**
-   * Entry, category or live card rendered by the component.
+   * Catalog or locally selectable item rendered by the component.
    */
   item: CatalogItem
+  /**
+   * Selects a route target or an item handled locally by the parent.
+   * Local items are available when their mapper supplies a nonempty source.
+   * @default 'route'
+   */
+  selectionMode?: 'route' | 'local'
   /**
    * Thumbnail orientation applied to the card layout.
    */
@@ -52,6 +58,7 @@ interface Props {
 
 /** Component props with applied defaults. */
 const props = withDefaults(defineProps<Props>(), {
+  selectionMode: 'route',
   layout: 'card',
   hideMissingThumbnail: false,
   isPreviewOpen: false,
@@ -59,7 +66,7 @@ const props = withDefaults(defineProps<Props>(), {
 })
 
 const emit = defineEmits<{
-  /** Emitted when any catalog card with an available route is selected. */
+  /** Emitted when an available route target or local item is selected. */
   select: [item: MediaItem]
   /** Emitted when the preview should be opened. */
   previewOpen: [itemId: string]
@@ -115,10 +122,13 @@ const showListPoster = computed(() =>
  */
 const displayTitle = computed(() => props.item.title?.trim() || 'Titre indisponible')
 
-/** Shared route used by both the native link and selection availability. */
-const destination = computed(() => mediaRoute(props.item))
-/** Whether the type and target are supported by the registered view. */
-const canSelectItem = computed(() => Boolean(destination.value))
+/** Native destination for catalog navigation; local selections use buttons. */
+const destination = computed(() => props.selectionMode === 'route' ? mediaRoute(props.item) : null)
+/** Local item mappers retain the source only when the item can be selected. */
+const canSelectItem = computed(() => props.selectionMode === 'local'
+  ? Boolean(props.item.source?.trim())
+  : Boolean(destination.value),
+)
 /** Shared presentation associated with the registered media type. */
 const presentation = computed(() => mediaPresentation(props.item))
 /** Vue Router instance used to resolve the native card link. */
@@ -161,7 +171,7 @@ function handleServiceLogoError() {
 }
 
 /**
- * Emits the typed navigation target when the card is selected.
+ * Emits a selectable card for route navigation or local handling.
  */
 function handleSelect() {
   if (!canSelectItem.value) {

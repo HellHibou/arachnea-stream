@@ -6,7 +6,7 @@ import { useI18n } from '@/i18n'
  */
 interface Props {
   /**
-   * Indicates whether the card can request the detailed entry.
+   * Indicates whether the card's navigation or local selection action is available.
    */
   canSelectItem: boolean
   /**
