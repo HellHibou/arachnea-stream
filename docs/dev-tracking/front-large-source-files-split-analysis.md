@@ -577,6 +577,92 @@ nouveau test. La checklist manuelle de la revue reste à exécuter sur des médi
 Les nouveaux fichiers restent couverts par la règle de chunk `video-player-core`
 existante de Vite.
 
+## Implémentation du lot 6 — `useVideoPlayer`
+
+La signature `useVideoPlayer(props, emit)` et les 70 propriétés retournées sont
+conservées. `VideoPlayer.vue`, son template et ses valeurs par défaut restent
+inchangés. La découpe retenue reprend les cinq modules proposés :
+
+| Fichier sous `composables/video/` | Lignes | Responsabilité |
+|----------------------------------|-------:|----------------|
+| `useVideoPlayer.ts` | 30 | Assemblage synchrone des slices et retour de leurs refs/handlers |
+| `playerTypes.ts` | 260 | Props, événements, modes de surface et politique de référent iframe |
+| `usePlayerSurface.ts` | 318 | Dernière source résolue, intention de transition, modes et états de rendu |
+| `usePlayerIframe.ts` | 214 | Confirmation iframe, restrictions de sécurité et attributs iframe |
+| `usePlayerVideoAttributes.ts` | 256 | Attributs vidéo, restauration de lecture et contrôles de navigation |
+| `usePlayerHandlers.ts` | 259 | Préférences persistées, modèles des sélecteurs et émissions vers le parent |
+
+Les slices reçoivent les mêmes props réactives et des interfaces `Pick` limitées
+aux computed dont elles ont besoin. Elles partagent les refs, sans copier leurs
+valeurs. La décision d’allowlist reste calculée une seule fois par la surface,
+puis transmise à l’iframe. L’état d’une sélection de langue/lecteur en attente
+appartient à la surface ; les handlers le modifient via `markSelectionPending()`.
+Les préférences et leur opération de sauvegarde restent réunies dans les handlers.
+
+Les deux watchers d’origine sont conservés avec les mêmes sources, callbacks et
+options : suivi immédiat de la source média dans la surface, réinitialisation de
+la confirmation lors du changement de source iframe dans la slice iframe. Toutes
+les slices sont créées pendant le même setup, sans watcher ou état global ajouté.
+
+Le cast `(computed as any)` de `renderedMediaSource` est remplacé par un
+`ComputedRef<ResolvedPlayerMediaSource | null>`. Les branches lisant une source
+optionnelle dans `activeSurfaceSource` normalisent son absence à `null`, conformément
+au type annoncé et aux valeurs par défaut déjà appliquées par `VideoPlayer.vue`.
+Les 69 autres types de propriétés retournées sont identiques.
+
+Validation : comparaison des 70 noms et types retournés (aucun manque ni doublon),
+comparaison structurelle des déclarations (71 déclarations de variables identiques ;
+les quatre adaptations concernent le typage des sources et les deux appels à
+`markSelectionPending()`), vérification des deux watchers, build avec type-check,
+lint CSS et `git diff --check`. Aucun test ajouté. Les parcours manuels média,
+bande-annonce, standalone et iframe dans les trois modes de sécurité restent à
+valider avec des médias réels.
+
+## Implémentation du lot 7 — `ProgramEntryDetails.vue`
+
+Le composant passe de 1 140 à 341 lignes. Son template et ses props, valeurs par
+défaut comprises, sont conservés. Il reste le point d’assemblage des composables
+existants et des quatre extractions prévues :
+
+| Fichier | Lignes | Responsabilité |
+|---------|-------:|----------------|
+| `useEntryRecommendationsRail.ts` | 71 | Chargement différé, observation du rail, déconnexion et navigation des recommandations |
+| `useEntryBookmark.ts` | 244 | Préférences restaurées, progression, snapshot des signets, sauvegarde et toggle |
+| `useEntryEpisodeNavigation.ts` | 470 | Identifiant monotone, transitions, autoplay, pagination intersaisons et handlers de navigation/lecture |
+| `useEntryMediaSurface.ts` | 93 | Source de fond, images, aperçu des épisodes adjacents et temps initial restauré |
+
+Le module navigation conserve ensemble `latestEpisodeNavigationId`, les flags
+d’autoplay et `shouldKeepMediaSurfaceMounted`. Il reçoit des interfaces `Pick`
+des contrôleurs existants, sans état mutable au niveau des modules ni copie des
+valeurs des refs. La lecture et la remise à zéro de la progression passent par
+le propriétaire des signets ; les changements de saison y délèguent le snapshot.
+Les 470 lignes de navigation regroupent les handlers de lecture avec les transitions
+qu’ils pilotent, plutôt que de partager les flags entre deux fichiers.
+
+L’initialisation des signets est explicitement faite en deux étapes :
+
+1. `useEntryBookmark()` crée les préférences et la progression avant
+   `entryDetailsData()`, afin de fournir la saison préférée au chargement.
+2. Après les données, les recommandations, la sélection, le lecteur et la
+   présentation, la navigation enregistre les resets d’entrée puis de surface.
+   `bookmark.bindSelection()` installe ensuite, une seule fois pendant setup,
+   le watcher immédiat de restauration d’épisode et ses handlers de sauvegarde.
+
+Cet ordre conserve celui du composant d’origine. Le callback de sauvegarde passé
+à la navigation est invoqué uniquement lors des événements de sélection/lecture,
+après le raccordement des signets. Les deux hooks du rail et son watcher
+`flush: 'post'` sont préservés, ainsi que ses marges d’observation.
+
+Validation : template et props comparés structurellement, 20 fonctions sur 22 et
+53 déclarations de variables sur 54 identiques. Les deux fonctions adaptées
+délèguent la progression/le snapshot au signet ; le computed de fond lit la même
+prop par ref. Trois watchers sur quatre sont identiques ; le reset d’entrée
+remplace ses trois affectations par la méthode de reset du signet. Ses effets et
+l’ordre des quatre watchers sont conservés. Build avec type-check, lint CSS et
+`git diff --check` validés ; aucun test ajouté. La restauration de signet,
+la navigation paginée entre saisons, les annulations et les recommandations
+restent à vérifier manuellement avec des médias réels.
+
 ## Suivi
 
 - [x] Lot 0 — référence de validation (`type-check`, `build`, `lint:css`).
@@ -588,7 +674,7 @@ existante de Vite.
 - [x] Lot 5.2 — `useVideoJsMediaRenderer` vague 2 (cycle de vie, application de source, état joueur).
 - [x] Lot 5.3 — correction du storyboard VTT : lecture des dimensions/cues courantes via getters, sélection sur la barre de progression réelle et une seule mise à l’échelle après le plugin, avec positionnement au-dessus de la barre. Build (avec type-check) et lint CSS validés ; vérification visuelle sur une source réelle encore à effectuer. Revue du commit `ccfaeab0` : les sept constats sont corrigés, avec détail et validation dans le [rapport](review-ccfaeab0.md).
 - [x] Lot 5.4 — consolidation par propriétaires d’état (`qualityController`, `storyboardController`, `sourceController`, `playerUiState`) ; suppression des extractions partielles de cycle de vie/source.
-- [ ] Lot 6 — `useVideoPlayer` → slices.
-- [ ] Lot 7 — `ProgramEntryDetails.vue` → composables `entry-details`.
+- [x] Lot 6 — `useVideoPlayer` → types, surface, iframe, attributs vidéo et handlers ; 70 propriétés conservées.
+- [x] Lot 7 — `ProgramEntryDetails.vue` → recommandations, signets, navigation et surface média ; template et props conservés.
 - [x] Lot 8 — `useVideoJsMediaRenderer` cycle de vie et application de source, couvert par les lots 5.2 et 5.4.
 - [ ] Lot 9 — `entryVideoPlayer.ts` et `VideoPlayer.vue` (surveillance).

@@ -739,6 +739,10 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Split `ProgramEntryDetails.vue` into focused recommendation-rail, bookmark, episode-navigation and media-surface composables. Navigation owns its cancellation counter and transition flags; bookmark preferences initialize before data loading, with episode restoration bound after the existing reset watchers. The component shrinks from 1,140 to 341 lines while keeping its template, props, defaults and event wiring unchanged.
+
+- Split `useVideoPlayer` into shared player types and focused surface, iframe, video-attribute and handler slices. Transition intent stays with the retained source, iframe confirmation owns its state, and preference persistence stays with the event handlers. The entry point shrinks from 1,233 to 30 lines, preserving its 70 returned properties and existing `VideoPlayer.vue` defaults; `renderedMediaSource` now has an explicit computed source type instead of `any`.
+
 - Consolidated renderer splitting around per-instance state owners: `qualityController`, `storyboardController`, `sourceController` and `playerUiState`. Source cancellation, temporary listeners and remote tracks now live together; quality adapters own their preference, retries and cleanup; storyboard parsing is separated from plugin/tooltip integration. Removed the partial `sourceApplication` and `playerLifecycle` extractions, keeping player creation/disposal in the orchestrator and preserving its public API and loading-event lifetimes.
 
 - Split the DASH playback module into `composables/video/video-js-media-renderer/dash/` (`source`, `manifest`, `qualityBridge`, `periodChapters`, shared `events`) behind an `index.ts` barrel. `@/composables/video/video-js-media-renderer/dash` keeps the same public exports, the manifest merge hook still registers once, and no playback behavior changed.
