@@ -1,6 +1,6 @@
 {
   "name": "arachnea-release",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "Local cross-platform release builder for Arachnea (Tauri).",
   "type": "module",
