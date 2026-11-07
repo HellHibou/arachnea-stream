@@ -358,6 +358,8 @@ export type VideoJsTextTrackHandle = {
   language?: string
   /** Mode of the track (e.g., showing, hidden). */
   mode?: string
+  /** Whether the playback engine generated this track by automatic translation. */
+  autoTranslate?: boolean
 }
 
 /**
@@ -636,6 +638,40 @@ export type VideoJsDashPeriodInfo = {
 }
 
 /**
+ * Descriptor exposed by dash.js for roles, accessibility and other scheme-based metadata.
+ */
+export type VideoJsDashDescriptor = {
+  /** Scheme URI identifying the descriptor semantics. */
+  schemeIdUri?: string
+  /** Descriptor value such as `main`, `alternate` or `description`. */
+  value?: string
+}
+
+/**
+ * Audio track metadata exposed by dash.js for the active manifest.
+ */
+export type VideoJsDashMediaInfo = {
+  /** Stable index used by the DASH source handler to build the Video.js track id. */
+  index?: number | null
+  /** Language declared by the manifest. */
+  lang?: string | null
+  /** Optional track kind exposed at runtime by the DASH source handler. */
+  kind?: string | null
+  /** Localized labels declared by the manifest. */
+  labels?: Array<{ text?: string; lang?: string }> | null
+  /** Role values such as `main`, `alternate` or `description`. */
+  roles?: string[] | null
+  /** Role descriptors with their scheme URI. */
+  rolesWithSchemeIdUri?: VideoJsDashDescriptor[] | null
+  /** Accessibility values declared by the manifest. */
+  accessibility?: string[] | null
+  /** Accessibility descriptors with their scheme URI. */
+  accessibilitiesWithSchemeIdUri?: VideoJsDashDescriptor[] | null
+  /** dash.js selection priority for this track. */
+  selectionPriority?: number
+}
+
+/**
  * Handle to the dash.js MediaPlayer instance created by the DASH source handler.
  */
 export type VideoJsDashMediaPlayerHandle = {
@@ -651,6 +687,12 @@ export type VideoJsDashMediaPlayerHandle = {
    * @param listener - Event listener callback to remove.
    */
   off: (eventName: string, listener: (event: Record<string, unknown>) => void) => void
+  /**
+   * Returns the track metadata available for one media type.
+   * @param type - Media type such as `video` or `audio`.
+   * @returns Audio/video/text tracks exposed by dash.js.
+   */
+  getTracksFor?: (type: string) => VideoJsDashMediaInfo[]
   /**
    * Returns the representations available for one media type.
    * @param type - Media type such as `video` or `audio`.

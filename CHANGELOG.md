@@ -735,6 +735,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Added the storage layer for ordered player track profiles, subtitle language priority and audio-description permission: bounded sanitizers, `VideoJsTrackProfile` types and the `videoPlayer.trackProfiles`, `videoPlayer.subtitleLanguagePriority` and `videoPlayer.allowAudioDescription` parameters. Profiles default to `original` audio with subtitles disabled, and the subtitle priority defaults to the selected interface language (falling back to the browser language), following interface language changes until it is customized.
+- Added the Video.js track selection module `trackPreferences.ts`: ordered profile resolution, BCP-47 language normalization, HLS/dash.js audio-description detection with a label fallback, priority-based subtitle selection preferring human over auto-translated tracks, manual track matching and track application helpers. It is not wired into the renderer yet.
 - Added a source-size audit and responsibility-based file-splitting plan for the eight `front/public-app` files at or above 1,000 lines in `docs/dev-tracking/front-large-source-files-split-analysis.md`: public-API-preserving barrel strategy, CSS extraction, per-file module layouts, risks and staged order. `front/admin-app` has no file at that threshold.
 
 #### Changed

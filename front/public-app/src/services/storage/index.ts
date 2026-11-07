@@ -35,12 +35,15 @@ import {
 } from './keys'
 import { getStoreItem, setStoreItem } from './persistence'
 import {
+  createDefaultSubtitleLanguagePriority,
   sanitizeBoolean,
   sanitizeNullableString,
   sanitizeQuality,
+  sanitizeSubtitleLanguagePriority,
   sanitizeTextTrackPreference,
   sanitizeTextTrackSettings,
   sanitizeTrackPreference,
+  sanitizeTrackProfiles,
   sanitizeVideoVolume,
 } from './sanitizers'
 import { createSectionRecordsBridge } from './sectionRecords'
@@ -54,19 +57,110 @@ export type {
   VideoPlayerPreferences,
 } from './types'
 
+/** Parameter key for the interface language. */
+const LANGUAGE_PARAMETER_KEY = 'language'
+/** Parameter key for the subtitle language priority list. */
+const SUBTITLE_LANGUAGE_PRIORITY_PARAMETER_KEY = 'videoPlayer.subtitleLanguagePriority'
+
+/**
+ * Checks whether two language priority lists are identical.
+ *
+ * @param left First language list.
+ * @param right Second language list.
+ * @returns True when both lists contain the same codes in the same order.
+ */
+function areLanguageListsEqual(left: readonly string[], right: readonly string[]): boolean {
+    return left.length === right.length
+      && left.every((language, index) => language === right[index]);
+}
+
+/**
+ * Sanitizes one persisted parameter value.
+ *
+ * @param key Parameter key.
+ * @param value Raw stored value.
+ * @param defaultSubtitleLanguagePriority Interface-derived subtitle language default.
+ * @returns Sanitized parameter value.
+ */
+function sanitizeParameterValue(
+  key: string,
+  value: unknown,
+  defaultSubtitleLanguagePriority: string[],
+): unknown {
+    switch (key) {
+      case LANGUAGE_PARAMETER_KEY:
+      case 'defaultHomeId':
+        return sanitizeNullableString(value);
+      case 'videoPlayer.trackProfiles':
+        return sanitizeTrackProfiles(value);
+      case SUBTITLE_LANGUAGE_PRIORITY_PARAMETER_KEY:
+        return sanitizeSubtitleLanguagePriority(value, defaultSubtitleLanguagePriority);
+      case 'videoPlayer.allowAudioDescription':
+        return sanitizeBoolean(value, false);
+      default:
+        return value;
+    }
+}
+
 export const useStorage = defineStore('storage', () => {
+
+    const storedLanguage = sanitizeNullableString(
+      getStoreItem(PARAM_PREFIX + LANGUAGE_PARAMETER_KEY, null),
+    )
+    const defaultSubtitleLanguagePriority = createDefaultSubtitleLanguagePriority(storedLanguage)
+    const initialSubtitleLanguagePriority = sanitizeSubtitleLanguagePriority(
+      getStoreItem(PARAM_PREFIX + SUBTITLE_LANGUAGE_PRIORITY_PARAMETER_KEY, null),
+      defaultSubtitleLanguagePriority,
+    )
+    let hasCustomSubtitleLanguagePriority = !areLanguageListsEqual(
+      initialSubtitleLanguagePriority,
+      defaultSubtitleLanguagePriority,
+    )
 
     const parameters: Parameters = {} as Parameters;
     PARAMETERS_DEF.forEach((param) => {
-        const rawValue = getStoreItem(PARAM_PREFIX + param.key, param.defaultValue)
-        const value = param.key === 'language' || param.key === 'defaultHomeId'
-          ? sanitizeNullableString(rawValue)
-          : rawValue
+        const defaultValue = param.key === SUBTITLE_LANGUAGE_PRIORITY_PARAMETER_KEY
+          ? initialSubtitleLanguagePriority
+          : param.defaultValue
+        const rawValue = getStoreItem(PARAM_PREFIX + param.key, defaultValue)
+        const value = sanitizeParameterValue(
+          param.key,
+          rawValue,
+          defaultSubtitleLanguagePriority,
+        )
         ;(parameters as any) [param.key] = ref(value);
-        watch((parameters as any) [param.key], (new_val, old_val) => {
-            setStoreItem(PARAM_PREFIX + param.key, new_val);
+        watch((parameters as any) [param.key], (new_val) => {
+            setStoreItem(
+              PARAM_PREFIX + param.key,
+              sanitizeParameterValue(
+                param.key,
+                new_val,
+                defaultSubtitleLanguagePriority,
+              ),
+            );
         })
     });
+
+    watch(parameters.language, (nextLanguage) => {
+      if (hasCustomSubtitleLanguagePriority) {
+        return
+      }
+
+      parameters[SUBTITLE_LANGUAGE_PRIORITY_PARAMETER_KEY].value =
+        createDefaultSubtitleLanguagePriority(nextLanguage)
+    })
+
+    watch(
+      parameters[SUBTITLE_LANGUAGE_PRIORITY_PARAMETER_KEY],
+      (nextPriority) => {
+        const currentDefault = createDefaultSubtitleLanguagePriority(parameters.language.value)
+        hasCustomSubtitleLanguagePriority = !areLanguageListsEqual(
+          sanitizeSubtitleLanguagePriority(nextPriority, currentDefault),
+          currentDefault,
+        )
+      },
+      { deep: true },
+    )
 
     /** Reactive cache of pinned section records, loaded from IndexedDB on init. */
     const sectionRecords = ref<HomeSectionRecord[]>([])

@@ -168,6 +168,29 @@ export interface VideoJsTextTrackPreference extends VideoJsTrackPreference {
 }
 
 /**
+ * Audio language targeted by one ordered Video.js track profile.
+ *
+ * `original` selects the main non-audio-description track, `null` keeps the
+ * audio selection untouched, and any other value is a language code.
+ */
+export type VideoJsTrackProfileAudio = string | 'original' | null
+
+/**
+ * Subtitle behaviour applied once one Video.js track profile is retained.
+ */
+export type VideoJsTrackProfileSubtitles = 'disabled' | 'auto'
+
+/**
+ * Ordered audio and subtitle combination applied to a video source.
+ */
+export interface VideoJsTrackProfile {
+  /** Audio language searched in the source, or `original` for the main track. */
+  audio: VideoJsTrackProfileAudio
+  /** Subtitle behaviour applied after the audio track is selected. */
+  subtitles: VideoJsTrackProfileSubtitles
+}
+
+/**
  * Visual text-track settings exposed by Video.js.
  */
 export type VideoJsTextTrackSettings = Partial<Record<

@@ -2,9 +2,45 @@ import type {
   VideoJsTextTrackPreference,
   VideoJsTextTrackSettings,
   VideoJsTrackPreference,
+  VideoJsTrackProfile,
+  VideoJsTrackProfileAudio,
+  VideoJsTrackProfileSubtitles,
 } from '@/types/media'
 
+import { normalizeLanguageCode } from '@/utils'
+
+import {
+  DEFAULT_SUBTITLE_LANGUAGE_PRIORITY,
+  DEFAULT_TRACK_PROFILES,
+} from './keys'
 import type { EntryBookmark } from './types'
+
+export { normalizeLanguageCode } from '@/utils'
+
+/** Maximum number of ordered track profiles persisted. */
+export const MAX_TRACK_PROFILES = 3
+/** Maximum number of subtitle languages persisted. */
+export const MAX_SUBTITLE_LANGUAGE_PRIORITY = 10
+
+/**
+ * Copies track profiles so callers never mutate the shared defaults.
+ *
+ * @param profiles Source profiles.
+ * @returns Independent profile objects.
+ */
+function cloneTrackProfiles(profiles: readonly VideoJsTrackProfile[]): VideoJsTrackProfile[] {
+    return profiles.map((profile) => ({ ...profile }));
+}
+
+/**
+ * Returns a sanitized track profile subtitle mode.
+ *
+ * @param value Raw mode value.
+ * @returns `auto` only for an explicit `auto` value, `disabled` otherwise.
+ */
+function sanitizeTrackProfileSubtitles(value: unknown): VideoJsTrackProfileSubtitles {
+    return value === 'auto' ? 'auto' : 'disabled';
+}
 
 /** Keys for text track settings that can be persisted. */
 const TEXT_TRACK_SETTINGS_KEYS = [
@@ -149,6 +185,106 @@ export function sanitizeQuality(value: unknown): string | null {
     return normalizedQualityLabel && normalizedQualityLabel !== 'Auto'
       ? normalizedQualityLabel
       : null;
+}
+
+/**
+ * Builds the default subtitle language priority from the interface language.
+ *
+ * Falls back to the browser language, then to the static default when neither
+ * value can be normalized.
+ *
+ * @param language Persisted interface language code, or `null` for Auto.
+ * @returns Ordered subtitle language priority.
+ */
+export function createDefaultSubtitleLanguagePriority(language: unknown): string[] {
+    const interfaceLanguage = normalizeLanguageCode(language);
+    if (interfaceLanguage) {
+      return [interfaceLanguage];
+    }
+
+    const browserLanguage = typeof navigator === 'undefined' ? null : navigator.language;
+    const resolvedBrowserLanguage = normalizeLanguageCode(browserLanguage);
+    return resolvedBrowserLanguage
+      ? [resolvedBrowserLanguage]
+      : [...DEFAULT_SUBTITLE_LANGUAGE_PRIORITY];
+}
+
+/**
+ * Returns a sanitized audio profile language.
+ *
+ * @param value Raw profile value to sanitize.
+ * @returns `original`, a normalized language code, or `null` to ignore audio.
+ */
+export function sanitizeTrackProfileAudio(value: unknown): VideoJsTrackProfileAudio {
+    if (typeof value !== 'string' || !value.trim()) {
+      return null;
+    }
+
+    return value.trim().toLowerCase() === 'original'
+      ? 'original'
+      : normalizeLanguageCode(value);
+}
+
+/**
+ * Returns sanitized ordered track profiles.
+ *
+ * @param value Raw storage value to sanitize.
+ * @param defaultValue Fallback profiles used when the input is not an array or is empty.
+ * @returns Ordered track profiles, bounded to three entries.
+ */
+export function sanitizeTrackProfiles(
+  value: unknown,
+  defaultValue: readonly VideoJsTrackProfile[] = DEFAULT_TRACK_PROFILES,
+): VideoJsTrackProfile[] {
+    if (!Array.isArray(value)) {
+      return cloneTrackProfiles(defaultValue);
+    }
+
+    const profiles: VideoJsTrackProfile[] = [];
+    for (const entry of value.slice(0, MAX_TRACK_PROFILES)) {
+      if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+        continue;
+      }
+
+      const record = entry as Record<string, unknown>;
+      profiles.push({
+        audio: sanitizeTrackProfileAudio(record.audio),
+        subtitles: sanitizeTrackProfileSubtitles(record.subtitles),
+      });
+    }
+
+    return profiles.length ? profiles : cloneTrackProfiles(defaultValue);
+}
+
+/**
+ * Returns a sanitized, deduplicated subtitle language priority list.
+ *
+ * @param value Raw storage value to sanitize.
+ * @param defaultValue Fallback languages used when the input is not an array or contains no valid code.
+ * @returns Ordered, normalized language codes.
+ */
+export function sanitizeSubtitleLanguagePriority(
+  value: unknown,
+  defaultValue: readonly string[] = DEFAULT_SUBTITLE_LANGUAGE_PRIORITY,
+): string[] {
+    if (!Array.isArray(value)) {
+      return [...defaultValue];
+    }
+
+    const languages: string[] = [];
+    for (const entry of value) {
+      const language = normalizeLanguageCode(entry);
+      if (!language || languages.includes(language)) {
+        continue;
+      }
+
+      languages.push(language);
+      if (languages.length >= MAX_SUBTITLE_LANGUAGE_PRIORITY) {
+        break;
+      }
+    }
+
+    return value.length && !languages.length ? [...defaultValue] : languages;
 }
 
 /**

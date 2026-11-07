@@ -1,3 +1,5 @@
+import type { VideoJsTrackProfile } from '@/types/media'
+
 import type { ParameterEntry } from './types'
 
 /** Prefix used for all storage keys. */
@@ -21,6 +23,13 @@ export const VIDEO_PLAYER_TEXT_TRACK_SETTINGS_KEY = 'videoPlayer.preferences.tex
 /** Storage key for the selected theme preset. */
 export const THEME_KEY = 'theme.key'
 
+/** Default ordered track profiles preserving the neutral audio/subtitle behaviour. */
+export const DEFAULT_TRACK_PROFILES: readonly VideoJsTrackProfile[] = [
+  { audio: 'original', subtitles: 'disabled' },
+]
+/** Fallback subtitle language priority when no interface language is available. */
+export const DEFAULT_SUBTITLE_LANGUAGE_PRIORITY: readonly string[] = ['en']
+
 /** Default parameter definitions with their keys and default values. */
 export const PARAMETERS_DEF: ParameterEntry[] = [
   { key: 'defaultHomeId', defaultValue: null },
@@ -38,6 +47,9 @@ export const PARAMETERS_DEF: ParameterEntry[] = [
   { key: 'videoPlayer.autoskip.coming_next', defaultValue: false      },
   { key: 'videoPlayer.autoskip.outro',      defaultValue: false      },
   { key: 'videoPlayer.autoskip.ads',      defaultValue: false      },
+  { key: 'videoPlayer.trackProfiles',     defaultValue: DEFAULT_TRACK_PROFILES },
+  { key: 'videoPlayer.subtitleLanguagePriority', defaultValue: DEFAULT_SUBTITLE_LANGUAGE_PRIORITY },
+  { key: 'videoPlayer.allowAudioDescription',    defaultValue: false },
   { key: 'securityMode',            defaultValue: 'safe'         },
   { key: 'language',                      defaultValue: null       },
   { key: 'theme',                         defaultValue: 'arachnea-blue' },

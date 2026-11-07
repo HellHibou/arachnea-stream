@@ -7,6 +7,7 @@ import type {
   VideoJsTextTrackPreference,
   VideoJsTextTrackSettings,
   VideoJsTrackPreference,
+  VideoJsTrackProfile,
 } from '@/types/media'
 
 /**
@@ -171,6 +172,18 @@ export interface Parameters {
    * Indicates whether the integrated player should automatically skip advertising chapters.
    */
   'videoPlayer.autoskip.ads': Ref<boolean>
+  /**
+   * Ordered audio and subtitle combinations applied to a new video source.
+   */
+  'videoPlayer.trackProfiles': Ref<VideoJsTrackProfile[]>
+  /**
+   * Subtitle languages applied by `auto` track profiles, highest priority first.
+   */
+  'videoPlayer.subtitleLanguagePriority': Ref<string[]>
+  /**
+   * Indicates whether audio-description tracks may be selected as a last resort.
+   */
+  'videoPlayer.allowAudioDescription': Ref<boolean>
   /**
    * Mode used to render embedded iframe players.
    * - 'unsafe' : loads the iframe immediately.
