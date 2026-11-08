@@ -10,7 +10,7 @@ Ce fichier suit les tâches DNS, HTTP et proxy prévues qui restent pertinentes 
 
 ## Front
 
-- Poursuivre les lots 3 à 6 de la sélection automatique des pistes audio et sous-titres Video.js (intégration renderer/DASH, interface, documentation, vérification manuelle) : [analyse](dev-tracking/videojs-track-preferences-analysis.md). Lots 1 (types et stockage) et 2 (module de sélection) implémentés.
+- Poursuivre les lots 6 de la sélection automatique des pistes audio et sous-titres Video.js (vérification manuelle, documentation interface) : [analyse](dev-tracking/videojs-track-preferences-analysis.md). Lots 1 (types et stockage), 2 (module de sélection), 3 (intégration renderer/DASH), 4 (interface et i18n) et 5 (corrections renderer) implémentés.
 - Valider manuellement le lot 5.3 et les corrections de la [revue de `ccfaeab0`](dev-tracking/review-ccfaeab0.md), implémentées : storyboard VTT/JSON, changements rapides de source et démontage pendant le chargement, restauration des préférences, qualité DASH et sauvegarde à la fermeture. Build, type-check et lint CSS validés.
 - Valider manuellement le lot 6 : transitions média/bande-annonce, changements de langue/lecteur avec restauration de lecture, préférences persistées, standalone et iframe en modes `safe`/`confirmation`/`unsafe`. Build, type-check et lint CSS validés ; aucun test ajouté.
 - Valider manuellement le lot 7 : restauration et progression des signets, navigation paginée entre saisons, autoplay et annulation lors des changements de fiche/langue/lecteur, recommandations différées. Build, type-check et lint CSS validés ; aucun test ajouté.

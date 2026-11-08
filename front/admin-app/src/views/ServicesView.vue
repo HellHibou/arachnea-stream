@@ -15,6 +15,7 @@ import CredentialsDialog from '@/components/CredentialsDialog.vue'
 import ServiceParametersDialog from '@/components/ServiceParametersDialog.vue'
 import ServiceMetadataFilters from '@/components/ServiceMetadataFilters.vue'
 import { useAppConfig } from '@/services/appConfig'
+import { formatLanguageLabel } from '@/services/languages'
 
 const route = useRoute()
 const router = useRouter()
@@ -72,10 +73,15 @@ const filteredServices = computed(() => {
  * Formats one metadata field with its localized values grouped in declaration order.
  * @param key Metadata field identifier.
  * @param values Raw metadata values to display together.
- * @returns Localized values separated by a spaced hyphen.
+ * @returns Localized values, using the shared language label and a comma separator for language filters.
  */
 function formatMetadataValues(key: string, values: string[]): string {
-  return values.map((value) => metadataValueLabels.value[key]?.[value] ?? value).join(' - ')
+  const definition = filterDefinitions.value.find((filter) => filter.key === key)
+  const isLanguageFilter = definition?.value_format === 'language'
+  return values
+    .map((value) => metadataValueLabels.value[key]?.[value]
+      ?? (isLanguageFilter ? formatLanguageLabel(value) : value))
+    .join(isLanguageFilter ? ', ' : ' - ')
 }
 
 async function onParametersSaved() {

@@ -1,8 +1,13 @@
 ﻿import { readonly, shallowRef } from 'vue'
 
 import { resolveAppPath } from '@/services/baseUrl'
+import {
+  DEFAULT_LANGUAGE_CODE,
+  getLanguageEnglishName,
+  getLanguageFlag,
+  getLanguageNativeName,
+} from '@/services/languages'
 import localeEn from '@/../public/locales/en.json'
-import localeFr from '@/../public/locales/fr.json'
 import type {
   LocaleIndex,
   LocaleIndexLanguage,
@@ -11,19 +16,31 @@ import type {
 } from './types'
 
 /** Default fallback language code. */
-const DEFAULT_LANGUAGE = 'en'
+const DEFAULT_LANGUAGE = DEFAULT_LANGUAGE_CODE
 /** Base path for locale JSON files (used only for index.json). */
 const LOCALE_BASE_PATH = resolveAppPath('locales')
 
-/** Bundled dictionaries (imported statically to avoid base-path fetch issues). */
-const BUNDLED_LOCALES: Record<string, TranslationDictionary> = {
-  en: localeEn as TranslationDictionary,
-  fr: localeFr as TranslationDictionary,
+/** Bundled fallback dictionary (imported statically to avoid base-path fetch issues). */
+const BUNDLED_FALLBACK_DICTIONARY = localeEn as TranslationDictionary
+
+/**
+ * Builds the minimal locale entry used before `locales/index.json` is loaded.
+ *
+ * @param code Language code known by the shared catalog.
+ * @returns Locale entry with catalog-derived labels and a neutral flag.
+ */
+function createFallbackLocaleLanguage(code: string): LocaleIndexLanguage {
+  return {
+    code,
+    flag: getLanguageFlag(code) ?? '🌐',
+    labelLocal: getLanguageNativeName(code) ?? code,
+    labelEn: getLanguageEnglishName(code) ?? code,
+  }
 }
 
 /** List of languages available for selection. */
 const availableLanguages = shallowRef<LocaleIndexLanguage[]>([
-  { code: DEFAULT_LANGUAGE, flag: '🇬🇧', labelLocal: 'English', labelEn: 'English' },
+  createFallbackLocaleLanguage(DEFAULT_LANGUAGE),
 ])
 /** Reactive default language setting. */
 const defaultLanguage = shallowRef(DEFAULT_LANGUAGE)
@@ -166,7 +183,10 @@ async function loadLocaleIndex(): Promise<void> {
     throw new Error('Invalid locale index format.')
   }
   defaultLanguage.value = payload.defaultLanguage
-  availableLanguages.value = payload.languages
+  availableLanguages.value = payload.languages.map((language) => ({
+    ...language,
+    flag: getLanguageFlag(language.code) ?? language.flag,
+  }))
   await loadFallbackDictionary()
 }
 
@@ -203,10 +223,7 @@ async function loadFallbackDictionary(): Promise<void> {
   if (Object.keys(fallbackMessages.value).length > 0) {
     return
   }
-  // Use bundled English dictionary as fallback (avoids fetch under base path).
-  if (BUNDLED_LOCALES[DEFAULT_LANGUAGE]) {
-    fallbackMessages.value = BUNDLED_LOCALES[DEFAULT_LANGUAGE]!
-  }
+  fallbackMessages.value = BUNDLED_FALLBACK_DICTIONARY
 }
 
 function detectBrowserLanguage(): string {

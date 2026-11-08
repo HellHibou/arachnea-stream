@@ -35,6 +35,7 @@ import { createQualityController } from './video-js-media-renderer/qualityContro
 import { createStoryboardController } from './video-js-media-renderer/storyboardController'
 import { createSourceController } from './video-js-media-renderer/sourceController'
 import { createPlayerUiState } from './video-js-media-renderer/playerUiState'
+import type { VideoJsTrackSelectionConfig } from './video-js-media-renderer/trackPreferences'
 
 export type {
   VideoJsMediaDimensions,
@@ -55,10 +56,26 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
   /** Current active Video.js player instance. */
   const activePlayer = shallowRef<VideoJsPlayer | null>(null)
   const ui = createPlayerUiState(options)
+
+  /** Builds the track selection configuration from current storage parameters. */
+  function buildTrackSelectionConfig(): VideoJsTrackSelectionConfig {
+    const parameters = useStorage().getParameters()
+    return {
+      profiles: parameters['videoPlayer.trackProfiles'].value,
+      subtitleLanguagePriority: parameters['videoPlayer.subtitleLanguagePriority'].value,
+      allowAudioDescription: parameters['videoPlayer.allowAudioDescription'].value,
+    }
+  }
+
+  function getTrackSelectionConfig(): VideoJsTrackSelectionConfig {
+    return buildTrackSelectionConfig()
+  }
+
   const quality = createQualityController({
     getPlayer: () => activePlayer.value,
     getSourceUrl: () => props.source.src,
     onStateChange: emitCurrentPlayerState,
+    getTrackSelectionConfig,
   })
   const storyboard = createStoryboardController({
     getPlayer: () => activePlayer.value,
@@ -68,6 +85,7 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
   const sources = createSourceController({
     props, getPlayer: () => activePlayer.value,
     configurePlayer: syncExistingPlayerConfiguration, quality, storyboard, ui,
+    getTrackSelectionConfig,
   })
 
   /**

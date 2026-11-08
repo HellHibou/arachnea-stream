@@ -955,9 +955,11 @@ otherwise a track is retained even when both are absent. `auto_translate` is omi
 invalid. Empty subtitle lists are omitted from the JSON response. Resolver implementations must proxy
 subtitle URLs that require request headers or would otherwise be unreadable by the browser. The public
 player adds these tracks as Video.js remote
-subtitle tracks after its media source is set, does not enable one by default, and removes its own
-remote tracks when the source changes or the player is disposed. Embedded HLS/DASH text tracks remain
-managed by their respective playback engines.
+subtitle tracks after its media source is set and removes its own remote tracks when the source
+changes or the player is disposed. Embedded HLS/DASH text tracks remain managed by their respective
+playback engines. Tracks may be enabled automatically by the configured track selection profiles
+(audio language, subtitles according to language priority, audio description as a last resort);
+otherwise, no track is enabled by default.
 
 `storyboard` contains:
 
@@ -1412,7 +1414,7 @@ filter definitions, for example:
 {
   "service-filters": {
     "arachnea-stream": [
-      {"key": "languages", "label": "services.filters.languages"},
+      {"key": "languages", "label": "services.filters.languages", "value_format": "language"},
       {"key": "geo_countries", "label": "services.filters.geo_countries"},
       {"key": "content_types", "label": "services.filters.content_types",
        "value_labels": {
@@ -1450,10 +1452,14 @@ Documentaries are added alongside movies and series. Metadata APIs expose `conte
 and administration offers it as a filter. YAML/API/filter values retain stable codes.
 Optional filter `value_labels` maps metadata values to `locales/*` translation keys used
 both in selections and service-row tags. Unmapped values are displayed unchanged.
+Optional filter `value_format` accepts only `language`: it formats raw metadata values with
+the shared catalog label `<flag> <English name> - <native name>`, both in selections and
+service-row tags. It is declared per filter so country codes such as `fr` or `de` keep
+their raw form. Language values are joined with `, ` in tags instead of ` - `.
 
 Each metadata field is displayed as one tag with values separated by ` - `
-(for example, “Content : Movies - Series - Documentaries”). From the `md`
-breakpoint, each filter dropdown occupies two grid columns versus four for search.
+(or by `, ` for language filters), for example “Content : Movies - Series - Documentaries”.
+From the `md` breakpoint, each filter dropdown occupies two grid columns versus four for search.
 On smaller screens, fields remain stacked at full width.
 
 ### Parameter table layout

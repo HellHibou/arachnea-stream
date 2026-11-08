@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from '@/i18n'
+import { formatLanguageLabel } from '@/services/languages'
 import type { ServiceFilterDefinition } from '@/services/appConfig'
 import type { AdminServiceEntry } from '@/services/adminApi'
 
@@ -12,7 +13,14 @@ const filters = computed(() => props.definitions.map((definition) => ({
   key: definition.key,
   label: t(definition.label),
   options: [...new Set(props.services.flatMap((service) => service.metadata?.[definition.key] ?? []))].sort()
-    .map((value) => ({ value, title: definition.value_labels?.[value] ? t(definition.value_labels[value]) : value })),
+    .map((value) => ({
+      value,
+      title: definition.value_labels?.[value]
+        ? t(definition.value_labels[value])
+        : definition.value_format === 'language'
+          ? formatLanguageLabel(value)
+          : value,
+    })),
 })))
 function update(key: string, values: string[]) {
   selected.value = { ...selected.value, [key]: values }

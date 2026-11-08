@@ -20,6 +20,8 @@ export interface ServiceFilterDefinition {
   label: string
   /** Optional metadata-value to locale-key mapping; values without a mapping stay unchanged. */
   value_labels?: Record<string, string>
+  /** Optional display format applied to values without a `value_labels` entry. */
+  value_format?: 'language'
 }
 
 interface AppConfigState {
@@ -143,6 +145,10 @@ function validateAppConfig(payload: unknown): ValidatedAppConfig {
         if (typeof label !== 'string' || !label.trim()) {
           throw new Error(`Filter label for ${store}/${definition.key} must be a non-empty translation key.`)
         }
+        const valueFormat = definition.value_format
+        if (valueFormat !== undefined && valueFormat !== 'language') {
+          throw new Error(`Unsupported value_format for ${store}/${definition.key}.`)
+        }
         const valueLabels: Record<string, string> = {}
         if (definition.value_labels !== undefined) {
           if (!isRecord(definition.value_labels)) throw new Error(`Invalid value_labels for ${store}/${definition.key}.`)
@@ -153,7 +159,12 @@ function validateAppConfig(payload: unknown): ValidatedAppConfig {
             valueLabels[value] = translationKey.trim()
           }
         }
-        return { key: definition.key, label: label.trim(), value_labels: valueLabels }
+        return {
+          key: definition.key,
+          label: label.trim(),
+          value_labels: valueLabels,
+          ...(valueFormat === 'language' ? { value_format: valueFormat } : {}),
+        }
       })
     }
   }

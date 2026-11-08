@@ -1,54 +1,17 @@
-/** Aliases from ISO 639-2/B and legacy codes to ISO 639-1 codes. */
-const LANGUAGE_CODE_ALIASES: Record<string, string> = {
-  chi: 'zh',
-  deu: 'de',
-  dut: 'nl',
-  eng: 'en',
-  fra: 'fr',
-  fre: 'fr',
-  ger: 'de',
-  ita: 'it',
-  jpn: 'ja',
-  nld: 'nl',
-  por: 'pt',
-  spa: 'es',
-  zho: 'zh',
-}
-
-/**
- * Normalizes a BCP-47 language code for persistence and comparisons.
- *
- * @param value Raw language code.
- * @returns Lowercase code with aliases and `_` separators resolved, or `null` when invalid.
- */
-export function normalizeLanguageCode(value: unknown): string | null {
-  if (typeof value !== 'string') {
-    return null
-  }
-
-  const normalizedValue = value.trim().toLowerCase().replace(/_/g, '-')
-  if (!normalizedValue) {
-    return null
-  }
-
-  const [rawBase = '', ...subtags] = normalizedValue.split('-')
-  const base = LANGUAGE_CODE_ALIASES[rawBase] ?? rawBase
-  if (!/^[a-z]{2,3}$/.test(base) || subtags.some((subtag) => !/^[a-z0-9]{1,8}$/.test(subtag))) {
-    return null
-  }
-
-  return [base, ...subtags].join('-')
-}
-
-/**
- * Returns the base language subtag of a normalized language code.
- *
- * @param language Normalized language code.
- * @returns Base language code, or `null` when the value is empty.
- */
-export function getBaseLanguageCode(language: string | null): string | null {
-  return language ? language.split('-')[0] ?? null : null
-}
+export {
+  DEFAULT_LANGUAGE_CODE,
+  DEFAULT_SUBTITLE_LANGUAGES,
+  DEFAULT_SUBTITLE_LANGUAGE_PRIORITY,
+  LANGUAGES,
+  formatLanguageLabel,
+  getBaseLanguageCode,
+  getLanguage,
+  getLanguageEnglishName,
+  getLanguageFlag,
+  getLanguageNativeName,
+  isKnownLanguageCode,
+  normalizeLanguageCode,
+} from './services/languages'
 
 /**
  * Generates an RFC 4122 version 4 UUID.

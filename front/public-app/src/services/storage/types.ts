@@ -181,6 +181,10 @@ export interface Parameters {
    */
   'videoPlayer.subtitleLanguagePriority': Ref<string[]>
   /**
+   * Configured subtitle languages, highest priority first.
+   */
+  'videoPlayer.subtitleLanguages': Ref<string[]>
+  /**
    * Indicates whether audio-description tracks may be selected as a last resort.
    */
   'videoPlayer.allowAudioDescription': Ref<boolean>

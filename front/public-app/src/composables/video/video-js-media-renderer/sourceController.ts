@@ -8,6 +8,7 @@ import { buildDashKeySystemOptions, isDashSource } from './dash'
 import { resolveSpriteThumbnailOptions } from './storyboard'
 import { addRemoteSubtitleTracks, clearRemoteSubtitleTracks } from './subtitles'
 import { applyPersistedPlayerState, restorePersistedTrackPreferences } from './state'
+import type { VideoJsTrackSelectionConfig } from './trackPreferences'
 import { disableControlBarMenuHoverBehavior } from './quality'
 import { installSeekOnClick } from './controls'
 
@@ -18,6 +19,7 @@ interface SourceControllerOptions {
   quality: Pick<QualityController, 'retain' | 'sync' | 'install' | 'reset'>
   storyboard: Pick<StoryboardController, 'configure' | 'syncInterval' | 'reset'>
   ui: Pick<PlayerUiState, 'startSource' | 'metadataLoaded' | 'complete'>
+  getTrackSelectionConfig?: () => VideoJsTrackSelectionConfig | null | undefined
 }
 
 interface SourceTransition {
@@ -32,7 +34,7 @@ interface SourceTransition {
  * @returns Source application and cleanup operations for one renderer instance.
  */
 export function createSourceController(options: SourceControllerOptions) {
-  const { props, getPlayer, configurePlayer, quality, storyboard, ui } = options
+  const { props, getPlayer, configurePlayer, quality, storyboard, ui, getTrackSelectionConfig } = options
   let loadId = 0
   let pendingSourceRestoreCleanup: (() => void) | null = null
   let remoteSubtitleTracks: VideoJsRemoteTextTrackHandle[] = []
@@ -125,7 +127,7 @@ export function createSourceController(options: SourceControllerOptions) {
         return
       }
 
-      applyPersistedPlayerState(player, playerState)
+      applyPersistedPlayerState(player, playerState, trackSelectionConfig)
       playerStateRestored = true
     }
 
@@ -181,7 +183,36 @@ export function createSourceController(options: SourceControllerOptions) {
     }
     player.src(buildPlayerSource(source, spriteThumbnailOptions))
     addRemoteSubtitleTracks(player, source, remoteSubtitleTracks)
-    restorePersistedTrackPreferences(player, playerState)
+    const trackSelectionConfig = getTrackSelectionConfig?.() ?? undefined
+    restorePersistedTrackPreferences(player, playerState, trackSelectionConfig)
+
+    const audioTracks = player.audioTracks?.()
+    const textTracks = player.textTracks?.()
+    let reapplyTimer: number | null = null
+    const scheduleReapply = () => {
+      if (reapplyTimer !== null) {
+        window.clearTimeout(reapplyTimer)
+      }
+      reapplyTimer = window.setTimeout(() => {
+        if (!isCurrent()) {
+          return
+        }
+        const nextConfig = getTrackSelectionConfig?.() ?? undefined
+        restorePersistedTrackPreferences(player, playerState, nextConfig)
+      }, 150)
+    }
+    const handleAddTrack = () => scheduleReapply()
+    audioTracks?.addEventListener?.('addtrack', handleAddTrack)
+    textTracks?.addEventListener?.('addtrack', handleAddTrack)
+    const previousCleanup = pendingSourceRestoreCleanup
+    pendingSourceRestoreCleanup = () => {
+      previousCleanup?.()
+      if (reapplyTimer !== null) {
+        window.clearTimeout(reapplyTimer)
+      }
+      audioTracks?.removeEventListener?.('addtrack', handleAddTrack)
+      textTracks?.removeEventListener?.('addtrack', handleAddTrack)
+    }
 
     quality.install(player, source)
   }

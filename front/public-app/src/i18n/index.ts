@@ -2,6 +2,14 @@ import { computed, readonly, shallowRef, watch } from 'vue'
 
 import { useStorage } from '@/services/storage'
 import { resolveAppPath } from '@/services/baseUrl'
+import {
+  DEFAULT_LANGUAGE_CODE,
+  formatLanguageLabel,
+  getLanguageEnglishName,
+  getLanguageFlag,
+  getLanguageNativeName,
+  isKnownLanguageCode,
+} from '@/services/languages'
 import type {
   LocaleIndex,
   LocaleIndexLanguage,
@@ -16,15 +24,30 @@ export const MSG_LIVE_PLAYING = 'Direct en cours.'
 export const MSG_EPISODES = 'Episodes';
 
 /** Default fallback language code. */
-const DEFAULT_LANGUAGE = 'en'
+const DEFAULT_LANGUAGE = DEFAULT_LANGUAGE_CODE
 /** Special language code for automatic browser language detection. */
 const AUTO_LANGUAGE = 'auto'
 /** Base path for locale JSON files. */
 const LOCALE_BASE_PATH = resolveAppPath('locales')
 
+/**
+ * Builds the minimal locale entry used before `locales/index.json` is loaded.
+ *
+ * @param code Language code known by the shared catalog.
+ * @returns Locale entry with catalog-derived labels and a neutral flag.
+ */
+function createFallbackLocaleLanguage(code: string): LocaleIndexLanguage {
+  return {
+    code,
+    flag: getLanguageFlag(code) ?? '🌐',
+    labelLocal: getLanguageNativeName(code) ?? code,
+    labelEn: getLanguageEnglishName(code) ?? code,
+  }
+}
+
 /** List of languages available for selection. */
 const availableLanguages = shallowRef<LocaleIndexLanguage[]>([
-  { code: DEFAULT_LANGUAGE, flag: '🇬🇧', labelLocal: 'English', labelEn: 'English' },
+  createFallbackLocaleLanguage(DEFAULT_LANGUAGE),
 ])
 /** Reactive default language setting. */
 const defaultLanguage = shallowRef(DEFAULT_LANGUAGE)
@@ -71,7 +94,9 @@ export function useI18n() {
       { code: AUTO_LANGUAGE, label: t('settings.language.auto') },
       ...availableLanguages.value.map((language) => ({
         code: language.code,
-        label: `${language.flag} ${language.labelLocal} - ${language.labelEn}`,
+        label: isKnownLanguageCode(language.code)
+          ? formatLanguageLabel(language.code)
+          : `${language.flag} ${language.labelEn} - ${language.labelLocal}`,
       })),
     ]),
     isLoading: readonly(isLoading),
@@ -175,8 +200,11 @@ async function loadInitialI18n(): Promise<void> {
     const index = await loadLocaleIndex()
     defaultLanguage.value = index.defaultLanguage || DEFAULT_LANGUAGE
     availableLanguages.value = index.languages.length
-      ? index.languages
-      : [{ code: defaultLanguage.value, flag: '🇬🇧', labelLocal: defaultLanguage.value, labelEn: defaultLanguage.value }]
+      ? index.languages.map((language) => ({
+          ...language,
+          flag: getLanguageFlag(language.code) ?? language.flag,
+        }))
+      : [createFallbackLocaleLanguage(defaultLanguage.value)]
 
     fallbackMessages.value = await loadDictionary(defaultLanguage.value)
     await applyActiveLanguage(resolveLanguage(selectedLanguage.value))

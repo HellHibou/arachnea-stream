@@ -6,6 +6,7 @@ import { useTheme } from 'vuetify'
 import { useAdminApi } from '@/composables/useAdminApi'
 import { useErrorNotifications } from '@/composables/useErrorNotifications'
 import { useI18n, setLanguage } from '@/i18n'
+import { formatLanguageLabel, isKnownLanguageCode } from '@/services/languages'
 import { loadStoredTheme, persistTheme, findThemePreset } from '@/services/theme'
 import { useAppConfig, defaultServicesPath } from '@/services/appConfig'
 import type { ThemeMode } from '@/services/theme'
@@ -24,6 +25,16 @@ const isAuthenticated = ref(false)
 const authRequired = ref(false)
 const status = ref<StatusResponse | null>(null)
 const theme = ref<ThemeMode>(loadStoredTheme())
+
+/** Language selector entries using the shared display format. */
+const languageItems = computed(() =>
+  availableLanguages.value.map((language) => ({
+    ...language,
+    displayLabel: isKnownLanguageCode(language.code)
+      ? formatLanguageLabel(language.code)
+      : `${language.flag} ${language.labelEn} - ${language.labelLocal}`,
+  })),
+)
 
 const isDark = computed({
   get: () => findThemePreset(theme.value).variant === 'dark',
@@ -128,23 +139,23 @@ onMounted(() => {
       <!-- Language selector -->
       <v-select
         :model-value="resolvedLanguage"
-        :items="availableLanguages"
-        item-title="labelLocal"
+        :items="languageItems"
+        item-title="displayLabel"
         item-value="code"
         variant="outlined"
         density="compact"
         hide-details
         class="mr-2"
-        style="max-width: 150px"
+        style="max-width: 280px"
         @update:model-value="setLanguage($event as string)"
       >
         <template #selection="{ item }">
-          <span>{{ item.flag }} {{ item.labelLocal }}</span>
+          <span>{{ item.displayLabel }}</span>
         </template>
         <template #item="{ item, props: itemProps }">
           <v-list-item v-bind="itemProps">
             <template #title>
-              <span>{{ item.flag }} {{ item.labelLocal }}</span>
+              <span>{{ item.displayLabel }}</span>
             </template>
           </v-list-item>
         </template>

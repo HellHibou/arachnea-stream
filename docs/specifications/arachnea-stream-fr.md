@@ -973,9 +973,11 @@ omises ; une piste reste toutefois conservée lorsqu'elles sont toutes les deux 
 la réponse JSON. Les résolveurs doivent proxifier les URLs de sous-titres qui nécessitent des en-têtes
 de requête ou qui ne seraient pas lisibles directement par le navigateur. Le lecteur public ajoute ces
 pistes comme pistes distantes Video.js après avoir défini
-la source média, n'en active aucune par défaut et retire ses propres pistes distantes lors d'un
+la source média et retire ses propres pistes distantes lors d'un
 changement de source ou de la destruction du lecteur. Les pistes texte natives HLS/DASH restent
-gérées par leurs moteurs de lecture respectifs.
+gérées par leurs moteurs de lecture respectifs. Les pistes peuvent être activées automatiquement
+par les profils de sélection de piste configurés (langue audio, sous-titres selon la priorité de
+langues, audiodescription en dernier recours) ; sinon, aucune piste n'est activée par défaut.
 
 Le champ `storyboard` contient :
 
@@ -1444,7 +1446,7 @@ chaque type de service à une liste de tags de recherche :
 {
   "service-filters": {
     "arachnea-stream": [
-      {"key": "languages", "label": "services.filters.languages"},
+      {"key": "languages", "label": "services.filters.languages", "value_format": "language"},
       {"key": "geo_countries", "label": "services.filters.geo_countries"},
       {"key": "content_types", "label": "services.filters.content_types",
        "value_labels": {
@@ -1482,12 +1484,17 @@ Les documentaires s’ajoutent aux types films et séries. `content_types` est e
 API de métadonnées et proposé comme filtre admin. Les codes restent stables dans les YAML,
 les réponses API et les critères de filtrage. Le champ facultatif `value_labels` d’un filtre
 associe les valeurs à des clés de traduction `locales/*`, utilisées dans les sélections et
-les tags affichés sur les lignes. Sans correspondance, la valeur brute est affichée.
+les tags affichés sur les lignes. Sans correspondance, la valeur brute est affichée. Le champ
+facultatif `value_format` n’accepte que `language` : il formate les valeurs brutes avec le
+libellé partagé `<drapeau> <nom anglais> - <nom natif>`, dans les sélections comme dans les
+tags des lignes. Il est déclaré filtre par filtre afin de laisser intacts les codes pays
+comme `fr` ou `de`. Les valeurs de langue sont séparées par `, ` dans les tags, au lieu de ` - `.
 
 Les valeurs d’une même métadonnée sont regroupées dans un seul tag, séparées par ` - `
-(par exemple « Contenu : Films - Séries - Documentaires »). À partir du breakpoint
-`md`, chaque combobox occupe deux colonnes de grille, contre quatre pour la recherche.
-Sur les petits écrans, les champs restent empilés et occupent toute la largeur.
+(ou par `, ` pour un filtre de langues), par exemple « Contenu : Films - Séries - Documentaires ».
+À partir du breakpoint `md`, chaque combobox occupe deux colonnes de grille, contre quatre
+pour la recherche. Sur les petits écrans, les champs restent empilés et occupent toute la
+largeur.
 
 ### Schéma de persistance des paramètres
 

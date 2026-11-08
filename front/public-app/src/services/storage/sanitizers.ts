@@ -11,6 +11,7 @@ import { normalizeLanguageCode } from '@/utils'
 
 import {
   DEFAULT_SUBTITLE_LANGUAGE_PRIORITY,
+  DEFAULT_SUBTITLE_LANGUAGES,
   DEFAULT_TRACK_PROFILES,
 } from './keys'
 import type { EntryBookmark } from './types'
@@ -21,6 +22,8 @@ export { normalizeLanguageCode } from '@/utils'
 export const MAX_TRACK_PROFILES = 3
 /** Maximum number of subtitle languages persisted. */
 export const MAX_SUBTITLE_LANGUAGE_PRIORITY = 10
+/** Maximum number of configured subtitle languages persisted. */
+export const MAX_SUBTITLE_LANGUAGES = 10
 
 /**
  * Copies track profiles so callers never mutate the shared defaults.
@@ -285,6 +288,34 @@ export function sanitizeSubtitleLanguagePriority(
     }
 
     return value.length && !languages.length ? [...defaultValue] : languages;
+}
+
+/**
+ * Returns a sanitized, deduplicated configured subtitle language list.
+ *
+ * @param value Raw storage value to sanitize.
+ * @param defaultValue Fallback languages used when the input is not an array or contains no valid code.
+ * @returns Ordered, normalized language codes.
+ */
+export function sanitizeSubtitleLanguages(
+  value: unknown,
+  defaultValue: readonly string[] = DEFAULT_SUBTITLE_LANGUAGES,
+): string[] {
+  if (!Array.isArray(value)) {
+    return [...defaultValue];
+  }
+
+  const languages: string[] = [];
+  for (const entry of value.slice(0, MAX_SUBTITLE_LANGUAGES)) {
+    const language = normalizeLanguageCode(entry);
+    if (!language || languages.includes(language)) {
+      continue;
+    }
+
+    languages.push(language);
+  }
+
+  return languages.length ? languages : [...defaultValue];
 }
 
 /**

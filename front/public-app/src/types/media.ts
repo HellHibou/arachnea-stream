@@ -146,6 +146,12 @@ export interface MediaItem extends MediaSelectionTarget {
 export type VideoJsTextTrackModePreference = 'showing' | 'disabled'
 
 /**
+ * Origin of a persisted track preference: a manual user choice or a track
+ * profile applied automatically by the renderer.
+ */
+export type VideoJsTrackPreferenceOrigin = 'manual' | 'profile'
+
+/**
  * Minimal media track identity used to restore audio and subtitle choices.
  */
 export interface VideoJsTrackPreference {
@@ -157,6 +163,8 @@ export interface VideoJsTrackPreference {
   label: string | null
   /** The kind of track (e.g., 'audio', 'subtitles'). */
   kind: string | null
+  /** Origin of the preference: manual user choice or automatic profile. */
+  origin?: VideoJsTrackPreferenceOrigin
 }
 
 /**

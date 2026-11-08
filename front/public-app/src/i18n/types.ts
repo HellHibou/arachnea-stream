@@ -1,6 +1,6 @@
 /** Language entry in the locale index. */
 export interface LocaleIndexLanguage {
-  /** ISO language code (e.g., 'en', 'fr'). */
+  /** ISO 639-1 language code, resolved through the shared language catalog. */
   code: string
   /** Flag emoji for the language. */
   flag: string

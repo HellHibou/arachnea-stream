@@ -331,17 +331,17 @@ export type VideoJsAudioTrackListHandle = {
   /** Index signature to access individual tracks. */
   [index: number]: VideoJsAudioTrackHandle
   /**
-   * Adds an event listener for change events.
-   * @param eventName - Event name to listen for.
+   * Adds an event listener for change or addtrack events.
+   * @param eventName - Event name to listen for (`'change'` or `'addtrack'`).
    * @param listener - Event listener callback.
    */
-  addEventListener?: (eventName: 'change', listener: (event: Event) => void) => void
+  addEventListener?: (eventName: 'change' | 'addtrack', listener: (event: Event) => void) => void
   /**
-   * Removes an event listener for change events.
+   * Removes an event listener for change or addtrack events.
    * @param eventName - Event name to remove.
    * @param listener - Event listener callback to remove.
    */
-  removeEventListener?: (eventName: 'change', listener: (event: Event) => void) => void
+  removeEventListener?: (eventName: 'change' | 'addtrack', listener: (event: Event) => void) => void
 }
 
 /**
@@ -371,17 +371,17 @@ export type VideoJsTextTrackListHandle = {
   /** Index signature to access individual tracks. */
   [index: number]: VideoJsTextTrackHandle
   /**
-   * Adds an event listener for change events.
-   * @param eventName - Event name to listen for.
+   * Adds an event listener for change or addtrack events.
+   * @param eventName - Event name to listen for (`'change'` or `'addtrack'`).
    * @param listener - Event listener callback.
    */
-  addEventListener?: (eventName: 'change', listener: (event: Event) => void) => void
+  addEventListener?: (eventName: 'change' | 'addtrack', listener: (event: Event) => void) => void
   /**
-   * Removes an event listener for change events.
+   * Removes an event listener for change or addtrack events.
    * @param eventName - Event name to remove.
    * @param listener - Event listener callback to remove.
    */
-  removeEventListener?: (eventName: 'change', listener: (event: Event) => void) => void
+  removeEventListener?: (eventName: 'change' | 'addtrack', listener: (event: Event) => void) => void
 }
 
 /**

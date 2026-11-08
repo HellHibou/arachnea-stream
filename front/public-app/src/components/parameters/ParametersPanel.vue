@@ -6,7 +6,7 @@ interface Props {
   /**
    * Title rendered on the left side of the row.
    */
-  title: string
+  title?: string
   /**
    * Indicates whether the row is disabled.
    * @default false
@@ -16,6 +16,7 @@ interface Props {
 
 withDefaults(defineProps<Props>(), {
   disabled: false,
+  title: '',
 })
 </script>
 
@@ -25,7 +26,7 @@ withDefaults(defineProps<Props>(), {
     :class="{ 'parameters__panel--disabled': disabled }"
     :aria-disabled="disabled || undefined"
   >
-    <div class="parameters__copy">
+    <div v-if="title" class="parameters__copy">
       <p class="parameters__panel-title">
         {{ title }}
       </p>

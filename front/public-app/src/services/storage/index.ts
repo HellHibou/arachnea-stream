@@ -23,6 +23,7 @@ import {
 
 import { createEntryBookmarksBridge } from './bookmarks'
 import {
+  DEFAULT_SUBTITLE_LANGUAGES,
   HOME_SHOW_SECTION_EDITING_BUTTONS_KEY,
   PARAM_PREFIX,
   PARAMETERS_DEF,
@@ -40,6 +41,7 @@ import {
   sanitizeNullableString,
   sanitizeQuality,
   sanitizeSubtitleLanguagePriority,
+  sanitizeSubtitleLanguages,
   sanitizeTextTrackPreference,
   sanitizeTextTrackSettings,
   sanitizeTrackPreference,
@@ -95,6 +97,8 @@ function sanitizeParameterValue(
         return sanitizeTrackProfiles(value);
       case SUBTITLE_LANGUAGE_PRIORITY_PARAMETER_KEY:
         return sanitizeSubtitleLanguagePriority(value, defaultSubtitleLanguagePriority);
+      case 'videoPlayer.subtitleLanguages':
+        return sanitizeSubtitleLanguages(value, DEFAULT_SUBTITLE_LANGUAGES);
       case 'videoPlayer.allowAudioDescription':
         return sanitizeBoolean(value, false);
       default:

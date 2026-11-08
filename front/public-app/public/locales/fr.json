@@ -220,6 +220,16 @@
     "theme": "Theme",
     "colorTheme": "Theme couleur",
     "player": "Lecteur",
+    "useAudioDescriptionIfAvailable": "Utiliser l'audio description si disponible",
+    "subtitleLanguagesTitle": "Langues de sous-titres",
+    "subtitleLanguagesHint": "Sélectionnez ou saisissez un code de langue (2 lettres).",
+    "subtitleLanguages": {
+      "chooseLanguage": "Choisir une langue",
+      "addLanguage": "Ajouter une langue",
+      "removeLanguage": "Retirer la langue {code}"
+    },
+    "addAudioProfile": "Ajouter un profil audio",
+    "removeAudioProfile": "Supprimer ce profil audio",
     "autoskip": {
       "previously": "Saut automatique du récapitulatif",
       "intro": "Saut automatique de l'introduction",
@@ -230,7 +240,14 @@
     "securityMode": "Mode de sécurité",
     "unsafe": "Non sécurisé",
     "confirmation": "Confirmation",
-    "safe": "Sécurisé"
+    "safe": "Sécurisé",
+    "playerTracks": {
+      "audio": "Langue audio",
+      "subtitles": "Sous-titres",
+      "subtitlesDisabled": "Désactivés",
+      "subtitlesAuto": "Automatiques",
+      "original": "Version originale"
+    }
   },
   "layout": {
     "grid": "Grille",

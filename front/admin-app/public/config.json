@@ -10,7 +10,8 @@
     "arachnea-stream": [
       {
         "key": "languages",
-        "label": "services.filters.languages"
+        "label": "services.filters.languages",
+        "value_format": "language"
       },
       {
         "key": "geo_countries",

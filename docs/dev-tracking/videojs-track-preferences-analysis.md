@@ -629,6 +629,6 @@ faite manuellement sur les sources de test existantes :
 3. **Intégration au renderer** : `state.ts`, `sourceController`, `qualityController`, bridge
    DASH, gestion de l'origine manuel/profil.
 4. **Interface et i18n** : section « Pistes du lecteur », composant de liste ordonnée,
-   traductions.
-5. **Documentation et changelog** : spécifications, `CHANGELOG.md`, `docs/TODO.md` si nécessaire.
+   traductions. *(implémenté)*
+5. **Documentation et changelog** : spécifications, `CHANGELOG.md`, `docs/TODO.md`. *(implémenté)*
 6. **Vérification manuelle** : matrice de la section 8.

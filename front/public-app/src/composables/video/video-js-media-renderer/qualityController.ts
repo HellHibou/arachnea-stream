@@ -8,7 +8,12 @@ import {
   selectPreferredVhsPlaylist,
   syncDisplayedQualityPreference,
 } from './quality'
-import { capturePlayerState, resolveRetainedQuality, restorePersistedTrackPreferences } from './state'
+import {
+  capturePlayerState,
+  resolveRetainedQuality,
+  restorePersistedTrackPreferences,
+} from './state'
+import type { VideoJsTrackSelectionConfig } from './trackPreferences'
 
 /** Delay between attempts to attach the asynchronously created dash.js engine. */
 const DASH_QUALITY_BRIDGE_RETRY_INTERVAL = 250
@@ -19,6 +24,7 @@ interface QualityControllerOptions {
   getPlayer: () => VideoJsPlayer | null
   getSourceUrl: () => string
   onStateChange: (player: VideoJsPlayer) => void
+  getTrackSelectionConfig?: () => VideoJsTrackSelectionConfig | null | undefined
 }
 
 /**
@@ -27,7 +33,7 @@ interface QualityControllerOptions {
  * @returns The quality operations used by the source controller and player events.
  */
 export function createQualityController(options: QualityControllerOptions) {
-  const { getPlayer, getSourceUrl, onStateChange } = options
+  const { getPlayer, getSourceUrl, onStateChange, getTrackSelectionConfig } = options
   let preferredQuality: string | null = null
   let retainedPlayerState: VideoJsPlayerState | null = null
   let pendingQualitySelectorCleanup: (() => void) | null = null
@@ -222,7 +228,8 @@ export function createQualityController(options: QualityControllerOptions) {
         preferredQuality: quality,
         restoreTrackPreferences: () => {
           if (getPlayer() === player) {
-            restorePersistedTrackPreferences(player, retainedPlayerState)
+            const trackSelectionConfig = getTrackSelectionConfig?.() ?? undefined
+            restorePersistedTrackPreferences(player, retainedPlayerState, trackSelectionConfig)
           }
         },
       })

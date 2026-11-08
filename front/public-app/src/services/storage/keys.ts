@@ -1,6 +1,10 @@
 import type { VideoJsTrackProfile } from '@/types/media'
 
+import { DEFAULT_SUBTITLE_LANGUAGES, DEFAULT_SUBTITLE_LANGUAGE_PRIORITY } from '@/services/languages'
+
 import type { ParameterEntry } from './types'
+
+export { DEFAULT_SUBTITLE_LANGUAGES, DEFAULT_SUBTITLE_LANGUAGE_PRIORITY } from '@/services/languages'
 
 /** Prefix used for all storage keys. */
 export const STORE_PREFIX = 'arachnea.'
@@ -27,8 +31,6 @@ export const THEME_KEY = 'theme.key'
 export const DEFAULT_TRACK_PROFILES: readonly VideoJsTrackProfile[] = [
   { audio: 'original', subtitles: 'disabled' },
 ]
-/** Fallback subtitle language priority when no interface language is available. */
-export const DEFAULT_SUBTITLE_LANGUAGE_PRIORITY: readonly string[] = ['en']
 
 /** Default parameter definitions with their keys and default values. */
 export const PARAMETERS_DEF: ParameterEntry[] = [
@@ -49,6 +51,7 @@ export const PARAMETERS_DEF: ParameterEntry[] = [
   { key: 'videoPlayer.autoskip.ads',      defaultValue: false      },
   { key: 'videoPlayer.trackProfiles',     defaultValue: DEFAULT_TRACK_PROFILES },
   { key: 'videoPlayer.subtitleLanguagePriority', defaultValue: DEFAULT_SUBTITLE_LANGUAGE_PRIORITY },
+  { key: 'videoPlayer.subtitleLanguages',     defaultValue: DEFAULT_SUBTITLE_LANGUAGES },
   { key: 'videoPlayer.allowAudioDescription',    defaultValue: false },
   { key: 'securityMode',            defaultValue: 'safe'         },
   { key: 'language',                      defaultValue: null       },
