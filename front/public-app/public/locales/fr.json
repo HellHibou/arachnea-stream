@@ -222,11 +222,12 @@
     "player": "Lecteur",
     "useAudioDescriptionIfAvailable": "Utiliser l'audio description si disponible",
     "subtitleLanguagesTitle": "Langues de sous-titres",
-    "subtitleLanguagesHint": "Sélectionnez ou saisissez un code de langue (2 lettres).",
     "subtitleLanguages": {
       "chooseLanguage": "Choisir une langue",
       "addLanguage": "Ajouter une langue",
-      "removeLanguage": "Retirer la langue {code}"
+      "removeLanguage": "Retirer la langue {code}",
+      "moveLanguageUp": "Monter {code}",
+      "moveLanguageDown": "Descendre {code}"
     },
     "addAudioProfile": "Ajouter un profil audio",
     "removeAudioProfile": "Supprimer ce profil audio",
@@ -242,6 +243,8 @@
     "confirmation": "Confirmation",
     "safe": "Sécurisé",
     "playerTracks": {
+      "applyProfiles": "Appliquer ces préférences",
+      "applyProfilesHint": "Remplace les choix audio et sous-titres faits dans le lecteur.",
       "audio": "Langue audio",
       "subtitles": "Sous-titres",
       "subtitlesDisabled": "Désactivés",

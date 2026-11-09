@@ -7,6 +7,7 @@ import type {
   VideoJsTrackProfileSubtitles,
 } from '@/types/media'
 
+import { LANGUAGES } from '@/services/languages'
 import { normalizeLanguageCode } from '@/utils'
 
 import {
@@ -18,8 +19,8 @@ import type { EntryBookmark } from './types'
 
 export { normalizeLanguageCode } from '@/utils'
 
-/** Maximum number of ordered track profiles persisted. */
-export const MAX_TRACK_PROFILES = 3
+/** Maximum number of ordered track profiles persisted: one per catalog audio language plus the original track. */
+export const MAX_TRACK_PROFILES = LANGUAGES.length + 1
 /** Maximum number of subtitle languages persisted. */
 export const MAX_SUBTITLE_LANGUAGE_PRIORITY = 10
 /** Maximum number of configured subtitle languages persisted. */
@@ -65,6 +66,7 @@ const DEFAULT_TEXT_TRACK_PREFERENCE: VideoJsTextTrackPreference = {
   label: null,
   kind: null,
   mode: 'disabled',
+  origin: 'profile',
 }
 
 /**
@@ -233,7 +235,7 @@ export function sanitizeTrackProfileAudio(value: unknown): VideoJsTrackProfileAu
  *
  * @param value Raw storage value to sanitize.
  * @param defaultValue Fallback profiles used when the input is not an array or is empty.
- * @returns Ordered track profiles, bounded to three entries.
+ * @returns Ordered track profiles, bounded by `MAX_TRACK_PROFILES`.
  */
 export function sanitizeTrackProfiles(
   value: unknown,
@@ -335,6 +337,9 @@ export function sanitizeTrackPreference(value: unknown): VideoJsTrackPreference 
       language: sanitizeNullableString(record.language),
       label: sanitizeNullableString(record.label),
       kind: sanitizeNullableString(record.kind),
+      ...(record.origin === 'manual' || record.origin === 'profile'
+        ? { origin: record.origin }
+        : {}),
     };
 
     return trackPreference.id ||
@@ -361,7 +366,10 @@ export function sanitizeTextTrackPreference(value: unknown): VideoJsTextTrackPre
     const trackPreference = sanitizeTrackPreference(record);
 
     if (mode === 'disabled') {
-      return { ...DEFAULT_TEXT_TRACK_PREFERENCE };
+      return {
+        ...DEFAULT_TEXT_TRACK_PREFERENCE,
+        origin: record.origin === 'profile' ? 'profile' : 'manual',
+      };
     }
 
     if (!trackPreference) {

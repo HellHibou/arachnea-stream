@@ -747,6 +747,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- The public parameters player section no longer caps audio language profiles at three: it now allows one profile per shared-catalog audio language plus the original track, and the storage sanitizer uses the same catalog-derived bound.
+
 - Split the entry player controller into selection, primary stream and trailer state owners, plus shared media helpers/types. `entryVideoPlayer` keeps its 24-property API and watcher order while shrinking from 992 to 209 lines. `VideoPlayer.vue` now reuses shared component contracts and ordered external scoped CSS for its surface, states and picker, shrinking from 845 to 294 lines with the same template, prop defaults and emitted events.
 
 - Split `ProgramEntryDetails.vue` into focused recommendation-rail, bookmark, episode-navigation and media-surface composables. Navigation owns its cancellation counter and transition flags; bookmark preferences initialize before data loading, with episode restoration bound after the existing reset watchers. The component shrinks from 1,140 to 341 lines while keeping its template, props, defaults and event wiring unchanged.
@@ -766,6 +768,10 @@ All notable changes to the server workspace are recorded here.
 #### Fixed
 
 - Restored episode Watch actions for inline-player sources such as Anime-Sama and French Animes. Entry episode collections now select locally in the current player without requiring an episode route; unavailable episodes remain disabled and catalog collections retain validated native navigation.
+
+- Fixed the Video.js track preference review findings: matching manual choices (including globally disabled subtitles) take precedence over profiles and survive automatic fallbacks; storage retains preference origins and distinguishes fresh defaults from legacy manual preferences. Track-list rebuilding is excluded from manual capture, and late-track listeners remain active after playback starts. The subtitle language manager now edits the priority actually used by the player, supports reordering and migrates the former setting when needed; profile additions stop at the storage limit of three. Remote text tracks retain `autoTranslate` metadata so human subtitles win for the same language. Background players remain outside profile selection.
+
+- Fixed track settings being masked by previously saved audio/subtitle choices: editing profiles, subtitle priority or AD permission now clears manual track overrides and reapplies the current settings to mounted players and retained player state. Added an **Apply these preferences** action for the same reset without editing settings. `original` profiles now apply their subtitle mode even when the engine exposes no audio tracks; metadata restores read current settings, and volume restoration cannot capture provisional engine choices as manual selections. Legacy restoration now uses the same ISO 639-1/639-2 language normalization as profile selection, including terminology and bibliographic aliases.
 
 - Fixed renderer regressions from the source/lifecycle extraction: invalidate pending storyboard resolutions on newer transitions and disposal, restore the complete persisted player state, read the current DASH bridge, clear unavailable quality preferences before persistence, share the guarded load-completion event, and save UI state before disposal while resetting transient state. Source listeners publish their cleanup before assigning the source.
 

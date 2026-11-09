@@ -2,6 +2,7 @@
 import { ref, watch } from 'vue'
 import { LANGUAGES, formatLanguageLabel } from '@/services/languages'
 import { useI18n } from '@/i18n'
+import { MAX_SUBTITLE_LANGUAGE_PRIORITY } from '@/services/storage/sanitizers'
 
 /**
  * Props accepted by the subtitle language list control.
@@ -72,9 +73,28 @@ function handleRemoveLanguage(index: number): void {
  * Adds a new language row at the end of the list.
  */
 function handleAddLanguage(): void {
+  if (languages.value.length >= MAX_SUBTITLE_LANGUAGE_PRIORITY) return
   const next = [...languages.value, '']
   languages.value = next
   emit('update:modelValue', languages.value)
+}
+
+/**
+ * Moves a language within the subtitle selection priority.
+ * @param index Row to move.
+ * @param direction Adjacent row offset.
+ */
+function moveLanguage(index: number, direction: -1 | 1): void {
+  const target = index + direction
+  if (target < 0 || target >= languages.value.length) return
+  const next = [...languages.value]
+  const currentLanguage = next[index]
+  const targetLanguage = next[target]
+  if (currentLanguage === undefined || targetLanguage === undefined) return
+  next[index] = targetLanguage
+  next[target] = currentLanguage
+  languages.value = next
+  emit('update:modelValue', next)
 }
 </script>
 
@@ -105,6 +125,25 @@ function handleAddLanguage(): void {
 
         <button
           type="button"
+          class="parameter-subtitle-languages__button"
+          :disabled="index === 0"
+          :aria-label="t('settings.subtitleLanguages.moveLanguageUp', { code })"
+          @click="moveLanguage(index, -1)"
+        >
+          ▲
+        </button>
+        <button
+          type="button"
+          class="parameter-subtitle-languages__button"
+          :disabled="index === languages.length - 1"
+          :aria-label="t('settings.subtitleLanguages.moveLanguageDown', { code })"
+          @click="moveLanguage(index, 1)"
+        >
+          ▼
+        </button>
+
+        <button
+          type="button"
           class="parameter-subtitle-languages__button parameter-subtitle-languages__button--remove"
           :class="{ 'parameter-subtitle-languages__button--hidden': index === 0 }"
           @click="handleRemoveLanguage(index)"
@@ -117,6 +156,7 @@ function handleAddLanguage(): void {
           class="parameter-subtitle-languages__button parameter-subtitle-languages__button--add"
           :class="{ 'parameter-subtitle-languages__button--hidden': index !== languages.length - 1 }"
           @click="handleAddLanguage"
+          :disabled="languages.length >= MAX_SUBTITLE_LANGUAGE_PRIORITY"
           :aria-label="t('settings.subtitleLanguages.addLanguage')"
         >
           +

@@ -26,7 +26,11 @@ import {
   isDurationAvailable, isLiveStream, syncDurationAvailabilityState, updateLiveProgressBar,
 } from './video-js-media-renderer/live'
 import { disableControlBarMenuHoverBehavior } from './video-js-media-renderer/quality'
-import { getPlaybackEventSourceUrl } from './video-js-media-renderer/state'
+import {
+  getPlaybackEventSourceUrl,
+  resetManualTrackPreferences,
+  restorePersistedTrackPreferences,
+} from './video-js-media-renderer/state'
 import type { UseVideoJsMediaRendererOptions, VideoJsPlayer } from './video-js-media-renderer/types'
 import { areSubtitlesEqual } from './video-js-media-renderer/subtitles'
 import { syncVideoElementAttributes, installPosterImageErrorHandler } from './video-js-media-renderer/playerAttributes'
@@ -56,19 +60,21 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
   /** Current active Video.js player instance. */
   const activePlayer = shallowRef<VideoJsPlayer | null>(null)
   const ui = createPlayerUiState(options)
+  const storage = useStorage()
+  const trackParameters = storage.getParameters()
 
   /** Builds the track selection configuration from current storage parameters. */
   function buildTrackSelectionConfig(): VideoJsTrackSelectionConfig {
-    const parameters = useStorage().getParameters()
     return {
-      profiles: parameters['videoPlayer.trackProfiles'].value,
-      subtitleLanguagePriority: parameters['videoPlayer.subtitleLanguagePriority'].value,
-      allowAudioDescription: parameters['videoPlayer.allowAudioDescription'].value,
+      profiles: trackParameters['videoPlayer.trackProfiles'].value,
+      subtitleLanguagePriority: trackParameters['videoPlayer.subtitleLanguagePriority'].value,
+      allowAudioDescription: trackParameters['videoPlayer.allowAudioDescription'].value,
     }
   }
 
-  function getTrackSelectionConfig(): VideoJsTrackSelectionConfig {
-    return buildTrackSelectionConfig()
+  /** Returns current profiles only for players with persisted user controls. */
+  function getTrackSelectionConfig(): VideoJsTrackSelectionConfig | undefined {
+    return props.initialPlayerState ? buildTrackSelectionConfig() : undefined
   }
 
   const quality = createQualityController({
@@ -87,6 +93,18 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
     configurePlayer: syncExistingPlayerConfiguration, quality, storyboard, ui,
     getTrackSelectionConfig,
   })
+
+  watch(
+    () => storage.trackPreferencesRevision,
+    () => {
+      const player = activePlayer.value
+      const config = getTrackSelectionConfig()
+      if (!player || !config) return
+      resetManualTrackPreferences(player)
+      restorePersistedTrackPreferences(player, quality.captureState(player), config)
+      emitCurrentPlayerState(player)
+    },
+  )
 
   /**
    * Persists player UI state using the quality controller's current preference.

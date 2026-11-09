@@ -113,7 +113,10 @@ export const useStorage = defineStore('storage', () => {
     )
     const defaultSubtitleLanguagePriority = createDefaultSubtitleLanguagePriority(storedLanguage)
     const initialSubtitleLanguagePriority = sanitizeSubtitleLanguagePriority(
-      getStoreItem(PARAM_PREFIX + SUBTITLE_LANGUAGE_PRIORITY_PARAMETER_KEY, null),
+      getStoreItem(
+        PARAM_PREFIX + SUBTITLE_LANGUAGE_PRIORITY_PARAMETER_KEY,
+        getStoreItem(PARAM_PREFIX + 'videoPlayer.subtitleLanguages', null),
+      ),
       defaultSubtitleLanguagePriority,
     )
     let hasCustomSubtitleLanguagePriority = !areLanguageListsEqual(
@@ -290,6 +293,26 @@ export const useStorage = defineStore('storage', () => {
       sanitizeTextTrackSettings(
         getStoreItem<unknown>(VIDEO_PLAYER_TEXT_TRACK_SETTINGS_KEY, null),
       ),
+    )
+
+    /** Invalidates track selections held by mounted players after a settings edit. */
+    const trackPreferencesRevision = ref(0)
+
+    /** Clears manual track choices so current profiles take effect on every player. */
+    function resetVideoPlayerTrackPreferences(): void {
+      videoPlayerAudioTrack.value = null
+      videoPlayerTextTrack.value = sanitizeTextTrackPreference(null)
+      trackPreferencesRevision.value += 1
+    }
+
+    watch(
+      [
+        parameters['videoPlayer.trackProfiles'],
+        parameters['videoPlayer.subtitleLanguagePriority'],
+        parameters['videoPlayer.allowAudioDescription'],
+      ],
+      resetVideoPlayerTrackPreferences,
+      { deep: true },
     )
 
     watch(
@@ -473,5 +496,7 @@ export const useStorage = defineStore('storage', () => {
       entryBookmarks,
       getVideoPlayerPreferences,
       setVideoPlayerPreferences,
+      resetVideoPlayerTrackPreferences,
+      trackPreferencesRevision,
     }
 });

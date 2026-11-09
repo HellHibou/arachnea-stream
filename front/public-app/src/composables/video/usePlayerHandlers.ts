@@ -1,4 +1,4 @@
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useStorage, type VideoPlayerPreferences } from '@/services/storage'
 import type { VideoJsPlayerState } from '@/types/media'
 import type { VideoPlayerEmits, VideoPlayerProps } from './playerTypes'
@@ -37,6 +37,16 @@ export function usePlayerHandlers(props: VideoPlayerProps, emit: VideoPlayerEmit
       ? createInitialVideoPlayerState(storage.getVideoPlayerPreferences())
       : null,
   )
+
+  watch(() => storage.trackPreferencesRevision, () => {
+    if (!persistedVideoPlayerState.value || !shouldUseStoredPlayerPreferences.value) return
+    const preferences = storage.getVideoPlayerPreferences()
+    persistedVideoPlayerState.value = {
+      ...persistedVideoPlayerState.value,
+      audioTrack: preferences.audioTrack,
+      textTrack: preferences.textTrack,
+    }
+  })
 
   /**
    * Exposes a stable language key to the native select element.

@@ -15,6 +15,7 @@ import { type SkipChapterType } from '@/composables/video/video-js-media-rendere
 import { useI18n } from '@/i18n'
 import { useTheme } from '@/composables/useTheme'
 import { isDesktopApp, openAdministrationWindow } from '@/services/rustify'
+import { MAX_TRACK_PROFILES } from '@/services/storage/sanitizers'
 
 import ParameterSegmented from './parameters/ParameterSegmented.vue'
 import ParameterSlider from './parameters/ParameterSlider.vue'
@@ -105,7 +106,7 @@ const trackProfiles = computed(() => parameters['videoPlayer.trackProfiles'].val
 /** Whether audio-description tracks may be selected as a last resort. */
 const allowAudioDescription = computed(() => parameters['videoPlayer.allowAudioDescription'].value)
 /** Configured subtitle languages, highest priority first. */
-const subtitleLanguages = computed(() => parameters['videoPlayer.subtitleLanguages'].value)
+const subtitleLanguages = computed(() => parameters['videoPlayer.subtitleLanguagePriority'].value)
 /** Audio language options offered in the profile select, derived from the shared catalog. */
 const audioLanguageOptions = LANGUAGES.map((language) => ({
   value: language.code,
@@ -291,8 +292,9 @@ function handleProfileSubtitlesUpdate(index: number, value: 'disabled' | 'auto')
  * Adds a new audio track profile at the end of the list.
  */
 function handleAddAudioProfile(): void {
+  if (trackProfiles.value.length >= MAX_TRACK_PROFILES) return
   const next = [...trackProfiles.value]
-  next.push({ audio: null, subtitles: 'disabled' })
+  next.push({ audio: 'original', subtitles: 'disabled' })
   parameters['videoPlayer.trackProfiles'].value = next
 }
 
@@ -318,7 +320,12 @@ function handleRemoveAudioProfile(index: number): void {
  * @param value New ordered language code list.
  */
 function handleSubtitleLanguagesUpdate(value: string[]): void {
-  parameters['videoPlayer.subtitleLanguages'].value = value
+  parameters['videoPlayer.subtitleLanguagePriority'].value = value
+}
+
+/** Reapplies configured profiles after clearing choices made in the player menus. */
+function handleApplyTrackProfiles(): void {
+  useStorage().resetVideoPlayerTrackPreferences()
 }
 
 /** Opens the dedicated administration window in the desktop application. */
@@ -418,6 +425,55 @@ function handleOpenAdministration(): void {
       </div>
     </ParametersSection>
 
+    <ParametersSection :title="t('settings.background')">
+      <div class="parameters__grid">
+         <ParametersPanel :title="t('settings.backgroundImage')">
+           <ParameterSwitch
+             :input-id="useCatalogBannersAsBackgroundInputId"
+             :leading-label="t('settings.inactive')"
+             :trailing-label="t('settings.active')"
+             :checked="parameters.useCatalogBannersAsBackground.value"
+             @update:checked="handleUseCatalogBannersAsBackgroundUpdate"
+           />
+         </ParametersPanel>
+
+         <ParametersPanel :title="t('settings.backgroundAnimation')" :disabled="!parameters.useCatalogBannersAsBackground.value">
+           <ParameterSegmented
+             :input-name="backgroundAnimationInputId"
+             :label="t('settings.backgroundAnimation')"
+             :model-value="parameters.isBackgroundAnimated.value"
+             :options="backgroundAnimationOptions"
+             :disabled="!parameters.useCatalogBannersAsBackground.value"
+             @update:model-value="handleBackgroundAnimationUpdate"
+           />
+         </ParametersPanel>
+
+         <ParametersPanel
+           :title="t('settings.imageDisplay')"
+           :disabled="parameters.isBackgroundAnimated.value || !parameters.useCatalogBannersAsBackground.value"
+         >
+           <ParameterSegmented
+             :input-name="backgroundImageFitInputId"
+             :label="t('settings.imageDisplay')"
+             :model-value="parameters.backgroundImageFit.value"
+             :options="backgroundImageFitOptions"
+             :disabled="parameters.isBackgroundAnimated.value || !parameters.useCatalogBannersAsBackground.value"
+             @update:model-value="handleBackgroundImageFitUpdate"
+           />
+         </ParametersPanel>
+
+         <ParametersPanel :title="t('settings.trailerUsage')">
+           <ParameterSwitch
+             :input-id="useTrailerAsBackgroundInputId"
+             :leading-label="t('settings.inactive')"
+             :trailing-label="t('settings.active')"
+             :checked="parameters.useTrailerAsBackground.value"
+             @update:checked="handleUseTrailerAsBackgroundUpdate"
+           />
+         </ParametersPanel>
+       </div>
+     </ParametersSection>
+
     <ParametersSection :title="t('settings.player')">
       <div class="parameters__grid">
         <ParametersPanel :title="t('settings.securityMode')">
@@ -504,6 +560,7 @@ function handleOpenAdministration(): void {
                 class="parameter-track-line__button parameter-track-line__button--add"
                 :class="{ 'parameter-track-line__button--hidden': index !== trackProfiles.length - 1 }"
                 @click="handleAddAudioProfile"
+                :disabled="trackProfiles.length >= MAX_TRACK_PROFILES"
                 :aria-label="t('settings.addAudioProfile')"
               >
                 +
@@ -532,57 +589,18 @@ function handleOpenAdministration(): void {
             @update:model-value="handleSubtitleLanguagesUpdate"
           />
         </ParametersPanel>
+
+        <ParametersPanel :title="t('settings.playerTracks.applyProfilesHint')">
+          <button
+            type="button"
+            class="parameters__action-button"
+            @click="handleApplyTrackProfiles"
+          >
+            {{ t('settings.playerTracks.applyProfiles') }}
+          </button>
+        </ParametersPanel>
       </div>
     </ParametersSection>
-
-    <ParametersSection :title="t('settings.background')">
-      <div class="parameters__grid">
-         <ParametersPanel :title="t('settings.backgroundImage')">
-           <ParameterSwitch
-             :input-id="useCatalogBannersAsBackgroundInputId"
-             :leading-label="t('settings.inactive')"
-             :trailing-label="t('settings.active')"
-             :checked="parameters.useCatalogBannersAsBackground.value"
-             @update:checked="handleUseCatalogBannersAsBackgroundUpdate"
-           />
-         </ParametersPanel>
-
-         <ParametersPanel :title="t('settings.backgroundAnimation')" :disabled="!parameters.useCatalogBannersAsBackground.value">
-           <ParameterSegmented
-             :input-name="backgroundAnimationInputId"
-             :label="t('settings.backgroundAnimation')"
-             :model-value="parameters.isBackgroundAnimated.value"
-             :options="backgroundAnimationOptions"
-             :disabled="!parameters.useCatalogBannersAsBackground.value"
-             @update:model-value="handleBackgroundAnimationUpdate"
-           />
-         </ParametersPanel>
-
-         <ParametersPanel
-           :title="t('settings.imageDisplay')"
-           :disabled="parameters.isBackgroundAnimated.value || !parameters.useCatalogBannersAsBackground.value"
-         >
-           <ParameterSegmented
-             :input-name="backgroundImageFitInputId"
-             :label="t('settings.imageDisplay')"
-             :model-value="parameters.backgroundImageFit.value"
-             :options="backgroundImageFitOptions"
-             :disabled="parameters.isBackgroundAnimated.value || !parameters.useCatalogBannersAsBackground.value"
-             @update:model-value="handleBackgroundImageFitUpdate"
-           />
-         </ParametersPanel>
-
-         <ParametersPanel :title="t('settings.trailerUsage')">
-           <ParameterSwitch
-             :input-id="useTrailerAsBackgroundInputId"
-             :leading-label="t('settings.inactive')"
-             :trailing-label="t('settings.active')"
-             :checked="parameters.useTrailerAsBackground.value"
-             @update:checked="handleUseTrailerAsBackgroundUpdate"
-           />
-         </ParametersPanel>
-       </div>
-     </ParametersSection>
 
     <ParametersSection v-if="canOpenAdministration" :title="t('settings.administration')">
       <div class="parameters__grid">
@@ -618,8 +636,6 @@ function handleOpenAdministration(): void {
 .parameters {
   display: grid;
   gap: 0px;
-  max-height: calc(100vh - 90px);
-  overflow-y: auto;
 }
 
 .parameters__grid {
@@ -709,6 +725,11 @@ function handleOpenAdministration(): void {
 .parameter-track-line__button:focus-visible {
   outline: var(--common-focus-ring);
   outline-offset: 2px;
+}
+
+.parameter-track-line__button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .parameter-track-line__button--remove {

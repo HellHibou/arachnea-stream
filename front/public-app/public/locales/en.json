@@ -222,11 +222,12 @@
     "player": "Player",
     "useAudioDescriptionIfAvailable": "Use audio description if available",
     "subtitleLanguagesTitle": "Subtitle languages",
-    "subtitleLanguagesHint": "Select or type a language code (2 letters).",
     "subtitleLanguages": {
       "chooseLanguage": "Choose a language",
       "addLanguage": "Add a language",
-      "removeLanguage": "Remove language {code}"
+      "removeLanguage": "Remove language {code}",
+      "moveLanguageUp": "Move {code} up",
+      "moveLanguageDown": "Move {code} down"
     },
     "addAudioProfile": "Add an audio profile",
     "removeAudioProfile": "Remove this profile",
@@ -242,6 +243,8 @@
     "confirmation": "Confirmation",
     "safe": "Safe",
     "playerTracks": {
+      "applyProfiles": "Apply these preferences",
+      "applyProfilesHint": "Replaces audio and subtitle choices made in the player.",
       "audio": "Audio language",
       "subtitles": "Subtitles",
       "subtitlesDisabled": "Disabled",

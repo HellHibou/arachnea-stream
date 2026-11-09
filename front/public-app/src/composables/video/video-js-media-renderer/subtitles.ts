@@ -43,7 +43,8 @@ export function areSubtitlesEqual(
     return other !== undefined &&
       subtitle.link === other.link &&
       subtitle.lang === other.lang &&
-      subtitle.label === other.label
+      subtitle.label === other.label &&
+      subtitle.autoTranslate === other.autoTranslate
   })
 }
 
@@ -95,7 +96,9 @@ export function addRemoteSubtitleTracks(
     )
 
     if (track) {
-      remoteSubtitleTracks.push(track)
+      const remoteTrack = track as VideoJsRemoteTextTrackHandle
+      remoteTrack.track.autoTranslate = subtitle.autoTranslate === true
+      remoteSubtitleTracks.push(remoteTrack)
     }
   }
 }

@@ -979,6 +979,41 @@ gérées par leurs moteurs de lecture respectifs. Les pistes peuvent être activ
 par les profils de sélection de piste configurés (langue audio, sous-titres selon la priorité de
 langues, audiodescription en dernier recours) ; sinon, aucune piste n'est activée par défaut.
 
+Les choix manuels audio et sous-titres qui correspondent à une piste sont prioritaires sur les
+profils. La correspondance repose sur un même identifiant non généré par DASH ou sur une même
+langue normalisée, un même type et un même libellé. Un choix indisponible laisse le profil
+s'appliquer sans remplacer la préférence manuelle enregistrée. La désactivation manuelle des
+sous-titres est globale. Les préférences conservent leur origine `manual` ou `profile` en
+stockage ; les anciennes préférences sans origine restent manuelles, tandis qu'une installation
+neuve ne possède pas de choix manuel prioritaire. Les lecteurs d'arrière-plan n'appliquent pas
+les profils.
+
+Modifier les profils de pistes, la priorité des langues de sous-titres ou l'autorisation de
+l'audiodescription efface les choix audio/sous-titres manuels enregistrés et réapplique immédiatement
+les nouveaux paramètres aux lecteurs contrôlés montés. Le bouton **Appliquer ces préférences**
+effectue la même réinitialisation sans modifier les profils configurés. Les choix manuels faits
+ensuite dans le lecteur restent prioritaires jusqu'à la prochaine modification des paramètres ou
+réinitialisation explicite. L'état conservé lorsque la surface média est temporairement démontée
+est également actualisé.
+
+Les codes ISO 639-1 à deux lettres et ISO 639-2 terminologiques/bibliographiques à trois lettres
+sont comparés via le catalogue partagé (`fr`/`fra`/`fre`, `en`/`eng`, `de`/`deu`/`ger`), y compris
+avec des sous-étiquettes régionales. Lorsque le moteur n'expose aucune liste de pistes audio, un
+profil `original` applique tout de même son mode de sous-titres ; l'audio reste géré nativement par
+le moteur. Un événement de métadonnées relit les paramètres courants au lieu de reprendre ceux
+capturés lors de l'affectation de la source.
+
+Les paramètres du lecteur public proposent des profils audio/sous-titres ordonnés, à raison d'un
+profil par langue audio du catalogue partagé (piste originale incluse), et une liste de priorité
+de dix langues de sous-titres au maximum, reliée à
+`videoPlayer.subtitleLanguagePriority`. Cette liste suit la langue d'interface jusqu'à sa
+personnalisation et se réordonne avec les boutons monter/descendre. L'ancienne valeur
+`videoPlayer.subtitleLanguages` sert uniquement de repli de migration en l'absence de priorité
+enregistrée. À langue correspondante identique, les sous-titres externes humains sont préférés
+aux pistes marquées `auto_translate: true`. Les ajouts tardifs de pistes HLS réappliquent la
+sélection pendant toute la source courante, y compris après le début de lecture ; les écouteurs
+et le délai de réapplication sont libérés au changement de source ou à la destruction du lecteur.
+
 Le champ `storyboard` contient :
 
 | Champ | Type | Description |

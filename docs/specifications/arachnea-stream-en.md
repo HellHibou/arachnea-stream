@@ -961,6 +961,36 @@ playback engines. Tracks may be enabled automatically by the configured track se
 (audio language, subtitles according to language priority, audio description as a last resort);
 otherwise, no track is enabled by default.
 
+Matching manual audio and subtitle choices take precedence over profiles. A manual choice matches
+the same non-DASH-generated identifier or the same normalized language, kind and label; an
+unavailable choice falls back to the configured profile without replacing the saved manual
+preference. Explicitly disabling subtitles is a global manual choice. Preferences retain their
+`manual` or `profile` origin in storage; legacy preferences without an origin remain manual,
+while a fresh installation has no manual override. Background players do not apply profiles.
+
+Editing track profiles, subtitle language priority or audio-description permission clears the
+saved manual audio/subtitle choices and immediately reapplies the updated settings to mounted
+user-controlled players. The settings action **Apply these preferences** performs the same reset
+without changing the configured profiles. Manual choices subsequently made in the player keep
+precedence until the next settings edit or explicit reset. This reset also updates retained state
+when the media surface is temporarily unmounted.
+
+Both two-letter ISO 639-1 and three-letter ISO 639-2 terminology/bibliographic codes are matched
+through the shared catalog (`fr`/`fra`/`fre`, `en`/`eng`, `de`/`deu`/`ger`), including regional
+subtags. When the engine exposes no audio track list, an `original` profile still applies its
+subtitle mode while audio remains under native engine control. A metadata event reads the latest
+settings rather than the settings captured at source assignment.
+
+The public player's settings expose ordered audio/subtitle profiles, one per shared-catalog audio
+language plus the original track, and an ordered subtitle language list (up to ten entries), backed
+by `videoPlayer.subtitleLanguagePriority`.
+The list follows the interface language until customized and can be reordered with the up/down
+buttons. The former `videoPlayer.subtitleLanguages` value is read only as a migration fallback
+when no priority value exists. For the same matching language, external human subtitle tracks
+are preferred over tracks marked `auto_translate: true`. Late HLS track additions reapply
+selection throughout the current source, including after playback starts; the listeners and
+pending debounce are released on source replacement or disposal.
+
 `storyboard` contains:
 
 | Field | Type | Description |

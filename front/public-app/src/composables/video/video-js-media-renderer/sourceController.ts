@@ -7,7 +7,7 @@ import type { PlayerUiState } from './playerUiState'
 import { buildDashKeySystemOptions, isDashSource } from './dash'
 import { resolveSpriteThumbnailOptions } from './storyboard'
 import { addRemoteSubtitleTracks, clearRemoteSubtitleTracks } from './subtitles'
-import { applyPersistedPlayerState, restorePersistedTrackPreferences } from './state'
+import { applyPersistedPlayerState, prepareTrackPreferenceRestore, restorePersistedTrackPreferences } from './state'
 import type { VideoJsTrackSelectionConfig } from './trackPreferences'
 import { disableControlBarMenuHoverBehavior } from './quality'
 import { installSeekOnClick } from './controls'
@@ -37,6 +37,7 @@ export function createSourceController(options: SourceControllerOptions) {
   const { props, getPlayer, configurePlayer, quality, storyboard, ui, getTrackSelectionConfig } = options
   let loadId = 0
   let pendingSourceRestoreCleanup: (() => void) | null = null
+  let pendingTrackRestoreCleanup: (() => void) | null = null
   let remoteSubtitleTracks: VideoJsRemoteTextTrackHandle[] = []
   let trackOwner: VideoJsPlayer | null = null
 
@@ -50,6 +51,8 @@ export function createSourceController(options: SourceControllerOptions) {
   function reset() {
     ++loadId
     clearSourceListeners()
+    pendingTrackRestoreCleanup?.()
+    pendingTrackRestoreCleanup = null
     quality.reset()
     if (trackOwner) {
       clearRemoteSubtitleTracks(trackOwner, remoteSubtitleTracks)
@@ -77,6 +80,7 @@ export function createSourceController(options: SourceControllerOptions) {
    * @param transition Captured state, optional position and playback intent.
    */
   async function applySource(player: VideoJsPlayer, source: ResolvedVideoMediaSource, transition: SourceTransition) {
+    if (getTrackSelectionConfig?.()) prepareTrackPreferenceRestore(player, transition.playerState)
     reset()
     const operationId = loadId
     const isCurrent = () => operationId === loadId && getPlayer() === player
@@ -86,6 +90,7 @@ export function createSourceController(options: SourceControllerOptions) {
 
     const resolved = await resolveSpriteThumbnailOptions(source)
     if (!isCurrent()) return
+    const trackSelectionConfig = getTrackSelectionConfig?.() ?? undefined
     storyboard.configure(resolved)
     const spriteThumbnailOptions = resolved.options
     trackOwner = player
@@ -127,7 +132,7 @@ export function createSourceController(options: SourceControllerOptions) {
         return
       }
 
-      applyPersistedPlayerState(player, playerState, trackSelectionConfig)
+      applyPersistedPlayerState(player, playerState, getTrackSelectionConfig?.() ?? undefined)
       playerStateRestored = true
     }
 
@@ -181,19 +186,21 @@ export function createSourceController(options: SourceControllerOptions) {
       player.off('canplay', handleCanPlay)
       player.off('playing', handlePlaying)
     }
+    if (trackSelectionConfig) prepareTrackPreferenceRestore(player, playerState)
     player.src(buildPlayerSource(source, spriteThumbnailOptions))
     addRemoteSubtitleTracks(player, source, remoteSubtitleTracks)
-    const trackSelectionConfig = getTrackSelectionConfig?.() ?? undefined
     restorePersistedTrackPreferences(player, playerState, trackSelectionConfig)
 
     const audioTracks = player.audioTracks?.()
     const textTracks = player.textTracks?.()
     let reapplyTimer: number | null = null
     const scheduleReapply = () => {
+      if (getTrackSelectionConfig?.()) prepareTrackPreferenceRestore(player, playerState)
       if (reapplyTimer !== null) {
         window.clearTimeout(reapplyTimer)
       }
       reapplyTimer = window.setTimeout(() => {
+        reapplyTimer = null
         if (!isCurrent()) {
           return
         }
@@ -204,9 +211,7 @@ export function createSourceController(options: SourceControllerOptions) {
     const handleAddTrack = () => scheduleReapply()
     audioTracks?.addEventListener?.('addtrack', handleAddTrack)
     textTracks?.addEventListener?.('addtrack', handleAddTrack)
-    const previousCleanup = pendingSourceRestoreCleanup
-    pendingSourceRestoreCleanup = () => {
-      previousCleanup?.()
+    pendingTrackRestoreCleanup = () => {
       if (reapplyTimer !== null) {
         window.clearTimeout(reapplyTimer)
       }

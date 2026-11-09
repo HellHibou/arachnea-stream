@@ -5,7 +5,13 @@ import {
   normalizeQualityPreferenceLabel,
 } from '@/composables/video/video-js-media-renderer/quality'
 import {
-  applyTrackProfiles,
+  applyAudioTrackSelection,
+  applyTextTrackSelection,
+  createTrackPreference as createSelectedTrackPreference,
+  findMatchingAudioTrack,
+  findMatchingTextTrack,
+  findPrioritySubtitleTrack,
+  resolveTrackProfile,
   areTextTrackPreferencesEqual,
   areTrackPreferencesEqual,
   type VideoJsTrackSelectionConfig,
@@ -21,6 +27,7 @@ import type {
   VideoJsTextTrackSettingsHandle,
 } from '@/composables/video/video-js-media-renderer/types'
 import { t } from '@/i18n'
+import { normalizeLanguageCode } from '@/utils'
 import type {
   VideoJsPlayerState,
   VideoJsTextTrackPreference,
@@ -28,8 +35,49 @@ import type {
   VideoJsTrackPreference,
 } from '@/types/media'
 
-/** Last track selection result applied by an ordered track profile, keyed by player. */
-const lastProfileResults = new WeakMap<VideoJsPlayer, VideoJsTrackSelectionResult | null>()
+/** Manual choices and the last programmatic selection for one player. */
+interface TrackPreferenceContext {
+  audioTrack: VideoJsTrackPreference | null
+  textTrack: VideoJsTextTrackPreference | null
+  applied: VideoJsTrackSelectionResult | null
+  pending: boolean
+}
+
+/** Track preference history isolated by player instance. */
+const trackPreferenceContexts = new WeakMap<VideoJsPlayer, TrackPreferenceContext>()
+
+/**
+ * Clears manual choices after an explicit change to the track selection settings.
+ * @param player Player whose cached choices must be replaced by its profiles.
+ */
+export function resetManualTrackPreferences(player: VideoJsPlayer): void {
+  trackPreferenceContexts.set(player, {
+    audioTrack: null,
+    textTrack: null,
+    applied: null,
+    pending: true,
+  })
+}
+
+/**
+ * Keeps engine track-list changes from being captured as manual choices.
+ * @param player Player about to rebuild or extend its track lists.
+ * @param state Initial preferences, used only when this player has no history.
+ */
+export function prepareTrackPreferenceRestore(player: VideoJsPlayer, state: VideoJsPlayerState | null): void {
+  if (!state) return
+  const context = trackPreferenceContexts.get(player)
+  if (context) {
+    context.pending = true
+  } else {
+    trackPreferenceContexts.set(player, {
+      audioTrack: state.audioTrack?.origin !== 'profile' ? state.audioTrack : null,
+      textTrack: state.textTrack.origin !== 'profile' ? state.textTrack : null,
+      applied: null,
+      pending: true,
+    })
+  }
+}
 
 /** Keys for text track settings that can be persisted. */
 const TEXT_TRACK_SETTINGS_KEYS = [
@@ -219,7 +267,7 @@ function getTrackMatchScore(
   preference: VideoJsTrackPreference,
 ): number {
   const id = normalizeTrackField(track.id)
-  const language = normalizeTrackField(track.language)
+  const language = normalizeLanguageCode(track.language)
   const label = normalizeTrackField(track.label)
   const kind = normalizeTrackField(track.kind)
 
@@ -229,7 +277,7 @@ function getTrackMatchScore(
 
   let score = 0
 
-  if (preference.language && language === preference.language) {
+  if (language && language === normalizeLanguageCode(preference.language)) {
     score += 30
   }
 
@@ -397,8 +445,19 @@ export function capturePlayerState(
     getSelectedQualityLabel(player) ?? preferredQuality,
   )
 
-  const audioTrack = captureSelectedAudioTrack(player)
-  const textTrack = captureSelectedTextTrack(player)
+  const audioTrack = annotateTrackOrigin(player, captureSelectedAudioTrack(player))
+  const textTrack = annotateTextTrackOrigin(player, captureSelectedTextTrack(player))
+  const context = trackPreferenceContexts.get(player)
+  if (context) {
+    if (audioTrack && audioTrack.origin === 'manual') {
+      context.audioTrack = audioTrack
+      if (context.applied) context.applied.audioTrack = audioTrack
+    }
+    if (textTrack.origin === 'manual') {
+      context.textTrack = textTrack
+      if (context.applied) context.applied.textTrack = textTrack
+    }
+  }
 
   return {
     volume: typeof volume === 'number' && Number.isFinite(volume) ? volume : 1,
@@ -408,8 +467,8 @@ export function capturePlayerState(
         ? playbackRate
         : 1,
     quality,
-    audioTrack: annotateTrackOrigin(player, audioTrack),
-    textTrack: annotateTextTrackOrigin(player, textTrack),
+    audioTrack,
+    textTrack,
     textTrackSettings: captureTextTrackSettings(player),
     isFullscreen: Boolean(isFullscreen),
     showsRemainingTime: playerElement instanceof HTMLElement
@@ -419,22 +478,12 @@ export function capturePlayerState(
 }
 
 /**
- * Records the last track selection result applied by an ordered track profile,
- * so that subsequent capture can distinguish profile-driven changes from manual
- * user choices.
- *
- * @param result Result of the last profile application, or `null` to clear.
- */
-export function setLastProfileResult(player: VideoJsPlayer, result: VideoJsTrackSelectionResult | null): void {
-  lastProfileResults.set(player, result)
-}
-
-/**
  * Annotates one captured audio track preference with its origin.
  *
- * When the captured track matches the last profile-applied selection, the
- * origin is `profile`; otherwise it is `manual`.
+ * When the captured track matches the last applied selection, its origin is
+ * preserved; otherwise it is a new manual choice.
  *
+ * @param player Player owning the applied selection.
  * @param preference Captured audio track preference.
  * @returns Preference with an `origin` field.
  */
@@ -442,28 +491,32 @@ function annotateTrackOrigin(
   player: VideoJsPlayer,
   preference: VideoJsTrackPreference | null,
 ): VideoJsTrackPreference | null {
-  const lastProfileResult = lastProfileResults.get(player) ?? null
-  if (!preference || !lastProfileResult?.audioTrack) {
-    return preference
+  if (trackPreferenceContexts.get(player)?.pending) {
+    return preference ? { ...preference, origin: 'profile' } : null
+  }
+  const lastApplied = trackPreferenceContexts.get(player)?.applied
+  if (!preference || !lastApplied?.audioTrack) {
+    return preference ? { ...preference, origin: 'manual' } : null
   }
 
-  const matchesProfile = areTrackPreferencesEqual(
+  const matchesApplied = areTrackPreferencesEqual(
     preference,
-    lastProfileResult.audioTrack,
+    lastApplied.audioTrack,
   )
 
   return {
     ...preference,
-    origin: matchesProfile ? 'profile' : 'manual',
+    origin: matchesApplied ? lastApplied.audioTrack.origin : 'manual',
   }
 }
 
 /**
  * Annotates one captured text track preference with its origin.
  *
- * When the captured track matches the last profile-applied selection, the
- * origin is `profile`; otherwise it is `manual`.
+ * When the captured track matches the last applied selection, its origin is
+ * preserved; otherwise it is a new manual choice.
  *
+ * @param player Player owning the applied selection.
  * @param preference Captured text track preference.
  * @returns Preference with an `origin` field.
  */
@@ -471,19 +524,22 @@ function annotateTextTrackOrigin(
   player: VideoJsPlayer,
   preference: VideoJsTextTrackPreference,
 ): VideoJsTextTrackPreference {
-  const lastProfileResult = lastProfileResults.get(player) ?? null
-  if (!lastProfileResult?.textTrack) {
+  if (trackPreferenceContexts.get(player)?.pending) {
+    return { ...preference, origin: 'profile' }
+  }
+  const lastApplied = trackPreferenceContexts.get(player)?.applied
+  if (!lastApplied?.textTrack) {
     return { ...preference, origin: 'manual' }
   }
 
-  const matchesProfile = areTextTrackPreferencesEqual(
+  const matchesApplied = areTextTrackPreferencesEqual(
     preference,
-    lastProfileResult.textTrack,
+    lastApplied.textTrack,
   )
 
   return {
     ...preference,
-    origin: matchesProfile ? 'profile' : 'manual',
+    origin: matchesApplied ? lastApplied.textTrack.origin : 'manual',
   }
 }
 
@@ -558,6 +614,7 @@ export function restoreTimerDisplayState(player: VideoJsPlayer, showsRemainingTi
  *
  * @param player Video.js player currently bound to the renderer.
  * @param state Persisted player state that should be restored.
+ * @param trackSelectionConfig Optional profiles used when no manual choice matches.
  */
 export function applyPersistedPlayerState(
   player: VideoJsPlayer,
@@ -567,6 +624,8 @@ export function applyPersistedPlayerState(
   if (!state) {
     return
   }
+
+  if (trackSelectionConfig) prepareTrackPreferenceRestore(player, state)
 
   if (Number.isFinite(state.volume)) {
     player.volume(Math.min(Math.max(state.volume, 0), 1))
@@ -578,15 +637,7 @@ export function applyPersistedPlayerState(
     player.playbackRate(state.playbackRate)
   }
 
-  if (trackSelectionConfig) {
-    const result = applyTrackProfiles(player, trackSelectionConfig)
-    setLastProfileResult(player, result)
-  } else {
-    if (state.audioTrack?.origin !== 'profile') {
-      restoreAudioTrack(player, state.audioTrack)
-    }
-    restoreTextTrack(player, state.textTrack)
-  }
+  restorePersistedTrackPreferences(player, state, trackSelectionConfig)
 
   restoreTextTrackSettings(player, state.textTrackSettings)
   restoreTimerDisplayState(player, state.showsRemainingTime)
@@ -599,8 +650,8 @@ export function applyPersistedPlayerState(
  * @param player Video.js player whose track lists were renewed.
  * @param state Persisted player state containing the track preferences.
  * @param trackSelectionConfig Optional track selection configuration. When
- *   provided, ordered profiles are applied instead of the persisted manual
- *   choices.
+ *   provided, manual choices take precedence over ordered profiles. Manual
+ *   choices captured during playback remain available across source changes.
  */
 export function restorePersistedTrackPreferences(
   player: VideoJsPlayer,
@@ -611,15 +662,48 @@ export function restorePersistedTrackPreferences(
     return
   }
 
-  if (trackSelectionConfig) {
-    const result = applyTrackProfiles(player, trackSelectionConfig)
-    setLastProfileResult(player, result)
-  } else {
-    if (state.audioTrack?.origin !== 'profile') {
-      restoreAudioTrack(player, state.audioTrack)
-    }
-    restoreTextTrack(player, state.textTrack)
+  if (!trackSelectionConfig) {
+    if (state.audioTrack?.origin !== 'profile') restoreAudioTrack(player, state.audioTrack)
+    if (state.textTrack.origin !== 'profile') restoreTextTrack(player, state.textTrack)
+    return
   }
+
+  let context = trackPreferenceContexts.get(player)
+  if (!context) {
+    context = {
+      audioTrack: state.audioTrack?.origin !== 'profile' ? state.audioTrack : null,
+      textTrack: state.textTrack.origin !== 'profile' ? state.textTrack : null,
+      applied: null,
+      pending: true,
+    }
+    trackPreferenceContexts.set(player, context)
+  }
+
+  const resolved = resolveTrackProfile(
+    player, trackSelectionConfig.profiles, trackSelectionConfig.allowAudioDescription,
+  )
+  const manualAudio = findMatchingAudioTrack(player, context.audioTrack)
+  const manualText = findMatchingTextTrack(player, context.textTrack)
+  const manualDisabled = context.textTrack?.mode === 'disabled'
+  const audioTrack = manualAudio ?? resolved.audioTrack
+  const textTrack = manualDisabled ? null : manualText ?? (
+    resolved.profile.subtitles === 'auto'
+      ? findPrioritySubtitleTrack(player, trackSelectionConfig.subtitleLanguagePriority)
+      : null
+  )
+
+  applyAudioTrackSelection(player, audioTrack)
+  context.applied = {
+    audioTrack: audioTrack ? {
+      ...createSelectedTrackPreference(audioTrack),
+      origin: manualAudio ? 'manual' : 'profile',
+    } : null,
+    textTrack: {
+      ...applyTextTrackSelection(player, textTrack),
+      origin: manualDisabled || manualText ? 'manual' : 'profile',
+    },
+  }
+  context.pending = false
 }
 
 /**

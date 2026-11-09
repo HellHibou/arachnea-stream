@@ -78,8 +78,15 @@ export function createVideoPlayerPreferencesBridge(
           refs.quality.value = sanitizeQuality(playerPreferences.quality)
         }
 
-        refs.audioTrack.value = sanitizeTrackPreference(playerPreferences.audioTrack)
-        refs.textTrack.value = sanitizeTextTrackPreference(playerPreferences.textTrack)
+        const audioTrack = sanitizeTrackPreference(playerPreferences.audioTrack)
+        const textTrack = sanitizeTextTrackPreference(playerPreferences.textTrack)
+        if (audioTrack && (audioTrack.origin !== 'profile'
+          || !refs.audioTrack.value || refs.audioTrack.value.origin === 'profile')) {
+          refs.audioTrack.value = audioTrack
+        }
+        if (textTrack.origin !== 'profile' || refs.textTrack.value.origin === 'profile') {
+          refs.textTrack.value = textTrack
+        }
         refs.textTrackSettings.value = sanitizeTextTrackSettings(playerPreferences.textTrackSettings)
     }
 

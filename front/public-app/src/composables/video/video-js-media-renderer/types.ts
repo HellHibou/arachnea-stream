@@ -304,7 +304,10 @@ export type VideoJsRemoteTextTrackOptions = {
  */
 export type VideoJsRemoteTextTrackHandle = ReturnType<
   ReturnType<typeof videojs>['addRemoteTextTrack']
->
+> & {
+  /** Underlying native or emulated text track exposed by Video.js. */
+  track: VideoJsTextTrackHandle
+}
 
 /**
  * Handle to a single Video.js audio track.
