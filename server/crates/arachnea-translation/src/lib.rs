@@ -27,11 +27,13 @@
 
 pub mod block;
 pub mod bridge;
+pub mod budget;
 pub mod cache;
 pub mod capability;
 pub mod error;
 pub mod language;
 pub mod metadata;
+pub mod metrics;
 pub mod planning;
 pub mod selection;
 pub mod service;
@@ -40,6 +42,10 @@ pub use block::{
     BlockId, TextBlock, TextTranslationRequest, TranslatedBlock, TranslatedDocument,
     TranslatedTexts, TranslationOptions, UrlTranslationRequest,
 };
+pub use budget::{
+    BudgetLimit, InMemoryTranslationBudget, TranslationBudgetPort, TranslationBudgetReservation,
+    UnlimitedTranslationBudget,
+};
 pub use cache::{AccessScope, SourceFingerprint, TranslationCacheIdentity, TranslationCacheKey};
 pub use capability::{
     SizeUnit, SourceDetection, TextTranslationCapability, UrlResultMode, UrlTranslationCapability,
@@ -47,8 +53,10 @@ pub use capability::{
 pub use error::{ExclusionReason, ProviderErrorCategory, TranslationError};
 pub use language::{LanguageCode, LanguageCodeError, SupportedPair, TranslationLanguagePair};
 pub use metadata::{MetadataFreshness, TranslationMetadata};
+pub use metrics::TranslationMetrics;
 pub use planning::{
-    plan_batches, LocalTranslationLimits, RequestMeasurement, TranslationBatch, TranslationPlan,
+    plan_batches, plan_batches_with_measurement, LocalTranslationLimits, RequestMeasurement,
+    TranslationBatch, TranslationPlan,
 };
 pub use selection::{
     select_service, CandidateEvaluation, CandidateExclusion, SelectionDecision, SelectionPolicy,
@@ -72,6 +80,9 @@ pub const TRANSLATION_TEXT_MEDIA_TYPE: &str = "application/arachnea-translation-
 
 /// Media type identifying a normalized translated document.
 pub const TRANSLATION_DOCUMENT_MEDIA_TYPE: &str = "application/arachnea-translation-document";
+
+/// Media type identifying normalized source-detection rows.
+pub const TRANSLATION_DETECTION_MEDIA_TYPE: &str = "application/arachnea-translation-detection";
 
 /// Revision of the generic translation pipeline recorded in result cache keys.
 ///
@@ -132,3 +143,21 @@ pub const DEFAULT_MAX_UNITS_PER_REQUEST: u64 = 50_000;
 
 /// Default freshness bound applied to loaded translation metadata.
 pub const DEFAULT_METADATA_FRESHNESS_SECONDS: u64 = 86_400;
+
+/// Default maximum number of attempts for one retryable translation query.
+pub const DEFAULT_RETRY_MAX_ATTEMPTS: u32 = 3;
+
+/// Default initial retry delay in milliseconds.
+pub const DEFAULT_RETRY_INITIAL_DELAY_MS: u64 = 500;
+
+/// Default upper bound for one retry delay in milliseconds.
+pub const DEFAULT_RETRY_MAX_DELAY_MS: u64 = 8_000;
+
+/// Maximum sample size, in provider units, sent to a dedicated detection query.
+pub const DEFAULT_DETECTION_SAMPLE_UNITS: u64 = 2_000;
+
+/// Maximum duration in seconds of one translation or detection query attempt.
+pub const DEFAULT_QUERY_TIMEOUT_SECONDS: u64 = 60;
+
+/// Runtime parameter carrying the plain text for dedicated detection queries.
+pub const PARAM_DETECTION_TEXT: &str = "translation_detection_text";

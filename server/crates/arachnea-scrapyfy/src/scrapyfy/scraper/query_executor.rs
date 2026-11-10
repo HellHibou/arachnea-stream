@@ -634,3 +634,51 @@ mod sub_queries;
 use sub_queries::*;
 mod merge;
 use merge::*;
+
+/// Measures the root POST body using the execution URL and body resolvers.
+///
+/// # Arguments
+///
+/// * `query` - Root query whose payload is measured.
+/// * `params` - Parameters after collection defaults and query mappings.
+///
+/// # Errors
+///
+/// Returns an error for non-POST queries, multiple URLs or invalid actions.
+/// No HTTP request is sent.
+pub(crate) fn measure_root_body(
+    query: &dyn ScraperQuery,
+    params: &HashMap<String, String>,
+) -> Result<u64> {
+    anyhow::ensure!(
+        query.request_method().as_http_method() == http::Method::POST,
+        "body measurement requires a POST query"
+    );
+    let dynamic_template_variables = Mutex::new(DynamicTemplateVariables::new());
+    let context = QueryContext {
+        params,
+        dynamic_template_variables: &dynamic_template_variables,
+        request_url: "",
+        response_body: None,
+        http_client: query.http_client(),
+        fields_filters: None,
+        parent_response: None,
+        validation: None,
+    };
+    let urls = resolve_request_urls(query, &context)?;
+    anyhow::ensure!(urls.len() == 1, "body measurement requires one root URL");
+    let body = resolve_request_body(
+        query.request_body_pointer(),
+        query.request_body_select(),
+        query.request_body_actions(),
+        params,
+        &urls[0],
+        None,
+    )?;
+    Ok(body.map(|body| body.len() as u64).unwrap_or_else(|| {
+        url::Url::parse(&urls[0])
+            .ok()
+            .and_then(|url| url.query().map(|q| q.len() as u64))
+            .unwrap_or(0)
+    }))
+}

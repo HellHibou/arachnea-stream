@@ -2,6 +2,7 @@
 
 use crate::error::TranslationError;
 use crate::language::LanguageCode;
+use crate::metrics::TranslationMetrics;
 use serde::{Deserialize, Serialize};
 
 /// Opaque identifier of one abstract translation block.
@@ -114,6 +115,9 @@ pub struct TranslatedTexts {
     /// Source language detected by the provider, when returned.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detected_source_language: Option<LanguageCode>,
+    /// Non-sensitive execution metrics.
+    #[serde(default)]
+    pub metrics: TranslationMetrics,
 }
 
 /// Normalized URL document translation request.
@@ -143,4 +147,6 @@ pub struct TranslatedDocument {
     pub content_type: String,
     /// Source language detected by the provider, when returned.
     pub detected_source_language: Option<LanguageCode>,
+    /// Non-sensitive execution metrics.
+    pub metrics: TranslationMetrics,
 }

@@ -644,6 +644,37 @@ impl ScraperAgregator {
             })
     }
 
+    /// Measures a source query's root POST body without sending it.
+    ///
+    /// # Arguments
+    ///
+    /// * `group_name` - Loaded service group.
+    /// * `source_name` - Loaded source identifier.
+    /// * `query_name` - Query whose body actions are measured.
+    /// * `params` - Runtime parameters merged over source defaults.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an unknown source or an unmeasurable query.
+    pub fn measure_query_body_on_source(
+        &self,
+        group_name: &str,
+        source_name: &str,
+        query_name: &str,
+        params: &HashMap<String, String>,
+    ) -> Result<u64> {
+        self.queries_collection
+            .get(group_name)
+            .and_then(|group| {
+                group
+                    .services
+                    .iter()
+                    .find(|source| source.name() == source_name)
+            })
+            .context("source is not loaded for body measurement")?
+            .measure_query_body(query_name, params)
+    }
+
     /// Returns the configuration identity of one loaded source.
     ///
     /// # Arguments

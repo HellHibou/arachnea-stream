@@ -5,10 +5,14 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+arachnea-http = { path = "../arachnea-http", default-features = false }
 arachnea-scrapyfy = { path = "../arachnea-scrapyfy", default-features = false }
 anyhow.workspace = true
 async-trait.workspace = true
 http.workspace = true
+tracing.workspace = true
+rand.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 thiserror.workspace = true
+tokio = { workspace = true, features = ["time", "sync"] }

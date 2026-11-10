@@ -85,6 +85,14 @@ pub struct SourceDetection {
 pub struct TextTranslationCapability {
     /// Scrapyfy query executing normalized text translation.
     pub query: String,
+    /// Optional query used when the source language must be detected inline.
+    ///
+    /// A service that cannot express "automatic" through
+    /// `translation_source_language` declares a second query omitting the
+    /// source parameter. The bridge prefers this query for a source-less
+    /// request; known sources always use [`Self::query`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_query: Option<String>,
     /// Whether one request accepts several blocks.
     #[serde(default)]
     pub accepts_multiple_blocks: bool,

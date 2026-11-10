@@ -8,9 +8,9 @@ use anyhow::{Context, Result};
 use arachnea_core::persistence::TypedEntityStore;
 use arachnea_http::chaser_session::{memory_session_store, CachedChaserSession};
 use arachnea_http::{
-    global_cookie_cache, header_map_from_strings, ArachneaResponse, BrowserProfile,
-    BrowserSessionConfig, BrowserSessionManager, CookieEntry, HttpRequestMode, PageClickRequest,
-    PageFetchRequest, PageNavigationRequest, SharedCookieCache,
+    global_cookie_cache, header_map_from_strings, ArachneaHttpError, ArachneaResponse,
+    BrowserProfile, BrowserSessionConfig, BrowserSessionManager, CookieEntry, HttpRequestMode,
+    PageClickRequest, PageFetchRequest, PageNavigationRequest, SharedCookieCache,
 };
 use http::{HeaderMap, Method};
 use regex::Regex;
@@ -353,10 +353,13 @@ impl HttpClient {
             request_builder = request_builder.body(body);
         }
 
-        request_builder
+        let response = request_builder
             .send()
             .await
-            .with_context(|| format!("Fetch fail {}", url))
+            .with_context(|| format!("Fetch fail {}", url))?;
+        reject_error_status(&self.http_config, &response)
+            .with_context(|| format!("Fetch fail {}", url))?;
+        Ok(response)
     }
 
     /// Sends a binary request through the HTTP facade, which owns correlated proxy retries.
@@ -392,10 +395,13 @@ impl HttpClient {
             request_builder = request_builder.body(body);
         }
 
-        request_builder
+        let response = request_builder
             .send()
             .await
-            .with_context(|| format!("Fetch fail {}", url))
+            .with_context(|| format!("Fetch fail {}", url))?;
+        reject_error_status(&self.http_config, &response)
+            .with_context(|| format!("Fetch fail {}", url))?;
+        Ok(response)
     }
 
     /// Fetches the raw response body for one request.
@@ -761,6 +767,49 @@ impl HttpClient {
             Box::pin(self.send_bytes_once(method, url, request_headers, request_body)).await?;
         Ok(response)
     }
+}
+
+/// Rejects a response whose status is configured as an explicit error.
+///
+/// # Arguments
+///
+/// * `config` - Effective scraper HTTP options carrying `error_on_statuses`.
+/// * `response` - Received response whose status and `Retry-After` header are inspected.
+///
+/// # Errors
+///
+/// Returns [`ArachneaHttpError::HttpStatus`] when the status is configured as
+/// an error. The optional `Retry-After` value is retained in seconds.
+fn reject_error_status(config: &ScraperHttpConfig, response: &ArachneaResponse) -> Result<()> {
+    let status = response.status();
+    if !config.error_on_statuses.contains(&status.as_u16()) {
+        return Ok(());
+    }
+    let retry_after_seconds = response
+        .headers()
+        .get(http::header::RETRY_AFTER)
+        .and_then(|value| value.to_str().ok())
+        .and_then(parse_retry_after);
+    Err(ArachneaHttpError::HttpStatus {
+        status,
+        retry_after_seconds,
+    }
+    .into())
+}
+
+/// Parses a `Retry-After` header value as seconds or an HTTP date.
+///
+/// # Arguments
+///
+/// * `value` - Raw header value.
+fn parse_retry_after(value: &str) -> Option<u64> {
+    let value = value.trim();
+    if let Ok(seconds) = value.parse::<u64>() {
+        return Some(seconds);
+    }
+    let date = httpdate::parse_http_date(value).ok()?;
+    let now = std::time::SystemTime::now();
+    Some(date.duration_since(now).unwrap_or_default().as_secs())
 }
 
 mod configuration;

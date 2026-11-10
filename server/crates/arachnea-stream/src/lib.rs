@@ -204,3 +204,27 @@ pub(crate) const SOURCE_CHECK_FIXTURES_DIRECTORY: &str = "tests/fixtures/service
 /// Maximum cache shutdown wait in seconds after a source-check operation ends.
 #[cfg(test)]
 pub(crate) const SOURCE_CHECK_CLEANUP_TIMEOUT_SECONDS: u64 = 5;
+
+/// Runtime parameter controlling the administrator selection order.
+pub const TRANSLATION_ORDER_PARAMETER: &str = "translation_selection_order";
+
+/// Runtime parameter marking the preferred translation provider.
+pub const TRANSLATION_PREFERRED_PARAMETER: &str = "translation_preferred";
+
+/// Runtime parameter bounding concurrent provider requests.
+pub const TRANSLATION_MAX_CONCURRENT_PARAMETER: &str = "translation_max_concurrent_requests";
+
+/// Runtime parameter bounding provider units per quota window.
+pub const TRANSLATION_MAX_UNITS_PER_WINDOW_PARAMETER: &str = "translation_max_units_per_window";
+
+/// Runtime parameter declaring the quota window in seconds.
+pub const TRANSLATION_BUDGET_WINDOW_SECONDS_PARAMETER: &str = "translation_budget_window_seconds";
+
+/// Default selection order when a service does not declare one.
+pub const DEFAULT_TRANSLATION_ORDER: u64 = 1_000;
+
+/// Default maximum concurrent provider requests.
+pub const DEFAULT_TRANSLATION_MAX_CONCURRENT_REQUESTS: usize = 1;
+
+/// Default account quota window: 30 days.
+pub const DEFAULT_TRANSLATION_BUDGET_WINDOW_SECONDS: u64 = 2_592_000;

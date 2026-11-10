@@ -26,14 +26,12 @@ use arachnea_translation::{
 };
 use serde::Serialize;
 
-/// Runtime parameter controlling the administrator selection order.
-pub const TRANSLATION_ORDER_PARAMETER: &str = "translation_selection_order";
-
-/// Runtime parameter marking the preferred translation provider.
-pub const TRANSLATION_PREFERRED_PARAMETER: &str = "translation_preferred";
-
-/// Default selection order when a service does not declare one.
-pub const DEFAULT_TRANSLATION_ORDER: u64 = 1_000;
+pub use crate::{
+    DEFAULT_TRANSLATION_BUDGET_WINDOW_SECONDS, DEFAULT_TRANSLATION_MAX_CONCURRENT_REQUESTS,
+    DEFAULT_TRANSLATION_ORDER, TRANSLATION_BUDGET_WINDOW_SECONDS_PARAMETER,
+    TRANSLATION_MAX_CONCURRENT_PARAMETER, TRANSLATION_MAX_UNITS_PER_WINDOW_PARAMETER,
+    TRANSLATION_ORDER_PARAMETER, TRANSLATION_PREFERRED_PARAMETER,
+};
 
 /// One enabled translation service exposed by the effective catalog.
 #[derive(Clone, Debug, Serialize)]
@@ -62,6 +60,12 @@ pub struct TranslationCatalogEntry {
     pub administrator_order: u64,
     /// Whether the administrator marked this service as preferred.
     pub preferred: bool,
+    /// Maximum concurrent provider requests for this account.
+    pub max_concurrent_requests: usize,
+    /// Provider units allowed per quota window, or `None` when unlimited.
+    pub max_units_per_window: Option<u64>,
+    /// Account quota window duration in seconds.
+    pub budget_window_seconds: u64,
     /// Configuration revision influencing translation output.
     pub configuration_revision: String,
 }
@@ -195,6 +199,23 @@ impl TranslationCatalog {
                 .iter()
                 .find(|parameter| parameter.name == TRANSLATION_PREFERRED_PARAMETER)
                 .is_some_and(|parameter| is_truthy(&parameter.value));
+            let max_concurrent_requests = parameters
+                .iter()
+                .find(|parameter| parameter.name == TRANSLATION_MAX_CONCURRENT_PARAMETER)
+                .and_then(|parameter| parameter.value.trim().parse::<usize>().ok())
+                .unwrap_or(DEFAULT_TRANSLATION_MAX_CONCURRENT_REQUESTS)
+                .max(1);
+            let max_units_per_window = parameters
+                .iter()
+                .find(|parameter| parameter.name == TRANSLATION_MAX_UNITS_PER_WINDOW_PARAMETER)
+                .and_then(|parameter| parameter.value.trim().parse::<u64>().ok())
+                .filter(|value| *value > 0);
+            let budget_window_seconds = parameters
+                .iter()
+                .find(|parameter| parameter.name == TRANSLATION_BUDGET_WINDOW_SECONDS_PARAMETER)
+                .and_then(|parameter| parameter.value.trim().parse::<u64>().ok())
+                .unwrap_or(DEFAULT_TRANSLATION_BUDGET_WINDOW_SECONDS)
+                .max(1);
             let yaml_hash = aggregator
                 .source_yaml_hash(group_name, &service_id)
                 .unwrap_or("unknown");
@@ -224,6 +245,9 @@ impl TranslationCatalog {
                 credentials_configured,
                 administrator_order,
                 preferred,
+                max_concurrent_requests,
+                max_units_per_window,
+                budget_window_seconds,
                 configuration_revision,
             });
         }

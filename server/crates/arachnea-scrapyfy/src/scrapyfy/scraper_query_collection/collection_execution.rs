@@ -3,6 +3,44 @@
 use super::*;
 
 impl ScraperQueryCollection {
+    /// Measures the serialized root POST body without sending a request.
+    ///
+    /// # Arguments
+    ///
+    /// * `query_name` - Query using the same body actions as execution.
+    /// * `params` - Runtime parameters merged over collection defaults.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an unknown query or an unmeasurable request.
+    /// Only the byte count is returned; credentials and payloads stay internal.
+    pub fn measure_query_body(
+        &self,
+        query_name: &str,
+        params: &HashMap<String, String>,
+    ) -> Result<u64> {
+        let mut params = self.build_execution_params(params);
+        params
+            .entry("source".into())
+            .or_insert_with(|| self.name.clone());
+        let definition = self
+            .queries
+            .get(query_name)
+            .context("unknown query for body measurement")?;
+        let (query, mappings): (&dyn ScraperQuery, _) = match definition {
+            ScraperQueryDefinition::Json(query) => (query, &query.query_param_mappings),
+            ScraperQueryDefinition::Html(query) => (query, &query.query_param_mappings),
+            ScraperQueryDefinition::Text(query) => (query, &query.query_param_mappings),
+            ScraperQueryDefinition::Static(_) => anyhow::bail!("static queries have no HTTP body"),
+        };
+        let params = crate::scrapyfy::query_helpers::build_query_execution_params(
+            query.base_url(),
+            &params,
+            mappings,
+        );
+        crate::scrapyfy::scraper::query_executor::measure_root_body(query, &params)
+    }
+
     /// Executes one named query within this collection.
     ///
     /// # Arguments

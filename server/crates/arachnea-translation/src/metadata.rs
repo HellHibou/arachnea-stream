@@ -240,6 +240,11 @@ impl TranslationMetadata {
         self.source_detection
             .as_ref()
             .is_some_and(|detection| detection.automatic || detection.query.as_deref().is_some())
+            || self
+                .text_translation
+                .as_ref()
+                .and_then(|text| text.auto_query.as_deref())
+                .is_some()
     }
 
     /// Returns whether detection can establish a source for restricted pairs.
@@ -301,6 +306,13 @@ fn reject_duplicates(languages: &[LanguageCode]) -> Result<(), String> {
 fn validate_text_capability(text: &TextTranslationCapability) -> Result<(), String> {
     if text.query.trim().is_empty() {
         return Err("query must not be empty".to_string());
+    }
+    if text
+        .auto_query
+        .as_deref()
+        .is_some_and(|query| query.trim().is_empty())
+    {
+        return Err("auto_query must not be empty".to_string());
     }
     check_positive(text.max_blocks_per_request, "max_blocks_per_request")?;
     check_positive(text.max_units_per_block, "max_units_per_block")?;

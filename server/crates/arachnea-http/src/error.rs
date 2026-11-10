@@ -33,6 +33,8 @@ pub enum ArachneaHttpError {
     HttpStatus {
         /// HTTP status received from the server.
         status: StatusCode,
+        /// Optional `Retry-After` delay in seconds declared by the server.
+        retry_after_seconds: Option<u64>,
     },
     /// A Cloudflare challenge or block was detected.
     #[error("Cloudflare block detected for {origin}: {reason}")]

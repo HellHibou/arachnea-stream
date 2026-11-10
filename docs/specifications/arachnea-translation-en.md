@@ -6,10 +6,11 @@ This document describes the generic translation contract owned by
 general YAML schema remains documented in
 [arachnea-scrapyfy](arachnea-scrapyfy-en.md); this document only covers the translation-specific normalized queries and outputs.
 
-Status: lots 1 to 3 implemented (contracts, crate and subtitle module, generic
+Status: lots 1 to 4 implemented (contracts, crate and subtitle module, generic
 bridge, effective catalog and administration, WebVTT parser and document
-planning). Lots 4 to 10 add provider execution, orchestration, transport and
-the user interface.
+planning, Azure Translator/LibreTranslate text execution with retries, budgets
+and metrics). Real provider qualification still requires credentials. Lots 5
+to 10 add retrieval/cache orchestration, transport and the user interface.
 
 ## 1. Layer split
 
@@ -44,8 +45,10 @@ object, usually under the `translation` entry:
         source_detection:
           automatic: true
           returns_detected_language: false
+          query: detect_language
         text_translation:
           query: translate_texts
+          auto_query: translate_texts_auto
           accepts_multiple_blocks: true
           size_unit: unicode_code_points
           max_blocks_per_request: 50
@@ -78,13 +81,17 @@ limits are rejected. An absent limit means "not declared by the provider", not
 
 ### Capabilities
 
-`text_translation` contains `query`, `accepts_multiple_blocks`, `size_unit`,
-`max_blocks_per_request`, `max_units_per_block`, `max_units_per_request`,
-`max_request_bytes`, `context_support`, `markup_support` and
-`preserves_request_order`. `accepts_multiple_blocks: false` limits each request
-to one block. `preserves_request_order: true` lets a provider return rows in
-request order without block identifiers; the bridge then matches rows to
-submitted blocks by position while still validating cardinality.
+`text_translation` contains `query`, optional `auto_query`,
+`accepts_multiple_blocks`, `size_unit`, `max_blocks_per_request`,
+`max_units_per_block`, `max_units_per_request`, `max_request_bytes`,
+`context_support`, `markup_support` and `preserves_request_order`.
+`auto_query` is the query used when the source language is unknown and the
+provider cannot express automatic translation through
+`translation_source_language`; a known source always uses `query`.
+`accepts_multiple_blocks: false` limits each request to one block.
+`preserves_request_order: true` lets a provider return rows in request order
+without block identifiers; the bridge then matches rows to submitted blocks by
+position while still validating cardinality.
 
 `url_translation` contains `query`, `accepted_formats`, `max_document_bytes`,
 `max_document_units` and `result_mode`. Only `result_mode: inline_document` is
@@ -97,14 +104,32 @@ verbatim. An unknown unit is measured conservatively as UTF-8 bytes.
 ### Source detection
 
 `automatic: true` means translation accepts an omitted source language.
-`returns_detected_language: true` means the response exposes the effective
-language. `query` names an optional dedicated detection query.
+`returns_detected_language: true` means the translation response exposes the
+effective language. `query` names an optional dedicated detection query; the
+text `auto_query` also enables source-less translation when no dedicated query
+is declared.
+
+A dedicated detection query receives
+`application/arachnea-translation-detection` and the normalized
+`translation_blocks_json` parameter containing exactly one representative
+sample block, bounded to 2,000 provider units. It returns one row with
+`language` or `detected_source_language`; the bridge validates the code against
+the declared metadata.
 
 A normalized `source_language: null` requests detection; `auto` is not a
 language code and never appears in `languages`. The bridge passes
-`translation_source_language = "auto"` to the YAML, which maps it to the API
-representation (omission, `auto` value or another form). With restricted pairs
-and an unknown source, a prior detection is required to establish eligibility.
+`translation_source_language = "auto"` to a query that expects it, or omits the
+parameter through `auto_query`, which maps the normalized request to the API
+representation (omission, `auto` value or another form).
+
+For a multi-batch request with an unknown source, the bridge first uses the
+dedicated detection query when declared, then sends every batch with the
+detected source. Without a dedicated query, the first batch must use
+`auto_query` and return `detected_source_language`; later batches reuse that
+language. A missing detection result fails the request instead of restarting
+detection per batch. With restricted pairs and an unknown source, prior
+detection is required to establish eligibility. If the detected source equals
+the target, the original blocks are returned without a translated result.
 
 ## 3. Text query `translate_texts`
 
@@ -151,6 +176,74 @@ incomplete response fails; no partial result is published.
 A known source equal to the target reuses the original text without a provider
 call or a fake translated track.
 
+### Response shaping
+
+Scrapyfy merges root-query rows into one normalized row unless
+`result_item_field` promotes a declared group to top-level rows. A translation
+YAML must therefore build one group item per submitted block and flatten it:
+
+```yaml
+row_pointer: "/*"
+result_item_field: translated_blocks
+entries:
+  - name: translated_blocks
+    type: object[]
+    pointer: /
+    select: all
+    entries:
+      - name: text
+        type: string
+        pointer: /translations/0/text
+      - name: detected_source_language
+        type: string
+        pointer: /detectedLanguage/language
+```
+
+For a provider returning parallel arrays, select each array element, for
+example `pointer: /translatedText/*`. The bridge requires exactly one row per
+submitted block and never accepts a partial batch.
+
+### Retries, budgets and errors
+
+Every provider attempt reserves one concurrency slot and its measured provider
+units before the query is sent. The default policy is three attempts, a 500 ms
+initial delay, an 8 s delay ceiling and bounded jitter; a provider
+`Retry-After` delay is honored within the ceiling; a hint above that ceiling
+returns the failure without an early retry. Each attempt times out after 60 s. Only temporary failures and
+generic query execution failures are retried; authentication, request, language,
+size, quota and invalid-response failures are returned immediately.
+
+Scrapyfy HTTP statuses are classified as `authentication` (`401`, `403`),
+`request` (`400`, `404`, `415`, `422`), `size` (`413`), `quota` (`429`) or
+`temporary` (`408`, `425`, `500`, `502`, `503`, `504`). A rejected status is
+returned as `ProviderRejected` with an optional `retry_after_seconds`, without
+retrying the body or changing provider.
+
+Budget parameters read by Stream from the service YAML are
+`translation_max_concurrent_requests`,
+`translation_max_units_per_window` and `translation_budget_window_seconds`.
+A zero quota means no quota limit; concurrency and window values must be
+positive. The in-memory budget is process-local and shared by service
+identifier. Reloading limits preserves consumed units and active reservations.
+Quota windows are fixed and process-local; restarting resets their counters.
+Separate service definitions using the same provider account must split its
+quota conservatively. Consumed units are not refunded
+after a failed attempt because the provider may already have counted it.
+URL translation reserves zero units because the document size is not known
+before the provider call.
+
+Execution returns `TranslationMetrics` with `batches`, `attempts`, `retries`,
+`detection_attempts`, `blocks`, `units` and `elapsed_ms`. Metrics contain no
+source text, translated text, credentials or provider secrets. Attempt logs
+report counts, durations and statuses, including failures, without raw errors.
+
+Dedicated detection also receives `translation_detection_text`, the same
+representative sample as plain text. LibreTranslate uses this string for `q`;
+Azure uses the single block in `translation_blocks_json`. LibreTranslate uses
+dedicated detection even for one batch because its current YAML does not expose
+the detected language from `/translate`. Empty translated text and inconsistent
+detected languages within one batch are rejected as invalid responses.
+
 ## 4. Optional URL query `translate_url`
 
 Normalized parameters: `translation_document_url`,
@@ -191,8 +284,14 @@ Planning simultaneously respects:
 - `max_blocks_per_request` (or 1 when `accepts_multiple_blocks: false`);
 - `max_units_per_block`;
 - `max_units_per_request`;
-- `max_request_bytes`, measured against the normalized JSON construction
-  without a network call.
+- `max_request_bytes`, measured by the actual Scrapyfy POST body constructor
+  after parameter and credential resolution, without a network call.
+
+`plan_batches` remains a standalone normalized estimate for document planning.
+`plan_batches_with_measurement` and `ScrapyfyTranslationBridge::plan_texts`
+use actual body bytes. Stream's `select_text_translation_bridge` uses these
+plans and live budget availability for selection, carries local limits into
+execution, and keeps one provider for all batches.
 
 Splitting an oversized cue remains in the `arachnea-stream` subtitle module,
 which must not cut Unicode or markup. Translation rejects an oversized block
@@ -201,6 +300,12 @@ instead of truncating it.
 Default local bounds: 50 blocks, 10,000 units per block, 50,000 units per
 request and 65,536 serialized bytes. Effective limits are the strictest between
 provider and local configuration.
+
+Planning and budget checks are separate: planning rejects an oversized batch
+without a provider call, while budget reservation applies to each actual
+attempt, including retries. A provider-only quota remains external to Arachnea;
+the configured budget should therefore be set below the full account quota
+when other clients share the same provider account.
 
 ## 7. WebVTT document pipeline
 

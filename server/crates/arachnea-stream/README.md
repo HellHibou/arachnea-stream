@@ -98,7 +98,21 @@ extra, reordered or empty segments instead of publishing a partial document.
 
 Local bounds default to 4 MiB of decompressed input, 10,000 cues and 500,000
 translatable units (`LocalSubtitleLimits`). Batch planning is delegated to
-`arachnea-translation`. The module is compiled with the stream crate:
+`arachnea-translation`.
+
+The effective translation catalog exposes `translation_max_concurrent_requests`,
+`translation_max_units_per_window` and `translation_budget_window_seconds`. The
+generic bridge maps provider HTTP statuses to normalized categories. Stream
+injects a process-local budget shared by service identifier; reloading account
+limits preserves consumed quota and active reservations. A zero unit quota means
+no quota limit but concurrency remains bounded. `select_text_translation_bridge`
+combines offline Scrapyfy body measurement, deterministic candidate ranking and
+live account availability before execution. It carries the selected local limits
+into execution and never switches providers after a translation failure.
+Budgets are fixed windows starting with first use, reset on process restart and
+cannot observe other clients using the same provider account. Separate YAML
+services using one account must be configured to share its quota conservatively.
+The module is compiled with the stream crate:
 
 ```sh
 cargo check -p arachnea-stream

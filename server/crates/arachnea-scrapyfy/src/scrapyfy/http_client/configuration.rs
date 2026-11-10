@@ -184,6 +184,9 @@ pub struct ScraperHttpConfig {
     /// HTTP statuses that should produce an empty scraper response.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub empty_on_statuses: Vec<u16>,
+    /// HTTP statuses that should be returned as an error instead of a parsed body.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub error_on_statuses: Vec<u16>,
     /// Maximum number of redirects to follow before returning an error.
     pub max_redirects: Option<usize>,
     /// Optional browser execution mode for a sub-query.
@@ -219,6 +222,7 @@ impl ScraperHttpConfig {
             && self.proxy_rejection_statuses.is_empty()
             && self.proxy_retry_replayable.is_none()
             && self.empty_on_statuses.is_empty()
+            && self.error_on_statuses.is_empty()
             && self.max_redirects.is_none()
             && self.execution.is_none()
             && self.browser_context.is_none()
@@ -276,6 +280,11 @@ impl ScraperHttpConfig {
                 self.empty_on_statuses.clone()
             } else {
                 child.empty_on_statuses.clone()
+            },
+            error_on_statuses: if child.error_on_statuses.is_empty() {
+                self.error_on_statuses.clone()
+            } else {
+                child.error_on_statuses.clone()
             },
             max_redirects: child.max_redirects.or(self.max_redirects),
             execution: child.execution.or(self.execution),

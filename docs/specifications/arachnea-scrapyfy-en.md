@@ -370,9 +370,10 @@ Search budgets and replay rules are unchanged; no new YAML setting is introduced
 
 An omitted optional setting inherits its parent. An explicit scalar setting
 replaces the parent, including `proxy_retry_replayable: false`. The lists
-`proxy_countries`, `proxy_domain_group`, `proxy_rejection_statuses` and
-`empty_on_statuses` inherit when omitted **or empty**; a non-empty child list
-replaces its parent. `[]` cannot clear one of these inherited lists.
+`proxy_countries`, `proxy_domain_group`, `proxy_rejection_statuses`,
+`empty_on_statuses` and `error_on_statuses` inherit when omitted **or empty**; a
+non-empty child list replaces its parent. `[]` cannot clear one of these
+inherited lists.
 `proxy_response_classifier: {type: default}` resets an inherited classifier.
 Browser configuration objects replace the corresponding parent object as a whole.
 
@@ -436,6 +437,7 @@ request_headers:                    # optional: HTTP headers
     actions: []
 http:                              # optional: HTTP configuration (override)
   empty_on_statuses: []            # HTTP statuses treated as an empty response
+  error_on_statuses: []            # HTTP statuses returned as an error
 query_param_mappings: []            # optional: parameter mappings
 result_item_field: "entries"        # optional: group field to flatten into rows
 pre_process: []                     # optional: body transformations before parsing and fallback ETag hashing
@@ -455,6 +457,22 @@ sub-queries unless overridden locally.
 ```yaml
 http:
   empty_on_statuses: [404]
+```
+
+### `http.error_on_statuses`
+
+`http.error_on_statuses` lists HTTP status codes that must fail the query
+instead of being parsed. A matching response returns
+`ArachneaHttpError::HttpStatus` with the status code and, when present, the
+`Retry-After` delay in seconds. Numeric and HTTP-date header forms are accepted;
+an elapsed date yields zero. The list is empty by default and inherits from the
+collection like the other `http` options unless a non-empty child list replaces
+it. Declare a status in only one of `empty_on_statuses` and
+`error_on_statuses`; error statuses are checked before body parsing.
+
+```yaml
+http:
+  error_on_statuses: [400, 401, 403, 429, 500, 502, 503, 504]
 ```
 
 ### `pre_process`
@@ -2308,3 +2326,11 @@ editing configuration so dependent constants and URLs are recomputed.
   execution. Do not advertise a capability just because the caller accepts its name.
 - Validate the JSON result as well as loading. Structural validation cannot prove
   that a remote site is available, its response still matches, or its media plays.
+
+### Offline body measurement
+
+The Rust APIs `ScraperQueryCollection::measure_query_body` and
+`ScraperAgregator::measure_query_body_on_source` reuse execution's parameter,
+URL and body construction, including `request_body_actions`. They return only
+the root POST body byte count, without HTTP or exposing credentials, and reject
+static/non-POST queries or multiple root URLs. This adds no YAML field.

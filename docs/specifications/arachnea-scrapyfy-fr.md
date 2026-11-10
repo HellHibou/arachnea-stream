@@ -448,6 +448,7 @@ request_headers:                      # optionnel : en-têtes HTTP
     actions: []
 http:                                # optionnel : configuration HTTP (surcharge)
   empty_on_statuses: []              # statuts HTTP traités comme une réponse vide
+  error_on_statuses: []              # statuts HTTP retournés comme une erreur
 query_param_mappings: []              # optionnel : mappings de paramètres
 result_item_field: "entries"          # optionnel : champ groupe à aplatir en lignes
 pre_process: []                       # optionnel : transformations du corps avant parsing et hash ETag de fallback
@@ -467,6 +468,23 @@ vers les requêtes et sous-requêtes, sauf surcharge locale.
 ```yaml
 http:
   empty_on_statuses: [404]
+```
+
+### `http.error_on_statuses`
+
+`http.error_on_statuses` contient les codes HTTP qui doivent faire échouer la
+requête au lieu d'être parsés. Une réponse correspondante retourne
+`ArachneaHttpError::HttpStatus` avec le code et, si présent, le délai
+`Retry-After` en secondes. Les formes numérique et date HTTP sont acceptées ;
+une date échue donne zéro. La liste est vide par défaut et hérite de la
+collection comme les autres options `http`, sauf si une liste enfant non vide la
+remplace. Déclarer un statut dans une seule des listes `empty_on_statuses` et
+`error_on_statuses` ; les statuts d'erreur sont vérifiés avant le parsing du
+corps.
+
+```yaml
+http:
+  error_on_statuses: [400, 401, 403, 429, 500, 502, 503, 504]
 ```
 
 ### `pre_process`
@@ -2352,3 +2370,12 @@ leur priorité actuelle. Recharger le runtime après modification pour recalcule
   Ne pas annoncer une capacité uniquement parce qu'un appelant accepte son nom.
 - Vérifier le JSON et le chargement. Une validation structurelle ne prouve ni la
   disponibilité du site distant, ni la conformité de sa réponse, ni la lecture vidéo.
+
+### Mesure hors réseau du corps
+
+Les API Rust `ScraperQueryCollection::measure_query_body` et
+`ScraperAgregator::measure_query_body_on_source` réutilisent la résolution des
+paramètres, URL et corps d'exécution, y compris `request_body_actions`. Elles
+retournent seulement le nombre d'octets du corps POST racine, sans HTTP ni
+exposition des credentials, et refusent les queries statiques, les méthodes
+hors POST et les URL racines multiples. Aucun champ YAML n'est ajouté.

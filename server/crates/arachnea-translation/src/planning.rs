@@ -86,6 +86,39 @@ pub fn plan_batches(
     capability: &TextTranslationCapability,
     local: &LocalTranslationLimits,
 ) -> Result<TranslationPlan, TranslationError> {
+    plan_batches_with_measurement(blocks, capability, local, |blocks| {
+        Ok(measure_request(Some(blocks), capability, None, None).serialized_bytes)
+    })
+}
+
+/// Plans batches using the actual serialized provider body for byte limits.
+///
+/// # Arguments
+///
+/// * `blocks` - Document-layer blocks in input order.
+/// * `capability` - Provider unit and count limits.
+/// * `local` - Additional local limits.
+/// * `measure_body` - Offline request constructor returning the body byte count.
+///
+/// # Errors
+///
+/// Returns an invalid request, size violation or body-construction error.
+pub fn plan_batches_with_measurement(
+    blocks: &[TextBlock],
+    capability: &TextTranslationCapability,
+    local: &LocalTranslationLimits,
+    mut measure_body: impl FnMut(&[TextBlock]) -> Result<u64, TranslationError>,
+) -> Result<TranslationPlan, TranslationError> {
+    let mut measure = |blocks: &[TextBlock]| -> Result<RequestMeasurement, TranslationError> {
+        Ok(RequestMeasurement {
+            blocks: blocks.len() as u64,
+            units: blocks
+                .iter()
+                .map(|block| capability.size_unit.measure(&block.text))
+                .sum(),
+            serialized_bytes: measure_body(blocks)?,
+        })
+    };
     if blocks.is_empty() {
         return Err(TranslationError::InvalidRequest {
             detail: "text translation requires at least one block".to_string(),
@@ -114,6 +147,17 @@ pub fn plan_batches(
         .unwrap_or(u64::MAX)
         .min(local.max_request_bytes);
 
+    let mut ids = std::collections::HashSet::new();
+    for block in blocks {
+        if block.id.as_str().trim().is_empty()
+            || block.text.trim().is_empty()
+            || !ids.insert(&block.id)
+        {
+            return Err(TranslationError::InvalidRequest {
+                detail: "blocks require unique nonblank identifiers and nonblank text".into(),
+            });
+        }
+    }
     let mut batches = Vec::new();
     let mut current: Vec<TextBlock> = Vec::new();
     let mut total_units = 0u64;
@@ -132,7 +176,7 @@ pub fn plan_batches(
 
         let mut candidate = current.clone();
         candidate.push(block.clone());
-        let measurement = measure_request(Some(&candidate), capability, None, None);
+        let measurement = measure(&candidate)?;
         let fits = candidate.len() as u64 <= max_blocks
             && measurement.units <= max_units_per_request
             && measurement.serialized_bytes <= max_request_bytes;
@@ -151,7 +195,7 @@ pub fn plan_batches(
             });
         }
 
-        let measurement = measure_request(Some(&current), capability, None, None);
+        let measurement = measure(&current)?;
         total_units += measurement.units;
         batches.push(TranslationBatch {
             blocks: current,
@@ -159,7 +203,7 @@ pub fn plan_batches(
         });
         current = vec![block.clone()];
 
-        let measurement = measure_request(Some(&current), capability, None, None);
+        let measurement = measure(&current)?;
         if measurement.serialized_bytes > max_request_bytes
             || measurement.units > max_units_per_request
         {
@@ -173,7 +217,7 @@ pub fn plan_batches(
     }
 
     if !current.is_empty() {
-        let measurement = measure_request(Some(&current), capability, None, None);
+        let measurement = measure(&current)?;
         total_units += measurement.units;
         batches.push(TranslationBatch {
             blocks: current,
@@ -190,9 +234,9 @@ pub fn plan_batches(
 /// Measures blocks with the same normalized JSON shape used by the generic
 /// bridge request parameters.
 ///
-/// The measurement is performed without any network call. A provider YAML may
-/// add fixed fields, so the bridge measurement can only be an estimate until it
-/// reuses the Scrapyfy request construction added for selection.
+/// This standalone estimate is used by document segmentation before a service
+/// is bound. The executable bridge and Stream selection instead use
+/// [`plan_batches_with_measurement`] with the actual Scrapyfy body builder.
 ///
 /// # Arguments
 ///

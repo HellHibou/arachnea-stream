@@ -7,10 +7,12 @@ schéma YAML général reste décrit dans
 [arachnea-scrapyfy](arachnea-scrapyfy-fr.md) ; ce document ne décrit que les
 requêtes et sorties normalisées propres à la traduction.
 
-Statut : lots 1 à 3 implémentés (contrats, crate et module de sous-titres, pont
+Statut : lots 1 à 4 implémentés (contrats, crate et module de sous-titres, pont
 générique, catalogue effectif et administration, parseur WebVTT et
-planification documentaire). Les lots 4 à 10 ajoutent l’exécution fournisseur,
-l’orchestration, le transport et l’interface utilisateur.
+planification documentaire, exécution texte Azure Translator/LibreTranslate avec
+reprises, budgets et métriques). La qualification réelle des fournisseurs
+requiert encore des credentials. Les lots 5 à 10 ajoutent l’orchestration
+récupération/cache, le transport et l’interface utilisateur.
 
 ## 1. Séparation des couches
 
@@ -45,8 +47,10 @@ normalisé, généralement sous l'entrée `translation` :
         source_detection:
           automatic: true
           returns_detected_language: false
+          query: detect_language
         text_translation:
           query: translate_texts
+          auto_query: translate_texts_auto
           accepts_multiple_blocks: true
           size_unit: unicode_code_points
           max_blocks_per_request: 50
@@ -79,13 +83,17 @@ sont rejetés. Un plafond absent signifie « non déclaré par le fournisseur »
 
 ### Capacités
 
-`text_translation` contient `query`, `accepts_multiple_blocks`, `size_unit`,
-`max_blocks_per_request`, `max_units_per_block`, `max_units_per_request`,
-`max_request_bytes`, `context_support`, `markup_support` et
-`preserves_request_order`. `accepts_multiple_blocks: false` limite chaque
-requête à un bloc. `preserves_request_order: true` permet à un fournisseur de
-retourner les lignes dans l'ordre de la requête sans identifiants de blocs ; le
-pont les associe alors par position tout en vérifiant la cardinalité.
+`text_translation` contient `query`, `auto_query` optionnelle,
+`accepts_multiple_blocks`, `size_unit`, `max_blocks_per_request`,
+`max_units_per_block`, `max_units_per_request`, `max_request_bytes`,
+`context_support`, `markup_support` et `preserves_request_order`. `auto_query`
+est la query utilisée lorsque la source est inconnue et que le fournisseur ne
+peut pas exprimer la traduction automatique via
+`translation_source_language` ; une source connue utilise toujours `query`.
+`accepts_multiple_blocks: false` limite chaque requête à un bloc.
+`preserves_request_order: true` permet à un fournisseur de retourner les lignes
+dans l'ordre de la requête sans identifiants de blocs ; le pont les associe
+alors par position tout en vérifiant la cardinalité.
 
 `url_translation` contient `query`, `accepted_formats`, `max_document_bytes`,
 `max_document_units` et `result_mode`. Seul `result_mode: inline_document` est
@@ -99,14 +107,33 @@ UTF-8.
 ### Détection de la source
 
 `automatic: true` indique que la traduction accepte une source non fournie.
-`returns_detected_language: true` indique que la réponse expose la langue
-effective. `query` désigne une query de détection séparée facultative.
+`returns_detected_language: true` indique que la réponse de traduction expose la
+langue effective. `query` désigne une query de détection séparée facultative ;
+`auto_query` dans la capacité texte permet aussi une traduction sans source
+lorsqu'aucune query dédiée n'est déclarée.
+
+Une query de détection dédiée reçoit
+`application/arachnea-translation-detection` et le paramètre normalisé
+`translation_blocks_json` contenant exactement un bloc représentatif, borné à
+2 000 unités fournisseur. Elle retourne une ligne avec `language` ou
+`detected_source_language` ; le pont valide le code par rapport aux métadonnées
+déclarées.
 
 Une entrée normalisée `source_language: null` demande la détection ; `auto`
 n'est pas un code de langue et n'apparaît jamais dans `languages`. Le pont
-transmet `translation_source_language = "auto"` au YAML, qui l'adapte à l'API
-(omission, valeur `auto` ou autre). Avec des couples restreints et une source
-inconnue, une détection préalable est requise pour établir l'éligibilité.
+transmet `translation_source_language = "auto"` à une query qui l'attend, ou
+omet le paramètre via `auto_query`, qui adapte la requête normalisée à l'API
+(omission, valeur `auto` ou autre).
+
+Pour une requête multi-lots avec source inconnue, le pont utilise d'abord la
+query de détection dédiée lorsqu'elle est déclarée, puis envoie chaque lot avec
+la source détectée. Sans query dédiée, le premier lot doit utiliser
+`auto_query` et retourner `detected_source_language` ; les lots suivants
+réutilisent cette langue. Une détection absente fait échouer la requête au lieu
+de relancer une détection par lot. Avec des couples restreints et une source
+inconnue, une détection préalable est requise pour établir l'éligibilité. Si la
+source détectée égale la cible, les blocs originaux sont retournés sans résultat
+traduit.
 
 ## 3. Query texte `translate_texts`
 
@@ -154,6 +181,76 @@ partiel n'est publié.
 Une source connue égale à la cible réutilise le texte original sans appel
 fournisseur ni fausse piste traduite.
 
+### Mise en forme de la réponse
+
+Scrapyfy fusionne les lignes d'une query racine en une seule ligne normalisée,
+sauf si `result_item_field` promeut un groupe déclaré en lignes de premier
+niveau. Un YAML de traduction doit donc construire un élément de groupe par
+bloc envoyé, puis le déplier :
+
+```yaml
+row_pointer: "/*"
+result_item_field: translated_blocks
+entries:
+  - name: translated_blocks
+    type: object[]
+    pointer: /
+    select: all
+    entries:
+      - name: text
+        type: string
+        pointer: /translations/0/text
+      - name: detected_source_language
+        type: string
+        pointer: /detectedLanguage/language
+```
+
+Pour un fournisseur retournant des tableaux parallèles, sélectionner chaque
+élément du tableau, par exemple `pointer: /translatedText/*`. Le pont exige
+exactement une ligne par bloc envoyé et n'accepte jamais un lot partiel.
+
+### Reprises, budgets et erreurs
+
+Chaque tentative fournisseur réserve un emplacement de concurrence et ses
+unités fournisseur mesurées avant l'envoi de la query. La politique par défaut
+est de trois tentatives, un délai initial de 500 ms, un plafond de 8 s et un
+jitter borné ; un délai `Retry-After` fournisseur est respecté dans la limite du
+plafond ; une indication supérieure à ce plafond retourne l'échec sans reprise
+anticipée. Chaque tentative expire après 60 s. Seules les erreurs temporaires et les échecs génériques d'exécution de
+query sont repris ; les erreurs d'authentification, de requête, de langue, de
+taille, de quota et de réponse invalide sont retournées immédiatement.
+
+Les statuts HTTP Scrapyfy sont classés en `authentication` (`401`, `403`),
+`request` (`400`, `404`, `415`, `422`), `size` (`413`), `quota` (`429`) ou
+`temporary` (`408`, `425`, `500`, `502`, `503`, `504`). Un statut refusé devient
+`ProviderRejected` avec `retry_after_seconds` facultatif, sans rejouer le corps
+ni changer de fournisseur.
+
+Les paramètres de budget lus par Stream dans le YAML sont
+`translation_max_concurrent_requests`, `translation_max_units_per_window` et
+`translation_budget_window_seconds`. Un quota nul signifie « sans quota » ; la
+concurrence et la fenêtre doivent être positives. Le budget en mémoire est
+local au processus et partagé par identifiant de service. Le rechargement des
+limites conserve les unités consommées et les réservations actives. Les fenêtres
+de quota sont fixes ; un redémarrage remet les compteurs à zéro. Des définitions
+de service utilisant le même compte doivent répartir son quota prudemment.
+Les unités consommées ne sont pas remboursées après un échec, car le
+fournisseur a pu déjà les compter. La traduction URL réserve zéro unité, car la
+taille du document n'est pas connue avant l'appel fournisseur.
+
+L'exécution retourne `TranslationMetrics` avec `batches`, `attempts`, `retries`,
+`detection_attempts`, `blocks`, `units` et `elapsed_ms`. Les métriques ne
+contiennent aucun texte source, texte traduit, credential ni secret
+fournisseur. Les journaux de tentative exposent compteurs, durées et statuts,
+y compris lors d'un échec, sans erreur brute.
+
+La détection dédiée reçoit aussi `translation_detection_text`, le même
+échantillon sous forme de texte brut. LibreTranslate utilise cette chaîne pour
+`q` ; Azure utilise le bloc unique de `translation_blocks_json`. LibreTranslate
+emploie la détection dédiée même sur un lot unique car son YAML actuel ne
+restitue pas la langue détectée par `/translate`. Un texte traduit vide ou des
+langues détectées contradictoires dans un lot invalident la réponse.
+
 ## 4. Query URL optionnelle `translate_url`
 
 Paramètres normalisés : `translation_document_url`,
@@ -194,8 +291,15 @@ La planification respecte simultanément :
 - `max_blocks_per_request` (ou 1 si `accepts_multiple_blocks: false`) ;
 - `max_units_per_block` ;
 - `max_units_per_request` ;
-- `max_request_bytes`, mesurés sur la construction JSON normalisée, sans appel
-  réseau.
+- `max_request_bytes`, mesurés par la construction réelle du corps POST Scrapyfy
+  après résolution des paramètres et credentials, sans appel réseau.
+
+`plan_batches` reste une estimation JSON normalisée pour la couche documentaire.
+`plan_batches_with_measurement` et `ScrapyfyTranslationBridge::plan_texts`
+utilisent les octets du corps réel. `select_text_translation_bridge` dans Stream
+emploie ces plans et la disponibilité effective des budgets pour sélectionner le
+service, conserve les limites locales à l'exécution et garde le même fournisseur
+pour tous les lots.
 
 Le découpage d’une cue trop longue reste dans le module `subtitles`
 d’`arachnea-stream`, qui ne doit couper ni Unicode ni balisage. Translation
@@ -204,6 +308,13 @@ refuse un bloc trop grand au lieu de le tronquer.
 Bornes locales par défaut : 50 blocs, 10 000 unités par bloc, 50 000 unités par
 requête et 65 536 octets sérialisés. Les plafonds effectifs sont les plus
 restrictifs entre fournisseur et configuration locale.
+
+La planification et le budget sont deux contrôles distincts : la planification
+refuse un lot trop grand sans appel fournisseur, tandis que la réservation de
+budget s'applique à chaque tentative réelle, reprises comprises. Un quota propre
+au fournisseur reste extérieur à Arachnea ; le budget configuré doit donc rester
+sous le quota complet du compte lorsque d'autres clients partagent le même
+compte.
 
 ## 7. Pipeline documentaire WebVTT
 

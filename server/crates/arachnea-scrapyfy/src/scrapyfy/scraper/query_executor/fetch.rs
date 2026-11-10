@@ -86,7 +86,10 @@ pub(super) async fn fetch_single(
                 )?))
             } else {
                 Ok(FetchedResponse::Json(serde_json::from_str(&text).map_err(
-                    |error| anyhow::anyhow!("Invalid JSON payload returned by {url}: {error}"),
+                    |error| {
+                        anyhow::Error::new(error)
+                            .context(format!("Invalid JSON payload returned by {url}"))
+                    },
                 )?))
             }
         }
@@ -318,7 +321,8 @@ pub(super) async fn fetch_responses_with_validation(
                 FetchedResponse::Json(HttpClient::extract_next_data_json(&url, &text)?)
             } else {
                 FetchedResponse::Json(serde_json::from_str(&text).map_err(|error| {
-                    anyhow::anyhow!("Invalid JSON payload returned by {}: {error}", url)
+                    anyhow::Error::new(error)
+                        .context(format!("Invalid JSON payload returned by {url}"))
                 })?)
             }
         }

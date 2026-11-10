@@ -1,8 +1,8 @@
 # Analyse — traduction automatique des sous-titres
 
-Date de l’analyse : 2026-11-06. Mise à jour : 2026-11-10. Statut : recommandations précisées par l’utilisateur ; plan révisé pour imposer Scrapyfy, séparer traduction et sous-titres, intégrer les langues favorites et sélectionner les services selon leurs métadonnées YAML. Lots 1 à 3 implémentés le 2026-11-10 ; lots 4 à 10 : TODO.
+Date de l’analyse : 2026-11-06. Mise à jour : 2026-11-10. Statut : recommandations précisées par l’utilisateur ; plan révisé pour imposer Scrapyfy, séparer traduction et sous-titres, intégrer les langues favorites et sélectionner les services selon leurs métadonnées YAML. Lots 1 à 4 implémentés le 2026-11-10 ; qualification réelle des fournisseurs en attente d’accès ; lots 5 à 10 : TODO.
 
-Périmètre initial : analyse et plan, désormais suivi de l’implémentation des lots 1 à 3. L’implémentation précédente, non conforme aux exigences précisées, a été supprimée. Les lots 1 (contrats et séparation des couches), 2 (catalogue, credentials et administration) et 3 (parser WebVTT, segmentation et planification documentaire) sont livrés selon le plan révisé ; les lots 4 à 10 restent à réaliser. Les validations de l’implémentation supprimée ne valent pas validation des futurs livrables. Aucun appel fournisseur réel ni benchmark de qualité n’a été réalisé pour cette révision.
+Périmètre initial : analyse et plan, désormais suivi de l’implémentation des lots 1 à 4. L’implémentation précédente, non conforme aux exigences précisées, a été supprimée. Les lots 1 (contrats et séparation des couches), 2 (catalogue, credentials et administration), 3 (parser WebVTT, segmentation et planification documentaire) et 4 (exécution générique Azure/LibreTranslate) sont livrés selon le plan révisé ; les lots 5 à 10 restent à réaliser. Les validations de l’implémentation supprimée ne valent pas validation des futurs livrables. Aucun appel fournisseur réel ni benchmark de qualité n’a été réalisé pour cette révision.
 
 ## 1. Objectif et recommandation
 
@@ -367,6 +367,8 @@ Les chiffres suivants sont des **scénarios de calcul**, pas des mesures de sous
 
 Calcul Azure : `max(ceil(cues / 1 000), ceil(caractères / 50 000))` est une **borne inférieure**, pas un nombre garanti : tailles individuelles, marges et sérialisation peuvent augmenter le nombre de lots. Plusieurs langues multiplient le volume. Les timestamps et métadonnées augmentent le fichier sans nécessairement augmenter le texte facturé lorsque seuls les blocs sont envoyés. Toujours distinguer octets et caractères Unicode.
 
+Le YAML initial applique des plafonds plus prudents que le maximum Azure officiel : 100 blocs déclarés et 50 par défaut local, soit au moins 16/40/100 lots pour ces scénarios si chaque cue produit un bloc. La borne théorique ci-dessus ne décrit donc pas le nombre de requêtes actuellement exécutées. Les limites officielles Azure et les contrats `/translate` et `/detect` LibreTranslate ont été revérifiés le 2026-11-10 ; `/detect` LibreTranslate attend `q` sous forme de chaîne ([référence officielle](https://docs.libretranslate.com/api/operations/detect/)). Les plafonds LibreTranslate du YAML (50 blocs, 5 000 caractères par bloc et 10 000 cumulés) sont des choix applicatifs, à adapter aux paramètres de l'instance.
+
 ### Sélection proposée
 
 | Service | Gratuité documentée | Limites pertinentes | Décision |
@@ -397,7 +399,7 @@ Mesurer cache utilisé, revalidations source, caractères envoyés, lots, durée
 
 ## 11. Décisions acquises et questions restantes
 
-L’utilisateur a précisé les recommandations : Scrapyfy obligatoire, Rust générique, séparation traduction/sous-titres et intégration des favoris. Le plan ci-dessous remplace les choix antérieurs incompatibles. L’implémentation précédente a été supprimée ; les lots 1 à 3 sont livrés et les lots 4 à 10 restent à TODO.
+L’utilisateur a précisé les recommandations : Scrapyfy obligatoire, Rust générique, séparation traduction/sous-titres et intégration des favoris. Le plan ci-dessous remplace les choix antérieurs incompatibles. L’implémentation précédente a été supprimée ; les lots 1 à 4 sont livrés et les lots 5 à 10 restent à TODO.
 
 ### Décisions acquises
 
@@ -498,7 +500,13 @@ Les lots sont des unités de réalisation et de revue, pas des estimations calen
 
 ### Lot 4 — Services YAML Azure/LibreTranslate et exécution générique
 
-**Statut : TODO.**
+**Statut : DONE (implémentation et validation locale, 2026-11-10) ; qualification réelle Azure/LibreTranslate en attente d’accès.**
+
+**Livré :** queries YAML Azure F0 et LibreTranslate exécutées par le pont Scrapyfy commun, avec `translate_texts_auto` pour Azure, queries `detect_language`, mappings de lignes via `result_item_field` et rejet des statuts HTTP fournisseur (`error_on_statuses`). Le pont gère `source_language: null` par détection dédiée ou auto-query, stabilise la source sur les documents multi-lots, réutilise l’original lorsque source et cible sont identiques, applique des reprises bornées avec jitter et `Retry-After`, réserve concurrence et quota par compte avant chaque tentative et expose des métriques sans texte ni secret. Stream branche un budget en mémoire partagé par service ; le pont générique classifie les statuts HTTP en catégories fournisseur normalisées ; les fournisseurs restent désactivés par défaut et aucun endpoint public n’est exposé.
+
+**Compléments de finalisation :** la planification d'exécution et la sélection Stream mesurent les corps POST avec les résolveurs réellement utilisés par Scrapyfy, après résolution des paramètres et credentials, sans réseau ni exposition du corps. Le préfiltrage tient compte du quota du document et de la concurrence disponibles ; chaque tentative conserve sa réservation atomique et aucun fournisseur de repli n'est choisi après un échec. Les limites locales sélectionnées sont réutilisées à l'exécution. Les budgets partagés sont reconfigurés sans perdre les unités consommées ni les réservations actives. Le pont commun classifie les statuts HTTP, même hors Stream, borne chaque tentative à 60 s, ne reprend pas avant un `Retry-After` supérieur au plafond de reprise, rejette les sorties vides et détections contradictoires et journalise seulement les compteurs/statuts. La détection LibreTranslate envoie bien une chaîne `q`, conformément à son contrat officiel. Les catalogues de langues restent des sous-ensembles provisoires à qualifier.
+
+**Validation effectuée (2026-11-10) :** compilation ciblée des trois crates, compilation de leurs cibles de test existantes (`cargo test -p arachnea-translation -p arachnea-scrapyfy -p arachnea-stream --no-run`) et 75 tests Scrapyfy existants réussis (`cargo test -p arachnea-scrapyfy --lib`). Programme temporaire avec serveur HTTP local simulé couvrant les deux YAML : détection unique, trois lots et restitution de 101 blocs, égalité entre tailles planifiées et corps réellement envoyés pour une source connue, majoration prudente en mode auto, réutilisation de l'original, cardinalité invalide, détections contradictoires, JSON invalide sans reprise, quota `429`, authentification `401`, reprise sur `503`, sélection avec exclusion d'un favori sans budget et sélection contrainte, libération de concurrence et reconfiguration sans remise à zéro du quota. `cargo fmt` et `cargo clippy` ciblé sur toutes les cibles (avertissements préexistants hors périmètre). Le programme temporaire a été retiré ; aucun test permanent ajouté. Aucune qualification sur endpoint réel faute de credentials.
 
 **Dépendances :** lots 1–3 pour l’intégration complète.
 
@@ -636,4 +644,4 @@ Les lots sont des unités de réalisation et de revue, pas des estimations calen
 | Parcours utilisateur | 7–8 | Demande et sélection de traduction sans redémarrage de la vidéo |
 | Livraison qualifiée | 9–10 | Bornes mesurées, distribution et documentation, limites résiduelles consignées |
 
-Les lots 1 à 3 sont livrés ; les lots 4 à 10 restent à TODO et aucune validation antérieure n’est conservée comme livrable acquis. Le lot 4 peut avancer après le lot 3. Le reste suit les dépendances indiquées. Une extension hors première livraison ou un changement de contrat découvert en cours de travail fait l’objet d’une analyse spécifique avant réalisation ; les recommandations déjà validées ne nécessitent pas une nouvelle confirmation à chaque lot.
+Les lots 1 à 4 sont livrés ; les lots 5 à 10 restent à TODO. La validation locale du lot 4 ne vaut pas qualification des endpoints réels. Le reste suit les dépendances indiquées. Une extension hors première livraison ou un changement de contrat découvert en cours de travail fait l’objet d’une analyse spécifique avant réalisation ; les recommandations déjà validées ne nécessitent pas une nouvelle confirmation à chaque lot.

@@ -28,6 +28,8 @@ pub enum ExclusionReason {
 pub enum ProviderErrorCategory {
     /// Credentials were rejected.
     Authentication,
+    /// The provider refused the request shape or an unsupported parameter.
+    Request,
     /// The provider refused the language direction.
     Language,
     /// The provider refused the request size.
@@ -122,6 +124,8 @@ pub enum TranslationError {
         category: ProviderErrorCategory,
         /// Human-readable detail.
         detail: String,
+        /// Optional `Retry-After` delay in seconds declared by the provider.
+        retry_after_seconds: Option<u64>,
     },
     /// A Scrapyfy query could not be executed.
     #[error("translation query {query} failed: {detail}")]
@@ -165,7 +169,7 @@ impl TranslationError {
                 ..
             } => StatusCode::SERVICE_UNAVAILABLE,
             Self::ProviderRejected {
-                category: ProviderErrorCategory::Authentication,
+                category: ProviderErrorCategory::Authentication | ProviderErrorCategory::Request,
                 ..
             }
             | Self::QueryFailed { .. } => StatusCode::BAD_GATEWAY,
@@ -184,5 +188,16 @@ impl TranslationError {
                 ..
             } | Self::QueryFailed { .. }
         )
+    }
+
+    /// Returns the provider-declared retry delay, when present.
+    pub fn retry_after_seconds(&self) -> Option<u64> {
+        match self {
+            Self::ProviderRejected {
+                retry_after_seconds,
+                ..
+            } => *retry_after_seconds,
+            _ => None,
+        }
     }
 }

@@ -326,6 +326,18 @@ All notable changes to the server workspace are recorded here.
 
 - New crate defining the generic translation contracts: validated two-letter language codes and directional pairs, opaque text blocks, text/URL capabilities with explicit size units and limits, normalized `get_translation_metadata` parsing and validation, source-detection rules, deterministic service selection with normalized exclusion reasons, batch planning and request measurement without network calls, result cache identity, injected Scrapyfy query port and the shared `ScrapyfyTranslationBridge`. Provider endpoints and mappings remain exclusively in Scrapyfy YAML; no translation endpoint is public yet.
 - Added `preserves_request_order` to text translation capabilities. Providers can now return one untagged row per submitted block; the bridge matches rows by position while still rejecting missing, extra or duplicated identifiers, and tagged responses keep their explicit IDs.
+- Added dedicated source detection and optional `auto_query` support to the generic bridge. A source-less request can detect once through `application/arachnea-translation-detection` before batching, or use a provider auto query on a single batch; multi-batch requests reuse the detected source and original blocks are returned when the detected source equals the target.
+- Added bounded retries, account budget/concurrency reservations and non-sensitive `TranslationMetrics` to text and URL execution. The default retry policy is three attempts with jittered exponential backoff and a `Retry-After`-aware 8 s ceiling; reservations are taken before every attempt and released without refunding consumed provider units.
+- Added normalized provider failure categories, including a `Request` category and an optional `retry_after_seconds` on `ProviderRejected`, with HTTP status classification and retry eligibility kept in the generic layer.
+
+#### Changed
+
+- `TranslatedTexts` and `TranslatedDocument` now carry `TranslationMetrics`; callers that construct these results must provide the field (defaults to zero metrics for deserialization). The bridge reports batches, attempts, retries, detection attempts, blocks, units and elapsed time without exposing text or credentials.
+- The bridge now accepts an injected `TranslationBudgetPort` and retry policy while retaining unlimited-budget and default-policy behavior for callers that do not configure them.
+
+#### Fixed
+
+- Completed provider-body batch measurement through Scrapyfy, shared HTTP failure classification for collection-backed execution, 60-second attempt timeouts, sanitized attempt diagnostics and rejection of empty or inconsistent responses. Retry hints beyond the delay ceiling no longer cause an early retry; live budget reconfiguration retains consumed quota and active reservations.
 
 ### <u>arachnea-stream</u>
 
@@ -403,6 +415,8 @@ All notable changes to the server workspace are recorded here.
 - New Télésambre (`telesambre-be.yaml`) legal source for the Belgian local channel telesambre.be, written for the site's 2026 redesign on the same Drupal `tv_theme` stack as Canal Zoom / Bouké / Télé MB: the home page exposes the four navigation categories (`/info`, `/sport`, `/culture`, `/emissions`) plus a `/liste-localite` "Localités" category as static browsable categories plus the native `div.paragraph--type--feat-content` featured rails (À la Une, Le sport/L'info/La culture de votre région, L'Edito, Votre magazine C Local — video cards kept through their `camera-icon` marker), the `div.paragraph--type--recommendation` suggestion rails (Nos dernières émissions, Vu sur nos réseaux) and the `div.paragraph--type--teasing-slider` programme rail as `sections`, category listings extract the `div#block-tv-theme-content` cards (`article.teaser-item` video rows kept through their `camera-icon` marker plus `div.view-mode-portrait` programme cards) paginated through the `ul.js-pager__items` next link and, on the editorial listings (`/info`, `/sport`, `/culture` and their sub-categories), also expose the sibling sub-categories (`Economie`, `Faits Divers`, …) from `nav#block-categories ul[block='block-categories'] li a`, programme pages expose their `div.view-episode` rail as `seasons` loaded through the new paginated `get_season` query, and entries resolve the Freecaster `div.freecaster-player[data-video-id]` player to HLS at `/video/src` shared by `get_entry` and `get_players`, entry pages also expose their editorial `recommendations` (`div.editor-suggestion--main-container` on article pages, video `view-mode-editor_suggestion` cards kept through their `icon-camera-fill` marker; `div.composant-emission` on programme pages, `view-mode-portrait` programme cards), while `get_live` ports the `live_token` resolver through the Freecaster player JSON. Card and entry `media-type` values derive from the listing/entry URL tokens (`/info` → `video/news`, `/sport` → `video/show/sport`, `/culture` → `video/show/documentary`, `/emission(s)` → `video/show/serie`). Registered in `services.json` as disabled by default.
 
 - Extended the source-check runner from seven to 14 operations with typed season/live/banner/recommendation/stream adapters and an isolated aggregator adapter for the legacy episode query. Added scenarios for all 55 previously unsupported production operations; corrected uncommitted navigation and expectation errors. Preserved schema-v1 input forms and rejected extra source parameters, retaining three explicit parameter-dependent coverage gaps. Added three local compatibility tests; no production YAML or facade APIs changed. Qualification is recorded in `docs/dev-tracking/source-checks-expanded-2026-10-30.md`.
+- Added translation account budget fields and parameters to the effective catalog: `translation_max_concurrent_requests`, `translation_max_units_per_window` (zero means unlimited) and `translation_budget_window_seconds`, with defaults of one concurrent request, no quota and a 30-day window when omitted.
+- The Stream translation port now maps `ArachneaHttpError::HttpStatus` to normalized provider categories and injects a process-local budget shared by service identifier. Budgets are created on first use, so changing their catalog parameters requires a restart; consumed units are not refunded after a failed provider attempt.
 
 #### Changed
 
@@ -419,6 +433,8 @@ All notable changes to the server workspace are recorded here.
 - Coflix (`dark-stream/coflix.yaml`): home categories and `get_category` scraped the retired JSON `wp-json/apiflix/v1/options` endpoints and returned no cards. They now scrape the HTML catalogue pages (`/movies/`, `/series/`, `/animes/`), parse the entry cards from the page markup, derive `media-type` from the category URL, and paginate through `derive_pagination`, restoring category browsing.
 
 #### Fixed
+
+- Completed text-provider selection using exact offline body plans and live shared budgets, preserving the selected local limits during execution and retaining quota usage when administrator limits reload.
 
 - Fawesome players now expose `web-link` from the API result’s `web_url` field, prefixed with the public Fawesome base URL instead of the legacy iFood URL.
 
@@ -587,6 +603,7 @@ All notable changes to the server workspace are recorded here.
 - `set_nested_fields` fields now accept an optional `lookup` block that translates the value produced by `copy_from` or `host_from` through a root group of key/value items. Host lookups try the exact hostname and then each parent domain (`video.sibnet.ru` → `sibnet.ru`), and unmatched values are written unchanged.
 - The `merge_items_by_field` post-processor merges sibling items sharing the same scalar field value into a single item. It is meant for markups that repeat one logical row once per variant (for example one episode block per language) and only differ by the nodes listed in `merge_fields`: scalar values are appended once, child nodes are merged recursively, nested item lists are concatenated, items without the key are kept unchanged, and the group keeps its extraction order so it normally runs after `sort_items`.
 - HTML row selectors are now templates resolved with the runtime parameters when rows are extracted, and the engine exposes `{url_fragment}`: the part after `#` in the resolved `query_url`, never sent to the server. A caller-supplied link such as `page.html#ep3` can therefore scope a query to a client-side tab or block that has no URL of its own. Selectors must stay parseable as written (`div[class~="{url_fragment}vs"]`) because the configuration is still validated at load time; unresolved placeholders simply match nothing.
+- Added `error_on_statuses` to `ScraperHttpConfig`. Configured provider statuses are turned into `ArachneaHttpError::HttpStatus` with the status code and a parsed `Retry-After` value, so translation services can classify rejected requests without parsing provider error bodies.
 
 #### Changed
 
@@ -637,6 +654,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Fixed
 
+- Exposed offline root POST body measurement on loaded collections and sources, reusing execution parameter, URL and body resolvers without returning payloads or credentials.
+
 - Administration updates now ignore HTTP port, network mode and entrypoint root fields pinned by command-line options, preserving their existing persisted values while allowing other settings to be saved.
 
 - Documented all new restricted-visibility service-parameter operations with Rustdoc arguments, errors and persistence effects; clarified accessor/store contracts and made the shared server rules explicit for every public visibility.
@@ -677,6 +696,7 @@ All notable changes to the server workspace are recorded here.
 #### Changed
 
 - Internal proxy credentials now use the routing lease as username and the process API token as password. macOS WebViews receive explicit internal-origin metadata for SOCKS5 conversion; WebView and Chaser-CF parsing accepts an empty HTTP username with a token.
+- Breaking Rust error-shape change: `ArachneaHttpError::HttpStatus` now carries `retry_after_seconds`. Constructors must provide the new field; callers matching the variant with `..` keep their behavior.
 - Breaking Rust proxy configuration API change: `HttpProxyConfig::Arachnea` now owns `Box<ArachneaProxyCore>`. Direct callers box owned cores; `proxy_core(core)` keeps its signature. Construction and variant cloning allocate a box, preserving contained-core clone semantics, routing and loopback lifecycle; owned-core consumers clone the contained value without an intermediate box.
 
 - Box the private application-owned Tauri solver session while passing it through the main-thread result, adding one allocation on successful interactive session creation. The observer still receives the owned session; standalone solving, ordinary requests, proxy readiness and cleanup remain unchanged.
@@ -1055,6 +1075,10 @@ All notable changes to the server workspace are recorded here.
 
 - Proxy country routing now accepts only the ordered JSON `countries` parameter and `Arachnea-Proxy-Countries` header. The proxy core, HTTP/SOCKS parameter parsing, static and dynamic country handlers, Scrapyfy dynamic proxy-core configuration, proxy URL helpers, and the M6+ redirect rule no longer support the singular `country` / `Arachnea-Proxy-Country` contract.
 
+
+#### Fixed
+
+- Corrected the LibreTranslate detection YAML to send the representative sample as a string `q`, as required by the provider API.
 
 ### <u>arachnea-stream-hoster</u>
 

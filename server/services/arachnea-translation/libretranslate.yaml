@@ -41,6 +41,27 @@ parameters:
       options:
         - { value: "false", label: "No" }
         - { value: "true", label: "Yes" }
+  - name: translation_max_concurrent_requests
+    label: Maximum concurrent requests
+    value: "1"
+    editor:
+      type: regex
+      pattern: '^[1-9][0-9]{0,2}$'
+      message: "Enter a positive concurrency bound (1 to 999)."
+  - name: translation_max_units_per_window
+    label: Character quota per window
+    value: "0"
+    editor:
+      type: regex
+      pattern: '^[0-9]{1,12}$'
+      message: "Enter a character quota, or 0 for no quota."
+  - name: translation_budget_window_seconds
+    label: Quota window (seconds)
+    value: "2592000"
+    editor:
+      type: regex
+      pattern: '^[1-9][0-9]{0,9}$'
+      message: "Enter a positive window duration in seconds."
 
 queries:
   - name: get_translation_metadata
@@ -58,6 +79,7 @@ queries:
           source_detection:
             automatic: true
             returns_detected_language: false
+            query: detect_language
           text_translation:
             query: translate_texts
             accepts_multiple_blocks: true
@@ -75,6 +97,8 @@ queries:
     base_url: "{base_url}"
     query_url: "{base_url}/translate"
     request_method: post
+    http:
+      error_on_statuses: [400, 401, 403, 404, 408, 413, 415, 422, 429, 500, 502, 503, 504]
     request_headers:
       - name: Content-Type
         actions:
@@ -93,7 +117,38 @@ queries:
           api_key: { string_parameter: translation_credential_password }
     media_types:
       - application/arachnea-translation-result
-    row_pointer: /translatedText/*
+    row_pointer: /
+    result_item_field: translated_blocks
     entries:
-      - name: text
+      - name: translated_blocks
+        type: object[]
+        pointer: /translatedText/*
+        select: all
+        entries:
+          - name: text
+            type: string
+
+  - name: detect_language
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{base_url}/detect"
+    request_method: post
+    http:
+      error_on_statuses: [400, 401, 403, 404, 408, 413, 415, 422, 429, 500, 502, 503, 504]
+    request_headers:
+      - name: Content-Type
+        actions:
+          - type: format_text
+            argument: application/json
+    request_body_actions:
+      - type: build_json
+        fields:
+          q: { string_parameter: translation_detection_text }
+          api_key: { string_parameter: translation_credential_password }
+    media_types:
+      - application/arachnea-translation-detection
+    row_pointer: "/*"
+    entries:
+      - name: language
         type: string
+        pointer: /language

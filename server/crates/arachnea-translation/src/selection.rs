@@ -154,6 +154,40 @@ pub fn select_service(
     policy: &SelectionPolicy,
     requirement: &SelectionRequirement,
 ) -> Result<SelectionDecision, TranslationError> {
+    select_service_with_planner(candidates, policy, requirement, |candidate, requirement| {
+        let capability = candidate
+            .metadata
+            .text_translation
+            .as_ref()
+            .ok_or_else(|| TranslationError::UnsupportedCapability {
+                service_id: candidate.service_id.clone(),
+                detail: "text translation is not declared".into(),
+            })?;
+        plan_batches(&requirement.blocks, capability, &requirement.local_limits)
+    })
+}
+
+/// Filters and ranks services using caller-supplied offline body planning.
+///
+/// # Arguments
+///
+/// * `candidates` - Effective metadata, freshness and account availability.
+/// * `policy` - Explicit service or automatic selection policy.
+/// * `requirement` - Requested direction, route and bounds.
+/// * `planner` - Provider request planner; must not send HTTP requests.
+///
+/// # Errors
+///
+/// Returns `NoEligibleService` when every candidate is excluded.
+pub fn select_service_with_planner(
+    candidates: &[ServiceCandidate],
+    policy: &SelectionPolicy,
+    requirement: &SelectionRequirement,
+    mut planner: impl FnMut(
+        &ServiceCandidate,
+        &SelectionRequirement,
+    ) -> Result<crate::planning::TranslationPlan, TranslationError>,
+) -> Result<SelectionDecision, TranslationError> {
     let mut evaluations = Vec::with_capacity(candidates.len());
     let mut eligible: Vec<(usize, CandidateEvaluation)> = Vec::new();
 
@@ -163,7 +197,7 @@ pub fn select_service(
                 continue;
             }
         }
-        let evaluation = evaluate_candidate(candidate, requirement);
+        let evaluation = evaluate_candidate(candidate, requirement, &mut planner);
         if evaluation.eligible {
             eligible.push((index, evaluation.clone()));
         }
@@ -223,6 +257,10 @@ pub fn select_service(
 fn evaluate_candidate(
     candidate: &ServiceCandidate,
     requirement: &SelectionRequirement,
+    planner: &mut impl FnMut(
+        &ServiceCandidate,
+        &SelectionRequirement,
+    ) -> Result<crate::planning::TranslationPlan, TranslationError>,
 ) -> CandidateEvaluation {
     let excluded = |reason, detail: String| CandidateEvaluation {
         service_id: candidate.service_id.clone(),
@@ -278,7 +316,7 @@ fn evaluate_candidate(
     }
 
     match requirement.route {
-        SelectionRoute::Text => evaluate_text(candidate, requirement)
+        SelectionRoute::Text => evaluate_text(candidate, requirement, planner)
             .unwrap_or_else(|(reason, detail)| excluded(reason, detail)),
         SelectionRoute::Url => evaluate_url(candidate, requirement)
             .unwrap_or_else(|(reason, detail)| excluded(reason, detail)),
@@ -286,7 +324,7 @@ fn evaluate_candidate(
             if let Ok(evaluation) = evaluate_url(candidate, requirement) {
                 return evaluation;
             }
-            evaluate_text(candidate, requirement)
+            evaluate_text(candidate, requirement, planner)
                 .unwrap_or_else(|(reason, detail)| excluded(reason, detail))
         }
     }
@@ -305,6 +343,10 @@ fn evaluate_candidate(
 fn evaluate_text(
     candidate: &ServiceCandidate,
     requirement: &SelectionRequirement,
+    planner: &mut impl FnMut(
+        &ServiceCandidate,
+        &SelectionRequirement,
+    ) -> Result<crate::planning::TranslationPlan, TranslationError>,
 ) -> Result<CandidateEvaluation, (ExclusionReason, String)> {
     let capability = candidate.metadata.text_translation.as_ref().ok_or((
         ExclusionReason::UnsupportedCapability,
@@ -322,17 +364,15 @@ fn evaluate_text(
             "markup preservation is required but not supported".to_string(),
         ));
     }
-    let plan = plan_batches(&requirement.blocks, capability, &requirement.local_limits).map_err(
-        |error| {
-            (
-                ExclusionReason::SizeLimit,
-                match error {
-                    TranslationError::SizeLimit { detail } => detail,
-                    other => other.to_string(),
-                },
-            )
-        },
-    )?;
+    let plan = planner(candidate, requirement).map_err(|error| {
+        (
+            ExclusionReason::SizeLimit,
+            match error {
+                TranslationError::SizeLimit { detail } => detail,
+                other => other.to_string(),
+            },
+        )
+    })?;
     Ok(CandidateEvaluation {
         service_id: candidate.service_id.clone(),
         eligible: true,

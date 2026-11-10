@@ -505,3 +505,13 @@ as aliases/reexports. Configuration/credential formats and admin API routes are
 unchanged. Proxy implementation modules remain gated by `arachnea-proxy`; the
 base admin DTOs, configuration component and typed credentials store compile
 without that feature.
+
+## Offline request body measurement
+
+`ScraperQueryCollection::measure_query_body` and
+`ScraperAgregator::measure_query_body_on_source` return a root POST body byte
+count without sending a request. They merge collection defaults, runtime values
+and query mappings, then reuse execution's URL and body action resolvers. Only
+one root URL is accepted. Static queries and non-POST requests are rejected;
+credentials and bodies remain internal. Translation selection uses this API
+instead of estimating a provider payload from intermediate block JSON.

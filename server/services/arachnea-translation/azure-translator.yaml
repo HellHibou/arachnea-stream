@@ -40,6 +40,27 @@ parameters:
       options:
         - { value: "false", label: "No" }
         - { value: "true", label: "Yes" }
+  - name: translation_max_concurrent_requests
+    label: Maximum concurrent requests
+    value: "1"
+    editor:
+      type: regex
+      pattern: '^[1-9][0-9]{0,2}$'
+      message: "Enter a positive concurrency bound (1 to 999)."
+  - name: translation_max_units_per_window
+    label: Character quota per window
+    value: "2000000"
+    editor:
+      type: regex
+      pattern: '^[0-9]{1,12}$'
+      message: "Enter a character quota, or 0 for no quota."
+  - name: translation_budget_window_seconds
+    label: Quota window (seconds)
+    value: "2592000"
+    editor:
+      type: regex
+      pattern: '^[1-9][0-9]{0,9}$'
+      message: "Enter a positive window duration in seconds."
 
 queries:
   - name: get_translation_metadata
@@ -54,8 +75,13 @@ queries:
           # Provisional two-letter subset enabled for the initial provider
           # qualification. Extend it after measuring the real Azure offer.
           languages: [ar, cs, da, de, el, en, es, fi, fr, he, hi, hu, id, it, ja, ko, ms, nl, no, pl, pt, ro, ru, sv, th, tr, uk, vi]
+          source_detection:
+            automatic: true
+            returns_detected_language: true
+            query: detect_language
           text_translation:
             query: translate_texts
+            auto_query: translate_texts_auto
             accepts_multiple_blocks: true
             size_unit: unicode_code_points
             max_blocks_per_request: 100
@@ -71,6 +97,8 @@ queries:
     base_url: "{base_url}"
     query_url: "{base_url}/translate?api-version=3.0&from={translation_source_language}&to={translation_target_language}"
     request_method: post
+    http:
+      error_on_statuses: [400, 401, 403, 404, 408, 413, 415, 422, 429, 500, 502, 503, 504]
     request_headers:
       - name: Content-Type
         actions:
@@ -92,10 +120,91 @@ queries:
     media_types:
       - application/arachnea-translation-result
     row_pointer: "/*"
+    result_item_field: translated_blocks
     entries:
-      - name: text
+      - name: translated_blocks
+        type: object[]
+        pointer: /
+        select: all
+        entries:
+          - name: text
+            type: string
+            pointer: /translations/0/text
+          - name: detected_source_language
+            type: string
+            pointer: /detectedLanguage/language
+
+  - name: translate_texts_auto
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{base_url}/translate?api-version=3.0&to={translation_target_language}"
+    request_method: post
+    http:
+      error_on_statuses: [400, 401, 403, 404, 408, 413, 415, 422, 429, 500, 502, 503, 504]
+    request_headers:
+      - name: Content-Type
+        actions:
+          - type: format_text
+            argument: application/json
+      - name: Ocp-Apim-Subscription-Key
+        actions:
+          - type: format_text
+            argument: "{translation_credential_password}"
+      - name: Ocp-Apim-Subscription-Region
+        actions:
+          - type: format_text
+            argument: "{translation_credential_login}"
+    request_body_actions:
+      - type: build_json_array
+        source: { json_parameter: translation_blocks_json }
+        fields:
+          Text: /text
+    media_types:
+      - application/arachnea-translation-result
+    row_pointer: "/*"
+    result_item_field: translated_blocks
+    entries:
+      - name: translated_blocks
+        type: object[]
+        pointer: /
+        select: all
+        entries:
+          - name: text
+            type: string
+            pointer: /translations/0/text
+          - name: detected_source_language
+            type: string
+            pointer: /detectedLanguage/language
+
+  - name: detect_language
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{base_url}/detect?api-version=3.0"
+    request_method: post
+    http:
+      error_on_statuses: [400, 401, 403, 404, 408, 413, 415, 422, 429, 500, 502, 503, 504]
+    request_headers:
+      - name: Content-Type
+        actions:
+          - type: format_text
+            argument: application/json
+      - name: Ocp-Apim-Subscription-Key
+        actions:
+          - type: format_text
+            argument: "{translation_credential_password}"
+      - name: Ocp-Apim-Subscription-Region
+        actions:
+          - type: format_text
+            argument: "{translation_credential_login}"
+    request_body_actions:
+      - type: build_json_array
+        source: { json_parameter: translation_blocks_json }
+        fields:
+          Text: /text
+    media_types:
+      - application/arachnea-translation-detection
+    row_pointer: "/*"
+    entries:
+      - name: language
         type: string
-        pointer: /translations/0/text
-      - name: detected_source_language
-        type: string
-        pointer: /detectedLanguage/language
+        pointer: /language
