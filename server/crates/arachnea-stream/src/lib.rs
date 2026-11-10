@@ -15,6 +15,10 @@ pub mod services;
 pub mod stream_resolver;
 /// Stream scraper facade and main entry point.
 pub mod stream_scraper;
+/// Effective public translation catalog built from Scrapyfy metadata.
+pub mod translation_catalog;
+/// Stream-backed adapter for the generic translation bridge.
+pub mod translation_port;
 /// Compatibility path for Scrapyfy's typed encrypted source credentials store.
 pub mod typed_service_credentials_store;
 
@@ -70,6 +74,17 @@ pub(crate) const STREAM_DRM_LICENSE_PROXY_COMMAND: &str = "get_drm_license";
 
 /// Stream resolver max embed html bytes byte limit.
 pub(crate) const STREAM_RESOLVER_MAX_EMBED_HTML_BYTES: usize = 1_048_576;
+
+/// Group name used by the translation service configuration.
+pub const TRANSLATION_SERVICE_GROUP_NAME: &str = "arachnea-translation";
+
+/// Default path used by the translation services configuration.
+pub const DEFAULT_TRANSLATION_SERVICE_CONFIG_PATH: &str = const_format::concatcp!(
+    arachnea_scrapyfy::DEFAULT_SERVICES_DIRECTORY,
+    "/",
+    TRANSLATION_SERVICE_GROUP_NAME,
+    "/services.json"
+);
 
 /// Group name used by the stream hoster configuration.
 pub const STREAM_RESOLVER_GROUP_NAME: &str = "arachnea-stream-hoster";

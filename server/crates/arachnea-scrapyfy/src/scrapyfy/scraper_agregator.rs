@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use futures::future::join_all;
 use serde::{Deserialize, Serialize};
 use serde_json;
@@ -598,6 +598,68 @@ impl ScraperAgregator {
                 None
             }
         }
+    }
+
+    /// Executes one named query on a single loaded source.
+    ///
+    /// This is the narrow execution entry point for callers that address one
+    /// collection directly and do not need aggregation, caching or conditional
+    /// validation. The source must already be loaded in the group.
+    ///
+    /// # Arguments
+    ///
+    /// * `group_name` - Group containing the source.
+    /// * `source_name` - Source identifier to execute.
+    /// * `query_name` - Query declared by the source.
+    /// * `params` - Runtime parameters merged over collection defaults.
+    /// * `query_media_type_filter` - Optional media-type filter.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the group or source is unknown or when query
+    /// execution fails.
+    pub async fn execute_query_on_source(
+        &self,
+        group_name: &str,
+        source_name: &str,
+        query_name: &str,
+        params: &HashMap<String, String>,
+        query_media_type_filter: Option<&Vec<String>>,
+    ) -> Result<Vec<HashMap<String, ScraperDataNode>>> {
+        let collection = self
+            .queries_collection
+            .get(group_name)
+            .with_context(|| format!("query group `{group_name}` is not loaded"))?
+            .services
+            .iter()
+            .find(|collection| collection.name() == source_name)
+            .with_context(|| {
+                format!("source `{source_name}` is not loaded in query group `{group_name}`")
+            })?;
+        collection
+            .execute_query(query_name, params, query_media_type_filter, None)
+            .await
+            .with_context(|| {
+                format!("query `{query_name}` failed for `{source_name}` in `{group_name}`")
+            })
+    }
+
+    /// Returns the configuration identity of one loaded source.
+    ///
+    /// # Arguments
+    ///
+    /// * `group_name` - Group containing the source.
+    /// * `source_name` - Source identifier to inspect.
+    pub fn source_yaml_hash(&self, group_name: &str, source_name: &str) -> Option<&str> {
+        self.queries_collection
+            .get(group_name)
+            .and_then(|group| {
+                group
+                    .services
+                    .iter()
+                    .find(|collection| collection.name() == source_name)
+            })
+            .map(ScraperQueryCollection::yaml_hash)
     }
 
     /// Returns whether one loaded source declares a named query.

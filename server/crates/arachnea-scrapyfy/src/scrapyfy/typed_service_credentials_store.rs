@@ -201,6 +201,14 @@ impl CredentialsStore for TypedServiceCredentialsStore {
         self.get_credentials_for(&self.default_service_store_id, service_id)
     }
 
+    fn get_credentials_for(
+        &self,
+        service_store_id: &str,
+        service_id: &str,
+    ) -> Result<Option<StoredCredentials>> {
+        TypedServiceCredentialsStore::get_credentials_for(self, service_store_id, service_id)
+    }
+
     fn set_credentials(&self, service_id: &str, credentials: StoredCredentials) -> Result<()> {
         self.set_credentials_for(&self.default_service_store_id, service_id, credentials)
     }

@@ -428,7 +428,7 @@ async fn execute_query_internal(
                                                 context.params,
                                                 &url,
                                                 Some(ctx),
-                                            );
+                                            )?;
                                             let client = context
                                                 .http_client
                                                 .configured(sibling.http_config().clone());

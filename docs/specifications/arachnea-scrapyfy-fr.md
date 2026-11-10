@@ -1367,6 +1367,68 @@ Construit une URL à partir de plusieurs champs JSON de la réponse.
     clip_id: "/clip/id"
 ```
 
+### `build_json`
+Construit et sérialise un objet JSON à partir de paramètres d'exécution. Cette
+action générique est utilisable dans tout pipeline, notamment pour construire un
+corps de requête sans appel réseau et mesurer ses octets réels.
+
+| Champ | Type | Description |
+|-------|------|-------------|
+| `fields` | mapping | Nom de propriété → source de valeur (au moins un champ) |
+
+Chaque source est un mapping à une seule clé :
+
+- `{string_parameter: nom}` insère la valeur du paramètre comme chaîne JSON,
+  avec échappement ;
+- `{json_parameter: nom}` décode la valeur du paramètre comme JSON validé et
+  insère le résultat ;
+- `{json_array_projection: {parameter: nom, path: /pointeur}}` décode le
+  paramètre comme tableau JSON et insère un tableau contenant la valeur
+  sélectionnée par le pointeur JSON dans chaque élément. Un `path` vide
+  sélectionne l'élément lui-même.
+
+```yaml
+request_body_actions:
+  - type: build_json
+    fields:
+      source: {string_parameter: translation_source_language}
+      target: {string_parameter: translation_target_language}
+      blocks: {json_parameter: translation_blocks_json}
+      texts:
+        json_array_projection:
+          parameter: translation_blocks_json
+          path: /text
+```
+
+Un paramètre absent, une valeur JSON invalide, une source de projection qui
+n'est pas un tableau ou un pointeur absent dans un élément fait échouer la
+requête au lieu de produire un corps partiel. L'action remplace la liste de
+valeurs courante par un unique objet sérialisé.
+
+### `build_json_array`
+Construit et sérialise un tableau JSON à partir d'un paramètre d'exécution
+contenant un tableau JSON. Chaque élément source devient un objet dont les
+propriétés sont sélectionnées par des pointeurs JSON. Cette action sert aux
+corps de requête exigeant un tableau d'objets, par exemple les requêtes
+fournisseur par lots.
+
+| Champ | Type | Description |
+|-------|------|-------------|
+| `source` | mapping | Source à une clé `{json_parameter: nom}` |
+| `fields` | mapping | Nom de propriété de sortie → pointeur JSON dans chaque élément |
+
+```yaml
+request_body_actions:
+  - type: build_json_array
+    source: {json_parameter: translation_blocks_json}
+    fields:
+      Text: /text
+```
+
+Une source absente ou qui n'est pas un tableau, un champ vide ou un pointeur
+absent dans un élément fait échouer la requête. L'action remplace la liste de
+valeurs courante par un unique tableau sérialisé.
+
 ### `extract_field`
 Extrait un champ du corps JSON de la réponse par pointeur JSON.
 

@@ -7,6 +7,8 @@ members = [
     "crates/arachnea-proxy",
     "crates/arachnea-scrapyfy",
     "crates/arachnea-stream",
+    "crates/arachnea-subtitles",
+    "crates/arachnea-translation",
 ]
 
 [workspace.package]

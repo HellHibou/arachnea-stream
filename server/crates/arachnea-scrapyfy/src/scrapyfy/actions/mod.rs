@@ -6,6 +6,7 @@ use std::sync::Mutex;
 
 mod aes_cbc_decrypt;
 mod base64_decode;
+mod build_json;
 mod build_nextjs_data_url;
 mod build_url;
 mod bytes_shift;
@@ -46,6 +47,9 @@ pub use crate::HTTP_PROXY_PUBLIC_PATH_PARAM;
 // Re-export them so the surrounding `ScraperAction` enum can keep naming
 // `GetDateSources` directly.
 pub use get_date::{GetDateSource, GetDateSources};
+
+/// One value source used by the `build_json` request action.
+pub use build_json::{BuildJsonArraySource, BuildJsonField, JsonArrayProjection};
 
 /// Borrowed response inputs available to one extraction action.
 pub struct ActionResponse<'a> {
@@ -355,6 +359,39 @@ pub enum ScraperAction {
         fields: HashMap<String, String>,
     },
 
+    /// Builds and serializes a JSON object from runtime parameters.
+    ///
+    /// Each field names an output property and selects either a raw runtime
+    /// parameter inserted as a JSON string (`string_parameter`) or a runtime
+    /// parameter decoded as validated JSON (`json_parameter`). The action is
+    /// usable without a network call, which lets callers measure the exact
+    /// serialized request body before sending it.
+    ///
+    /// # Fields
+    ///
+    /// * `fields` - Output property names mapped to their value source.
+    BuildJson {
+        /// Output property names mapped to their value source.
+        fields: HashMap<String, BuildJsonField>,
+    },
+
+    /// Builds and serializes a JSON array from a JSON array runtime parameter.
+    ///
+    /// Every item of the source array becomes an object whose fields are
+    /// selected by JSON pointers. This is useful for provider request bodies
+    /// that require an array of objects, such as batched text translation.
+    ///
+    /// # Fields
+    ///
+    /// * `source` - Runtime parameter holding the source JSON array.
+    /// * `fields` - Output property names mapped to JSON pointers inside each item.
+    BuildJsonArray {
+        /// Runtime parameter holding the source JSON array.
+        source: BuildJsonArraySource,
+        /// Output property names mapped to JSON pointers inside each item.
+        fields: HashMap<String, String>,
+    },
+
     /// Extracts a field from the JSON response and replaces the value list.
     ///
     /// This allows building URLs that combine multiple fields from the response.
@@ -590,6 +627,10 @@ impl ScraperAction {
             ScraperAction::BuildUrl { base, fields } => {
                 build_url::apply(response_json, base, fields, params)
             }
+            ScraperAction::BuildJson { fields } => build_json::apply(texts, fields, params)?,
+            ScraperAction::BuildJsonArray { source, fields } => {
+                build_json::apply_array(texts, source, fields, params)?
+            }
             ScraperAction::FormatText { argument } => {
                 format_text::apply(texts, argument, params, request_url)
             }
@@ -651,6 +692,10 @@ impl ScraperAction {
                         error
                     )
                 }),
+            ScraperAction::BuildJson { fields } => build_json::validate(name, owner, fields),
+            ScraperAction::BuildJsonArray { source, fields } => {
+                build_json::validate_array(name, owner, source, fields)
+            }
             ScraperAction::Map { argument, default } => {
                 map::validate(name, owner, argument, default)
             }

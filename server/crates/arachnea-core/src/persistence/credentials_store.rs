@@ -69,6 +69,30 @@ pub trait CredentialsStore: Send + Sync {
     /// `Err(anyhow::Error)` when the backing store cannot be read or parsed.
     fn get_credentials(&self, service_id: &str) -> Result<Option<StoredCredentials>>;
 
+    /// Loads credentials for one service identified by its service store and
+    /// service identifier.
+    ///
+    /// Stores that do not partition credentials by service store may keep the
+    /// default implementation, which ignores the store identifier and delegates
+    /// to [`CredentialsStore::get_credentials`].
+    ///
+    /// # Arguments
+    /// * `service_store_id` - Service store (group) owning the service.
+    /// * `service_id` - Stable service identifier.
+    ///
+    /// # Returns
+    /// `Ok(Some(StoredCredentials))` if credentials exist for the service.
+    /// `Ok(None)` if no credentials are stored for the service.
+    /// `Err(anyhow::Error)` when the backing store cannot be read.
+    fn get_credentials_for(
+        &self,
+        service_store_id: &str,
+        service_id: &str,
+    ) -> Result<Option<StoredCredentials>> {
+        let _ = service_store_id;
+        self.get_credentials(service_id)
+    }
+
     /// Stores credentials for one configured service.
     ///
     /// # Arguments

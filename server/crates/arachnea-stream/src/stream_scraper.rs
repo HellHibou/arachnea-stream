@@ -49,6 +49,8 @@ use crate::stream_resolver::{
     resolve_scraper_query_stream, ResolvedStream, StreamResolver, GENERIC_STREAM_RESOLVER_ID,
     SCRAPER_QUERY_STREAM_RESOLVER_ID, STREAM_RESOLVER_CONFIG_PATH, STREAM_RESOLVER_GROUP_NAME,
 };
+use crate::translation_catalog::TranslationCatalog;
+use crate::translation_port::{StreamTranslationPort, load_translation_bridge};
 
 pub use crate::STREAM_SERVICE_GROUP_NAME;
 
@@ -272,6 +274,8 @@ pub struct StreamScraper {
     pub(crate) proxy_http_core: Option<ArachneaProxyCore>,
     /// Endpoints passed to player resolvers for proxying and rewriting.
     pub(crate) player_resolver_endpoints: PlayerResolverEndpoints,
+    /// Effective translation catalog loaded from the translation service group.
+    translation_catalog: TranslationCatalog,
 }
 
 /// Options controlling how a [`StreamScraper`] instance is built or rebuilt.
@@ -427,6 +431,7 @@ impl StreamScraper {
             proxy_handle,
             proxy_http_core,
             player_resolver_endpoints: PlayerResolverEndpoints::default(),
+            translation_catalog: TranslationCatalog::default(),
         }
     }
 
@@ -507,9 +512,46 @@ impl StreamScraper {
                 STREAM_RESOLVER_GROUP_NAME,
                 STREAM_RESOLVER_CONFIG_PATH,
             )?;
+        instance.load_translation_services();
         instance.configure_proxy_insecure_tls_hosts();
 
         Ok(instance)
+    }
+
+    /// Loads the optional translation service group and rebuilds the public catalog.
+    ///
+    /// A missing or invalid translation configuration leaves translation
+    /// unavailable without preventing the stream and resolver groups from
+    /// loading. Diagnostics stay in the catalog and never contain secrets.
+    fn load_translation_services(&mut self) {
+        let group_name = crate::TRANSLATION_SERVICE_GROUP_NAME;
+        let manifest_path = crate::DEFAULT_TRANSLATION_SERVICE_CONFIG_PATH;
+        if let Err(error) = self
+            .scraper_agregator
+            .add_query_collection_from_config_json(group_name, manifest_path)
+        {
+            tracing::warn!(
+                group = group_name,
+                manifest = manifest_path,
+                error = %error,
+                "translation services are unavailable"
+            );
+            self.translation_catalog = TranslationCatalog::default();
+            return;
+        }
+        self.translation_catalog = TranslationCatalog::load(
+            &self.scraper_agregator,
+            group_name,
+            manifest_path,
+            self.credentials_store.as_ref(),
+        );
+        for diagnostic in self.translation_catalog.diagnostics() {
+            tracing::warn!(
+                service = ?diagnostic.service_id,
+                message = %diagnostic.message,
+                "translation service was not published"
+            );
+        }
     }
 
     /// Creates an instance of the scraper facade using a file-based credentials store and the default services configuration.
@@ -563,6 +605,35 @@ impl StreamScraper {
     /// Returns the query aggregator backing this scraper instance.
     pub fn scraper_agregator(&self) -> &ScraperAgregator {
         &self.scraper_agregator
+    }
+
+    /// Returns the effective public translation catalog.
+    pub fn translation_catalog(&self) -> &TranslationCatalog {
+        &self.translation_catalog
+    }
+
+    /// Loads the generic translation bridge for one published service.
+    ///
+    /// # Arguments
+    /// * `service_id` - Service identifier present in the effective catalog.
+    ///
+    /// # Errors
+    /// Returns a translation error when the service is not published or its
+    /// metadata query fails validation.
+    pub async fn translation_bridge<'a>(
+        &'a self,
+        service_id: &str,
+    ) -> Result<
+        arachnea_translation::bridge::ScrapyfyTranslationBridge<StreamTranslationPort<'a>>,
+        arachnea_translation::TranslationError,
+    > {
+        load_translation_bridge(
+            &self.scraper_agregator,
+            &self.translation_catalog,
+            crate::TRANSLATION_SERVICE_GROUP_NAME,
+            service_id,
+        )
+        .await
     }
 
     /// Stores the explicitly configured local country used by geo proxy decisions.

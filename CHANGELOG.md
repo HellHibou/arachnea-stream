@@ -320,10 +320,24 @@ All notable changes to the server workspace are recorded here.
 - Dynamic proxy provider consultation is no longer controlled by a per-HTTP-client load scope. `ProxyInventory` alone decides whether exhausted cached candidates justify a refresh, while Scrapyfy clients only retain destination-to-proxy correlation needed to report accepted or rejected origin responses.
 - Dynamic country proxies that time out or fail during transport/TLS setup are now marked globally KO for their cooldown instead of only being excluded from the current destination. This prevents a known dead proxy from adding another full timeout to subsequent M6+ origin requests; HTTP origin rejections remain destination-scoped, and SOCKS5 local-DNS fallback remains reserved for explicit remote DNS failures.
 
+### <u>arachnea-translation</u>
+
+#### Added
+
+- New crate defining the generic translation contracts: validated two-letter language codes and directional pairs, opaque text blocks, text/URL capabilities with explicit size units and limits, normalized `get_translation_metadata` parsing and validation, source-detection rules, deterministic service selection with normalized exclusion reasons, batch planning and request measurement without network calls, result cache identity, injected Scrapyfy query port and the shared `ScrapyfyTranslationBridge`. Provider endpoints and mappings remain exclusively in Scrapyfy YAML; no translation endpoint is public yet.
+- Added `preserves_request_order` to text translation capabilities. Providers can now return one untagged row per submitted block; the bridge matches rows by position while still rejecting missing, extra or duplicated identifiers, and tagged responses keep their explicit IDs.
+
+### <u>arachnea-subtitles</u>
+
+#### Added
+
+- New crate defining the subtitle document boundary: WebVTT/SRT format identifiers, source track descriptors, document statistics, persistent translated-subtitle descriptor and opaque token with expiry/access checks, authorized retrieval and document cache ports injected by Stream, document cache identity with parser/pipeline revisions, and explicit HTTP status mapping including the no-result `HEAD` response. The WebVTT parser itself remains planned for lot 3.
+
 ### <u>arachnea-stream</u>
 
 #### Added
 
+- Added the effective translation catalog loaded from the `arachnea-translation` Scrapyfy group. It executes and validates `get_translation_metadata`, checks required encrypted credentials without exposing them, applies administrator order and preferred-provider parameters, and publishes languages, capabilities, detection and configuration revisions while reporting non-secret diagnostics. The revision covers the YAML hash and editable non-selection parameters, so credential changes do not invalidate translation results. A missing or invalid translation manifest does not prevent stream and hoster groups from loading. A Stream-backed port also loads the generic translation bridge from a published catalog entry, reusing the loaded collection, resolved credentials and configuration revision without exposing a public translation endpoint.
 - Fawesome `get_entry`, `get_players` and `get_season` responses now share one storyboard definition and expose a sequential trickplay storyboard derived from the video HLS directory (`tp/img-{index}.jpg`, 3-digit zero padding via `index_padding: 3`, 30-second interval, 266×150 frames), so movies and series episodes expose preview thumbnails to the player.
 - Fawesome player entries now expose `intro` and `outro` chapters built from the upstream `intro_st`/`intro_et` and `endcredit_st`/`endcredit_et` markers, so skip controls and auto-skip preferences can target the opening and closing credits.
 - Fawesome player entries now expose external WebVTT subtitles from `cc_path` and `cc_path_multi_lang`, using `content_language_iso2`/`default_lang` for the default track and `language` for multi-language tracks. Resolver subtitle tracks also carry an optional `auto_translate` flag sourced from `aicc`.
@@ -541,6 +555,10 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Added the generic `build_json` request action. Its `fields` mapping builds a typed JSON object from `string_parameter` values (escaped strings) and `json_parameter` values (validated decoded JSON), serializes it without a network call, and fails the request on a missing parameter or invalid JSON. Request-body resolution now propagates action errors instead of silently dropping the body.
+- Added the generic `build_json_array` request action and the `json_array_projection` field source. `build_json_array` turns a JSON array parameter into an array of objects selected by per-field JSON pointers, while `json_array_projection` inserts the values selected from every item into one `build_json` property. Both fail on non-array sources, blank fields or missing pointers, without adding provider-specific code.
+- Exposed `execute_query_on_source` for executing one loaded service query with optional media-type filtering, and `source_yaml_hash` for reading a service configuration revision. Both reuse the existing aggregator lifecycle and do not introduce a public execution endpoint.
+
 - Added memory and SQLite source-state table factories using the existing record schema and shared database connection, plus non-mutating `ScraperDataNode` readers for trimmed scalars/lists/direct-child maps and raw child lookup with first-item fallback. Existing precedence, blank handling, duplicate order and JSON/YAML contracts are preserved; SQLite remains feature gated.
 
 - Added explicit HTML document retrieval (`fetch_html_document`, `HtmlFetchPolicy`, `FetchedHtmlDocument`) extracted from Stream, including private literal JavaScript redirect recognition. The helper preserves separate client-owned HTTP and optional JavaScript hop budgets, materialized-body size checks, MIME/status acceptance and exact-requested-URL cycle behavior. No implicit query-wide activation or transport changes; diagnostics use generic HTML wording and the Scrapyfy log target.
@@ -711,6 +729,7 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Added the `arachnea-translation` service store to the admin configuration and its English/French titles and descriptions, allowing the disabled Azure Translator and LibreTranslate providers to be configured and reloaded like other service groups.
 - Added the Arachnéa Proxy settings block with activation, port/network controls, effective state, CLI field locking and named API-key creation/copy/revocation. Tokens are displayed only after creation.
 - Added content-type filtering and localized metadata-value labels through optional `value_labels` translation-key mappings shared by filter options and service-row tags.
 - Added configurable per-service-group metadata filters and text search, plus an Options dialog for YAML-declared editable parameters. The dialog validates inputs, shows bilingual TF1 country labels, restores YAML defaults in a cancellable draft, and requests runtime reload after saving. Service logos now reflect saved constants and parameters.
@@ -881,6 +900,7 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Added the `arachnea-translation` service manifest with disabled-by-default Azure Translator and LibreTranslate definitions. Their static metadata, editable provider order/preference, credentials and request mappings stay in Scrapyfy YAML; language lists are provisional subsets pending provider qualification.
 - Documented the proposed migration from card-kind fields to centralized media-type routing, including collection/live/video precedence, compatibility rules, target validation and affected catalog surfaces. Implemented after approval; the analysis records final behavior and validation.
 - Documented France TV category/live card gaps, public catalogue observations and a proposed `live` navigation discriminant, including direct targets absent from the live channel list. Implementation awaits contract approval.
 - Added the Fawesome category-versus-entry analysis, tracing YAML extraction, backend contracts and frontend navigation, with a proposed typed-card contract and validation plan. Implementation awaits confirmation.
@@ -900,6 +920,7 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Documented `build_json_array`, `json_array_projection` and `preserves_request_order` in the Scrapyfy and Translation specifications (French and English), and recorded the translation catalog, credentials lookup and administrator reload behavior in the translation analysis and TODO.
 - Updated the approved Arachnéa Proxy administration analysis: API tokens belong in the password field, optional routing parameters in the username, and internal/user keys contain 128 random bytes encoded as 171 unpadded Base64url characters for SOCKS5 compatibility. Recorded approval of configuration, persistence, and hot application choices; implementation remains pending.
 - Revised the remaining Stream responsibility analysis with approved initial lots and activation synchronization APIs, a proposed Core/Proxy/Scrapyfy split for country normalization, confirmed in-memory IP inventory collection and full IP-country file replacement semantics, and separate HTTP/JavaScript redirect limits and materialized-body size checks. Linked pending work from the TODO; runtime behavior is unchanged.
 - Traced the IP-country CLI refresh startup: its fresh inventory remains empty before collection, so successful initialization and persistence replace the relative IP-country file with an empty array. Documented partial-result replacement, lazy resolver reload behavior, working-directory paths and the separate functional correction required; no runtime changes.

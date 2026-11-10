@@ -3,6 +3,7 @@
   "service-store": [
     "arachnea-stream",
     "arachnea-stream-hoster",
+    "arachnea-translation",
     "arachnea-proxies",
     "arachnea-ip-countries"
   ],

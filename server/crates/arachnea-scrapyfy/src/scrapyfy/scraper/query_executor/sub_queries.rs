@@ -540,7 +540,7 @@ pub(super) async fn fetch_and_extract_for_entry_sub_query(
         params,
         url,
         context.parent_response,
-    );
+    )?;
     let client = context
         .http_client
         .configured(sub_query.http_config().clone());

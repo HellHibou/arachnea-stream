@@ -1,0 +1,635 @@
+# Analyse — traduction automatique des sous-titres
+
+Date de l’analyse : 2026-11-06. Mise à jour : 2026-11-10. Statut : recommandations précisées par l’utilisateur ; plan révisé pour imposer Scrapyfy, séparer traduction et sous-titres, intégrer les langues favorites et sélectionner les services selon leurs métadonnées YAML. Lots 1 et 2 implémentés le 2026-11-10 ; lots 3 à 10 : TODO.
+
+Périmètre initial : analyse et plan, désormais suivi de l’implémentation des lots 1 et 2. L’implémentation précédente, non conforme aux exigences précisées, a été supprimée. Le lot 1 (contrats et séparation des couches) et le lot 2 (catalogue, credentials et administration) sont livrés selon le plan révisé ; les lots 3 à 10 restent à réaliser. Les validations de l’implémentation supprimée ne valent pas validation des futurs livrables. Aucun appel fournisseur réel ni benchmark de qualité n’a été réalisé pour cette révision.
+
+## 1. Objectif et recommandation
+
+Ajouter un type de service dédié à la traduction, utilisable indépendamment du streaming, puis un orchestrateur backend qui reçoit l'URL d'un sous-titre et retourne un fichier WebVTT traduit complet. Chaque définition YAML de fournisseur déclare ses capacités optionnelles : traduction depuis une URL et/ou traduction d'un ou plusieurs blocs de texte avec des limites explicites.
+
+Recommandation : traduction générique dans `arachnea-translation`, traitement documentaire dans `arachnea-subtitles`, services exécutés exclusivement par `arachnea-scrapyfy` et assemblage dans `arachnea-stream`. Commencer par **Azure Translator F0** et **LibreTranslate auto-hébergé**. Conserver Google Cloud Translation comme option complémentaire et DeepL comme intégration conditionnelle selon le compte disponible.
+
+Le cache doit combiner **persistance backend des résultats** et **validation HTTP par ETag**. L'ETag seul économise le transfert ; il ne garantit pas qu'une traduction ne sera pas recalculée. Ne pas appeler le traducteur avant d'avoir recherché et validé le résultat en cache.
+
+## 2. État actuel du code
+
+| Élément | Constat et conséquence |
+| --- | --- |
+| `server/crates/arachnea-stream/src/services/player_resolver.rs` | `ResolvedPlayerSubtitle` contient `lang`, `label`, `link`, `auto_translate`. Le marqueur automatique existe déjà ; il ne déclenche aucune traduction. |
+| `docs/specifications/arachnea-stream-en.md`, section des pistes externes | Le contrat actuel expose des URL WebVTT lisibles par le navigateur. Les URL nécessitant des en-têtes sont proxifiées par le résolveur ; les pistes HLS/DASH intégrées sont gérées par les moteurs de lecture. |
+| `front/public-app/src/types/entry.ts` et `src/services/rustify/entry/stream.ts` | Le front normalise les pistes en `ResolvedPlayerSubtitle`, avec `autoTranslate`. Pas de fournisseur ni d'état de traduction. |
+| `front/public-app/src/composables/entry-details/entryPlayerStream.ts` et `entryPlayerMedia.ts` | Les pistes du lecteur et du flux résolu sont transmises à la source média. C'est une chaîne à conserver. |
+| `front/public-app/src/composables/video/video-js-media-renderer/subtitles.ts` | `addRemoteSubtitleTracks()` appelle `Video.js.addRemoteTextTrack()` ; le player sait donc déjà consommer une URL de WebVTT traduite. Pas de traduction ni de chargement applicatif du fichier. |
+| `front/public-app/src/composables/video/video-js-media-renderer/sourceController.ts` | Le contrôleur possède les pistes distantes, les supprime et invalide les chargements lors des changements de source. La traduction doit respecter ce cycle sans réappliquer la source vidéo. |
+| `front/public-app/src/services/rustify/apiClient.ts` | `call_api()` attend une réponse JSON, conserve les ETags et payloads en mémoire et rejoue `If-None-Match` et `arachneaEtag`. Le chemin Tauri utilise `invoke`. Ce client ne convient pas directement à un fichier `text/vtt`. |
+| `server/crates/arachnea-core/src/controler/contracts.rs` | `ControlerStreamInput` transporte méthode/en-têtes/contexte d'URL ; `ControlerStreamOutput` accepte octets, statut, type MIME et en-têtes. Réutilisable sans créer un contrôleur supplémentaire. |
+| `server/crates/arachnea-core/src/controler/rest/service/responses.rs` | La réponse de fichier peut porter `ETag`, `Cache-Control`, etc. Le callback doit produire un corps vide pour `304`. `HEAD` supprime le corps mais exécute le callback : éviter qu'il lance une traduction coûteuse. |
+| `server/crates/arachnea-core/src/controler/tauri/stream_response.rs` | Le protocole applicatif transmet les en-têtes et matérialise les réponses binaires. Réutiliser les chemins publics fournis par le contrôleur ; ne pas coder `/api` en dur. La persistance du cache navigateur sur ce protocole reste à qualifier. |
+| `server/crates/arachnea-scrapyfy/src/scrapyfy/{conditional.rs,global_etag.rs,scraper_cache.rs}` | Validation distante, agrégation d'ETags par source et cache de lignes extraites. Ce cache n'est pas un cache de fichiers traduits ; l'ETag du fichier final doit être distinct de celui de la source. |
+| `server/crates/arachnea-scrapyfy/src/scrapyfy/{service_catalog.rs,scraper_query_collection.rs}` | Catalogues à partir de manifestes récursifs et YAML, paramètres et identifiants de groupe. Manifestes/YAML avec requêtes effectives, paramètres et métadonnées ; le mapping typé des capacités de traduction reste à définir. Réutiliser ce moteur exclusivement pour les fournisseurs. |
+| `server/crates/arachnea-stream/src/{stream_scraper.rs,main.rs,admin_composition.rs,reloadable_stream_scraper.rs}` | Assemblage applicatif, stores typés, credentials, routes et rechargement. L'adaptateur admin reconnaît explicitement certains groupes ; ajouter un groupe nécessite de traiter son chargement et son rechargement. |
+
+La recherche dans ce checkout n’a pas identifié le crate Translation annoncé par le suivi ni de parseur backend WebVTT/SRT dédié. Le traitement des storyboards VTT côté front ne remplace pas un parseur de sous-titres.
+
+Les langues favorites sont déjà persistées sous `videoPlayer.subtitleLanguagePriority` (avec compatibilité de l’ancienne clé `videoPlayer.subtitleLanguages`). `ParameterSubtitleLanguages.vue` édite leur ordre ; `trackPreferences.ts` les utilise pour les profils `auto`, avec normalisation des langues et préférence pour les pistes humaines. Ces mécanismes sont à étendre, sans liste de langues concurrente.
+
+## 3. Périmètre fonctionnel proposé
+
+- Première version : pistes **externes WebVTT complètes** des vidéos à la demande. Une action explicite ou la sélection automatique autorisée par les préférences choisit une piste source et une langue cible ; seule la traduction nécessaire est calculée, sans générer toutes les langues favorites. Conserver la piste originale.
+- Prévoir une normalisation SRT vers WebVTT dans l'orchestrateur, en extension explicite ; les résolveurs actuels promettent du WebVTT et ne doivent pas se mettre à exposer du SRT brut au player.
+- Les sous-titres intégrés/segmentés HLS ou DASH, le direct, TTML/ASS, la transcription audio et les vidéos accessibles seulement en iframe demandent un autre travail. Les commandes de traduction sont indisponibles sans piste externe exploitable. Ce point limite la couverture initiale.
+- Utiliser la langue déclarée lorsqu'elle est fiable. Si absente, détecter une fois sur un échantillon représentatif ou utiliser la détection du fournisseur sur l'ensemble, puis stabiliser ce choix ; éviter de redétecter chaque réplique courte.
+- Traduction vers une seule langue par fichier ; ne pas retraduire une piste déjà dans cette langue et proposer par défaut une piste originale plutôt qu'une traduction de traduction.
+
+## 4. Architecture révisée et séparation des responsabilités
+
+Les précisions de l’utilisateur remplacent la recommandation antérieure de configuration autonome et d’adaptateurs Rust par fournisseur. Le moteur des services de traduction est **exclusivement `arachnea-scrapyfy`**. Du Rust supplémentaire est autorisé pour des primitives génériques réutilisables, sans branchement sur Azure, LibreTranslate ou un autre identifiant de fournisseur.
+
+### Répartition recommandée
+
+| Couche | Responsabilités | Dépendances et limites |
+| --- | --- | --- |
+| `arachnea-scrapyfy` | Exécuter les requêtes YAML, requêtes HTTP, authentification configurée, extraction et normalisation des réponses par actions/post-processeurs génériques. | Endpoints, en-têtes, sérialisation fournisseur, codes de langues et mapping des réponses sont décrits par les services YAML. Aucun endpoint fournisseur appelé directement depuis Translation ou Stream. |
+| `arachnea-translation` | Contrats de texte/URL, capacités, langues normalisées, identifiants de blocs, planification générique, bornes, budgets et reprises. Un pont unique appelle Scrapyfy et valide sa sortie normalisée. | Aucune connaissance de WebVTT, cue, player ou piste vidéo ; aucune implémentation Rust Azure/LibreTranslate. Dépendance vers Scrapyfy pour le pont, jamais l’inverse. |
+| `arachnea-subtitles` (nouveau, nom proposé) | Parsing et sérialisation WebVTT, protection du balisage, extraction des cues en blocs, segmentation compatible avec le document, reconstruction, validation temporelle et orchestration du cache des fichiers traduits. | Dépend de l’interface générique Translation, jamais d’un fournisseur ni de Stream. Reçoit récupération autorisée et persistance par injection. |
+| `arachnea-stream` | Résolution des pistes et proxys internes, droits, assemblage des couches, commandes JSON et transport REST/Tauri. | Fournit clients et stores existants ; ne contient ni mapping fournisseur ni parseur de sous-titres. |
+| Front public | Préférences par langue, décision de demander une piste, chargement et cycle de vie Video.js. | Consomme les capacités publiques, sans credentials ni protocole fournisseur. |
+
+Cette séparation en deux crates rend le moteur texte utilisable sans dépendre de la vidéo. Une séparation en modules dans un seul crate coûterait moins en assemblage, mais laisserait les dépendances documentaires dans le même paquet ; deux crates sont recommandés pour matérialiser la frontière demandée. Leur création est livrée au lot 1.
+
+Le planificateur Translation travaille sur des blocs abstraits ; la couche sous-titres reste propriétaire du lien `cue → segments`, du découpage respectant le balisage et des timestamps. L’identité de cache générique décrit service/langues/options ; le cache WebVTT ajoute empreinte du document, révision du parseur/pipeline et périmètre d’accès.
+
+### Configuration Scrapyfy et administration
+
+Conserver `server/services/arachnea-translation/services.json` comme manifeste du catalogue Scrapyfy et ajouter des définitions `azure-translator.yaml` et `libretranslate.yaml` contenant de **vraies queries**. Il n’existe pas de catalogue JSON fournisseur parallèle à charger directement depuis Translation. Réutiliser paramètres, credentials chiffrés, activation et rechargement de Scrapyfy.
+
+Définir un contrat normalisé d’entrée (blocs identifiés, langues, contexte optionnel) et de sortie (blocs traduits identifiés, langue détectée éventuelle, erreurs normalisées). Le YAML prend en charge les tableaux/objets exigés par chaque API et l’association de la réponse aux entrées lorsque le fournisseur répond par position. Le Rust générique vérifie la cardinalité et les identifiants.
+
+Le moteur dispose déjà de méthodes HTTP, d’en-têtes et de construction de corps via actions. Auditer ses capacités pour transmettre des tableaux JSON et produire une requête sans effet de réseau afin de mesurer ses octets réels. Compléter uniquement les primitives génériques manquantes ; ne pas promettre que tous les besoins de traduction sont déjà couverts par le schéma actuel. Les capacités typées sont retournées par la query YAML `get_translation_metadata` décrite ci-dessous ; le moteur générique valide cette sortie. Compléter le schéma uniquement si nécessaire et documenter les modifications Scrapyfy en FR/EN. Le champ `metadata` existant à la racine reste un ensemble de tags, pas un substitut à cette sortie structurée.
+
+Le catalogue public expose seulement les capacités effectives des services activés et configurés. Les secrets restent côté backend. La révision du résultat inclut les YAML/actions et paramètres qui modifient la requête ou sa normalisation ; une simple rotation de clé n’invalide pas nécessairement les traductions.
+
+## 5. Contrat de service et limites
+
+Interface générique indicative, mise en œuvre par un pont Scrapyfy commun : `TranslationService` expose `capabilities()`, `translate_url(...)` et `translate_texts(...)`. `translate_texts` est la voie de base ; `translate_url` est optionnelle. Une capacité URL absente ne rend pas un service texte inutilisable : le moteur récupère le fichier puis utilise la voie texte, avec l’adaptateur de document approprié. Les résultats texte doivent avoir une correspondance vérifiable avec les identifiants d'entrée, pas une chaîne contenant plusieurs blocs séparés arbitrairement.
+
+| Capacité / limite | Sens proposé |
+| --- | --- |
+| `url_translation` | Option contenant formats acceptés, langues, limites du document et mode de récupération du résultat. Une traduction de page HTML n'implique pas une prise en charge des sous-titres. |
+| `text_translation` | Option déclarant notamment si une liste est acceptée. Un service mono-texte a `max_blocks_per_request = 1`. |
+| `max_blocks_per_request` | Nombre maximal de blocs dans une requête. |
+| `max_units_per_block` | Taille maximale d'un bloc individuel. |
+| `max_units_per_request` | Somme des tailles facturées/limitées dans la requête. |
+| `size_unit` | Unité explicite : octets UTF-8, points de code Unicode ou autre unité réellement utilisée par l'API. |
+| `max_request_bytes` | Taille de requête sérialisée, distincte de la taille du texte : JSON, échappements et contexte comptent. |
+| `max_document_bytes`, `max_document_units` | Limites propres à la capacité document/URL. |
+| `context_support`, `markup_support` | Capacités optionnelles, sans supposer qu'un tableau de textes partage un contexte linguistique. |
+| Débit et quota | Requêtes/caractères par période, concurrence, budget gratuit restant et politique de reprise. Distincts des limites par requête. |
+
+Une limite absente signifie « pas de limite fournisseur déclarée », pas « ressources infinies » : des bornes locales s'appliquent toujours. Une limite inconnue doit être identifiée comme telle et utiliser une valeur prudente configurable. Pour LibreTranslate, les plafonds configurés par l'administrateur doivent refléter ceux de l'instance ; ne pas supposer une découverte automatique.
+
+### Métadonnées de service et langues disponibles
+
+Chaque service expose une query Scrapyfy `get_translation_metadata`, statique ou alimentée par l’API du fournisseur. Sa sortie normalisée, versionnée, contient obligatoirement `languages`, une liste de codes de langues à **deux lettres minuscules**, par exemple `[en, fr, de]`. Valider les codes contre le catalogue de langues retenu, supprimer les doublons et rejeter les valeurs invalides ; une liste vide n’autorise aucune traduction. Les alias des pistes sont normalisés avant comparaison. Ne jamais déduire une langue disponible d’un simple test « deux caractères ».
+
+`languages` est la liste commune requise. `source_languages` et `target_languages` sont optionnelles et valent chacune `languages` lorsqu’elles sont absentes. `supported_pairs` est **optionnel** : absent, tous les couples entre les langues source et cible déclarées sont considérés disponibles, hors traduction vers la même langue ; présent, il restreint les directions aux seuls objets `{source, target}` listés. Une liste explicitement vide n’autorise aucun couple. Chaque couple doit appartenir aux listes déclarées ; sa direction inverse n’est pas implicite. Le champ `all_pairs_supported` est supprimé pour éviter deux déclarations redondantes ou contradictoires.
+
+Le contrat initial reste à deux lettres : ne pas tronquer arbitrairement un code fournisseur sans équivalent, ni assimiler des variantes régionales ou d’écriture quand cela change la prise en charge. Les correspondances nécessaires restent dans le YAML. Une langue sans représentation dans ce contrat est exclue explicitement de la première version ; un futur support de variantes demandera une extension du contrat.
+
+La même sortie expose les capacités texte/URL, unités, plafonds, détection de langue et, si disponibles, restrictions de contexte/balisage. Les valeurs déclarées proviennent du YAML ou d’une découverte API normalisée par celui-ci. Les plafonds effectifs sont les plus restrictifs entre fournisseur, instance et configuration locale. Un plafond inconnu utilise une borne locale prudente, jamais une valeur illimitée implicite.
+
+Les métadonnées sont chargées et validées au chargement/rechargement des services, puis mises en cache avec une fraîcheur bornée pour la découverte distante. Une absence ou une incohérence exclut le service de la sélection et produit un diagnostic admin contextualisé. Un échec de rafraîchissement ne transforme pas des capacités périmées en capacités garanties : conserver le dernier état valide seulement pendant sa fraîcheur annoncée, puis rendre le service indisponible. Aucune traduction n’est lancée pour découvrir ses capacités.
+
+### Deux modes de traduction et repli depuis une URL
+
+- `translate_texts` reçoit le texte fourni par l’appelant, sous forme d’un ou plusieurs blocs identifiés ; le moteur planifie les lots selon les limites du service et retourne les blocs traduits.
+- `translate_url` reçoit l’URL d’un fichier que le **service distant** récupère lui-même. Cette query et sa capacité sont optionnelles ; leur déclaration précise formats, limites et forme du résultat complet. Elles ne désignent pas une simple page HTML ni un upload.
+- Pour une entrée URL, utiliser cette voie seulement si elle est déclarée, compatible avec le document et accessible au fournisseur. Sinon, le moteur récupère le fichier de manière contrôlée, extrait les blocs, appelle `translate_texts`, puis reconstruit le document. Cette décision intervient avant l’appel fournisseur ; une erreur de traduction URL ne provoque pas une seconde tentative texte facturable implicite.
+
+La façade URL est générique : elle orchestre récupération injectée, choix de capacité et adaptateur de document. Un fichier texte simple peut employer un adaptateur générique ; un WebVTT passe par `arachnea-subtitles`, qui reste propriétaire du parsing, des cues, des timestamps et de la reconstruction. La couche Translation ne traduit jamais le contenu brut d’un WebVTT comme une seule chaîne incluant son en-tête et ses timings. Stream fournit les droits et la récupération des proxys applicatifs. Ce repli est une fonction du moteur, pas une fausse query `translate_url` ajoutée à tous les YAML.
+
+### Détection optionnelle de la langue source
+
+Les métadonnées peuvent déclarer `source_detection` ; absente, la détection n’est pas disponible. Proposition de structure : `automatic` indique que la traduction accepte une langue source non fournie, `returns_detected_language` indique si la réponse expose la langue effective, et `query` peut désigner une query Scrapyfy de détection séparée. Une query séparée n’est pas obligatoire pour utiliser le mode automatique d’un service. Si la détection diffère selon la voie texte/URL, une surcharge dans la capacité concernée précise sa disponibilité.
+
+L’entrée normalisée accepte `source_language: null` pour demander la détection ; `auto` n’est pas ajouté à la liste de codes à deux lettres. Le pont fournit le mode automatique au YAML, qui le convertit en omission du champ, valeur `auto` ou autre représentation propre à l’API. Une source connue et fiable reste envoyée explicitement. Sans source connue, sélectionner un service déclarant la détection pour la voie choisie ou utiliser sa query de détection ; sinon signaler `source_language_required`.
+
+Pour plusieurs lots, détecter sur un échantillon représentatif via la query dédiée, ou récupérer la détection d’un premier lot représentatif puis fixer la source pour les suivants. Un service acceptant l’auto-détection sans restituer la langue peut servir une requête unique ; pour un document nécessitant plusieurs lots, il faut une détection préalable permettant de stabiliser la source, plutôt que laisser chaque cue ou lot détecter indépendamment. La sélection tient compte de cette contrainte. Les appels de détection sont également bornés et comptabilisés lorsqu’ils consomment du quota.
+
+Quand elle est retournée, normaliser la langue détectée, vérifier les restrictions éventuelles de `supported_pairs` et l’enregistrer dans les métadonnées du résultat. Sans langue retournée, conserver explicitement le mode automatique et une langue effective inconnue dans l’identité de cache ; ne pas inventer de code source. Avec des couples restreints et une source inconnue, exiger une détection préalable si le moteur ne peut pas établir l’éligibilité du couple. Si la détection révèle que source et cible sont identiques, réutiliser l’original sans poursuivre les lots ni publier une fausse piste traduite ; le coût d’un premier appel déjà accepté reste possible.
+
+### Sélection automatique du service
+
+La nouvelle demande de sélection automatique complète les choix validés : un fournisseur préféré sert à classer les candidats compatibles ; il n’est plus nécessaire d’imposer un fournisseur unique à toutes les langues. Un choix manuel explicitement contraignant reste possible.
+
+1. Constituer les candidats activés, autorisés, correctement configurés et disposant de métadonnées valides. Respecter le périmètre de compte, les budgets et les destinations fournisseur autorisées ; une sélection automatique n’autorise pas une offre payante supplémentaire.
+2. Filtrer sur le couple source/cible, la capacité utile (texte ou URL du format concerné), le contexte et le balisage requis. Si la source est inconnue, appliquer la politique de détection ci-dessus, sans exiger une query de détection séparée pour un service acceptant le mode automatique. Vérifier les couples restreints lorsqu’ils sont déclarés ; sans `supported_pairs`, utiliser les listes de langues par défaut.
+3. Mesurer le document et simuler les lots pour chaque candidat sans appel de traduction. Une taille maximale **par requête** ne disqualifie pas un service si le découpage respecte ses limites ; une limite de document, un bloc non découpable, une durée estimée hors budget ou un quota insuffisant peuvent le disqualifier. Mesurer les octets avec la construction réelle de requête Scrapyfy.
+4. Rechercher un résultat persistant valide parmi les candidats compatibles avant tout nouvel appel fournisseur. En mode contraint, consulter uniquement le service demandé. En mode automatique, privilégier un résultat réutilisable conforme aux options ; la provenance réelle reste conservée.
+5. À défaut de résultat, classer les candidats réalisables : fournisseur préféré s’il est compatible, ordre administrateur, puis nombre estimé de lots et identifiant stable pour départager. Ce classement déterministe évite d’inventer une préférence de qualité ou de prix non mesurée. Réserver le budget et la concurrence ; si une réservation échoue avant tout envoi, examiner le candidat suivant sans dépense fournisseur.
+6. Figer un fournisseur pour tout le document avant le premier appel de traduction. Conserver son identité, ses révisions et les langues effectives dans le cache. Aucun mélange de fournisseurs entre lots ni basculement automatique vers un autre après un appel de traduction en échec ; les reprises bornées sur le même fournisseur restent applicables.
+
+Le résultat de sélection comprend le service retenu et des raisons normalisées pour les exclusions (`unsupported_language_pair`, `unsupported_capability`, `size_limit`, `budget_exhausted`, `metadata_unavailable`). En l’absence de candidat, retourner une erreur contextualisée et laisser le front poursuivre le repli entre langues favorites. Ne pas journaliser les textes ni les secrets.
+
+### Proposition de format YAML
+
+L’exemple suivant décrit un **service fictif** pour illustrer le contrat ; les langues et les plafonds sont des valeurs locales d’exemple, sans rapport avec les offres Azure ou LibreTranslate. Il n’est pas un fichier fournisseur prêt à charger. Les queries, types de sortie et champs usuels reprennent la structure Scrapyfy existante ; les noms de query de traduction et la sortie normalisée constituent le nouveau contrat proposé.
+
+L’action `build_json` et sa syntaxe `fields` sont une **proposition d’extension générique à implémenter/valider au lot 1**, pas une action déclarée disponible aujourd’hui. Elle construit et sérialise un objet typé, en échappant les chaînes ; `json_parameter` décode une valeur JSON validée et `string_parameter` insère une chaîne. Elle doit pouvoir être utilisée par n’importe quel service Scrapyfy et par la mesure de requête sans appel réseau. Les noms des paramètres d’exécution ci-dessous sont également proposés : les secrets sont injectés depuis les credentials backend, sans valeur persistée dans le YAML ni exposition publique.
+
+```yaml
+id: example-translation
+title: Example translation service
+http:
+  mode: direct
+credentials:
+  required: true
+constants:
+  - name: base_url
+    value: https://translator.example.invalid
+
+queries:
+  - name: get_translation_metadata
+    scraper_type: static
+    media_types:
+      - application/arachnea-translation-metadata
+    entries:
+      - name: translation
+        type: object
+        value:
+          schema_version: 1
+          languages: [en, fr, de]
+          source_detection:
+            automatic: true
+            returns_detected_language: false
+          text_translation:
+            query: translate_texts
+            accepts_multiple_blocks: true
+            size_unit: unicode_code_points
+            max_blocks_per_request: 50
+            max_units_per_block: 5000
+            max_units_per_request: 10000
+            max_request_bytes: 65536
+            context_support: false
+            markup_support: false
+          url_translation: null
+
+  - name: translate_texts
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{base_url}/translate"
+    request_method: post
+    request_headers:
+      - name: Content-Type
+        actions:
+          - type: format_text
+            argument: application/json
+      - name: Authorization
+        actions:
+          - type: format_text
+            argument: "Bearer {translation_access_token}"
+    request_body_actions:
+      - type: build_json
+        fields:
+          source: {string_parameter: translation_source_language}
+          target: {string_parameter: translation_target_language}
+          blocks: {json_parameter: translation_blocks_json}
+    media_types:
+      - application/arachnea-translation-result
+    row_pointer: /translations/*
+    entries:
+      - name: id
+        type: string
+        pointer: /id
+      - name: text
+        type: string
+        pointer: /text
+```
+
+Dans cet exemple courant, `source_languages`, `target_languages` et `supported_pairs` sont omis : les langues de `languages` sont utilisables dans les deux directions. Un service restreint pourrait ajouter, dans l’objet `translation` :
+
+```yaml
+source_languages: [en, fr]
+target_languages: [en, fr, de]
+supported_pairs:
+  - {source: en, target: fr}
+  - {source: fr, target: en}
+  - {source: en, target: de}
+```
+
+Le service fictif accepte `auto` dans son champ `source` : pour une entrée normalisée nulle, le YAML utilise donc `translation_source_language = "auto"`. Cette convention d’API ne fait pas partie de `languages`. L’exemple ne retourne pas de langue détectée ; il illustre le mode automatique en une seule requête, avec la restriction multi-lots décrite ci-dessus.
+
+Pour un service disposant aussi d’une voie URL, remplacer `url_translation: null` dans ses métadonnées et ajouter une query dédiée. Fragment proposé, toujours pour une API fictive retournant le contenu traduit directement dans un objet JSON :
+
+```yaml
+# Inside the translation metadata object.
+url_translation:
+  query: translate_url
+  accepted_formats: [text/plain, text/vtt]
+  max_document_bytes: 1048576
+  result_mode: inline_document
+
+# Additional item in the service queries list.
+```
+
+```yaml
+- name: translate_url
+  scraper_type: json
+  base_url: "{base_url}"
+  query_url: "{base_url}/translate-url"
+  request_method: post
+  request_headers:
+    - name: Content-Type
+      actions:
+        - type: format_text
+          argument: application/json
+    - name: Authorization
+      actions:
+        - type: format_text
+          argument: "Bearer {translation_access_token}"
+  request_body_actions:
+    - type: build_json
+      fields:
+        url: {string_parameter: translation_document_url}
+        source: {string_parameter: translation_source_language}
+        target: {string_parameter: translation_target_language}
+  media_types:
+    - application/arachnea-translation-document
+  row_pointer: /document
+  entries:
+    - name: content
+      type: string
+      pointer: /content
+    - name: content_type
+      type: string
+      pointer: /content_type
+```
+
+La sortie de document normalisée contient ici `content` et `content_type` ; le contenu complet est validé par l’adaptateur du format, puis encodé en UTF-8. Un service retournant une URL de résultat ou une tâche doit déclarer ce mode et ses queries de récupération ; ne pas annoncer `inline_document` dans ce cas. Ces modes restent des extensions à implémenter selon les fournisseurs retenus. Sans capacité URL, aucun fragment supplémentaire n’est nécessaire : le moteur télécharge et utilise `translate_texts`.
+
+Entrée de traduction générique proposée : `translation_source_language = "en"`, `translation_target_language = "fr"` et `translation_blocks_json = [{"id":"block-1","text":"Hello"}]` sérialisé en JSON. Les identifiants sont des blocs abstraits, sans connaissance de cues. Dans cet exemple fictif, la requête contient ces blocs et la réponse distante suit `{"translations":[{"id":"block-1","text":"Bonjour"}]}`. Scrapyfy extrait les lignes `{id, text}` ; le pont générique vérifie les identifiants et la cardinalité avant de retourner le résultat.
+
+Pour une API répondant par position ou utilisant d’autres codes de langue, adapter les actions et post-processeurs YAML, sans créer de code Rust dédié au fournisseur. La découverte dynamique remplace la query statique par une query JSON qui produit le même objet `translation` ; elle expose les langues réellement disponibles sur l’instance et n’ajoute `supported_pairs` que si les directions doivent être restreintes. Les budgets locaux, l’ordre de sélection et le fournisseur préféré sont des paramètres d’administration distincts des capacités annoncées, pour qu’un YAML fournisseur ne décide pas seul d’une dépense autorisée.
+
+## 6. Traitement backend d'une URL
+
+1. Valider l’accès à la piste, la langue cible et la politique de sélection (automatique ou service contraint). Résoudre le descripteur source, identifier les candidats admissibles et chercher une traduction fraîche déjà persistée.
+2. Si nécessaire, revalider/récupérer la source avec ses en-têtes backend. Accepter les URL HTTP(S) autorisées et les liens de proxy applicatif reconnus. Résoudre ces derniers en interne : ne pas requêter aveuglément une adresse locale ou un protocole Tauri comme une URL distante.
+3. Calculer l'empreinte du contenu et mesurer séparément octets du fichier, texte traduisible et nombre de cues. Vérifier format, encodage et bornes, simuler les lots et sélectionner le fournisseur compatible selon la section 5 avant tout appel de traduction ; relire son cache avant de l’appeler.
+4. Si le service sait traduire **ce format par URL**, que l'URL est accessible depuis son infrastructure et que les limites sont respectées, cette voie est éligible. Le backend attend le résultat complet et vérifie la structure temporelle. Ne pas transmettre une URL privée, des cookies, une URL applicative ou des secrets de proxy au fournisseur.
+5. Sinon, utiliser la capacité texte : parser, extraire les blocs, construire les lots, traduire et réassembler. Le moteur télécharge le fichier via la récupération autorisée si nécessaire ; cette voie reste disponible sans query URL du fournisseur, et s’applique aussi lorsque l’URL est privée ou que le format dépasse les capacités URL. Aucun des fournisseurs initiaux n'est supposé offrir une traduction de sous-titres depuis une URL arbitraire.
+6. Valider le document final, le sérialiser en WebVTT UTF-8, le persister atomiquement puis retourner tous ses octets. Aucun résultat partiellement traduit n'est publié comme succès.
+
+Une API d'upload de document constitue une capacité différente de la traduction par URL. Elle pourra être ajoutée plus tard ; ne pas annoncer `url_translation` parce qu'un fournisseur possède un endpoint d'upload.
+
+### Préservation des sous-titres et constitution des lots
+
+Parser le document en structure, jamais par remplacement global du texte. Conserver identifiants, ordre, timestamps, paramètres de cues, `STYLE`, `REGION`, `NOTE` et métadonnées WebVTT ; ne traduire que le contenu visible prévu. Protéger les balises autorisées et timestamps internes, puis vérifier leur restitution. Rééchapper le texte retourné pour éviter qu'il introduise de nouvelles balises ou séparations de cues.
+
+Une cue est l'unité logique initiale ; ses retours de ligne ne sont pas forcément des frontières de phrase. La traduction peut modifier les coupures de lignes et être moins naturelle lorsque la phrase s'étend sur plusieurs cues. Fournir un contexte voisin quand l'API le permet ; ne pas concaténer des cues avec des séparateurs que le moteur pourrait traduire ou supprimer. Le regroupement linguistique avec réalignement temporel est une amélioration séparée.
+
+Former des lots en respectant simultanément nombre de blocs, taille individuelle, taille cumulée et octets sérialisés. Préserver une table `cue_id → segments → résultat`. Scinder une cue trop longue aux frontières de phrases puis de mots, sans couper Unicode ni balisage ; recomposer ses fragments dans la même cue. Vérifier cardinalité, ordre et segments non vides. Un changement de stratégie doit être borné, pas une boucle de tentatives consommant tout le quota.
+
+Limiter la concurrence par fournisseur/compte ; respecter `Retry-After` et les reprises temporisées bornées. Distinguer erreurs d'authentification, langue non prise en charge, contenu trop volumineux, quota et incident temporaire. Aucun basculement automatique vers une offre payante ; la sélection d’un autre fournisseur reste limitée à la phase préalable, sans basculement implicite après un appel de traduction en échec.
+
+## 7. Cache persistant et ETag
+
+### Identité et persistance
+
+Prévoir un index de source et un cache de résultat complet. Réutiliser les interfaces de stores typés de Core lorsque adaptées ; stocker les octets et métadonnées sous un format versionné. Définir une durée de fraîcheur de source, une rétention des résultats et un plafond disque ; ne pas confondre ces trois politiques.
+
+La clé de résultat comprend : empreinte de la source, langues source/cible effectives, fournisseur et endpoint/modèle, options linguistiques, révision du pipeline/parseur, et périmètre d'accès. L'ETag fort est une empreinte des **octets du WebVTT final** entre guillemets. L'ETag distant reste uniquement un validateur de la source.
+
+Ne pas identifier le résultat par la seule URL : elle peut changer de contenu ou expirer. Pour les URL signées renouvelées, dédupliquer après récupération par empreinte de contenu ; utiliser une identité stable de piste seulement si le résolveur la connaît. Ne pas supprimer arbitrairement des paramètres d'URL. Les credentials ne figurent pas dans les clés publiques ; isoler les contenus privés selon leur périmètre d'accès.
+
+### Comportement conditionnel
+
+| Situation | Travail effectué | Réponse |
+| --- | --- | --- |
+| Résultat connu, source encore fraîche, ETag correspondant | Lecture des métadonnées, aucun appel source/traducteur | `304`, sans corps, avec ETag et politique de cache |
+| Résultat connu, source fraîche, ETag absent/différent | Lecture du fichier conservé, aucun appel traducteur | `200 text/vtt; charset=utf-8`, fichier complet et ETag |
+| Source à revalider, amont répond `304` | Réutilisation de l'empreinte connue et de la traduction | `304` ou `200` selon le validateur client |
+| Source reçue à nouveau mais empreinte inchangée | Réutilisation de la traduction malgré une URL ou un validateur distant différent | `304` ou `200`, aucun appel traducteur |
+| Source réellement différente ou résultat absent | Traduction complète, validation et persistance, comparaison du nouvel ETag | `200` normalement ; `304` si les octets finaux correspondent au validateur client |
+| Cache backend évincé, seul ETag client disponible | L'ETag fourni ne prouve pas que la source est inchangée | Reconstituer/valider le résultat avant décision ; une nouvelle traduction peut être nécessaire |
+
+Il est donc impossible de promettre « jamais de retraduction si le client possède le fichier » après perte de tout état backend. Une rétention persistante est la garantie pratique. Ne jamais calculer un ETag après avoir systématiquement retraduit, ni accepter aveuglément un ETag client.
+
+Prendre en charge la sémantique `If-None-Match` pour GET : liste de validateurs, préfixe faible et `*`, et contrôler l'accès avant toute réponse `304`. Proposer `Cache-Control: private, no-cache` pour conserver le corps tout en revalidant ; exposer `ETag` par CORS lorsque le front est sur une autre origine. Les durées de fraîcheur internes évitent qu'une revalidation HTTP entraîne toujours un téléchargement amont.
+
+Mutualiser les demandes identiques en cours, avec un verrou par identité de travail et une deuxième lecture du cache après acquisition. Pour plusieurs processus, utiliser un mécanisme partagé ou une réservation persistante ; un verrou mémoire ne suffit pas. Ne pas publier d'entrée finale en cas d'échec partiel. Un cache de lots réussis peut faciliter les reprises, mais augmente le périmètre et n'est pas indispensable à la première version.
+
+`HEAD` ne doit pas déclencher de traduction : servir les métadonnées d'un résultat existant, sinon renvoyer une indisponibilité explicite documentée. Les erreurs temporaires ne deviennent pas des fichiers VTT ni des entrées de cache durables.
+
+## 8. Contrat backend/front proposé
+
+Séparer la préparation JSON du transport du fichier pour conserver `call_api()` et les deux modes REST/Tauri.
+
+1. `get_translation_services` : catalogue public des services utilisables, capacités et langues ; aucune clé.
+2. `prepare_subtitle_translation` : reçoit `url`, identité/contexte de la piste, langue source facultative, langue cible et politique de sélection : `auto` avec fournisseur préféré facultatif, ou service contraint. Vérifie les droits et les candidats possibles puis produit un descripteur sans lancer de traduction. En mode automatique, le fournisseur définitif est choisi au GET après mesure du contenu ; la préparation ne peut pas garantir sa compatibilité de taille. L'URL reste l'entrée fonctionnelle ; le front n'envoie pas le contenu du fichier.
+3. La réponse contient une piste compatible avec le contrat existant : `{ link, lang, label, auto_translate: true }`. `link` est construit avec `stream_public_path()` et identifie la demande par un jeton opaque, sans credentials ni URL source en clair.
+4. `GET <public-path>/subtitle_translation/<token>.vtt` charge ou traduit, puis retourne le fichier complet et son ETag. Le jeton doit rester stable pour une même demande autorisée pendant sa durée de vie afin que le cache navigateur soit utile ; son renouvellement doit retrouver le même résultat backend.
+
+La préparation utilise le pont JSON existant, qui emploie actuellement GET en REST. Garder cette préparation sans traduction ni autre effet coûteux. Un éventuel passage à POST doit être explicitement implémenté/documenté ; ne pas supposer que `call_api()` l'envoie déjà.
+
+La résolution du jeton doit fonctionner après redémarrage pendant la rétention annoncée : descripteur persisté ou jeton signé avec gestion explicite de son expiration. Vérifier l'accès lors du téléchargement, et empêcher qu'un jeton d'un utilisateur donne accès aux sous-titres privés d'un autre. Les statuts d'erreur du callback fichier sont construits explicitement, car les adaptateurs actuels convertissent un `Err` générique en `400` texte.
+
+### Langues favorites et autorisation de génération
+
+Étendre la liste existante, en conservant `videoPlayer.subtitleLanguagePriority` comme ordre de référence. Proposition : une table persistée `videoPlayer.subtitleTranslationByLanguage` associe à chaque code normalisé un booléen « Générer par traduction si absent », désactivé par défaut. Ce nom est indicatif. Éviter de convertir silencieusement les `string[]` existants en objets incompatibles ; les réglages absents migrent vers `false`. Réordonner conserve le réglage de la langue ; suppression, remplacement et doublons normalisés sont traités explicitement par les sanitizers.
+
+Pour un profil demandant des sous-titres `auto`, parcourir les langues favorites dans leur ordre. Pour chaque langue : réutiliser une piste correspondante selon les règles exact/base et humain/automatique existantes ; à défaut, si la génération est autorisée, qu’une source externe originale est exploitable et qu’un service prend en charge le couple de langues, demander une seule traduction. Pendant l’attente, conserver la lecture et la piste courante ; en cas d’échec, poursuivre le repli sans boucle de requêtes. Une langue prioritaire autorisée à la traduction peut ainsi être générée avant de retenir une piste d’une langue moins prioritaire.
+
+Une sélection manuelle ou la désactivation des sous-titres prime sur ce déclenchement automatique. Les profils `disabled` ne génèrent rien. Un profil ciblant une langue explicite utilise le même réglage si cette langue figure dans la liste ; sinon, aucune génération automatique sans demande manuelle. Une action manuelle reste possible et explicite, indépendamment de l’autorisation de génération automatique. Ne pas calculer toutes les langues favorites au chargement. La restauration du profil peut déclencher la génération seulement si le réglage l’autorise ; annuler l’ajout au moindre changement de source, de choix manuel ou de préférence. Le fournisseur est sélectionné automatiquement parmi les services compatibles et autorisés, en tenant compte du fournisseur préféré configuré ; une sélection manuelle contraignante reste possible. Aucun changement d’offre facturable n’est autorisé implicitement.
+
+### Intégration Vue / Video.js
+
+Ajouter une commande de traduction dans le menu des sous-titres, avec piste source, langue cible et état de chargement/erreur, en réutilisant les langues favorites et leurs autorisations de génération. Un composable dédié orchestre sélection, préparation et récupération ; `subtitles.ts` reste responsable de l'ajout/retrait des pistes. Garder la vidéo en lecture pendant le calcul et n'activer la traduction qu'après chargement réussi.
+
+Deux transports sont possibles : URL directement donnée à Video.js (simple, cache HTTP natif, retour d'erreur moins contrôlable), ou `fetch` dédié puis `Blob` WebVTT (meilleur contrôle des erreurs, annulation et sélection après chargement). **Recommandation : `fetch` dédié**, s'appuyant sur le cache HTTP en REST, avec ajout du Blob comme piste après réception complète. Ne pas passer ce fichier à `call_api()`.
+
+Avec le cache HTTP natif, `fetch` restitue habituellement le corps revalidé ; si l'application gère elle-même `If-None-Match`, elle doit conserver le corps associé et traiter un vrai `304` sans corps. Sur le protocole Tauri, qualifier le cache natif ; au besoin prévoir un cache applicatif `ETag + octets`, borné, et une persistance IndexedDB si nécessaire au-delà de la session. Ne pas confondre URL Blob et identité de cache de la requête backend.
+
+Invalider les opérations au changement de source/langue ou au démontage ; ignorer les réponses tardives et révoquer les URL Blob retirées. Réutiliser le mécanisme de propriété des pistes et éviter de modifier la liste source d'une manière qui redémarre la vidéo. Étendre les préférences avec une identité stable de traduction, jamais le jeton temporaire ou l'URL Blob. Ajouter les libellés i18n et distinguer visuellement les pistes automatiques. Le front admin reçoit les paramètres du nouveau groupe sans exposer les secrets au catalogue public.
+
+## 9. Taille des fichiers et offres gratuites
+
+### Hypothèses de dimensionnement
+
+Les chiffres suivants sont des **scénarios de calcul**, pas des mesures de sous-titres du dépôt. La recherche n'a pas trouvé de fichiers `.vtt`/`.srt` locaux permettant un échantillonnage représentatif.
+
+| Scénario, une langue cible | Cues | Texte envoyé, hypothèse | Conséquence |
+| --- | ---: | ---: | --- |
+| Épisode | 800 | 32 000 caractères | Peut tenir dans un lot Azure, sous réserve des autres limites |
+| Film de référence | 2 000 | 80 000 caractères | Au moins deux lots Azure, trois lots Google v3 à son maximum de caractères |
+| Contenu long/dense | 5 000 | 200 000 caractères | Au moins cinq lots Azure à cause du nombre de blocs, sept lots Google v3 à cause des caractères |
+
+Calcul Azure : `max(ceil(cues / 1 000), ceil(caractères / 50 000))` est une **borne inférieure**, pas un nombre garanti : tailles individuelles, marges et sérialisation peuvent augmenter le nombre de lots. Plusieurs langues multiplient le volume. Les timestamps et métadonnées augmentent le fichier sans nécessairement augmenter le texte facturé lorsque seuls les blocs sont envoyés. Toujours distinguer octets et caractères Unicode.
+
+### Sélection proposée
+
+| Service | Gratuité documentée | Limites pertinentes | Décision |
+| --- | --- | --- | --- |
+| **Azure Translator F0** | 2 millions de caractères/mois selon la page de tarifs pour la combinaison admissible de traduction standard et entraînement personnalisé ; la page de limites actuelle indique aussi un plafond F0 de 2 millions de caractères/heure | Traduction texte : 1 000 éléments, 50 000 caractères par élément et par requête, somme sur toutes les langues cibles. Débit également limité ; respecter une consommation régulière. | **Premier fournisseur hébergé recommandé** : environ 25 films de référence/mois pour un compte dédié, avant autres usages/reprises, sous réserve du plafond horaire et des conditions actuelles. Créer une ressource F0, pas une ressource facturable S1. La traduction de documents n'est pas supposée gratuite dans ce plan. |
+| **LibreTranslate auto-hébergé** | Logiciel libre, sans quota mensuel imposé par un abonnement SaaS ; matériel, exploitation et hébergement à financer | `/translate` accepte un texte ou un tableau. Limites `--char-limit`, `--batch-limit`, débit et modèles à configurer pour l'instance. | **Deuxième fournisseur recommandé**, adapté aux volumes récurrents. Démarrage prudent possible à 50 blocs et 5 000 caractères cumulés par lot, valeurs locales à mesurer, sans les présenter comme limites officielles. Qualité et langues à qualifier. Le service hébergé libretranslate.com demande une clé payante. |
+| **Google Cloud Translation NMT** | 500 000 premiers caractères/mois, sous forme d'un crédit mensuel de 10 USD | v3 : 30 000 points de code/requête, recommandation de 5 000 ; v2 : 100 000 octets/requête. | **Option complémentaire**, environ six films de référence/mois. Projet avec facturation ; dépassement payant. Mettre un plafond applicatif au crédit gratuit ; une alerte de budget ne constitue pas un arrêt automatique. Ne pas assimiler les autres modèles ou la traduction de documents à ce crédit NMT. |
+| **DeepL API Developer / ancien Free** | Developer : 1 million de caractères au total, non renouvelable. L'ancien Free à 500 000/mois n'est plus disponible à la souscription selon le centre d'aide consulté. | API texte : requête totale 128 KiB ; tableau de textes. La référence actuelle consultée n'affiche pas de plafond de 50 textes : un plafond local de 50 serait prudent, pas un contrat fournisseur établi. Upload SRT/WebVTT : 150 KB par document. | **Conditionnel**, pas une offre gratuite récurrente pour un nouveau compte. Environ douze films de référence sur l'essai, ou six/mois pour un compte historique Free. Préférer les lots texte pour ne pas exclure les fichiers dépassant 150 KB. |
+
+Sources officielles : [tarifs Azure](https://azure.microsoft.com/en-us/pricing/details/cognitive-services/translator/), [limites Azure](https://learn.microsoft.com/en-us/azure/ai-services/translator/service-limits), [API texte LibreTranslate](https://docs.libretranslate.com/api/operations/translate/), [installation et limites LibreTranslate](https://docs.libretranslate.com/guides/installation/), [clés LibreTranslate](https://docs.libretranslate.com/guides/manage_api_keys/), [tarifs Google](https://cloud.google.com/products/translate/pricing?hl=en), [quotas Google](https://docs.cloud.google.com/translate/quotas), [offres DeepL](https://support.deepl.com/hc/en-us/articles/360021200939-DeepL-API-plans), [limites DeepL](https://developers.deepl.com/docs/resources/usage-limits), [API texte DeepL](https://developers.deepl.com/api-reference/translate/request-translation).
+
+Les équivalents en films sont des divisions du quota par 80 000 caractères, arrondies à l'entier inférieur. Ils ne comprennent ni autres usages du compte ni traductions répétées et ne constituent pas une garantie commerciale. Les offres doivent être revérifiées au moment de l'intégration ; aucune inscription ni validation de compte n'a été effectuée.
+
+### Solutions écartées du lot initial
+
+- **MyMemory** : 500 octets par requête et 5 000 caractères/jour anonymement, 50 000 avec une adresse email. Le scénario film dépasse même ce second quota journalier et impose trop de petites requêtes. [Spécification officielle](https://mymemory.translated.net/doc/spec.php), [quotas officiels](https://mymemory.translated.net/doc/usagelimits.php).
+- **Amazon Translate** : volume intéressant, mais gratuité annoncée de 2 millions de caractères/mois limitée à douze mois ; ne répond pas au choix prioritaire d'une gratuité récurrente durable. Ce n'est pas une exclusion pour taille insuffisante. [Tarifs officiels](https://aws.amazon.com/translate/pricing/).
+- Endpoints internes de sites de traduction et miroirs publics sans quotas/contrat vérifiables : aucune capacité garantie pour des fichiers complets. Ne pas les présenter comme APIs gratuites prises en charge.
+- Offres LLM : hors première sélection faute de contrat déterministe de correspondance entre cues et de budget gratuit durable vérifié dans cette analyse. Leur ajout demanderait une qualification distincte.
+
+## 10. Bornes et exploitation à prévoir
+
+La récupération d'une URL fournie au backend introduit un accès réseau indirect : rattacher la demande à une piste autorisée, limiter HTTP(S), contrôler résolutions et redirections, refuser les destinations privées/métadonnées hors proxy applicatif reconnu. L'endpoint LibreTranslate local est une configuration administrateur distincte, pas une permission de charger n'importe quelle URL locale.
+
+Proposer des plafonds configurables de fichier décompressé, nombre de cues, taille traduisible totale, durée de récupération et durée de traduction, plus une concurrence faible par compte. Les fixer après mesures ; un document complet ne doit pas permettre des allocations ou attentes non bornées. Pour les contenus lents, qualifier la durée tolérée par REST/reverse proxy/Tauri : si elle est insuffisante, ajouter une préparation asynchrone avec état de tâche et fichier final séparé, sans retourner du JSON `202` là où Video.js attend du WebVTT.
+
+Mesurer cache utilisé, revalidations source, caractères envoyés, lots, durée, erreurs et quota consommé. Ne pas journaliser textes, credentials ou URL signées complètes. Le quota gratuit est partagé au niveau du compte fournisseur ; un compteur local seul ne connaît pas les usages extérieurs. Garder une marge et interroger l'usage officiel quand disponible. L'annulation côté navigateur empêche un ajout obsolète ; elle ne garantit pas l'annulation d'une traduction déjà acceptée et facturée par le service.
+
+## 11. Décisions acquises et questions restantes
+
+L’utilisateur a précisé les recommandations : Scrapyfy obligatoire, Rust générique, séparation traduction/sous-titres et intégration des favoris. Le plan ci-dessous remplace les choix antérieurs incompatibles. L’implémentation précédente a été supprimée ; les lots 1 et 2 sont livrés et les lots 3 à 10 restent à TODO.
+
+### Décisions acquises
+
+- Deux couches indépendantes : `arachnea-translation` générique et `arachnea-subtitles` documentaire ; assemblage dans Stream.
+- Fournisseurs exclusivement décrits et exécutés par Scrapyfy ; aucune configuration autonome ni adaptateur Rust spécifique.
+- Réutilisation de la liste ordonnée de langues favorites avec autorisation de génération par langue, désactivée par défaut ; générer la langue prioritaire autorisée avant de retenir une piste d’une langue moins prioritaire.
+- Privilégier une piste source originale non traduite, puis une autre piste humaine exploitable.
+- Métadonnées de service issues d’une query YAML, avec codes de langues à deux lettres, couples optionnels et plafonds ; sélection générique automatique selon le besoin, un fournisseur par document.
+- `translate_texts` pour le texte fourni et `translate_url` optionnelle pour une URL récupérée par le service ; sans voie URL compatible, récupération par le moteur et traduction des blocs texte. Détection source optionnelle, intégrée à la traduction ou query séparée.
+- Fournisseurs initiaux : Azure Translator F0 et LibreTranslate auto-hébergé, désactivés tant que leur configuration Scrapyfy n’est pas valide. Sélection automatique préalable selon langues/capacités/tailles et budgets, avec fournisseur préféré configurable ; aucun basculement payant ni changement de fournisseur après un appel de traduction en échec.
+- Première livraison : pistes WebVTT externes complètes à la demande, une langue cible par demande, fournisseur sélectionné/configuré et conservation de la piste originale.
+- Préparation JSON sans traduction, récupération du fichier complet par le chemin public REST/Tauri, cache backend persistant et ETag du résultat final.
+- Chargement frontend par `fetch`, ajout du Blob après succès, sans réinitialisation de la source vidéo.
+- Aucun nouveau test ni infrastructure de test sans demande explicite. Mise à jour des tests existants affectés, checks existants et qualification manuelle.
+
+### Questions et points de qualification
+
+Aucune question produit n’empêche de commencer les lots de fondation. Les points suivants doivent être résolus avant les validations qui en dépendent ; ils ne remettent pas en cause les recommandations acceptées.
+
+| Point | Proposition / traitement | Échéance |
+| --- | --- | --- |
+| Comptes et accès réels | Utiliser une ressource Azure F0 et une instance LibreTranslate administrée. L’administrateur devra fournir endpoint, région éventuelle et credentials via le stockage chiffré existant ; aucune valeur secrète dans ce document. Sans accès, la définition YAML peut être implémentée mais sa qualification réelle reste en attente. | Lot 4, puis qualification finale |
+| Langues et corpus de référence | S’appuyer sur les langues effectives des fournisseurs ; sélectionner quelques pistes autorisées et des couples de langues représentatifs de l’usage pour la qualification. Les 80 000 caractères du scénario film restent une hypothèse. | Lots 3–4 et 9 |
+| Bornes locales et rétention | Mesurer puis fixer des valeurs configurables : taille décompressée, cues, caractères, concurrence, budgets, délais, fraîcheur source, rétention des résultats et plafond disque. Distinguer valeurs locales et limites fournisseur. | Contrats livrés au lot 1, valeurs qualifiées au lot 9 |
+| Nombre de processus | Assurer la déduplication dans un processus ; si plusieurs processus partagent le cache, exiger une réservation persistante ou un verrou partagé avant activation dans ce mode. Documenter la topologie réellement prise en charge. | Lot 5 |
+| Durée acceptable d’un GET | Qualifier REST, reverse proxy et Tauri sur les volumes représentatifs. Si les délais imposent des tâches asynchrones, présenter ce changement de contrat avant de le réaliser. | Lots 6 et 9 |
+| Cache du protocole Tauri | Mesurer son comportement ; employer si nécessaire un cache applicatif borné `ETag + octets`. La persistance backend reste obligatoire ; IndexedDB ne devient nécessaire que si la persistance du corps côté client est requise. | Lot 7 |
+| Parseur WebVTT | Choisir ou implémenter un parseur dans la couche sous-titres. Vérifier préservation structurelle et licence. | Lot 3 |
+
+SRT, Google, DeepL, upload de documents, modes URL avec tâches/récupération différée, regroupement linguistique entre cues et cache de lots intermédiaires restent des extensions distinctes. Le contrat URL optionnel et son repli vers le texte font partie du socle ; aucun fournisseur initial n’est annoncé compatible URL sans qualification. Leur réalisation n’est pas nécessaire pour terminer la première livraison.
+
+## 12. Plan d’implémentation détaillé par lot
+
+Les lots sont des unités de réalisation et de revue, pas des estimations calendaires. Chaque lot met à jour les README et spécifications concernés, le suivi ici et `docs/TODO.md`, ainsi que `CHANGELOG.md` lorsque le comportement, un contrat ou la structure évolue. Ne pas reporter toute la documentation au dernier lot. Les chemins nouveaux restent indicatifs jusqu’à leur création.
+
+### Lot 1 — Contrats et séparation des couches
+
+**Statut : DONE (2026-11-10).**
+
+**Livré :** crates `arachnea-translation` et `arachnea-subtitles` inscrits au workspace ; contrats de langues, blocs, capacités, limites, métadonnées, sélection, planification, identité de cache, descripteur persistant, ports de récupération/cache et statuts HTTP ; pont Scrapyfy générique et action `build_json` ; README des deux crates, spécifications Translation FR/EN et documentation Scrapyfy mise à jour. Aucun endpoint public de traduction.
+
+**Dépendance :** recommandations validées.
+
+**Travaux :**
+
+1. Créer `arachnea-translation` et `arachnea-subtitles` et inscrire les deux crates au workspace, avec les frontières de responsabilité définies en section 4.
+2. Définir les types de langues, identifiants de blocs, capacités URL/texte, unités de taille et limites de la section 5. Définir les erreurs contextualisées et les correspondances d’entrée/sortie.
+3. Définir le pont générique Scrapyfy, les blocs texte et la mesure de requête côté Translation ; réserver récupération de piste, cache documentaire et types WebVTT à Subtitles. Définir les ports injectés sans dépendance vers Stream.
+4. Définir entrées/sorties normalisées des queries et capacités/limites typées issues du catalogue Scrapyfy. Spécifier `get_translation_metadata`, langues à deux lettres, couples directionnels optionnels, détection source intégrée/séparée, plafonds et fraîcheur. Définir les deux voies texte/URL optionnelle et le repli URL vers récupération + blocs via un adaptateur de document. Définir la sélection automatique/préférée/contrainte et les erreurs d’exclusion ; aucune configuration fournisseur autonome. Inclure les révisions YAML/actions dans l’identité de résultat.
+5. Spécifier les commandes JSON, le descripteur persistant, les règles d’accès, les clés de cache et la table des erreurs HTTP ; fixer notamment la réponse `HEAD` sans résultat existant.
+6. Centraliser les constantes dans le `src/lib.rs` de leur crate propriétaire ; documenter les frontières et dépendances, ajouter rustdoc anglaise et README des deux crates. Créer les spécifications Translation FR/EN selon les conventions du dépôt.
+
+**Livrable :** deux crates compilables, frontières documentées et contrat Scrapyfy normalisé, sans traduction accessible au public.
+
+**Validation / sortie :** `cargo check -p arachnea-translation -p arachnea-subtitles -p arachnea-scrapyfy` depuis `server/` ; revue des unités, versions et dépendances ; configuration invalide rejetée explicitement. Les statuts et le périmètre d’accès ne restent pas implicites pour les lots suivants.
+
+### Lot 2 — Catalogue, credentials et administration
+
+**Statut : DONE (2026-11-10).**
+
+**Livré :** manifeste `server/services/arachnea-translation/services.json` avec Azure Translator et LibreTranslate désactivés par défaut ; métadonnées statiques `get_translation_metadata` et queries `translate_texts` exécutées par Scrapyfy ; actions génériques `build_json_array` et `json_array_projection` ; recherche groupée de credentials chiffrés ; catalogue effectif `TranslationCatalog` chargé par Stream avec validation des langues/couples, ordre administrateur, préférence fournisseur, révision de configuration et diagnostics sans secret, et pont Scrapyfy générique adossé à ce catalogue ; la révision couvre le hash YAML et les paramètres éditables hors ordre/préférence, tandis qu’un changement de credentials ne l’invalide pas ; groupe `arachnea-translation` ajouté au rechargement admin ; entrées de configuration et libellés admin. Le pont texte accepte `preserves_request_order` pour les fournisseurs qui ne renvoient pas d’identifiants de blocs. Aucun endpoint public de traduction n’est exposé.
+
+**Dépendance :** lot 1.
+
+**Travaux :**
+
+1. Remplacer les éventuelles définitions JSON autonomes par un manifeste Scrapyfy `server/services/arachnea-translation/services.json` et les YAML Azure/LibreTranslate avec queries effectives ; conserver les fournisseurs désactivés par défaut et les références de credentials non secrètes.
+2. Réutiliser le catalogue, les paramètres et les credentials chiffrés Scrapyfy, puis brancher le pont générique dans Stream ; une configuration absente laisse la fonctionnalité indisponible sans empêcher les autres services de fonctionner.
+3. Ajouter le groupe à l’adaptateur admin et au rechargement existant. Valider une nouvelle configuration avant de la publier ; préserver un état cohérent pour les opérations en cours.
+4. Exécuter `get_translation_metadata` via Scrapyfy, valider listes de langues/couples/plafonds et gérer fraîcheur/rechargement ; construire le catalogue public effectif. Exposer les langues possibles sans promettre une compatibilité de taille avant mesure. Ajouter préférence fournisseur et ordre administrateur ; ne renvoyer aucun secret ni détail privé de configuration.
+5. Distinguer changement de credential et changement influant sur la traduction pour calculer la révision de cache. Documenter activation, désactivation et rechargement.
+
+**Livrable :** configuration administrable et catalogue effectif, fournisseurs désactivés par défaut.
+
+**Validation / sortie :** checks Rust des crates touchés et checks admin existants si modifié ; vérification manuelle activation/désactivation/rechargement, credential absent et absence de secret dans le catalogue ou les logs. Mettre à jour les tests existants affectés.
+
+### Lot 3 — Documents WebVTT et planification des lots
+
+**Statut : TODO.**
+
+**Dépendance :** lot 1 ; réalisable indépendamment des comptes fournisseurs.
+
+**Travaux :**
+
+1. Dans `arachnea-subtitles`, qualifier le choix du parseur puis implémenter lecture, validation et sérialisation WebVTT UTF-8 avec conservation des identifiants, timestamps, paramètres, blocs et métadonnées décrits en section 6.
+2. Extraire uniquement le texte traduisible, protéger le balisage et les timestamps internes, conserver une table de correspondance vérifiable entre cues et segments.
+3. Mesurer séparément fichier décompressé, cues, texte et unités fournisseur ; appliquer les plafonds locaux avant traduction.
+4. Confier à Translation les lots de blocs abstraits et la mesure de leur requête Scrapyfy ; garder dans Subtitles le découpage des cues et la correspondance des segments. Respecter simultanément blocs, unités et octets réellement sérialisés, sans couper Unicode ni balisage.
+5. Recomposer les fragments, contrôler cardinalité et structure et rééchapper le texte traduit. Un échec ou une réponse incomplète ne produit jamais un fichier final partiel.
+
+**Livrable :** pipeline de document indépendant des adaptateurs et du player ; SRT toujours hors du chemin initial.
+
+**Validation / sortie :** qualification manuelle aller-retour sans traduction, accents et caractères multioctets, balises, blocs `STYLE`/`REGION`/`NOTE`, cues longues et fichiers invalides. Vérifier les trois volumes de la section 9 et l’absence d’altération temporelle. Exécuter les checks du crate et les tests existants affectés, sans en créer.
+
+### Lot 4 — Services YAML Azure/LibreTranslate et exécution générique
+
+**Statut : TODO.**
+
+**Dépendances :** lots 1–3 pour l’intégration complète.
+
+**Travaux :**
+
+1. Revérifier les documentations officielles des offres, endpoints, langues, unités et quotas au moment du codage ; corriger la section 9 si nécessaire.
+2. Implémenter les queries texte Azure F0 et LibreTranslate dans les YAML : endpoints, méthodes, en-têtes, corps JSON, paramètres de langues et normalisation des réponses par actions. Exécuter exclusivement via le pont Scrapyfy commun ; capacités URL désactivées.
+3. Normaliser les langues, prendre en charge `source_language: null` et le mode automatique déclaré par le YAML ; stabiliser la source pour les documents multi-lots selon la section 5, sans détection par réplique. Respecter les couples optionnels et réutiliser l’original si source et cible sont identiques.
+4. Valider génériquement la correspondance des réponses normalisées avec les blocs envoyés. Les mappings fournisseur restent en YAML ; ajouter seulement les actions/post-processeurs génériques manquants et documenter le schéma Scrapyfy FR/EN. Mesurer la taille depuis la même construction de requête que celle réellement exécutée, sans envoyer de requête de mesure.
+5. Implémenter le filtrage générique des candidats, la simulation des lots, le classement déterministe et la réservation avant envoi ; conserver le même fournisseur pour tous les lots. Appliquer concurrence et budgets par compte, délais et reprises bornées avec `Retry-After`. Distinguer authentification, quota, langue, taille et incident temporaire ; aucun repli vers un autre fournisseur après un appel de traduction en échec.
+6. Exposer des mesures de volume, lots, durée et erreurs sans texte ni secrets. Documenter le partage du quota avec les usages externes au serveur.
+
+**Livrable :** traduction texte indépendante des sous-titres, deux services YAML exécutés par un pont unique ; aucun adaptateur fournisseur en Rust.
+
+**Validation / sortie :** checks du crate ; qualification sur endpoints réels lorsque disponibles, avec un volume borné, puis scénarios manuels de réponse incomplète, quota, authentification et indisponibilité. Signaler séparément tout fournisseur non qualifié faute d’accès ; ne pas le déclarer validé.
+
+### Lot 5 — Récupération autorisée, orchestration et cache persistant
+
+**Statut : TODO.**
+
+**Dépendances :** lots 2–4.
+
+**Travaux :**
+
+1. Fournir à `arachnea-subtitles`, depuis Stream, une résolution de piste autorisée, incluant les proxys applicatifs internes, en-têtes et contexte d’accès ; contrôler destinations, résolutions et redirections HTTP(S).
+2. Dans Subtitles, implémenter le flux cache → revalidation source si nécessaire → empreinte → choix URL fournisseur compatible ou blocs texte après récupération → appel Translation/Scrapyfy → reconstruction complète. Qualifier explicitement le repli texte d’un service sans query URL et les URL privées/proxifiées qui ne doivent pas lui être transmises. Ne jamais appeler le fournisseur avant la recherche du résultat réutilisable.
+3. Persister index source, descripteurs et résultats versionnés via les stores adaptés ; écrire atomiquement les octets finaux et leurs métadonnées. Isoler les périmètres privés.
+4. Calculer la clé complète et l’ETag fort des octets finaux ; distinguer validateur amont, fraîcheur source, rétention et éviction disque. Dédupliquer les URL signées par contenu sans réécrire arbitrairement leurs paramètres.
+5. Mutualiser les demandes identiques avec deuxième lecture du cache sous verrou ; intégrer la réservation partagée si plusieurs processus sont pris en charge. Définir la récupération des réservations interrompues.
+6. Garantir qu’un échec, un arrêt ou un rechargement n’expose pas de résultat partiel ; rendre les entrées invalides récupérables et l’éviction compatible avec les lectures en cours.
+
+**Livrable :** orchestration complète et résultats réutilisables après redémarrage, indépendamment du cache navigateur.
+
+**Validation / sortie :** qualification manuelle cache frais sans appel source/fournisseur, source revalidée identique puis modifiée, absence de validateur amont, URL expirée, redémarrage, éviction et demandes concurrentes. Vérifier isolation d’accès et refus des destinations non autorisées ; checks des crates concernés.
+
+### Lot 6 — Commandes et transport fichier REST/Tauri
+
+**Statut : TODO.**
+
+**Dépendance :** lot 5.
+
+**Travaux :**
+
+1. Enregistrer `get_translation_services` et `prepare_subtitle_translation` avec les contrôleurs existants ; inclure politique automatique/préférée/contrainte et langues effectives. Le descripteur automatique conserve la politique, pas un fournisseur choisi prématurément ; la préparation valide et conserve le descripteur sans récupérer le document ni traduire.
+2. Produire une piste compatible avec `ResolvedPlayerSubtitle` et un jeton opaque stable pendant sa durée de vie. Persister sa résolution et revérifier les droits au téléchargement.
+3. Enregistrer `subtitle_translation/<token>.vtt` par les chemins publics du contrôleur ; retourner uniquement le fichier complet en `text/vtt` lors d’un succès.
+4. Implémenter `If-None-Match` (listes, validateurs faibles et `*`), `304` vide, `Cache-Control: private, no-cache` et exposition CORS d’ETag selon le déploiement.
+5. Servir `HEAD` depuis les seules métadonnées disponibles, sans traduction ni récupération coûteuse ; mapper explicitement les statuts d’erreur, l’expiration et les erreurs de quota.
+6. Qualifier le comportement REST et le protocole Tauri, y compris préfixe personnalisé, redémarrage, headers et durée des requêtes. Documenter les éventuelles limites du mode synchrone.
+
+**Livrable :** API JSON et fichier WebVTT exploitables depuis les deux modes applicatifs.
+
+**Validation / sortie :** parcours manuel préparation → GET `200` → GET conditionnel `304`, `HEAD` avec/sans résultat, jeton expiré ou d’un autre périmètre, erreurs fournisseur et absence d’appel lors de la préparation. Vérifier que les erreurs ne sont jamais servies comme VTT ; checks REST/Tauri existants adaptés aux plateformes disponibles.
+
+### Lot 7 — Client de traduction et cycle de vie des pistes
+
+**Statut : TODO.**
+
+**Dépendance :** lot 6.
+
+**Travaux :**
+
+1. Ajouter les types partagés et appels JSON du catalogue/de la préparation dans les services frontend existants ; télécharger le fichier par un client dédié, hors `call_api()`.
+2. Utiliser le cache HTTP natif en REST. Qualifier Tauri et, si nécessaire, conserver un cache borné associant ETag et octets ; traiter un vrai `304` uniquement avec son corps précédemment conservé.
+3. Ajouter un composable dédié en Composition API/TypeScript pour préparation, téléchargement, états et annulation. Le sélecteur de préférences produit une demande de langue ; ce composable l’exécute ; le contrôleur des pistes conserve leur propriété. Garder les types de préférences distincts des URL temporaires.
+4. Ajouter le Blob WebVTT via le propriétaire des pistes distantes et ne sélectionner la piste qu’après chargement réussi. Conserver la piste originale et la position de lecture.
+5. Invalider les opérations obsolètes lors des changements de source/langue et du démontage ; ignorer les réponses tardives, retirer les pistes et révoquer les URL Blob selon leur cycle de vie.
+
+**Livrable :** chargement technique d’une traduction et gestion cohérente des pistes sans réappliquer la source vidéo.
+
+**Validation / sortie :** type-check et build existants ; qualification manuelle REST/Tauri, fichier en cache, téléchargement lent, changement rapide de source et démontage, absence de reprise de lecture ou d’ajout tardif. Actualiser les tests existants affectés seulement.
+
+### Lot 8 — Menu, préférences et expérience utilisateur
+
+**Statut : TODO.**
+
+**Dépendance :** lot 7.
+
+**Travaux :**
+
+1. Étendre `ParameterSubtitleLanguages.vue` avec le réglage par langue « Générer par traduction si absent ». Conserver `videoPlayer.subtitleLanguagePriority`, ajouter la table de booléens de la section 8 et adapter storage, types, sanitizers et compatibilité des anciennes valeurs ; valeurs absentes à `false`. Relier le menu manuel à ces favoris sans seconde liste.
+2. Rendre l’action indisponible sans piste externe exploitable, notamment en iframe ou avec les seules pistes natives/segmentées. Préserver le comportement des pistes HLS/DASH existantes.
+3. Afficher chargement, erreur contextualisée et identification de la traduction automatique ; permettre de poursuivre la lecture et de conserver/retrouver la piste originale.
+4. Intégrer `trackPreferences.ts` et la réapplication des paramètres : parcourir les favoris dans l’ordre, utiliser une piste correspondante avant de générer, demander uniquement la première cible nécessaire autorisée et reprendre le repli en cas d’échec. Respecter choix manuels et profils `disabled` ; une restauration ne génère que selon l’autorisation explicite par langue. Persister une identité stable sans Blob ni jeton temporaire.
+5. Ajouter les traductions i18n et vérifier clavier, focus et affichage responsive sans refonte du player.
+
+**Livrable :** parcours utilisateur complet pour demander et sélectionner une traduction.
+
+**Validation / sortie :** `npm run type-check`, `npm run build-only` et `npm run lint:css` depuis `front/public-app/` ; qualification manuelle migration des anciennes préférences, activation par langue, réordonnancement/suppression/alias, profil `auto` et cible explicite, priorité humain/automatique, piste native tardive, changement de choix pendant traduction, absence de génération pour `disabled`, langue identique, erreurs/quota et absence de fournisseur. Vérifier qu’aucune génération en série de tous les favoris ne se produit.
+
+### Lot 9 — Qualification de bout en bout et réglages opérationnels
+
+**Statut : TODO.**
+
+**Dépendances :** lots 1–8.
+
+**Travaux :**
+
+1. Qualifier les trois scénarios de volume et des documents représentatifs autorisés ; comparer structure et timestamps avant/après et apprécier la lisibilité sur les couples de langues retenus.
+2. Mesurer délais, mémoire, tailles, lots et consommation réelle ; fixer et documenter les bornes configurables avec une marge adaptée aux offres gratuites.
+3. Rejouer le parcours de cache complet : revalidation, changement de source/options/modèle, redémarrage, perte d’état, éviction et concurrence dans la topologie prise en charge.
+4. Qualifier langues absentes, couples omis ou explicitement vides, directions non symétriques, source automatique avec/sans langue restituée et documents multi-lots, voie URL optionnelle et repli par téléchargement, limites de blocs/octets, découpage sur plusieurs requêtes, budget indisponible, métadonnées périmées et choix déterministe entre services. Vérifier un seul fournisseur par document et le cache sous son identité réelle. Qualifier URLs proxifiées/signées, droits, redirections, source indisponible, fournisseur en panne, quota et annulation frontend. Vérifier qu’aucun texte, secret ou URL signée complète n’apparaît dans les logs.
+5. Vérifier les délais des environnements cibles et le cache Tauri. Si un contrat asynchrone devient nécessaire, documenter l’analyse et obtenir la validation de ce changement avant son implémentation.
+6. Consigner environnement, fournisseur, volumes, résultats, limites et validations non exécutées. Mettre à jour uniquement les tests existants concernés et exécuter les checks Rust/frontend pertinents.
+
+**Livrable :** compte rendu de qualification et valeurs opérationnelles justifiées.
+
+**Validation / sortie :** aucun résultat partiel ni mélange de périmètres ; cache valide sans retraduction ; player stable pendant les chargements. Les plateformes ou comptes non disponibles restent explicitement à qualifier, sans statut de validation implicite.
+
+### Lot 10 — Distribution et clôture de la première livraison
+
+**Statut : TODO.**
+
+**Dépendance :** lot 9 ; préparation des ressources possible dès le lot 2.
+
+**Travaux :**
+
+1. Inclure les configurations non secrètes du nouveau groupe dans les paquets backend/desktop et vérifier leur présence dans le déploiement Docker ; conserver les fournisseurs inactifs sans credentials.
+2. Vérifier les chemins de données, la persistance et les permissions du cache dans chaque mode de distribution, ainsi que la conservation au redémarrage et à la mise à jour.
+3. Relire README des crates Translation et Subtitles, contrats Translation/Stream FR/EN, aide admin et documents de distribution ; documenter activation, credentials, plafonds, cache, erreurs et limitations de couverture. Modifier les spécifications Scrapyfy uniquement si son contrat a réellement changé.
+4. Ajouter les entrées de changelog sous les modules concernés, au format release → module → Added/Changed/Fixed. Clore dans `docs/TODO.md` les éléments réellement livrés et conserver les qualifications ou extensions ouvertes.
+5. Réaliser un parcours sur un paquet produit : démarrage sans fournisseur, configuration admin, traduction, relecture après redémarrage et désactivation du fournisseur.
+
+**Livrable :** première version distribuable, documentation synchronisée et suivi des limites restantes.
+
+**Validation / sortie :** contrôles de packaging existants et parcours sur les plateformes disponibles ; aucun credential inclus dans les artefacts. La clôture distingue clairement implémentation, qualification réelle et extensions futures.
+
+### Ordre et jalons
+
+| Jalon | Lots terminés | Résultat vérifiable |
+| --- | --- | --- |
+| Socle | 1–2 | Contrats, configuration et administration, sans fonctionnalité de traduction exposée |
+| Moteur | 3–5 | Traduction de documents complète et persistante, fournisseurs qualifiés selon les accès disponibles |
+| Backend accessible | 6 | Préparation JSON et fichier conditionnel REST/Tauri |
+| Parcours utilisateur | 7–8 | Demande et sélection de traduction sans redémarrage de la vidéo |
+| Livraison qualifiée | 9–10 | Bornes mesurées, distribution et documentation, limites résiduelles consignées |
+
+Les lots 1 et 2 sont livrés ; les lots 3 à 10 restent à TODO et aucune validation antérieure n’est conservée comme livrable acquis. Le lot 3 peut avancer après le lot 1. Le reste suit les dépendances indiquées. Une extension hors première livraison ou un changement de contrat découvert en cours de travail fait l’objet d’une analyse spécifique avant réalisation ; les recommandations déjà validées ne nécessitent pas une nouvelle confirmation à chaque lot.

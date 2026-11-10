@@ -1338,6 +1338,65 @@ Builds a URL from multiple JSON response fields.
     clip_id: "/clip/id"
 ```
 
+### `build_json`
+Builds and serializes a JSON object from execution parameters. This generic
+action is usable in any pipeline, notably to construct a request body without a
+network call and to measure its real bytes.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `fields` | mapping | Output property name → value source (at least one field) |
+
+Each source is a single-key mapping:
+
+- `{string_parameter: name}` inserts the parameter value as a JSON string, with
+  escaping;
+- `{json_parameter: name}` decodes the parameter as validated JSON and inserts
+  the decoded value;
+- `{json_array_projection: {parameter: name, path: /pointer}}` decodes the
+  parameter as a JSON array and inserts an array containing the value selected
+  by the JSON pointer from every item. An empty `path` selects each item itself.
+
+```yaml
+request_body_actions:
+  - type: build_json
+    fields:
+      source: {string_parameter: translation_source_language}
+      target: {string_parameter: translation_target_language}
+      blocks: {json_parameter: translation_blocks_json}
+      texts:
+        json_array_projection:
+          parameter: translation_blocks_json
+          path: /text
+```
+
+A missing parameter, an invalid JSON value, a non-array projection source or a
+missing projection pointer fails the request instead of producing a partial
+body. The action replaces the current value list with one serialized object.
+
+### `build_json_array`
+Builds and serializes a JSON array from a JSON array runtime parameter. Each
+source item becomes an object whose properties are selected by JSON pointers.
+This supports request bodies that require an array of objects, such as batched
+provider requests.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `source` | mapping | Single-key `{json_parameter: name}` source array |
+| `fields` | mapping | Output property name → JSON pointer inside every item |
+
+```yaml
+request_body_actions:
+  - type: build_json_array
+    source: {json_parameter: translation_blocks_json}
+    fields:
+      Text: /text
+```
+
+A missing source, a non-array source, a blank field or a missing item pointer
+fails the request. The action replaces the current value list with one
+serialized array.
+
 ### `extract_field`
 Extracts a field from the JSON response body by JSON pointer.
 

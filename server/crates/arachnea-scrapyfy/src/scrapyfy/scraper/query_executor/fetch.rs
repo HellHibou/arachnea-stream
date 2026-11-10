@@ -197,7 +197,7 @@ pub(super) async fn fetch_responses_with_validation(
         context.params,
         &url,
         context.parent_response,
-    );
+    )?;
     let incoming = validation.request().cloned().unwrap_or_default();
     apply_conditional_headers(&mut headers, &incoming);
 
@@ -483,8 +483,12 @@ pub(super) fn resolve_request_headers(
 ///
 /// # Returns
 ///
-/// The resolved request body as a string, or `None` if no body is configured
-/// or if the resolved value is empty.
+/// `Ok(Some(body))` with the resolved request body, or `Ok(None)` if no body
+/// is configured or if the resolved value is empty.
+///
+/// # Errors
+///
+/// Returns an error when a request-body action fails.
 pub(super) fn resolve_request_body(
     pointer: Option<&str>,
     select: HtmlScraperSelectMode,
@@ -492,9 +496,9 @@ pub(super) fn resolve_request_body(
     params: &HashMap<String, String>,
     request_url: &str,
     parent_response: Option<&Value>,
-) -> Option<String> {
+) -> Result<Option<String>> {
     if pointer.is_none() && actions.is_empty() {
-        return None;
+        return Ok(None);
     }
     let request_context = query_helpers::build_params_json_value(params);
     let request_context = parent_response.unwrap_or(&request_context);
@@ -503,12 +507,22 @@ pub(super) fn resolve_request_body(
         .flat_map(crate::scrapyfy::scraper_json::entry::json_value_to_strings)
         .collect();
     for action in actions {
-        values = action.apply(&None, values, params, request_url, None, None);
+        values = action.apply_with_dynamic_variables(
+            &None,
+            values,
+            params,
+            crate::scrapyfy::actions::ActionResponse {
+                request_url,
+                response_body: None,
+                response_json: None,
+            },
+            None,
+        )?;
     }
-    values
+    Ok(values
         .into_iter()
         .map(|value| value.trim().to_string())
-        .find(|value| !value.is_empty())
+        .find(|value| !value.is_empty()))
 }
 
 /// Fetches all responses in parallel using the configured HTTP client.
@@ -549,7 +563,7 @@ pub(super) async fn fetch_responses(
         context.params,
         urls.first().map(String::as_str).unwrap_or(""),
         context.parent_response,
-    );
+    )?;
     // Conditional validation applies to the root request of a source only;
     // sub-query contexts always carry a None validation slot.
     if let Some(validation) = context.validation {

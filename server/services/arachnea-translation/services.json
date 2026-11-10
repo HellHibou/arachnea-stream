@@ -1,0 +1,4 @@
+[
+  { "path": "azure-translator.yaml", "enabled": false },
+  { "path": "libretranslate.yaml", "enabled": false }
+]

@@ -586,8 +586,13 @@ pub fn resolve_request_headers(
 ///
 /// # Returns
 ///
-/// The first non-empty trimmed body value after applying all actions,
-/// or `None` if no value was resolved.
+/// `Ok(Some(value))` with the first non-empty trimmed body value after
+/// applying all actions, or `Ok(None)` if no value was resolved.
+///
+/// # Errors
+///
+/// Returns an error when a body action fails, such as an invalid JSON
+/// parameter passed to `build_json`.
 pub fn resolve_request_body(
     body_pointer: Option<&str>,
     body_select: HtmlScraperSelectMode,
@@ -595,7 +600,7 @@ pub fn resolve_request_body(
     context_row: &Value,
     params: &HashMap<String, String>,
     context_request_url: &str,
-) -> Option<String> {
+) -> Result<Option<String>> {
     use crate::scrapyfy::scraper_json::entry::{json_value_to_strings, select_json_values};
 
     let mut values = select_json_values(context_row, body_pointer, body_select)
@@ -604,13 +609,23 @@ pub fn resolve_request_body(
         .collect::<Vec<_>>();
 
     for action in body_actions {
-        values = action.apply(&None, values, params, context_request_url, None, None);
+        values = action.apply_with_dynamic_variables(
+            &None,
+            values,
+            params,
+            crate::scrapyfy::actions::ActionResponse {
+                request_url: context_request_url,
+                response_body: None,
+                response_json: None,
+            },
+            None,
+        )?;
     }
 
-    values
+    Ok(values
         .into_iter()
         .map(|value| value.trim().to_string())
-        .find(|value| !value.is_empty())
+        .find(|value| !value.is_empty()))
 }
 
 #[cfg(test)]

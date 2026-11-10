@@ -1,0 +1,99 @@
+id: libretranslate
+title: LibreTranslate
+description:
+  en: "Self-hosted LibreTranslate text translation service."
+  fr: "Service de traduction de texte LibreTranslate auto-hébergé."
+http:
+  mode: direct
+credentials:
+  required: false
+
+constants:
+  - name: translation_credential_login
+    value: ""
+    description: "Encrypted credential login, reserved for installations that need one."
+  - name: translation_credential_password
+    value: ""
+    description: "Encrypted credential password, interpreted as the optional API key."
+  - name: translation_text_format
+    value: text
+
+parameters:
+  - name: base_url
+    label: API base URL
+    value: "http://localhost:5000"
+    editor:
+      type: regex
+      pattern: '^https?://[^\s/?#]+(?:/[^\s?#]*)?$'
+      message: "Enter an absolute HTTP(S) URL without query, fragment or trailing slash."
+  - name: translation_selection_order
+    label: Selection order
+    value: "200"
+    editor:
+      type: regex
+      pattern: '^[0-9]{1,6}$'
+      message: "Enter a non-negative selection order with at most six digits."
+  - name: translation_preferred
+    label: Preferred provider
+    value: "false"
+    editor:
+      type: select
+      options:
+        - { value: "false", label: "No" }
+        - { value: "true", label: "Yes" }
+
+queries:
+  - name: get_translation_metadata
+    scraper_type: static
+    media_types:
+      - application/arachnea-translation-metadata
+    entries:
+      - name: translation
+        type: object
+        value:
+          schema_version: 1
+          # Provisional two-letter subset. A self-hosted instance may expose a
+          # different catalog; extend or restrict this list after qualification.
+          languages: [ar, cs, da, de, el, en, es, fi, fr, he, hi, hu, id, it, ja, ko, ms, nl, no, pl, pt, ro, ru, sv, th, tr, uk, vi, zh]
+          source_detection:
+            automatic: true
+            returns_detected_language: false
+          text_translation:
+            query: translate_texts
+            accepts_multiple_blocks: true
+            size_unit: unicode_code_points
+            max_blocks_per_request: 50
+            max_units_per_block: 5000
+            max_units_per_request: 10000
+            max_request_bytes: 65536
+            context_support: false
+            markup_support: false
+            preserves_request_order: true
+
+  - name: translate_texts
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{base_url}/translate"
+    request_method: post
+    request_headers:
+      - name: Content-Type
+        actions:
+          - type: format_text
+            argument: application/json
+    request_body_actions:
+      - type: build_json
+        fields:
+          q:
+            json_array_projection:
+              parameter: translation_blocks_json
+              path: /text
+          source: { string_parameter: translation_source_language }
+          target: { string_parameter: translation_target_language }
+          format: { string_parameter: translation_text_format }
+          api_key: { string_parameter: translation_credential_password }
+    media_types:
+      - application/arachnea-translation-result
+    row_pointer: /translatedText/*
+    entries:
+      - name: text
+        type: string

@@ -177,6 +177,10 @@
     "arachnea-ip-countries": {
       "title": "Pays IP",
       "description": "Services de résolution IP vers pays."
+    },
+    "arachnea-translation": {
+      "title": "Services de traduction",
+      "description": "Configuration des fournisseurs de traduction Scrapyfy."
     }
   },
   "error": {

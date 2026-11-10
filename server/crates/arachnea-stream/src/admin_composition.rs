@@ -38,6 +38,7 @@ impl AdminApplicationRuntime for ReloadableStreamScraper {
         if !matches!(
             group.service_store_id.as_str(),
             crate::stream_scraper::STREAM_SERVICE_GROUP_NAME
+                | crate::TRANSLATION_SERVICE_GROUP_NAME
                 | "arachnea-proxies"
                 | "arachnea-ip-countries"
         ) {
