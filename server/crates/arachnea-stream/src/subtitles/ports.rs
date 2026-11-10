@@ -1,8 +1,8 @@
 //! Injected retrieval and document cache ports.
 
-use crate::cache::{CachedSubtitleTranslation, SubtitleTranslationCacheKey};
-use crate::document::{RetrievedSubtitle, SubtitleSourceDescriptor};
-use crate::error::SubtitleTranslationError;
+use super::cache::{CachedSubtitleTranslation, SubtitleTranslationCacheKey};
+use super::document::{RetrievedSubtitle, SubtitleSourceDescriptor};
+use super::error::SubtitleTranslationError;
 use arachnea_translation::AccessScope;
 use async_trait::async_trait;
 

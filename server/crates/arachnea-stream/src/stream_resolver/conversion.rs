@@ -338,9 +338,7 @@ pub(super) fn is_browser_consumable_subtitle_link(link: &str) -> bool {
 ///
 /// # Returns
 /// The accepted chapters in resolver order, or `None` when none are valid.
-pub(super) fn extract_chapters(
-    entry: &HashMap<String, ScraperDataNode>,
-) -> Option<Vec<Chapter>> {
+pub(super) fn extract_chapters(entry: &HashMap<String, ScraperDataNode>) -> Option<Vec<Chapter>> {
     let node = entry.get("chapters")?;
     let mut chapters = Vec::new();
 
@@ -389,10 +387,7 @@ fn build_chapter(item: &ScraperDataNode) -> Option<Chapter> {
         return None;
     }
 
-    let chapter_type = item
-        .first_child_value("type")?
-        .trim()
-        .to_string();
+    let chapter_type = item.first_child_value("type")?.trim().to_string();
     if chapter_type.is_empty() {
         return None;
     }

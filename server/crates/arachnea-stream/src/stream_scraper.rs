@@ -50,7 +50,7 @@ use crate::stream_resolver::{
     SCRAPER_QUERY_STREAM_RESOLVER_ID, STREAM_RESOLVER_CONFIG_PATH, STREAM_RESOLVER_GROUP_NAME,
 };
 use crate::translation_catalog::TranslationCatalog;
-use crate::translation_port::{StreamTranslationPort, load_translation_bridge};
+use crate::translation_port::{load_translation_bridge, StreamTranslationPort};
 
 pub use crate::STREAM_SERVICE_GROUP_NAME;
 

@@ -1,7 +1,10 @@
 //! Subtitle formats, source descriptors and document results.
 
-use crate::error::SubtitleTranslationError;
-use crate::{DEFAULT_SUBTITLE_CACHE_CONTROL, SRT_MEDIA_TYPE, WEBVTT_MEDIA_TYPE};
+use super::error::SubtitleTranslationError;
+use crate::{
+    DEFAULT_MAX_CUES, DEFAULT_MAX_DOCUMENT_BYTES, DEFAULT_MAX_TRANSLATABLE_UNITS,
+    DEFAULT_SUBTITLE_CACHE_CONTROL, SRT_MEDIA_TYPE, WEBVTT_MEDIA_TYPE,
+};
 use arachnea_translation::LanguageCode;
 use serde::{Deserialize, Serialize};
 
@@ -152,6 +155,66 @@ pub struct SubtitleDocumentStats {
     pub translatable_units: u64,
     /// Source document format.
     pub format: SubtitleFormat,
+}
+
+/// Local subtitle document bounds applied before translation.
+///
+/// These bounds are independent from provider limits. A document that exceeds
+/// them is rejected before any translation call.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LocalSubtitleLimits {
+    /// Maximum decompressed source document size in bytes.
+    pub max_document_bytes: u64,
+    /// Maximum number of cues in one document.
+    pub max_cues: u64,
+    /// Maximum translatable units in one document.
+    pub max_translatable_units: u64,
+}
+
+impl Default for LocalSubtitleLimits {
+    /// Returns prudent local defaults from the crate constants.
+    fn default() -> Self {
+        Self {
+            max_document_bytes: DEFAULT_MAX_DOCUMENT_BYTES,
+            max_cues: DEFAULT_MAX_CUES,
+            max_translatable_units: DEFAULT_MAX_TRANSLATABLE_UNITS,
+        }
+    }
+}
+
+impl LocalSubtitleLimits {
+    /// Validates measured stats against the local bounds.
+    ///
+    /// # Arguments
+    ///
+    /// * `stats` - Measured source document characteristics.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SubtitleTranslationError::DocumentTooLarge`],
+    /// [`SubtitleTranslationError::TooManyCues`] or
+    /// [`SubtitleTranslationError::TooManyUnits`] for the first exceeded bound.
+    pub fn validate(&self, stats: &SubtitleDocumentStats) -> Result<(), SubtitleTranslationError> {
+        if stats.document_bytes > self.max_document_bytes {
+            return Err(SubtitleTranslationError::DocumentTooLarge {
+                bytes: stats.document_bytes,
+                limit: self.max_document_bytes,
+            });
+        }
+        if stats.cue_count > self.max_cues {
+            return Err(SubtitleTranslationError::TooManyCues {
+                cues: stats.cue_count,
+                limit: self.max_cues,
+            });
+        }
+        if stats.translatable_units > self.max_translatable_units {
+            return Err(SubtitleTranslationError::TooManyUnits {
+                units: stats.translatable_units,
+                limit: self.max_translatable_units,
+            });
+        }
+        Ok(())
+    }
 }
 
 /// Complete translated subtitle document ready for publication.

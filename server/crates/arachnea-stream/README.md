@@ -68,6 +68,42 @@ Omitting `--all-features` uses the same policy without optional performance
 diagnostics. An ignored scenario is not counted as successful live coverage.
 Native GUI behavior and provider health require separate validation.
 
+## Subtitle translation pipeline
+
+`src/subtitles/` owns the subtitle document boundary inside Stream. It defines
+WebVTT and SRT media identifiers, source track descriptors, document format and
+statistics, the persistent translated-subtitle descriptor and its opaque token
+with expiry/access checks, authorized retrieval and document cache ports, the
+document cache identity (including parser and pipeline revisions), HTTP status
+mapping and the local document limits. It depends only on the generic
+`arachnea-translation` contracts: no Scrapyfy provider mapping, player logic or
+network access lives here.
+
+The WebVTT pipeline parses and serializes complete documents while keeping the
+signature, optional header metadata, cue identifiers, raw timing lines and
+settings, payload lines and `NOTE`/`STYLE`/`REGION` blocks. Input must be valid
+UTF-8; an initial BOM is accepted and CRLF/CR line endings are normalized to LF.
+Timestamps use `mm:ss.mmm` or `hh:mm:ss.mmm` and require an end later than the
+start.
+
+Only visible cue text is submitted to translation. Inline markup and internal
+timestamps remain in place and act as protected segment boundaries, so a
+provider cannot alter or drop them. Entities are decoded before translation and
+re-escaped on output, and a translation cannot inject tags or blank lines. Long
+text runs are split at sentence, word and finally Unicode-character boundaries
+using the longest prefix that fits the provider limit; whitespace joiners are
+restored on reconstruction. Each part maps to a stable block identifier
+(`cue-{block}:run-{run}:part-{part}`), and applying results rejects missing,
+extra, reordered or empty segments instead of publishing a partial document.
+
+Local bounds default to 4 MiB of decompressed input, 10,000 cues and 500,000
+translatable units (`LocalSubtitleLimits`). Batch planning is delegated to
+`arachnea-translation`. The module is compiled with the stream crate:
+
+```sh
+cargo check -p arachnea-stream
+```
+
 ## Service integration checks
 
 From `server/`, use the existing Rust `test_all_services` test directly:

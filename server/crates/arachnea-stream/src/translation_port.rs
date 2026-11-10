@@ -9,8 +9,8 @@ use std::collections::{BTreeMap, HashMap};
 use anyhow::Result;
 use arachnea_scrapyfy::ScraperAgregator;
 use arachnea_translation::{
-    TranslationError,
     bridge::{ScrapyfyQueryPort, ScrapyfyTranslationBridge},
+    TranslationError,
 };
 use async_trait::async_trait;
 

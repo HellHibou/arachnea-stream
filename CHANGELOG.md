@@ -327,16 +327,12 @@ All notable changes to the server workspace are recorded here.
 - New crate defining the generic translation contracts: validated two-letter language codes and directional pairs, opaque text blocks, text/URL capabilities with explicit size units and limits, normalized `get_translation_metadata` parsing and validation, source-detection rules, deterministic service selection with normalized exclusion reasons, batch planning and request measurement without network calls, result cache identity, injected Scrapyfy query port and the shared `ScrapyfyTranslationBridge`. Provider endpoints and mappings remain exclusively in Scrapyfy YAML; no translation endpoint is public yet.
 - Added `preserves_request_order` to text translation capabilities. Providers can now return one untagged row per submitted block; the bridge matches rows by position while still rejecting missing, extra or duplicated identifiers, and tagged responses keep their explicit IDs.
 
-### <u>arachnea-subtitles</u>
-
-#### Added
-
-- New crate defining the subtitle document boundary: WebVTT/SRT format identifiers, source track descriptors, document statistics, persistent translated-subtitle descriptor and opaque token with expiry/access checks, authorized retrieval and document cache ports injected by Stream, document cache identity with parser/pipeline revisions, and explicit HTTP status mapping including the no-result `HEAD` response. The WebVTT parser itself remains planned for lot 3.
-
 ### <u>arachnea-stream</u>
 
 #### Added
 
+- Added the `subtitles` module to `arachnea-stream`, defining the subtitle document boundary: WebVTT/SRT format identifiers, source track descriptors, document statistics, persistent translated-subtitle descriptor and opaque token with expiry/access checks, authorized retrieval and document cache ports, document cache identity with parser/pipeline revisions, and explicit HTTP status mapping including the no-result `HEAD` response.
+- Added the `subtitles` WebVTT document pipeline: a UTF-8 parser and serializer preserving signature/header metadata, cue identifiers, raw timing lines and settings, payload lines, `NOTE`, `STYLE` and `REGION` blocks; timestamp validation; visible-text extraction that keeps inline markup and internal timestamps as protected segment boundaries; entity decoding and re-escaping; sentence/word/Unicode-safe splitting of long cues with restored whitespace joiners; per-cue segment-to-block mapping and stable block identifiers; local decompressed-byte/cue/unit bounds; batch planning delegated to `arachnea-translation`; and reconstruction that rejects missing, extra, reordered or empty segments instead of publishing a partial file. It has no Scrapyfy or player dependency and performs no network access.
 - Added the effective translation catalog loaded from the `arachnea-translation` Scrapyfy group. It executes and validates `get_translation_metadata`, checks required encrypted credentials without exposing them, applies administrator order and preferred-provider parameters, and publishes languages, capabilities, detection and configuration revisions while reporting non-secret diagnostics. The revision covers the YAML hash and editable non-selection parameters, so credential changes do not invalidate translation results. A missing or invalid translation manifest does not prevent stream and hoster groups from loading. A Stream-backed port also loads the generic translation bridge from a published catalog entry, reusing the loaded collection, resolved credentials and configuration revision without exposing a public translation endpoint.
 - Fawesome `get_entry`, `get_players` and `get_season` responses now share one storyboard definition and expose a sequential trickplay storyboard derived from the video HLS directory (`tp/img-{index}.jpg`, 3-digit zero padding via `index_padding: 3`, 30-second interval, 266×150 frames), so movies and series episodes expose preview thumbnails to the player.
 - Fawesome player entries now expose `intro` and `outro` chapters built from the upstream `intro_st`/`intro_et` and `endcredit_st`/`endcredit_et` markers, so skip controls and auto-skip preferences can target the opening and closing credits.
@@ -409,6 +405,8 @@ All notable changes to the server workspace are recorded here.
 - Extended the source-check runner from seven to 14 operations with typed season/live/banner/recommendation/stream adapters and an isolated aggregator adapter for the legacy episode query. Added scenarios for all 55 previously unsupported production operations; corrected uncommitted navigation and expectation errors. Preserved schema-v1 input forms and rejected extra source parameters, retaining three explicit parameter-dependent coverage gaps. Added three local compatibility tests; no production YAML or facade APIs changed. Qualification is recorded in `docs/dev-tracking/source-checks-expanded-2026-10-30.md`.
 
 #### Changed
+
+- Subtitle document processing now lives in the `arachnea-stream` `subtitles` module. The module documentation and Stream README describe the implemented WebVTT parser, segmentation and document planning.
 
 - Migrated Fawesome and France TV cards to `media-type` as the sole navigation classification; retained collection request descriptors and live targets. France TV search/recommendation collections now carry `collection` and their category requests. Dynamic Rust transport and saved route/storage formats remain unchanged.
 

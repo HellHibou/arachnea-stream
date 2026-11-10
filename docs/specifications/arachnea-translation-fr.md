@@ -1,23 +1,23 @@
 # Spécification des contrats de traduction Arachnea
 
 Ce document décrit le contrat générique de traduction porté par
-`arachnea-translation`, le contrat documentaire porté par
-`arachnea-subtitles` et leur intégration prévue avec Stream. Le schéma YAML
-général reste décrit dans [arachnea-scrapyfy](arachnea-scrapyfy-fr.md) ; ce
-document ne décrit que les requêtes et sorties normalisées propres à la
-traduction.
+`arachnea-translation`, le pipeline documentaire de sous-titres porté par le
+module `subtitles` d’`arachnea-stream` et leur intégration avec Stream. Le
+schéma YAML général reste décrit dans
+[arachnea-scrapyfy](arachnea-scrapyfy-fr.md) ; ce document ne décrit que les
+requêtes et sorties normalisées propres à la traduction.
 
-Statut : lot 1 implémenté (contrats, crates et pont générique). Les lots 2 à 10
-ajoutent la configuration, le parseur WebVTT, l'orchestration, le transport et
-l'interface utilisateur.
+Statut : lots 1 à 3 implémentés (contrats, crate et module de sous-titres, pont
+générique, catalogue effectif et administration, parseur WebVTT et
+planification documentaire). Les lots 4 à 10 ajoutent l’exécution fournisseur,
+l’orchestration, le transport et l’interface utilisateur.
 
 ## 1. Séparation des couches
 
 | Couche | Responsabilités | Interdictions |
 |---|---|---|
 | `arachnea-translation` | Langues à deux lettres, blocs abstraits, capacités et limites, métadonnées, sélection, planification, identité de cache, pont Scrapyfy. | Aucune connaissance de WebVTT, des cues, du player ou des pistes vidéo. Aucun fournisseur Rust spécifique. |
-| `arachnea-subtitles` | Descripteurs de piste source, descripteur persistant, jeton, récupération autorisée et cache documentaire injectés, identité de cache du document, statuts HTTP. | Aucune dépendance vers Stream ni Scrapyfy ; aucun accès réseau non autorisé. |
-| `arachnea-stream` | Droits, résolution des liens de proxy, catalogues, assemblage REST/Tauri, transport du fichier. | Aucun parsing de sous-titres ni mapping fournisseur. |
+| `arachnea-stream` | Droits, résolution des liens de proxy, catalogues, assemblage REST/Tauri et transport du fichier, plus son module `subtitles` : descripteurs de piste source, parsing/sérialisation WebVTT, découpage des cues et planification documentaire, descripteur persistant et jeton, ports de récupération autorisée et de cache documentaire, identité de cache du document et statuts HTTP. | Aucun mapping fournisseur ni Rust spécifique à un fournisseur ; aucun accès réseau non autorisé. |
 | Front public | Préférences, décision de demander une traduction, cycle de vie Video.js. | Aucun credential ni protocole fournisseur. |
 
 Les fournisseurs sont exclusivement décrits et exécutés par Scrapyfy. Le pont
@@ -159,8 +159,8 @@ fournisseur ni fausse piste traduite.
 Paramètres normalisés : `translation_document_url`,
 `translation_source_language`, `translation_target_language`.
 La sortie normalisée contient `content` et `content_type` pour
-`inline_document`. Le contenu complet est validé par l'adaptateur du format dans
-`arachnea-subtitles`.
+`inline_document`. Le contenu complet est validé par l’adaptateur du format du
+module `subtitles` d’`arachnea-stream`.
 
 Sans capacité URL, le document est récupéré par le moteur, découpé en blocs
 abstraits, puis traduit par `translate_texts`. Une URL privée, une URL
@@ -197,15 +197,51 @@ La planification respecte simultanément :
 - `max_request_bytes`, mesurés sur la construction JSON normalisée, sans appel
   réseau.
 
-Le découpage d'une cue trop longue reste dans `arachnea-subtitles`, qui ne doit
-couper ni Unicode ni balisage. Translation refuse un bloc trop grand au lieu de
-le tronquer.
+Le découpage d’une cue trop longue reste dans le module `subtitles`
+d’`arachnea-stream`, qui ne doit couper ni Unicode ni balisage. Translation
+refuse un bloc trop grand au lieu de le tronquer.
 
 Bornes locales par défaut : 50 blocs, 10 000 unités par bloc, 50 000 unités par
 requête et 65 536 octets sérialisés. Les plafonds effectifs sont les plus
 restrictifs entre fournisseur et configuration locale.
 
-## 7. Cache
+## 7. Pipeline documentaire WebVTT
+
+Le module `subtitles` d’`arachnea-stream` parse et sérialise des documents
+WebVTT complets sans dépendance à un fournisseur ni au player.
+
+- L’entrée doit être en UTF-8 valide. Un BOM initial est accepté et les fins de
+  ligne CRLF/CR sont normalisées en LF.
+- La ligne de signature, les métadonnées d’en-tête facultatives, les
+  identifiants de cues, les lignes de timing brutes (paramètres compris), les
+  lignes de payload et les blocs `NOTE`, `STYLE` et `REGION` sont conservés en
+  sortie.
+- Les timestamps sont validés au format `mm:ss.mmm` ou `hh:mm:ss.mmm` ; la fin
+  doit être strictement postérieure au début. La traduction ne réécrit jamais
+  les données temporelles.
+- Seul le texte visible des cues est envoyé. Les balises WebVTT et les
+  timestamps internes restent dans leur cue et servent de frontières de
+  segments, afin qu’un fournisseur ne puisse ni modifier ni supprimer le
+  balisage. Les entités sont décodées pour la traduction, puis le texte retourné
+  est rééchappé ; une traduction ne peut pas introduire de nouvelle balise ni
+  terminer un bloc de cue.
+- Une cue est l’unité logique initiale : ses lignes sont traduites ensemble
+  lorsqu’aucun balisage protégé ne la découpe. Un texte trop long est scindé aux
+  frontières de phrases, puis de mots, puis en dernier recours entre caractères
+  Unicode. L’espacement retiré entre les fragments est conservé et restauré à la
+  reconstruction ; aucun caractère Unicode ni jeton de balisage n’est coupé.
+- Chaque segment reçoit un identifiant de bloc abstrait stable et une
+  correspondance cue/segment vérifiable. La reconstruction exige exactement les
+  identifiants, le nombre et l’ordre prévus ; un segment manquant, en trop,
+  réordonné ou vide fait échouer le document au lieu de publier un fichier
+  partiel.
+- Les plafonds locaux sont appliqués avant traduction : 4 Mio décompressés,
+  10 000 cues et 500 000 unités traduisibles par défaut. Ce sont des valeurs
+  locales, distinctes des limites fournisseur.
+
+SRT reste hors du chemin initial et n’est jamais servi comme du WebVTT brut.
+
+## 8. Cache
 
 L'identité générique comprend : empreinte du contenu source, langues source et
 cible effectives, service, endpoint/modèle, options linguistiques, révision de
@@ -213,15 +249,15 @@ configuration YAML/actions, révision du pipeline Translation et périmètre
 d'accès. Aucun credential n'y figure. Une source inconnue reste `auto` ; aucun
 code n'est inventé.
 
-`arachnea-subtitles` ajoute l'empreinte du document, le format, la révision du
-parseur WebVTT et la révision du pipeline documentaire. L'ETag du document final
-est une empreinte forte de ses octets, entre guillemets ; l'ETag distant ne
-valide que la source.
+Le module `subtitles` d’`arachnea-stream` ajoute l’empreinte du document, le
+format, la révision du parseur WebVTT et la révision du pipeline documentaire.
+L’ETag du document final est une empreinte forte de ses octets, entre
+guillemets ; l’ETag distant ne valide que la source.
 
 Le cache générique combine persistance backend et validation HTTP. L'ETag seul
 n'empêche pas une retraduction après perte de l'état backend.
 
-## 8. Contrat backend prévu
+## 9. Contrat backend prévu
 
 | Commande | Rôle |
 |---|---|
@@ -253,7 +289,7 @@ servies comme un fichier VTT.
 `Cache-Control: private, no-cache` est proposé pour conserver le corps tout en
 revalidant avec `If-None-Match`. Une réponse `304` est vide et conserve l'ETag.
 
-## 9. Hors périmètre du socle
+## 10. Hors périmètre du socle
 
 SRT reste derrière une extension explicite. Les sous-titres HLS/DASH intégrés,
 le direct, TTML/ASS, la transcription audio, les iframes sans piste externe, les

@@ -2,8 +2,8 @@
 
 `arachnea-translation` contains the generic translation contracts used by the
 Arachnea backend. It deliberately knows nothing about WebVTT, cues, players or
-video tracks: subtitle parsing and document orchestration live in
-`arachnea-subtitles`, which depends on this crate.
+video tracks: subtitle parsing and document orchestration live in the
+`arachnea-stream` subtitle module, which depends on this crate.
 
 ## Responsibilities
 
@@ -29,7 +29,8 @@ video tracks: subtitle parsing and document orchestration live in
 `bridge::ScrapyfyCollectionPort` adapts an already loaded
 `ScraperQueryCollection`; Stream supplies authorization, catalogs and
 persistence. This crate never depends on `arachnea-stream`.
-`arachnea-subtitles` depends on this crate, never the opposite.
+The `arachnea-stream` subtitle module depends on this crate, never the
+opposite.
 
 The normalized metadata query is `get_translation_metadata`. Its schema version,
 languages, pair rules, detection and limits are documented in
@@ -41,10 +42,11 @@ languages, pair rules, detection and limits are documented in
 From `server/`:
 
 ```sh
-cargo check -p arachnea-translation -p arachnea-subtitles -p arachnea-scrapyfy
+cargo check -p arachnea-translation -p arachnea-scrapyfy -p arachnea-stream
 ```
 
-No translation endpoint is public after lots 1 and 2. Stream loads the provider
+No translation endpoint is public after lots 1 to 3. Stream loads the provider
 catalog from the `arachnea-translation` Scrapyfy group and keeps Azure
-Translator and LibreTranslate disabled until configured. Translation execution
-and subtitle orchestration remain planned for later lots.
+Translator and LibreTranslate disabled until configured. Stream also owns the
+WebVTT document pipeline in its `subtitles` module. Translation execution,
+retrieval, cache orchestration and transport remain planned for later lots.

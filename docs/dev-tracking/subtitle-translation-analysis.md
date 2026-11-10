@@ -1,14 +1,14 @@
 # Analyse — traduction automatique des sous-titres
 
-Date de l’analyse : 2026-11-06. Mise à jour : 2026-11-10. Statut : recommandations précisées par l’utilisateur ; plan révisé pour imposer Scrapyfy, séparer traduction et sous-titres, intégrer les langues favorites et sélectionner les services selon leurs métadonnées YAML. Lots 1 et 2 implémentés le 2026-11-10 ; lots 3 à 10 : TODO.
+Date de l’analyse : 2026-11-06. Mise à jour : 2026-11-10. Statut : recommandations précisées par l’utilisateur ; plan révisé pour imposer Scrapyfy, séparer traduction et sous-titres, intégrer les langues favorites et sélectionner les services selon leurs métadonnées YAML. Lots 1 à 3 implémentés le 2026-11-10 ; lots 4 à 10 : TODO.
 
-Périmètre initial : analyse et plan, désormais suivi de l’implémentation des lots 1 et 2. L’implémentation précédente, non conforme aux exigences précisées, a été supprimée. Le lot 1 (contrats et séparation des couches) et le lot 2 (catalogue, credentials et administration) sont livrés selon le plan révisé ; les lots 3 à 10 restent à réaliser. Les validations de l’implémentation supprimée ne valent pas validation des futurs livrables. Aucun appel fournisseur réel ni benchmark de qualité n’a été réalisé pour cette révision.
+Périmètre initial : analyse et plan, désormais suivi de l’implémentation des lots 1 à 3. L’implémentation précédente, non conforme aux exigences précisées, a été supprimée. Les lots 1 (contrats et séparation des couches), 2 (catalogue, credentials et administration) et 3 (parser WebVTT, segmentation et planification documentaire) sont livrés selon le plan révisé ; les lots 4 à 10 restent à réaliser. Les validations de l’implémentation supprimée ne valent pas validation des futurs livrables. Aucun appel fournisseur réel ni benchmark de qualité n’a été réalisé pour cette révision.
 
 ## 1. Objectif et recommandation
 
 Ajouter un type de service dédié à la traduction, utilisable indépendamment du streaming, puis un orchestrateur backend qui reçoit l'URL d'un sous-titre et retourne un fichier WebVTT traduit complet. Chaque définition YAML de fournisseur déclare ses capacités optionnelles : traduction depuis une URL et/ou traduction d'un ou plusieurs blocs de texte avec des limites explicites.
 
-Recommandation : traduction générique dans `arachnea-translation`, traitement documentaire dans `arachnea-subtitles`, services exécutés exclusivement par `arachnea-scrapyfy` et assemblage dans `arachnea-stream`. Commencer par **Azure Translator F0** et **LibreTranslate auto-hébergé**. Conserver Google Cloud Translation comme option complémentaire et DeepL comme intégration conditionnelle selon le compte disponible.
+Recommandation : traduction générique dans `arachnea-translation`, traitement documentaire dans le module `subtitles` d’`arachnea-stream`, services exécutés exclusivement par `arachnea-scrapyfy` et assemblage dans `arachnea-stream`. Commencer par **Azure Translator F0** et **LibreTranslate auto-hébergé**. Conserver Google Cloud Translation comme option complémentaire et DeepL comme intégration conditionnelle selon le compte disponible.
 
 Le cache doit combiner **persistance backend des résultats** et **validation HTTP par ETag**. L'ETag seul économise le transfert ; il ne garantit pas qu'une traduction ne sera pas recalculée. Ne pas appeler le traducteur avant d'avoir recherché et validé le résultat en cache.
 
@@ -30,7 +30,7 @@ Le cache doit combiner **persistance backend des résultats** et **validation HT
 | `server/crates/arachnea-scrapyfy/src/scrapyfy/{service_catalog.rs,scraper_query_collection.rs}` | Catalogues à partir de manifestes récursifs et YAML, paramètres et identifiants de groupe. Manifestes/YAML avec requêtes effectives, paramètres et métadonnées ; le mapping typé des capacités de traduction reste à définir. Réutiliser ce moteur exclusivement pour les fournisseurs. |
 | `server/crates/arachnea-stream/src/{stream_scraper.rs,main.rs,admin_composition.rs,reloadable_stream_scraper.rs}` | Assemblage applicatif, stores typés, credentials, routes et rechargement. L'adaptateur admin reconnaît explicitement certains groupes ; ajouter un groupe nécessite de traiter son chargement et son rechargement. |
 
-La recherche dans ce checkout n’a pas identifié le crate Translation annoncé par le suivi ni de parseur backend WebVTT/SRT dédié. Le traitement des storyboards VTT côté front ne remplace pas un parseur de sous-titres.
+Les lots 1 à 3 ont créé la crate `arachnea-translation` et ajouté le module `subtitles` d’`arachnea-stream`, avec un parseur/sérialiseur WebVTT interne. SRT reste hors du chemin initial ; le traitement des storyboards VTT côté front ne remplace pas un parseur de sous-titres.
 
 Les langues favorites sont déjà persistées sous `videoPlayer.subtitleLanguagePriority` (avec compatibilité de l’ancienne clé `videoPlayer.subtitleLanguages`). `ParameterSubtitleLanguages.vue` édite leur ordre ; `trackPreferences.ts` les utilise pour les profils `auto`, avec normalisation des langues et préférence pour les pistes humaines. Ces mécanismes sont à étendre, sans liste de langues concurrente.
 
@@ -52,11 +52,11 @@ Les précisions de l’utilisateur remplacent la recommandation antérieure de c
 | --- | --- | --- |
 | `arachnea-scrapyfy` | Exécuter les requêtes YAML, requêtes HTTP, authentification configurée, extraction et normalisation des réponses par actions/post-processeurs génériques. | Endpoints, en-têtes, sérialisation fournisseur, codes de langues et mapping des réponses sont décrits par les services YAML. Aucun endpoint fournisseur appelé directement depuis Translation ou Stream. |
 | `arachnea-translation` | Contrats de texte/URL, capacités, langues normalisées, identifiants de blocs, planification générique, bornes, budgets et reprises. Un pont unique appelle Scrapyfy et valide sa sortie normalisée. | Aucune connaissance de WebVTT, cue, player ou piste vidéo ; aucune implémentation Rust Azure/LibreTranslate. Dépendance vers Scrapyfy pour le pont, jamais l’inverse. |
-| `arachnea-subtitles` (nouveau, nom proposé) | Parsing et sérialisation WebVTT, protection du balisage, extraction des cues en blocs, segmentation compatible avec le document, reconstruction, validation temporelle et orchestration du cache des fichiers traduits. | Dépend de l’interface générique Translation, jamais d’un fournisseur ni de Stream. Reçoit récupération autorisée et persistance par injection. |
-| `arachnea-stream` | Résolution des pistes et proxys internes, droits, assemblage des couches, commandes JSON et transport REST/Tauri. | Fournit clients et stores existants ; ne contient ni mapping fournisseur ni parseur de sous-titres. |
+| Module `subtitles` d’`arachnea-stream` | Parsing et sérialisation WebVTT, protection du balisage, extraction des cues en blocs, segmentation compatible avec le document, reconstruction, validation temporelle et orchestration du cache des fichiers traduits. | Dépend de la crate `arachnea-translation`, jamais d’un fournisseur ; reçoit récupération autorisée et persistance par injection. |
+| `arachnea-stream` (hors module `subtitles`) | Résolution des pistes et proxys internes, droits, assemblage des couches, commandes JSON et transport REST/Tauri. | Fournit clients et stores existants ; ne contient ni mapping fournisseur ni logique WebVTT hors de son module `subtitles`. |
 | Front public | Préférences par langue, décision de demander une piste, chargement et cycle de vie Video.js. | Consomme les capacités publiques, sans credentials ni protocole fournisseur. |
 
-Cette séparation en deux crates rend le moteur texte utilisable sans dépendre de la vidéo. Une séparation en modules dans un seul crate coûterait moins en assemblage, mais laisserait les dépendances documentaires dans le même paquet ; deux crates sont recommandés pour matérialiser la frontière demandée. Leur création est livrée au lot 1.
+La séparation fonctionnelle garde le moteur texte utilisable sans dépendre de la vidéo. Un crate dédié aux sous-titres a été écarté : son unique consommateur est `arachnea-stream`, et le module `subtitles` y matérialise la frontière sans ajouter de paquet. La crate `arachnea-translation` reste indépendante et ne dépend jamais de `arachnea-stream`.
 
 Le planificateur Translation travaille sur des blocs abstraits ; la couche sous-titres reste propriétaire du lien `cue → segments`, du découpage respectant le balisage et des timestamps. L’identité de cache générique décrit service/langues/options ; le cache WebVTT ajoute empreinte du document, révision du parseur/pipeline et périmètre d’accès.
 
@@ -107,7 +107,7 @@ Les métadonnées sont chargées et validées au chargement/rechargement des ser
 - `translate_url` reçoit l’URL d’un fichier que le **service distant** récupère lui-même. Cette query et sa capacité sont optionnelles ; leur déclaration précise formats, limites et forme du résultat complet. Elles ne désignent pas une simple page HTML ni un upload.
 - Pour une entrée URL, utiliser cette voie seulement si elle est déclarée, compatible avec le document et accessible au fournisseur. Sinon, le moteur récupère le fichier de manière contrôlée, extrait les blocs, appelle `translate_texts`, puis reconstruit le document. Cette décision intervient avant l’appel fournisseur ; une erreur de traduction URL ne provoque pas une seconde tentative texte facturable implicite.
 
-La façade URL est générique : elle orchestre récupération injectée, choix de capacité et adaptateur de document. Un fichier texte simple peut employer un adaptateur générique ; un WebVTT passe par `arachnea-subtitles`, qui reste propriétaire du parsing, des cues, des timestamps et de la reconstruction. La couche Translation ne traduit jamais le contenu brut d’un WebVTT comme une seule chaîne incluant son en-tête et ses timings. Stream fournit les droits et la récupération des proxys applicatifs. Ce repli est une fonction du moteur, pas une fausse query `translate_url` ajoutée à tous les YAML.
+La façade URL est générique : elle orchestre récupération injectée, choix de capacité et adaptateur de document. Un fichier texte simple peut employer un adaptateur générique ; un WebVTT passe par le module `subtitles` d’`arachnea-stream`, qui reste propriétaire du parsing, des cues, des timestamps et de la reconstruction. La couche Translation ne traduit jamais le contenu brut d’un WebVTT comme une seule chaîne incluant son en-tête et ses timings. Stream fournit les droits et la récupération des proxys applicatifs. Ce repli est une fonction du moteur, pas une fausse query `translate_url` ajoutée à tous les YAML.
 
 ### Détection optionnelle de la langue source
 
@@ -136,7 +136,7 @@ Le résultat de sélection comprend le service retenu et des raisons normalisée
 
 L’exemple suivant décrit un **service fictif** pour illustrer le contrat ; les langues et les plafonds sont des valeurs locales d’exemple, sans rapport avec les offres Azure ou LibreTranslate. Il n’est pas un fichier fournisseur prêt à charger. Les queries, types de sortie et champs usuels reprennent la structure Scrapyfy existante ; les noms de query de traduction et la sortie normalisée constituent le nouveau contrat proposé.
 
-L’action `build_json` et sa syntaxe `fields` sont une **proposition d’extension générique à implémenter/valider au lot 1**, pas une action déclarée disponible aujourd’hui. Elle construit et sérialise un objet typé, en échappant les chaînes ; `json_parameter` décode une valeur JSON validée et `string_parameter` insère une chaîne. Elle doit pouvoir être utilisée par n’importe quel service Scrapyfy et par la mesure de requête sans appel réseau. Les noms des paramètres d’exécution ci-dessous sont également proposés : les secrets sont injectés depuis les credentials backend, sans valeur persistée dans le YAML ni exposition publique.
+L’action `build_json` et sa syntaxe `fields` ont été **implémentées comme extension générique au lot 1** ; `build_json_array` et `json_array_projection` ont été ajoutées au lot 2. `build_json` construit et sérialise un objet typé, en échappant les chaînes ; `json_parameter` décode une valeur JSON validée et `string_parameter` insère une chaîne. Elle doit pouvoir être utilisée par n’importe quel service Scrapyfy et par la mesure de requête sans appel réseau. Les noms des paramètres d’exécution ci-dessous sont également proposés : les secrets sont injectés depuis les credentials backend, sans valeur persistée dans le YAML ni exposition publique.
 
 ```yaml
 id: example-translation
@@ -397,11 +397,11 @@ Mesurer cache utilisé, revalidations source, caractères envoyés, lots, durée
 
 ## 11. Décisions acquises et questions restantes
 
-L’utilisateur a précisé les recommandations : Scrapyfy obligatoire, Rust générique, séparation traduction/sous-titres et intégration des favoris. Le plan ci-dessous remplace les choix antérieurs incompatibles. L’implémentation précédente a été supprimée ; les lots 1 et 2 sont livrés et les lots 3 à 10 restent à TODO.
+L’utilisateur a précisé les recommandations : Scrapyfy obligatoire, Rust générique, séparation traduction/sous-titres et intégration des favoris. Le plan ci-dessous remplace les choix antérieurs incompatibles. L’implémentation précédente a été supprimée ; les lots 1 à 3 sont livrés et les lots 4 à 10 restent à TODO.
 
 ### Décisions acquises
 
-- Deux couches indépendantes : `arachnea-translation` générique et `arachnea-subtitles` documentaire ; assemblage dans Stream.
+- Deux couches indépendantes : `arachnea-translation` générique et le module `subtitles` d’`arachnea-stream` documentaire ; assemblage dans Stream.
 - Fournisseurs exclusivement décrits et exécutés par Scrapyfy ; aucune configuration autonome ni adaptateur Rust spécifique.
 - Réutilisation de la liste ordonnée de langues favorites avec autorisation de génération par langue, désactivée par défaut ; générer la langue prioritaire autorisée avant de retenir une piste d’une langue moins prioritaire.
 - Privilégier une piste source originale non traduite, puis une autre piste humaine exploitable.
@@ -425,7 +425,7 @@ Aucune question produit n’empêche de commencer les lots de fondation. Les poi
 | Nombre de processus | Assurer la déduplication dans un processus ; si plusieurs processus partagent le cache, exiger une réservation persistante ou un verrou partagé avant activation dans ce mode. Documenter la topologie réellement prise en charge. | Lot 5 |
 | Durée acceptable d’un GET | Qualifier REST, reverse proxy et Tauri sur les volumes représentatifs. Si les délais imposent des tâches asynchrones, présenter ce changement de contrat avant de le réaliser. | Lots 6 et 9 |
 | Cache du protocole Tauri | Mesurer son comportement ; employer si nécessaire un cache applicatif borné `ETag + octets`. La persistance backend reste obligatoire ; IndexedDB ne devient nécessaire que si la persistance du corps côté client est requise. | Lot 7 |
-| Parseur WebVTT | Choisir ou implémenter un parseur dans la couche sous-titres. Vérifier préservation structurelle et licence. | Lot 3 |
+| Parseur WebVTT | Résolu au lot 3 : parser et sérialiseur internes au module `subtitles` d’`arachnea-stream`, sans dépendance externe ni contrainte de licence supplémentaire. La qualification structurelle reste couverte par les scénarios manuels du lot 3 et le lot 9. | Fait (lot 3) |
 
 SRT, Google, DeepL, upload de documents, modes URL avec tâches/récupération différée, regroupement linguistique entre cues et cache de lots intermédiaires restent des extensions distinctes. Le contrat URL optionnel et son repli vers le texte font partie du socle ; aucun fournisseur initial n’est annoncé compatible URL sans qualification. Leur réalisation n’est pas nécessaire pour terminer la première livraison.
 
@@ -437,22 +437,22 @@ Les lots sont des unités de réalisation et de revue, pas des estimations calen
 
 **Statut : DONE (2026-11-10).**
 
-**Livré :** crates `arachnea-translation` et `arachnea-subtitles` inscrits au workspace ; contrats de langues, blocs, capacités, limites, métadonnées, sélection, planification, identité de cache, descripteur persistant, ports de récupération/cache et statuts HTTP ; pont Scrapyfy générique et action `build_json` ; README des deux crates, spécifications Translation FR/EN et documentation Scrapyfy mise à jour. Aucun endpoint public de traduction.
+**Livré :** crate `arachnea-translation` inscrite au workspace et module `subtitles` ajouté à `arachnea-stream` ; contrats de langues, blocs, capacités, limites, métadonnées, sélection, planification, identité de cache, descripteur persistant, ports de récupération/cache et statuts HTTP ; pont Scrapyfy générique et action `build_json` ; README de la crate Translation, spécifications Translation FR/EN et documentation Scrapyfy mise à jour. Aucun endpoint public de traduction.
 
 **Dépendance :** recommandations validées.
 
 **Travaux :**
 
-1. Créer `arachnea-translation` et `arachnea-subtitles` et inscrire les deux crates au workspace, avec les frontières de responsabilité définies en section 4.
+1. Créer `arachnea-translation` et l’inscrire au workspace ; ajouter le module `subtitles` à `arachnea-stream`, avec les frontières de responsabilité définies en section 4.
 2. Définir les types de langues, identifiants de blocs, capacités URL/texte, unités de taille et limites de la section 5. Définir les erreurs contextualisées et les correspondances d’entrée/sortie.
-3. Définir le pont générique Scrapyfy, les blocs texte et la mesure de requête côté Translation ; réserver récupération de piste, cache documentaire et types WebVTT à Subtitles. Définir les ports injectés sans dépendance vers Stream.
+3. Définir le pont générique Scrapyfy, les blocs texte et la mesure de requête côté Translation ; réserver récupération de piste, cache documentaire et types WebVTT au module `subtitles` d’`arachnea-stream`. Définir les ports injectés par les services Stream.
 4. Définir entrées/sorties normalisées des queries et capacités/limites typées issues du catalogue Scrapyfy. Spécifier `get_translation_metadata`, langues à deux lettres, couples directionnels optionnels, détection source intégrée/séparée, plafonds et fraîcheur. Définir les deux voies texte/URL optionnelle et le repli URL vers récupération + blocs via un adaptateur de document. Définir la sélection automatique/préférée/contrainte et les erreurs d’exclusion ; aucune configuration fournisseur autonome. Inclure les révisions YAML/actions dans l’identité de résultat.
 5. Spécifier les commandes JSON, le descripteur persistant, les règles d’accès, les clés de cache et la table des erreurs HTTP ; fixer notamment la réponse `HEAD` sans résultat existant.
-6. Centraliser les constantes dans le `src/lib.rs` de leur crate propriétaire ; documenter les frontières et dépendances, ajouter rustdoc anglaise et README des deux crates. Créer les spécifications Translation FR/EN selon les conventions du dépôt.
+6. Centraliser les constantes dans le `src/lib.rs` de la crate propriétaire ; documenter les frontières et dépendances, ajouter rustdoc anglaise, README de la crate Translation et documentation du module `subtitles`. Créer les spécifications Translation FR/EN selon les conventions du dépôt.
 
-**Livrable :** deux crates compilables, frontières documentées et contrat Scrapyfy normalisé, sans traduction accessible au public.
+**Livrable :** une crate compilable avec son module documentaire, frontières documentées et contrat Scrapyfy normalisé, sans traduction accessible au public.
 
-**Validation / sortie :** `cargo check -p arachnea-translation -p arachnea-subtitles -p arachnea-scrapyfy` depuis `server/` ; revue des unités, versions et dépendances ; configuration invalide rejetée explicitement. Les statuts et le périmètre d’accès ne restent pas implicites pour les lots suivants.
+**Validation / sortie :** `cargo check -p arachnea-translation -p arachnea-scrapyfy -p arachnea-stream` depuis `server/` ; revue des unités, versions et dépendances ; configuration invalide rejetée explicitement. Les statuts et le périmètre d’accès ne restent pas implicites pour les lots suivants.
 
 ### Lot 2 — Catalogue, credentials et administration
 
@@ -476,16 +476,20 @@ Les lots sont des unités de réalisation et de revue, pas des estimations calen
 
 ### Lot 3 — Documents WebVTT et planification des lots
 
-**Statut : TODO.**
+**Statut : DONE (2026-11-10).**
+
+**Livré :** parseur et sérialiseur WebVTT UTF-8 internes au module `subtitles` d’`arachnea-stream` (signature, métadonnées d’en-tête, identifiants de cues, timing brut et paramètres, payloads, `NOTE`/`STYLE`/`REGION`, validation des timestamps) ; extraction du seul texte visible avec balises et timestamps internes protégés comme frontières de segments ; décodage des entités puis rééchappement de la sortie ; découpage des cues longues aux frontières de phrases puis de mots puis de caractères Unicode, avec conservation des espaces de jointure ; table de correspondance cue/segment et identifiants de blocs stables ; mesure des octets décompressés, cues et unités fournisseur avec plafonds locaux `LocalSubtitleLimits` ; planification déléguée à `plan_batches` et reconstruction refusant les segments manquants, en trop, réordonnés ou vides ; pipeline `SubtitleDocumentPlan` indépendant de Scrapyfy et du player. Aucun nouvel endpoint ni accès réseau.
+
+**Validation effectuée (2026-11-10) :** `cargo check --workspace`, `cargo test -p arachnea-stream --no-run`, `cargo fmt` et `cargo clippy -p arachnea-stream --all-targets` sans avertissement Stream ; vérification aller-retour sur BOM/CRLF, `NOTE`/`STYLE`/`REGION`, entités, balises, cues longues et refus d’un timestamp inversé ou d’un balisage non fermé. Aucun test permanent ajouté.
 
 **Dépendance :** lot 1 ; réalisable indépendamment des comptes fournisseurs.
 
 **Travaux :**
 
-1. Dans `arachnea-subtitles`, qualifier le choix du parseur puis implémenter lecture, validation et sérialisation WebVTT UTF-8 avec conservation des identifiants, timestamps, paramètres, blocs et métadonnées décrits en section 6.
+1. Dans le module `subtitles` d’`arachnea-stream`, qualifier le choix du parseur puis implémenter lecture, validation et sérialisation WebVTT UTF-8 avec conservation des identifiants, timestamps, paramètres, blocs et métadonnées décrits en section 6.
 2. Extraire uniquement le texte traduisible, protéger le balisage et les timestamps internes, conserver une table de correspondance vérifiable entre cues et segments.
 3. Mesurer séparément fichier décompressé, cues, texte et unités fournisseur ; appliquer les plafonds locaux avant traduction.
-4. Confier à Translation les lots de blocs abstraits et la mesure de leur requête Scrapyfy ; garder dans Subtitles le découpage des cues et la correspondance des segments. Respecter simultanément blocs, unités et octets réellement sérialisés, sans couper Unicode ni balisage.
+4. Confier à Translation les lots de blocs abstraits et la mesure de leur requête Scrapyfy ; garder dans le module `subtitles` le découpage des cues et la correspondance des segments. Respecter simultanément blocs, unités et octets réellement sérialisés, sans couper Unicode ni balisage.
 5. Recomposer les fragments, contrôler cardinalité et structure et rééchapper le texte traduit. Un échec ou une réponse incomplète ne produit jamais un fichier final partiel.
 
 **Livrable :** pipeline de document indépendant des adaptateurs et du player ; SRT toujours hors du chemin initial.
@@ -519,8 +523,8 @@ Les lots sont des unités de réalisation et de revue, pas des estimations calen
 
 **Travaux :**
 
-1. Fournir à `arachnea-subtitles`, depuis Stream, une résolution de piste autorisée, incluant les proxys applicatifs internes, en-têtes et contexte d’accès ; contrôler destinations, résolutions et redirections HTTP(S).
-2. Dans Subtitles, implémenter le flux cache → revalidation source si nécessaire → empreinte → choix URL fournisseur compatible ou blocs texte après récupération → appel Translation/Scrapyfy → reconstruction complète. Qualifier explicitement le repli texte d’un service sans query URL et les URL privées/proxifiées qui ne doivent pas lui être transmises. Ne jamais appeler le fournisseur avant la recherche du résultat réutilisable.
+1. Fournir au module `subtitles`, depuis les services Stream, une résolution de piste autorisée, incluant les proxys applicatifs internes, en-têtes et contexte d’accès ; contrôler destinations, résolutions et redirections HTTP(S).
+2. Dans le module `subtitles` d’`arachnea-stream`, implémenter le flux cache → revalidation source si nécessaire → empreinte → choix URL fournisseur compatible ou blocs texte après récupération → appel Translation/Scrapyfy → reconstruction complète. Qualifier explicitement le repli texte d’un service sans query URL et les URL privées/proxifiées qui ne doivent pas lui être transmises. Ne jamais appeler le fournisseur avant la recherche du résultat réutilisable.
 3. Persister index source, descripteurs et résultats versionnés via les stores adaptés ; écrire atomiquement les octets finaux et leurs métadonnées. Isoler les périmètres privés.
 4. Calculer la clé complète et l’ETag fort des octets finaux ; distinguer validateur amont, fraîcheur source, rétention et éviction disque. Dédupliquer les URL signées par contenu sans réécrire arbitrairement leurs paramètres.
 5. Mutualiser les demandes identiques avec deuxième lecture du cache sous verrou ; intégrer la réservation partagée si plusieurs processus sont pris en charge. Définir la récupération des réservations interrompues.
@@ -614,7 +618,7 @@ Les lots sont des unités de réalisation et de revue, pas des estimations calen
 
 1. Inclure les configurations non secrètes du nouveau groupe dans les paquets backend/desktop et vérifier leur présence dans le déploiement Docker ; conserver les fournisseurs inactifs sans credentials.
 2. Vérifier les chemins de données, la persistance et les permissions du cache dans chaque mode de distribution, ainsi que la conservation au redémarrage et à la mise à jour.
-3. Relire README des crates Translation et Subtitles, contrats Translation/Stream FR/EN, aide admin et documents de distribution ; documenter activation, credentials, plafonds, cache, erreurs et limitations de couverture. Modifier les spécifications Scrapyfy uniquement si son contrat a réellement changé.
+3. Relire le README de la crate Translation, les contrats Translation/Stream FR/EN, aide admin et documents de distribution ; documenter activation, credentials, plafonds, cache, erreurs et limitations de couverture. Modifier les spécifications Scrapyfy uniquement si son contrat a réellement changé.
 4. Ajouter les entrées de changelog sous les modules concernés, au format release → module → Added/Changed/Fixed. Clore dans `docs/TODO.md` les éléments réellement livrés et conserver les qualifications ou extensions ouvertes.
 5. Réaliser un parcours sur un paquet produit : démarrage sans fournisseur, configuration admin, traduction, relecture après redémarrage et désactivation du fournisseur.
 
@@ -632,4 +636,4 @@ Les lots sont des unités de réalisation et de revue, pas des estimations calen
 | Parcours utilisateur | 7–8 | Demande et sélection de traduction sans redémarrage de la vidéo |
 | Livraison qualifiée | 9–10 | Bornes mesurées, distribution et documentation, limites résiduelles consignées |
 
-Les lots 1 et 2 sont livrés ; les lots 3 à 10 restent à TODO et aucune validation antérieure n’est conservée comme livrable acquis. Le lot 3 peut avancer après le lot 1. Le reste suit les dépendances indiquées. Une extension hors première livraison ou un changement de contrat découvert en cours de travail fait l’objet d’une analyse spécifique avant réalisation ; les recommandations déjà validées ne nécessitent pas une nouvelle confirmation à chaque lot.
+Les lots 1 à 3 sont livrés ; les lots 4 à 10 restent à TODO et aucune validation antérieure n’est conservée comme livrable acquis. Le lot 4 peut avancer après le lot 3. Le reste suit les dépendances indiquées. Une extension hors première livraison ou un changement de contrat découvert en cours de travail fait l’objet d’une analyse spécifique avant réalisation ; les recommandations déjà validées ne nécessitent pas une nouvelle confirmation à chaque lot.

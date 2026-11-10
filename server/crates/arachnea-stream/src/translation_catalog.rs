@@ -18,11 +18,11 @@ use anyhow::Result;
 use arachnea_core::crypt::hash62_64;
 use arachnea_core::persistence::CredentialsStore;
 use arachnea_scrapyfy::{
-    ScraperAgregator, ScraperDataNode, ScraperServiceCatalogEntry, load_service_catalog,
+    load_service_catalog, ScraperAgregator, ScraperDataNode, ScraperServiceCatalogEntry,
 };
 use arachnea_translation::{
-    GET_TRANSLATION_METADATA_QUERY, LanguageCode, SupportedPair, TRANSLATION_METADATA_MEDIA_TYPE,
-    TranslationMetadata,
+    LanguageCode, SupportedPair, TranslationMetadata, GET_TRANSLATION_METADATA_QUERY,
+    TRANSLATION_METADATA_MEDIA_TYPE,
 };
 use serde::Serialize;
 

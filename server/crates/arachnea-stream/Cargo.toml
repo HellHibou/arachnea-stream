@@ -37,6 +37,7 @@ serde_urlencoded.workspace = true
 xxhash-rust.workspace = true
 tauri = { workspace = true, features = [] }
 tauri-plugin-opener.workspace = true
+thiserror.workspace = true
 tokio = { workspace = true, features = ["full"] }
 tracing.workspace = true
 url.workspace = true

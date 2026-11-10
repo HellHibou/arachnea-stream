@@ -1,6 +1,6 @@
 //! Subtitle document cache identity and persisted entries.
 
-use crate::document::{DocumentFingerprint, SubtitleFormat};
+use super::document::{DocumentFingerprint, SubtitleFormat};
 use crate::{
     SUBTITLE_CACHE_KEY_PAIR_SEPARATOR, SUBTITLE_CACHE_KEY_SEPARATOR, SUBTITLE_CACHE_KEY_VERSION,
 };

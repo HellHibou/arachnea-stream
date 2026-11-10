@@ -1,22 +1,22 @@
 # Arachnea translation contracts specification
 
 This document describes the generic translation contract owned by
-`arachnea-translation`, the document contract owned by `arachnea-subtitles`,
-and their planned integration with Stream. The general YAML schema remains
-documented in [arachnea-scrapyfy](arachnea-scrapyfy-en.md); this document only
-covers the translation-specific normalized queries and outputs.
+`arachnea-translation`, the subtitle document pipeline owned by the
+`arachnea-stream` subtitle module, and their integration with Stream. The
+general YAML schema remains documented in
+[arachnea-scrapyfy](arachnea-scrapyfy-en.md); this document only covers the translation-specific normalized queries and outputs.
 
-Status: lot 1 implemented (contracts, crates and generic bridge). Lots 2 to 10
-add configuration, the WebVTT parser, orchestration, transport and the user
-interface.
+Status: lots 1 to 3 implemented (contracts, crate and subtitle module, generic
+bridge, effective catalog and administration, WebVTT parser and document
+planning). Lots 4 to 10 add provider execution, orchestration, transport and
+the user interface.
 
 ## 1. Layer split
 
 | Layer | Responsibilities | Prohibitions |
 |---|---|---|
 | `arachnea-translation` | Two-letter languages, abstract blocks, capabilities and limits, metadata, selection, planning, cache identity, Scrapyfy bridge. | No knowledge of WebVTT, cues, players or video tracks. No provider-specific Rust. |
-| `arachnea-subtitles` | Source track descriptors, persistent descriptor, token, injected authorized retrieval and document cache, document cache identity, HTTP statuses. | No dependency on Stream or Scrapyfy; no unrestricted network access. |
-| `arachnea-stream` | Rights, proxy-link resolution, catalogs, REST/Tauri assembly, file transport. | No subtitle parsing or provider mapping. |
+| `arachnea-stream` | Rights, proxy-link resolution, catalogs, REST/Tauri assembly and file transport, plus its `subtitles` module: source descriptors, WebVTT parsing/serialization, cue segmentation and document planning, persistent descriptor and token, authorized retrieval and document cache ports, document cache identity and HTTP statuses. | No provider mapping or provider-specific Rust; no unrestricted network access. |
 | Public front | Preferences, translation request decision, Video.js lifecycle. | No credentials or provider protocol. |
 
 Providers are described and executed exclusively by Scrapyfy. The generic
@@ -156,7 +156,8 @@ call or a fake translated track.
 Normalized parameters: `translation_document_url`,
 `translation_source_language`, `translation_target_language`. The normalized
 output contains `content` and `content_type` for `inline_document`. The complete
-content is validated by the format adapter in `arachnea-subtitles`.
+content is validated by the format adapter in the `arachnea-stream` subtitle
+module.
 
 Without a URL capability, the engine retrieves the document, splits it into
 abstract blocks and translates them with `translate_texts`. Private URLs,
@@ -193,30 +194,63 @@ Planning simultaneously respects:
 - `max_request_bytes`, measured against the normalized JSON construction
   without a network call.
 
-Splitting an oversized cue remains in `arachnea-subtitles`, which must not cut
-Unicode or markup. Translation rejects an oversized block instead of truncating
-it.
+Splitting an oversized cue remains in the `arachnea-stream` subtitle module,
+which must not cut Unicode or markup. Translation rejects an oversized block
+instead of truncating it.
 
 Default local bounds: 50 blocks, 10,000 units per block, 50,000 units per
 request and 65,536 serialized bytes. Effective limits are the strictest between
 provider and local configuration.
 
-## 7. Cache
+## 7. WebVTT document pipeline
+
+The `arachnea-stream` subtitle module parses and serializes complete WebVTT
+documents without any provider or player dependency.
+
+- Input must be valid UTF-8. A leading BOM is accepted and CRLF/CR line endings
+  are normalized to LF.
+- The signature line, optional header metadata, cue identifiers, raw timing
+  lines (including cue settings), payload lines, `NOTE`, `STYLE` and `REGION`
+  blocks are preserved on output.
+- Timestamps are validated as `mm:ss.mmm` or `hh:mm:ss.mmm`; the end time must
+  be strictly after the start time. Timing data is never rewritten by
+  translation.
+- Only visible cue text is submitted. Inline WebVTT tags and internal
+  timestamps remain in their cue and act as segment boundaries, so a provider
+  cannot alter or drop markup. Entities are decoded for translation and the
+  returned text is re-escaped; translated text cannot introduce new tags or
+  terminate a cue block.
+- A cue is the initial logical unit: its lines are translated together when no
+  protected markup splits it. Long text is split at sentence boundaries, then
+  word boundaries, then last-resort Unicode character boundaries. Whitespace
+  between split pieces is recorded and restored during reconstruction, and no
+  Unicode character or markup token is cut.
+- Every split segment receives a stable abstract block identifier and a
+  verifiable cue/segment mapping. Reconstruction requires exactly the planned
+  identifiers, count and order; missing, extra, reordered or empty segments
+  fail the document instead of publishing a partial file.
+- Local bounds are applied before translation: 4 MiB decompressed, 10,000 cues
+  and 500,000 translatable units by default. These are local defaults, distinct
+  from provider limits.
+
+SRT is still not part of the initial path and is never served as raw WebVTT.
+
+## 8. Cache
 
 The generic identity includes the source content fingerprint, effective source
 and target languages, service, endpoint/model, language options, YAML/action
 configuration revision, Translation pipeline revision and access scope. It never
 contains credentials. An unknown source stays `auto`; no code is invented.
 
-`arachnea-subtitles` adds the document fingerprint, format, WebVTT parser
-revision and subtitle pipeline revision. The final document ETag is a strong
-digest of its bytes, including quotes; the remote ETag only validates the
-source.
+The `arachnea-stream` subtitle module adds the document fingerprint, format,
+WebVTT parser revision and subtitle pipeline revision. The final document ETag
+is a strong digest of its bytes, including quotes; the remote ETag only
+validates the source.
 
 The generic cache combines backend persistence with HTTP validation. An ETag
 alone cannot prevent retranslation after all backend state is lost.
 
-## 8. Planned backend contract
+## 9. Planned backend contract
 
 | Command | Purpose |
 |---|---|
@@ -249,7 +283,7 @@ file.
 revalidating with `If-None-Match`. A `304` response has no body and keeps the
 ETag.
 
-## 9. Out of scope
+## 10. Out of scope
 
 SRT remains behind an explicit extension. Integrated HLS/DASH subtitles, live
 streams, TTML/ASS, audio transcription, iframes without an external track, URL

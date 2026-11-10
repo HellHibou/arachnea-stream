@@ -1,7 +1,7 @@
 //! Persistent subtitle translation descriptors and opaque tokens.
 
-use crate::document::SubtitleSourceDescriptor;
-use crate::error::SubtitleTranslationError;
+use super::document::SubtitleSourceDescriptor;
+use super::error::SubtitleTranslationError;
 use crate::DEFAULT_TOKEN_TTL_SECONDS;
 use arachnea_translation::{AccessScope, LanguageCode, SelectionPolicy};
 use serde::{Deserialize, Serialize};

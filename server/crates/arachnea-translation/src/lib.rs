@@ -8,9 +8,9 @@
 //!
 //! It deliberately has no knowledge of WebVTT, subtitle cues, players or
 //! tracks. Document parsing, cue segmentation, subtitle retrieval and the
-//! subtitle cache live in `arachnea-subtitles`; stream services provide the
-//! authorized retrieval and persistence implementations through the injected
-//! ports defined in that crate.
+//! subtitle cache live in the `arachnea-stream` subtitle module; stream
+//! services provide the authorized retrieval and persistence implementations
+//! through the injected ports defined there.
 //!
 //! # Boundaries
 //!
@@ -19,8 +19,8 @@
 //!   implemented in Rust here.
 //! * [`bridge::ScrapyfyQueryPort`] is the only outbound Scrapyfy dependency.
 //!   Stream supplies an implementation backed by its service catalog.
-//! * `arachnea-subtitles` depends on this crate, never the opposite, and this
-//!   crate never depends on `arachnea-stream`.
+//! * The `arachnea-stream` subtitle module depends on this crate, never the
+//!   opposite, and this crate never depends on `arachnea-stream`.
 //!
 //! Translation is not exposed publicly at this lot: the crate defines the
 //! contracts needed by the catalog, orchestrator and transport layers.

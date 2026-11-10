@@ -6,11 +6,11 @@ use super::{
     source_checks::{Input, InputReference, Operation, Selection, SourceCheck, Step},
     Prepared,
 };
+use crate::stream_resolver::ResolveStreamNoStream;
 use anyhow::{ensure, Context, Result};
 use arachnea_scrapyfy::scrapyfy::{
     scraper_cache::ScraperCacheConfig, scraper_manager::tests::assertions::AssertionOutcome,
 };
-use crate::stream_resolver::ResolveStreamNoStream;
 use serde_json::Value;
 use std::{
     collections::{BTreeSet, HashMap},
