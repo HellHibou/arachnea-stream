@@ -226,6 +226,7 @@ fn copy_input(input: &ControlerStreamInput) -> ControlerStreamInput {
         query: input.query.clone(),
         method: input.method.clone(),
         headers: input.headers.clone(),
+        remote_addr: input.remote_addr,
         body: input.body.clone(),
         entry_point: input.entry_point.clone(),
         force_buffer_response: input.force_buffer_response,

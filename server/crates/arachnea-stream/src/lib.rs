@@ -74,6 +74,15 @@ pub(crate) const STREAM_HTTP_PROXY_COMMAND: &str = "proxy";
 /// Stream drm license proxy command identifier used by routing, persistence or provider requests.
 pub(crate) const STREAM_DRM_LICENSE_PROXY_COMMAND: &str = "get_drm_license";
 
+/// Command listing the effective public translation services.
+pub(crate) const STREAM_GET_TRANSLATION_SERVICES_COMMAND: &str = "get_translation_services";
+
+/// Command preparing a persistent subtitle translation descriptor.
+pub(crate) const STREAM_PREPARE_SUBTITLE_TRANSLATION_COMMAND: &str = "prepare_subtitle_translation";
+
+/// Stream command serving one prepared translated subtitle file.
+pub(crate) const STREAM_SUBTITLE_TRANSLATION_COMMAND: &str = "subtitle_translation";
+
 /// Stream resolver max embed html bytes byte limit.
 pub(crate) const STREAM_RESOLVER_MAX_EMBED_HTML_BYTES: usize = 1_048_576;
 
@@ -157,6 +166,9 @@ pub const SUBTITLE_SOURCE_TIMEOUT_SECONDS: u64 = 30;
 
 /// Default lifetime of one prepared translation token, in seconds.
 pub const DEFAULT_TOKEN_TTL_SECONDS: u64 = 86_400;
+
+/// Stable store name of prepared subtitle translation descriptors.
+pub const SUBTITLE_TRANSLATION_STORE_NAME: &str = "subtitle-translations";
 
 /// Default cache policy shared by translated subtitle file responses.
 pub const DEFAULT_SUBTITLE_CACHE_CONTROL: &str = "private, no-cache";

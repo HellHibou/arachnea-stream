@@ -90,6 +90,7 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- `ControlerStreamInput` now carries the optional trusted peer address exposed by the transport. REST fills it from the supervisor-injected connection address (falling back to `warp::addr::remote()`) and Tauri leaves it empty for local IPC; internal proxy and subtitle retrieval constructors set it to `None`. Existing stream handlers are otherwise unchanged.
 - Exposed the existing local-interface subnet resolver for shared Web/proxy private-network admission; proxy callers deny remote peers if interface enumeration fails.
 - Simplified ASCII-insensitive content-type checks, route-pair capacity calculation, API-prefix matching, log token splitting and private SQLite fixture path arguments. Header precedence, route order, log matching and stored paths are unchanged.
 - Simplified default mode selection, snapshot loopback detection and the tray shutdown call, preserving the existing controller defaults and lifecycle.
@@ -347,6 +348,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Completed subtitle lot 6 with the public translation catalog and preparation commands plus the `subtitle_translation/<token>.vtt` REST/Tauri file transport. `get_translation_services` exposes effective languages and text/URL capabilities without credentials; `prepare_subtitle_translation` validates the source URL, format, language pair and auto/preferred/constrained policy, persists a descriptor and returns a `ResolvedPlayerSubtitle`-compatible track without retrieving or translating. Tokens are deterministically derived from the access scope, source, languages and policy, so repeated preparations keep the same cacheable URL. The file route revalidates the source before any translation, supports `If-None-Match` lists and weak validators without mixing tags, ignores an unproven wildcard, returns an empty `304`, `Cache-Control: private, no-cache` and a CORS-exposed ETag, and answers `HEAD`/other methods with `405 Allow: GET` before any descriptor read or retrieval. Unknown and expired tokens both return `404` after store expiry; access is rechecked from the trusted peer IP in REST and the local scope in Tauri.
+- Persisted prepared subtitle translation descriptors in the new `subtitle-translations` typed SQLite store (and an in-memory store for compatibility constructors), keyed by token with an expiration column and JSON payload, so tokens resolve after a restart for their advertised lifetime.
 - Completed subtitle lot 5 with application proxy routing/options, per-hop destination checks, bounded source collection and text/URL orchestration. The application facade fingerprints headers/options/limits, preserves the configuration snapshot and retains no source or translated files. Simulated provider/proxy qualification covers revalidation, invalidation, budgets, concurrency and failures; public REST/Tauri file transport remains lot 6.
 
 - Added authorized subtitle source revalidation, bounded direct HTTP retrieval with DNS pinning and per-hop destination checks, and WebVTT text translation orchestration through the existing Scrapyfy bridges. Recognized application proxy paths and explicitly approved public provider URLs are supported with documented restrictions; public file transport remains pending.

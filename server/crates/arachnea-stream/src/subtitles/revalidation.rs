@@ -1,7 +1,9 @@
 //! Authorized, conditional source revalidation before provider execution.
 
 use arachnea_scrapyfy::scrapyfy::conditional::hash62;
-use arachnea_translation::{AccessScope, SelectionPolicy, TRANSLATION_PIPELINE_REVISION};
+use arachnea_translation::{
+    AccessScope, LanguageCode, SelectionPolicy, TRANSLATION_PIPELINE_REVISION,
+};
 
 use super::{
     LocalSubtitleLimits, RetrievedSubtitle, SubtitleRetrievalOutcome, SubtitleRetrievalPort,
@@ -176,6 +178,37 @@ fn source_identity(
     Ok(hash62(&bytes))
 }
 
+/// Returns whether one service can translate the requested language pair.
+///
+/// # Arguments
+///
+/// * `service` - Published service capability.
+/// * `source_language` - Known source language, or `None` for detection.
+/// * `target_language` - Requested target language.
+pub(crate) fn service_supports_pair(
+    service: &TranslationCatalogEntry,
+    source_language: Option<&LanguageCode>,
+    target_language: &LanguageCode,
+) -> bool {
+    service.target_languages.contains(target_language)
+        && match source_language {
+            Some(source) => {
+                service.source_languages.contains(source)
+                    && service.supported_pairs.as_ref().is_none_or(|pairs| {
+                        pairs
+                            .iter()
+                            .any(|pair| pair.source == *source && pair.target == *target_language)
+                    })
+            }
+            None => {
+                service.source_detection
+                    && service.supported_pairs.as_ref().is_none_or(|pairs| {
+                        pairs.iter().any(|pair| pair.target == *target_language)
+                    })
+            }
+        }
+}
+
 /// Checks the client tag against the active, authorized request and service.
 fn matches_context(
     validator: &SubtitleTranslationValidator,
@@ -190,27 +223,11 @@ fn matches_context(
         SelectionPolicy::Constrained { service_id } => service_id == &service.service_id,
         SelectionPolicy::Auto { .. } => true,
     };
-    let pair = service
-        .target_languages
-        .contains(&descriptor.target_language)
-        && match &descriptor.source_language {
-            Some(source) => {
-                service.source_languages.contains(source)
-                    && service.supported_pairs.as_ref().is_none_or(|pairs| {
-                        pairs.iter().any(|pair| {
-                            pair.source == *source && pair.target == descriptor.target_language
-                        })
-                    })
-            }
-            None => {
-                service.source_detection
-                    && service.supported_pairs.as_ref().is_none_or(|pairs| {
-                        pairs
-                            .iter()
-                            .any(|pair| pair.target == descriptor.target_language)
-                    })
-            }
-        };
+    let pair = service_supports_pair(
+        service,
+        descriptor.source_language.as_ref(),
+        &descriptor.target_language,
+    );
     allowed
         && pair
         && (service.supports_text_translation || service.supports_url_translation)

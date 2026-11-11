@@ -40,5 +40,6 @@ pub use orchestration::{
 pub use pipeline::SubtitleDocumentPlan;
 pub use ports::SubtitleRetrievalPort;
 pub use retrieval::SubtitleHttpRetrieval;
+pub(crate) use revalidation::service_supports_pair;
 pub use revalidation::{revalidate_subtitle, SubtitleRevalidation, SubtitleRevalidationRequest};
 pub use webvtt::{WebVttBlock, WebVttCue, WebVttDocument, WebVttHeader};

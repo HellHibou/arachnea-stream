@@ -30,6 +30,10 @@ pub fn sqlite_application_stores(
     )?;
     let services =
         SqliteDatabase::open(SqliteStoreConfig::new(STREAM_SERVICES_STORE_NAME)?, &root)?;
+    let subtitle_translations = SqliteDatabase::open(
+        SqliteStoreConfig::new(crate::SUBTITLE_TRANSLATION_STORE_NAME)?,
+        &root,
+    )?;
     Ok(ApplicationStores {
         service_parameters:
             arachnea_scrapyfy::scrapyfy::service_parameters_store::sqlite_parameters_store(
@@ -54,6 +58,12 @@ pub fn sqlite_application_stores(
         source_enabled: arachnea_scrapyfy::scrapyfy::source_enabled::sqlite_source_store(
             &services,
         )?,
+        subtitle_translations: Arc::new(subtitle_translations.table(
+            PersistenceTableConfig::new(
+                crate::SUBTITLE_TRANSLATION_STORE_NAME,
+                crate::subtitles::SubtitleTranslationDescriptor::schema(),
+            )?,
+        )?),
     })
 }
 
@@ -78,5 +88,9 @@ pub fn memory_application_stores() -> Result<ApplicationStores> {
             CachedChaserSession::schema(),
         )?)?),
         source_enabled: arachnea_scrapyfy::scrapyfy::source_enabled::memory_source_store()?,
+        subtitle_translations: Arc::new(MemoryEntityStore::new(PersistenceStoreConfig::new(
+            crate::SUBTITLE_TRANSLATION_STORE_NAME,
+            crate::subtitles::SubtitleTranslationDescriptor::schema(),
+        )?)?),
     })
 }

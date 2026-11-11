@@ -40,6 +40,7 @@ pub(super) fn respond(
                 query,
                 method,
                 headers: headers_map,
+                remote_addr: None,
                 body: request.body().to_vec(),
                 entry_point,
                 force_buffer_response: true,

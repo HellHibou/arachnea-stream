@@ -6,13 +6,14 @@ This document describes the generic translation contract owned by
 general YAML schema remains documented in
 [arachnea-scrapyfy](arachnea-scrapyfy-en.md); this document only covers the translation-specific normalized queries and outputs.
 
-Status: lots 1 to 5 implemented (contracts, crate and subtitle module, generic
+Status: lots 1 to 6 implemented (contracts, crate and subtitle module, generic
 bridge, effective catalog and administration, WebVTT parser and document
 planning, Azure Translator/LibreTranslate text execution with retries, budgets
 and metrics), with authorized direct/proxy retrieval, conditional source
-revalidation and complete text/URL document orchestration. Local simulated-provider
-qualification passes; real provider qualification still requires credentials.
-Lots 6 to 10 add public transport, browser storage and the user interface.
+revalidation, complete text/URL document orchestration, and the public
+REST/Tauri JSON and file transport. Local simulated-provider qualification
+passes; real provider qualification still requires credentials. Lots 7 to 10
+add browser storage and the user interface.
 
 ## 1. Layer split
 
@@ -383,9 +384,10 @@ preserve metadata, cue structure, timing and markup. No provider fallback occurs
 after execution starts. No source or translated file is retained; simultaneous
 uncached requests can execute independently within provider concurrency limits.
 The local simulated provider/proxy qualification is complete; real-provider
-qualification still requires access. Public file transport belongs to lot 6.
+qualification still requires access. The public file transport is implemented
+by lot 6 and documented in section 9.
 
-## 9. Planned backend contract
+## 9. Backend contract
 
 | Command | Purpose |
 |---|---|
@@ -394,10 +396,39 @@ qualification still requires access. Public file transport belongs to lot 6.
 | `GET <public-path>/subtitle_translation/<token>.vtt` | Returns a complete WebVTT file and composite ETag, or `304` after successful source and context revalidation. |
 | `HEAD` on the same path | Returns `405` without retrieval or translation. |
 
-The token is opaque, stable for its lifetime, and contains no source URL or
-credential. Access is checked again on download, and one user's token cannot
-access another user's private subtitles. Errors are never served as a WebVTT
-file.
+The token is opaque, derived deterministically from the authorized access
+scope, source descriptor, languages and selection policy, and contains no source
+URL or credential. Repeated preparation of the same request keeps the same URL
+while its descriptor is retained; expiry or descriptor eviction requires a new
+preparation. Access is checked again on download, and one user's token cannot
+access another user's private subtitles. The access scope is the trusted client
+IP for REST (loopback shares the local scope) and the local scope for Tauri IPC.
+Clients sharing one IP, such as behind a reverse proxy or NAT, share the same
+scope; per-user isolation then requires an authenticated scope rather than this
+initial transport. Errors are never served as a WebVTT file.
+
+The preparation commands never retrieve the source, detect a language or call a
+provider. Preparation accepts a direct HTTP(S) URL or a recognized application
+proxy link and only rejects structurally invalid locations. It verifies that at
+least one enabled text-capable service supports the requested pair (or source
+detection when the source language is omitted), but it does not select the final
+provider in automatic mode. Only WebVTT is accepted initially.
+
+`If-None-Match` accepts lists and weak validators, evaluating each candidate as
+a whole; components from different tags are never mixed. A wildcard `*` carries
+no source validator, so it never proves source stability and the file is
+translated again. Successful `200` and `304` responses carry the composite ETag
+and `Cache-Control: private, no-cache`; the ETag is exposed through CORS for
+cross-origin deployments. `HEAD` returns `405` with `Allow: GET` before any
+descriptor read, retrieval or translation. Expired descriptors are normally
+purged, so unknown and purged tokens answer `404`; a descriptor still readable
+after its logical expiry answers `410`.
+
+Both transports return one complete buffered file, never a partial WebVTT
+document. Tauri collects that buffer before replying to the IPC call, so a slow
+source retrieval or provider execution keeps the call pending until completion
+or timeout and exposes no progress stream. REST returns the same buffered body;
+the configured public path prefix is preserved across scraper reloads.
 
 ### HTTP statuses
 
@@ -405,7 +436,8 @@ file.
 |---|---|
 | Invalid descriptor, format or document | `400 Bad Request` |
 | Access denied | `403 Forbidden` |
-| Expired token | `410 Gone` |
+| Expired but still resolvable token | `410 Gone` |
+| Unknown or purged token | `404 Not Found` |
 | Document, cue or unit bounds exceeded | `413 Payload Too Large` |
 | `HEAD` | `405 Method Not Allowed` |
 | Source unavailable or retrieval failed | `502 Bad Gateway` |

@@ -698,12 +698,14 @@ impl ControlerService for RestControlerService {
             .and(warp::path::tail())
             .and(warp::method())
             .and(warp::header::headers_cloned())
+            .and(Self::peer_addr_filter())
             .and(query_filter)
             .and(body_filter)
             .and_then(
                 move |tail: warp::path::Tail,
                       method: warp::http::Method,
                       headers: warp::http::HeaderMap,
+                      remote_addr: Option<std::net::SocketAddr>,
                       query: String,
                       body: Vec<u8>| {
                     let call = Arc::clone(&call);
@@ -714,6 +716,7 @@ impl ControlerService for RestControlerService {
                             query,
                             method: method.to_string(),
                             headers: Self::headers_to_map(&headers),
+                            remote_addr: Some(Self::remote_peer(remote_addr)),
                             body,
                             entry_point,
                             force_buffer_response: false,

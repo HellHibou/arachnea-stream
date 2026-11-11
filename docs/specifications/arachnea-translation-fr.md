@@ -7,14 +7,15 @@ schéma YAML général reste décrit dans
 [arachnea-scrapyfy](arachnea-scrapyfy-fr.md) ; ce document ne décrit que les
 requêtes et sorties normalisées propres à la traduction.
 
-Statut : lots 1 à 5 implémentés (contrats, crate et module de sous-titres, pont
+Statut : lots 1 à 6 implémentés (contrats, crate et module de sous-titres, pont
 générique, catalogue effectif et administration, parseur WebVTT et
 planification documentaire, exécution texte Azure Translator/LibreTranslate avec
 reprises, budgets et métriques). La qualification réelle des fournisseurs
-requiert encore des credentials. Le lot 5 ajoute la récupération autorisée directe/proxy, la revalidation source
-et l’orchestration documentaire texte/URL, qualifiées localement avec des
-fournisseurs simulés. Les lots 6 à 10 ajoutent le transport public, le stockage
-navigateur et l’interface utilisateur.
+requiert encore des credentials. Le lot 5 ajoute la récupération autorisée
+directe/proxy, la revalidation source et l’orchestration documentaire
+texte/URL, qualifiées localement avec des fournisseurs simulés. Le lot 6 ajoute
+le transport public JSON et fichier REST/Tauri. Les lots 7 à 10 ajoutent le
+stockage navigateur et l’interface utilisateur.
 
 ## 1. Séparation des couches
 
@@ -398,9 +399,10 @@ fournisseur après le début de l’exécution. Aucun fichier source ou traduit 
 conservé ; les demandes simultanées sans corps en cache peuvent être exécutées
 séparément dans la limite de concurrence du fournisseur. La qualification locale
 avec fournisseur et proxy simulés est terminée ; les fournisseurs réels restent
-à qualifier avec leurs accès. Le transport public appartient au lot 6.
+à qualifier avec leurs accès. Le transport public du lot 6 est documenté en
+section 9.
 
-## 9. Contrat backend prévu
+## 9. Contrat backend
 
 | Commande | Rôle |
 |---|---|
@@ -409,10 +411,44 @@ avec fournisseur et proxy simulés est terminée ; les fournisseurs réels reste
 | `GET <public-path>/subtitle_translation/<token>.vtt` | Retourne le fichier WebVTT et son ETag composite, ou `304` après revalidation de la source et du contexte. |
 | `HEAD` sur le même chemin | Répond `405` sans récupération ni traduction. |
 
-Le jeton est opaque, stable pendant sa durée de vie, sans URL source ni
-credential. L'accès est revérifié au téléchargement et un jeton d'un utilisateur
-ne donne pas accès aux sous-titres d'un autre. Les erreurs ne sont jamais
-servies comme un fichier VTT.
+Le jeton est opaque, dérivé de façon déterministe du périmètre d’accès
+autorisé, du descripteur source, des langues et de la politique de sélection ;
+il ne contient ni URL source ni credential. Une préparation répétée de la même
+demande conserve la même URL tant que son descripteur est retenu ; l’expiration
+ou l’éviction du descripteur impose une nouvelle préparation. L’accès est
+revérifié au téléchargement et un jeton d’un utilisateur ne donne pas accès aux
+sous-titres d’un autre. Le périmètre d’accès est l’IP cliente de confiance en
+REST (le loopback partage le périmètre local) et le périmètre local pour l’IPC
+Tauri. Les clients partageant une même IP, par exemple derrière un reverse proxy
+ou un NAT, partagent le même périmètre ; l’isolation par utilisateur exige alors
+un périmètre authentifié, hors de ce transport initial. Les erreurs ne sont
+jamais servies comme un fichier VTT.
+
+Les commandes de préparation ne récupèrent jamais la source, ne détectent aucune
+langue et n’appellent aucun fournisseur. La préparation accepte une URL HTTP(S)
+directe ou un lien proxy applicatif reconnu et ne rejette que les emplacements
+structurellement invalides. Elle vérifie qu’au moins un service actif capable de
+traduction texte prend en charge le couple demandé (ou la détection lorsque la
+langue source est omise), sans choisir le fournisseur final en mode automatique.
+Seul le WebVTT est accepté initialement.
+
+`If-None-Match` accepte les listes et les validateurs faibles en évaluant chaque
+candidat dans son ensemble ; les composants de plusieurs tags ne sont jamais
+mélangés. Le joker `*` ne transporte aucun validateur source, ne prouve donc
+jamais sa stabilité et le fichier est retraduit. Les réponses `200` et `304`
+réussies portent l’ETag composite et `Cache-Control: private, no-cache` ;
+l’ETag est exposé par CORS pour les déploiements cross-origin. `HEAD` répond
+`405` avec `Allow: GET` avant toute lecture de descripteur, récupération ou
+traduction. Les descripteurs expirés sont normalement purgés : un jeton inconnu
+ou purgé répond `404`, tandis qu’un descripteur encore lisible après son
+expiration logique répond `410`.
+
+Les deux transports renvoient un fichier complet mis en mémoire, jamais un
+document WebVTT partiel. Tauri collecte ce tampon avant de répondre à l’appel
+IPC : une récupération source ou une exécution fournisseur lente maintient donc
+l’appel en attente jusqu’à la fin ou au délai maximal, sans flux de progression.
+REST renvoie le même corps complet ; le préfixe public configuré est préservé
+lors des rechargements du scraper.
 
 ### Statuts HTTP
 
@@ -420,7 +456,8 @@ servies comme un fichier VTT.
 |---|---|
 | Descripteur invalide, format ou document invalide | `400 Bad Request` |
 | Accès refusé | `403 Forbidden` |
-| Jeton expiré | `410 Gone` |
+| Jeton expiré encore résoluble | `410 Gone` |
+| Jeton inconnu ou purgé | `404 Not Found` |
 | Document, cues ou unités au-delà des bornes | `413 Payload Too Large` |
 | `HEAD` | `405 Method Not Allowed` |
 | Source indisponible ou récupération échouée | `502 Bad Gateway` |

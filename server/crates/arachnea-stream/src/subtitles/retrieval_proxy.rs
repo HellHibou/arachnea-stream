@@ -46,6 +46,7 @@ pub(super) async fn retrieve(
         query: String::new(),
         method: "GET".into(),
         headers: headers.clone(),
+        remote_addr: None,
         body: Vec::new(),
         entry_point: prefix.to_string(),
         force_buffer_response: false,

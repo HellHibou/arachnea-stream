@@ -1,6 +1,6 @@
 # Analyse — traduction automatique des sous-titres
 
-Date de l’analyse : 2026-11-06. Mise à jour : 2026-11-11. Statut : recommandations précisées par l’utilisateur ; plan révisé pour imposer Scrapyfy, séparer traduction et sous-titres, intégrer les langues favorites et sélectionner les services selon leurs métadonnées YAML. Lots 1 à 4 implémentés le 2026-11-10 ; qualification réelle des fournisseurs en attente d’accès ; correctifs des contrats des lots 1 à 4 livrés le 2026-11-11 (section 13) ; lot 5 livré le 2026-11-11 ; lots 6 à 10 : TODO.
+Date de l’analyse : 2026-11-06. Mise à jour : 2026-11-11. Statut : recommandations précisées par l’utilisateur ; plan révisé pour imposer Scrapyfy, séparer traduction et sous-titres, intégrer les langues favorites et sélectionner les services selon leurs métadonnées YAML. Lots 1 à 4 implémentés le 2026-11-10 ; qualification réelle des fournisseurs en attente d’accès ; correctifs des contrats des lots 1 à 4 livrés le 2026-11-11 (section 13) ; lots 5 et 6 livrés le 2026-11-11 ; lots 7 à 10 : TODO.
 
 Périmètre initial : analyse et plan, désormais suivi de l’implémentation des lots 1 à 5. L’implémentation précédente, non conforme aux exigences précisées, a été supprimée. Les lots 1 (contrats et séparation des couches), 2 (catalogue, credentials et administration), 3 (parser WebVTT, segmentation et planification documentaire) et 4 (exécution générique Azure/LibreTranslate) sont livrés selon le plan révisé ; le lot 5 est livré ; les lots 6 à 10 restent à réaliser. Les validations de l’implémentation supprimée ne valent pas validation des futurs livrables. Aucun appel fournisseur réel ni benchmark de qualité n’a été réalisé pour cette révision.
 
@@ -567,7 +567,7 @@ Les lots sont des unités de réalisation et de revue, pas des estimations calen
 
 ### Lot 6 — Commandes et transport fichier REST/Tauri
 
-**Statut : TODO.**
+**Statut : DONE (2026-11-11), validation de compilation locale et scénarios simulés à compléter.**
 
 **Dépendance :** lot 5.
 

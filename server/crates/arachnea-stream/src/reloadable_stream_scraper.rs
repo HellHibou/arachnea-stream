@@ -17,8 +17,11 @@ use arachnea_scrapyfy::{ScraperAdminSettings, ScraperRuntimeOptions, SourceServi
 use crate::stream_scraper::{
     category_sources_from_request, GetBannersRequest, GetCategoryRequest, GetEntryRequest,
     GetLiveRequest, GetPlayersRequest, GetRecommendationsRequest, GetSeasonRequest,
-    GetSectionRequest, GetServiceRequest, GetStreamRequest, ListLivesRequest, LoadHomeRequest,
-    SearchRequest, StreamScraper, StreamScraperBuildOptions, DRM_LICENSE_PROXY_COMMAND,
+    GetSectionRequest, GetServiceRequest, GetStreamRequest, GetTranslationServicesRequest,
+    ListLivesRequest, LoadHomeRequest, PrepareSubtitleTranslationRequest, SearchRequest,
+    StreamScraper, StreamScraperBuildOptions, DRM_LICENSE_PROXY_COMMAND,
+    GET_TRANSLATION_SERVICES_COMMAND, PREPARE_SUBTITLE_TRANSLATION_COMMAND,
+    SUBTITLE_TRANSLATION_COMMAND,
 };
 
 /// Endpoints captured when routes are first registered.
@@ -32,6 +35,8 @@ pub(crate) struct RegistrationEndpoints {
     pub(crate) drm_license_public_path: String,
     /// Public path for the generic HTTP proxy stream command.
     pub(crate) http_proxy_public_path: Option<String>,
+    /// Public path for prepared translated subtitle files.
+    pub(crate) subtitle_translation_public_path: String,
 }
 
 /// Stable facade holding the active [`StreamScraper`] instance.
@@ -203,6 +208,10 @@ impl ReloadableStreamScraper {
                     .player_resolver_endpoints
                     .http_proxy_public_path
                     .clone(),
+                subtitle_translation_public_path: scraper
+                    .subtitle_translation_public_path
+                    .clone()
+                    .unwrap_or_else(|| controler.stream_public_path(SUBTITLE_TRANSLATION_COMMAND)),
             };
             *self
                 .registration
@@ -509,5 +518,31 @@ fn register_routes(
         DRM_LICENSE_PROXY_COMMAND,
         Arc::clone(reloadable),
         |reloadable, input| async move { reloadable.current().get_drm_license(input).await },
+    );
+
+    controler.register_result_function_with_state(
+        GET_TRANSLATION_SERVICES_COMMAND,
+        Arc::clone(reloadable),
+        |reloadable, _context, input: GetTranslationServicesRequest| async move {
+            Ok::<_, String>((reloadable.current().get_translation_services(input), None))
+        },
+    );
+
+    controler.register_result_function_with_state(
+        PREPARE_SUBTITLE_TRANSLATION_COMMAND,
+        Arc::clone(reloadable),
+        |reloadable, context, input: PrepareSubtitleTranslationRequest| async move {
+            reloadable
+                .current()
+                .prepare_subtitle_translation(context.remote_addr(), input)
+                .await
+                .map(|track| (track, None::<String>))
+        },
+    );
+
+    controler.register_stream_function_with_state(
+        SUBTITLE_TRANSLATION_COMMAND,
+        Arc::clone(reloadable),
+        |reloadable, input| async move { reloadable.current().subtitle_translation(input).await },
     );
 }

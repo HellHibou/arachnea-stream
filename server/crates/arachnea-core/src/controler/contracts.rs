@@ -197,6 +197,12 @@ pub struct ControlerStreamInput {
     /// This field contains all HTTP headers as key-value pairs.
     #[allow(dead_code)]
     pub headers: HashMap<String, String>,
+    /// TCP address of the remote peer, when the transport exposes one.
+    ///
+    /// The REST backend fills this from the connection socket address; the
+    /// desktop Tauri IPC context leaves it `None`, which means the request is
+    /// local by construction.
+    pub remote_addr: Option<std::net::SocketAddr>,
     /// Raw request body bytes.
     ///
     /// This field contains the complete request body as binary data.

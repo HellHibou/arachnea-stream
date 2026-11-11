@@ -3,8 +3,12 @@
 use super::document::SubtitleSourceDescriptor;
 use super::error::SubtitleTranslationError;
 use crate::DEFAULT_TOKEN_TTL_SECONDS;
+use arachnea_core::persistence::{
+    EntityReader, EntitySchema, EntityWriter, Field, PersistentEntity,
+};
 use arachnea_translation::{AccessScope, LanguageCode, SelectionPolicy};
 use serde::{Deserialize, Serialize};
+use std::time::{Duration, UNIX_EPOCH};
 
 /// Opaque token identifying a prepared subtitle translation.
 ///
@@ -180,5 +184,39 @@ impl SubtitleTranslationDescriptor {
         } else {
             Err(SubtitleTranslationError::AccessDenied)
         }
+    }
+}
+
+impl PersistentEntity for SubtitleTranslationDescriptor {
+    type Key = String;
+
+    fn key(&self) -> Self::Key {
+        self.token.as_str().to_string()
+    }
+
+    fn schema() -> EntitySchema {
+        EntitySchema::new()
+            .primary_key(Field::string("token"))
+            .field(Field::json("payload"))
+            .field(Field::date_time("expires_at").expiration().indexed())
+    }
+
+    fn write_to(&self, writer: &mut EntityWriter) -> anyhow::Result<()> {
+        writer.string("token", self.token.as_str())?;
+        writer.json("payload", serde_json::to_value(self)?)?;
+        writer.date_time(
+            "expires_at",
+            UNIX_EPOCH + Duration::from_secs(self.expires_at_unix_seconds),
+        )
+    }
+
+    fn read_from(reader: &EntityReader<'_>) -> anyhow::Result<Self> {
+        let token = reader.string("token")?.to_string();
+        let descriptor: Self = serde_json::from_value(reader.json("payload")?.clone())
+            .map_err(|_| anyhow::anyhow!("persisted subtitle translation payload is malformed"))?;
+        if descriptor.token.as_str() != token {
+            anyhow::bail!("persisted subtitle translation token does not match its payload");
+        }
+        Ok(descriptor)
     }
 }

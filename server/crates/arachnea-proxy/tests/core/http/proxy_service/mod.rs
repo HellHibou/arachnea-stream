@@ -272,6 +272,7 @@ async fn remove_header_updates_redirect_opts_on_http_302() {
             query: String::new(),
             method: "GET".into(),
             headers: HashMap::new(),
+            remote_addr: None,
             body: Vec::new(),
             entry_point: "/api/proxy".into(),
             force_buffer_response: mode == "buffer",
