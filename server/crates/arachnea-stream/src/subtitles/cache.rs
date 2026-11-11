@@ -138,7 +138,7 @@ impl SubtitleTranslationValidator {
 }
 
 /// Accepts one HTTP entity tag, preserving weak upstream validators.
-fn valid_entity_tag(value: &str) -> bool {
+pub(super) fn valid_entity_tag(value: &str) -> bool {
     let value = value.strip_prefix("W/").unwrap_or(value);
     let Some(inner) = value.strip_prefix('"').and_then(|v| v.strip_suffix('"')) else {
         return false;

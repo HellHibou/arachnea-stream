@@ -127,7 +127,9 @@ pub async fn load_translation_bridge<'a>(
 /// # Arguments
 ///
 /// * `entry` - Published catalog entry carrying account limits.
-fn shared_translation_budget(entry: &TranslationCatalogEntry) -> Arc<dyn TranslationBudgetPort> {
+pub(crate) fn shared_translation_budget(
+    entry: &TranslationCatalogEntry,
+) -> Arc<dyn TranslationBudgetPort> {
     let budgets = TRANSLATION_BUDGETS.get_or_init(|| Mutex::new(HashMap::new()));
     let mut budgets = budgets
         .lock()

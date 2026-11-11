@@ -34,6 +34,7 @@ use super::performance_diagnostics::{classified_response, MediaRequestDiagnostic
 pub struct SimpleHttpClient {
     core: ArachneaProxyCore,
     tolerate_dechunked_bodies: bool,
+    resolved_target: Option<(String, std::net::IpAddr)>,
 }
 
 impl SimpleHttpClient {
@@ -50,7 +51,35 @@ impl SimpleHttpClient {
         Self {
             core,
             tolerate_dechunked_bodies: true,
+            resolved_target: None,
         }
+    }
+
+    /// Executes one HTTP hop using a caller-validated transport IP.
+    ///
+    /// Routing, Host, TLS verification and destination observations retain the
+    /// URL hostname. HTTP proxy hops tunnel to the supplied IP. Redirects must
+    /// be handled by the caller so every new destination can be validated.
+    ///
+    /// # Arguments
+    /// * `request` - One HTTP request with automatic redirects disabled.
+    /// * `address` - Trusted resolved IP for this request's URL hostname.
+    ///
+    /// # Errors
+    /// Returns a protocol error for enabled redirects or normal request errors.
+    pub async fn request_proxied_with_resolved_ip(
+        &self,
+        request: ProxiedHttpRequest,
+        address: std::net::IpAddr,
+    ) -> Result<ProxiedHttpResponse> {
+        if request.follow_redirects.is_some_and(|limit| limit > 0) {
+            return Err(ProxyError::Protocol(
+                "pinned HTTP requests must disable automatic redirects".into(),
+            ));
+        }
+        let mut client = self.clone();
+        client.resolved_target = Some((request.url.clone(), address));
+        client.request_proxied(request).await
     }
 
     /// Configures tolerance for proxies that remove chunk framing while leaving
@@ -292,9 +321,15 @@ impl SimpleHttpClient {
         diagnostics.next_phase("connection");
         let connection_deadline =
             tokio::time::Instant::now() + crate::PROXY_MEDIA_REUSED_CONNECTION_TIMEOUT;
-        let connect = selected.core.connect_http_request(
-            ConnectRequest::new(destination).with_client_context(request.client_context.clone()),
-        );
+        let mut connect_request =
+            ConnectRequest::new(destination).with_client_context(request.client_context.clone());
+        if let Some((target_url, address)) = &self.resolved_target {
+            if target_url != &request.url {
+                return Err(ProxyError::Protocol("pinned HTTP target changed".into()));
+            }
+            connect_request = connect_request.with_resolved_ip(*address);
+        }
+        let connect = selected.core.connect_http_request(connect_request);
         let stream = if reuses_destination {
             tokio::time::timeout_at(connection_deadline, connect)
                 .await

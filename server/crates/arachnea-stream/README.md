@@ -76,8 +76,8 @@ statistics, the persistent translated-subtitle descriptor and its opaque token
 with expiry/access checks, an authorized conditional retrieval port, a versioned
 weak composite ETag (including source validator, YAML and pipeline revisions), HTTP status
 mapping and the local document limits. It depends only on the generic
-`arachnea-translation` contracts: no Scrapyfy provider mapping, player logic or
-network access lives here.
+`arachnea-translation` contracts and Stream’s generic translation bridge. The
+module contains no provider-specific mapping or player logic.
 
 A translated-subtitle validator encodes the upstream ETag or a source-content
 hash with optional `Last-Modified`, the service YAML hash and configuration
@@ -87,9 +87,40 @@ request context and revalidated against the source before use. The encoded
 payload is not encrypted; callers must exclude secrets. The catalog exposes an
 optional YAML hash; its absence prevents constructing a reliable validator.
 The retrieval port represents `NotModified` separately from a complete source
-body. The planned file transport uses `405` for `HEAD` without retrieval or
-translation. No translated file store is provided. The actual retrieval,
-conditional HTTP orchestration and browser storage remain future work.
+body. `revalidate_subtitle` checks access, expiry, the active service and the
+composite validator before it invokes source retrieval. A `304` or matching
+source hash returns without selecting a provider. `translate_subtitle` segments
+per candidate, selects a text bridge using provider limits and budgets, and
+reconstructs a complete WebVTT document. No subtitle file is stored server-side.
+`SubtitleHttpRetrieval` validates and pins public DNS addresses at every hop.
+Direct sources use the HTTP client; known application proxy paths are decoded
+in-process by the shared proxy decoder and use the application routing core.
+Countries, fallback policy, cookies, header actions, response policies and
+allowlisted TLS options retain their normal semantics. Host and TLS names stay
+logical while the proxy connects to the validated IP, using CONNECT even for
+plain HTTP through an HTTP proxy. Source headers and cookies are cleared across
+origins. Source and transformed-result byte counts are checked; proxy responses
+must honor `Accept-Encoding: identity`. Redirected or transformed sources use a
+content hash rather than replaying a validator from a different representation.
+
+`StreamScraper::translate_subtitle` supplies the shared proxy runtime and holds
+one catalog/configuration snapshot for the complete request. It fingerprints
+source headers, caller context, route policy and local limits; sources requiring
+headers are excluded from provider URL translation. The lower-level API requires
+callers to supply that context fingerprint themselves.
+
+The orchestrator can use a provider URL capability when the caller explicitly
+marks the exact source URL public and credential-free; query strings, fragments,
+redirects and unit-budgeted services disqualify that route. It checks the source
+afterward and rejects changed documents, altered cue structure, timing or markup.
+Local qualification covers text/URL execution and conditional retrieval using a
+simulated provider and HTTP proxy. Real providers remain to be qualified with
+credentials. No REST/Tauri file endpoint is registered until lot 6; its planned
+`HEAD` policy is `405` without retrieval or translation.
+
+Concurrent uncached requests can translate independently. Provider account
+budgets bound concurrency; no source/result index, durable lock or file cache
+is created. A client that has lost its body must omit its old validator.
 
 The WebVTT pipeline parses and serializes complete documents while keeping the
 signature, optional header metadata, cue identifiers, raw timing lines and

@@ -1,8 +1,8 @@
 # Analyse — traduction automatique des sous-titres
 
-Date de l’analyse : 2026-11-06. Mise à jour : 2026-11-11. Statut : recommandations précisées par l’utilisateur ; plan révisé pour imposer Scrapyfy, séparer traduction et sous-titres, intégrer les langues favorites et sélectionner les services selon leurs métadonnées YAML. Lots 1 à 4 implémentés le 2026-11-10 ; qualification réelle des fournisseurs en attente d’accès ; correctifs des contrats des lots 1 à 4 livrés le 2026-11-11 (section 13) ; lots 5 à 10 : TODO.
+Date de l’analyse : 2026-11-06. Mise à jour : 2026-11-11. Statut : recommandations précisées par l’utilisateur ; plan révisé pour imposer Scrapyfy, séparer traduction et sous-titres, intégrer les langues favorites et sélectionner les services selon leurs métadonnées YAML. Lots 1 à 4 implémentés le 2026-11-10 ; qualification réelle des fournisseurs en attente d’accès ; correctifs des contrats des lots 1 à 4 livrés le 2026-11-11 (section 13) ; lot 5 livré le 2026-11-11 ; lots 6 à 10 : TODO.
 
-Périmètre initial : analyse et plan, désormais suivi de l’implémentation des lots 1 à 4. L’implémentation précédente, non conforme aux exigences précisées, a été supprimée. Les lots 1 (contrats et séparation des couches), 2 (catalogue, credentials et administration), 3 (parser WebVTT, segmentation et planification documentaire) et 4 (exécution générique Azure/LibreTranslate) sont livrés selon le plan révisé ; les lots 5 à 10 restent à réaliser. Les validations de l’implémentation supprimée ne valent pas validation des futurs livrables. Aucun appel fournisseur réel ni benchmark de qualité n’a été réalisé pour cette révision.
+Périmètre initial : analyse et plan, désormais suivi de l’implémentation des lots 1 à 5. L’implémentation précédente, non conforme aux exigences précisées, a été supprimée. Les lots 1 (contrats et séparation des couches), 2 (catalogue, credentials et administration), 3 (parser WebVTT, segmentation et planification documentaire) et 4 (exécution générique Azure/LibreTranslate) sont livrés selon le plan révisé ; le lot 5 est livré ; les lots 6 à 10 restent à réaliser. Les validations de l’implémentation supprimée ne valent pas validation des futurs livrables. Aucun appel fournisseur réel ni benchmark de qualité n’a été réalisé pour cette révision.
 
 ## 1. Objectif et recommandation
 
@@ -10,7 +10,7 @@ Ajouter un type de service dédié à la traduction, utilisable indépendamment 
 
 Recommandation : traduction générique dans `arachnea-translation`, traitement documentaire dans le module `subtitles` d’`arachnea-stream`, services exécutés exclusivement par `arachnea-scrapyfy` et assemblage dans `arachnea-stream`. Commencer par **Azure Translator F0** et **LibreTranslate auto-hébergé**. Conserver Google Cloud Translation comme option complémentaire et DeepL comme intégration conditionnelle selon le compte disponible.
 
-**Décision révisée le 2026-11-11 : le cache des fichiers traduits réside exclusivement dans le navigateur.** Le serveur ne conserve ni fichier traduit ni index de résultats. Un ETag composite transporte le validateur de la source (ETag amont ou hash du fichier source, éventuellement accompagné de Last-Modified), le hash YAML du service de traduction et la langue cible. Lors des appels suivants, le serveur revalide la source et le contexte de traduction avant tout appel fournisseur ; si rien n’a changé, il retourne `304` et le navigateur réutilise son fichier. Cette décision remplace la persistance backend prévue initialement ; les contrats des lots 1 à 4 sont adaptés (section 13), tandis que la récupération effective et le transport restent à réaliser.
+**Décision révisée le 2026-11-11 : le cache des fichiers traduits réside exclusivement dans le navigateur.** Le serveur ne conserve ni fichier traduit ni index de résultats. Un ETag composite transporte le validateur de la source (ETag amont ou hash du fichier source, éventuellement accompagné de Last-Modified), le hash YAML du service de traduction et la langue cible. Lors des appels suivants, le serveur revalide la source et le contexte de traduction avant tout appel fournisseur ; si rien n’a changé, il retourne `304` et le navigateur réutilise son fichier. Cette décision remplace la persistance backend prévue initialement ; les contrats des lots 1 à 4 sont adaptés (section 13), la récupération et l’orchestration du lot 5 sont livrées ; le transport public reste à réaliser.
 
 ## 2. État actuel du code
 
@@ -422,7 +422,7 @@ Mesurer réponses `304`, revalidations et téléchargements source, caractères 
 
 ## 11. Décisions acquises et questions restantes
 
-L’utilisateur a précisé les recommandations : Scrapyfy obligatoire, Rust générique, séparation traduction/sous-titres et intégration des favoris. Le plan ci-dessous remplace les choix antérieurs incompatibles. L’implémentation précédente a été supprimée ; les lots 1 à 4 sont livrés selon le contrat initial. Les adaptations de la section 13 sont livrées ; les lots 5 à 10 restent à TODO.
+L’utilisateur a précisé les recommandations : Scrapyfy obligatoire, Rust générique, séparation traduction/sous-titres et intégration des favoris. Le plan ci-dessous remplace les choix antérieurs incompatibles. L’implémentation précédente a été supprimée ; les lots 1 à 4 sont livrés selon le contrat initial. Les adaptations de la section 13 sont livrées ; le lot 5 est livré ; les lots 6 à 10 restent à TODO.
 
 ### Décisions acquises
 
@@ -548,7 +548,7 @@ Les lots sont des unités de réalisation et de revue, pas des estimations calen
 
 ### Lot 5 — Récupération autorisée et revalidation sans cache serveur
 
-**Statut : TODO ; les adaptations des contrats livrés sont faites (section 13).**
+**Statut : DONE (2026-11-11), implémentation et qualification locale avec fournisseur/proxy simulés ; qualification réelle des fournisseurs toujours dépendante des accès.**
 
 **Dépendances :** lots 1–4 corrigés.
 
@@ -667,7 +667,7 @@ Les lots sont des unités de réalisation et de revue, pas des estimations calen
 | Parcours utilisateur | 7–8 | Demande et sélection de traduction sans redémarrage de la vidéo |
 | Livraison qualifiée | 9–10 | Bornes mesurées, distribution et documentation, limites résiduelles consignées |
 
-Les lots 1 à 4 et leurs adaptations de la section 13 sont livrés ; les lots 5 à 10 restent à TODO. La validation locale du lot 4 ne vaut pas qualification des endpoints réels. Le reste suit les dépendances indiquées. Une extension hors première livraison ou un changement de contrat découvert en cours de travail fait l’objet d’une analyse spécifique avant réalisation ; les recommandations déjà validées ne nécessitent pas une nouvelle confirmation à chaque lot.
+Les lots 1 à 4 et leurs adaptations de la section 13 sont livrés ; le lot 5 est livré ; les lots 6 à 10 restent à TODO. La validation locale du lot 4 ne vaut pas qualification des endpoints réels. Le reste suit les dépendances indiquées. Une extension hors première livraison ou un changement de contrat découvert en cours de travail fait l’objet d’une analyse spécifique avant réalisation ; les recommandations déjà validées ne nécessitent pas une nouvelle confirmation à chaque lot.
 
 
 ## 13. Impact de la révision du 2026-11-11 sur les lots livrés
@@ -700,4 +700,21 @@ L’approche retenue remplace les contrats persistants avant de construire le lo
 
 **Correction livrée le 2026-11-11 :** `TranslationRevision` et `SubtitleTranslationValidator` remplacent les anciennes clés et le store documentaire. Le validateur composite est encodable/décodable et borné ; le port de récupération accepte ETag ou hash/timestamp et distingue `NotModified` d’un corps complet. Le catalogue expose le hash YAML optionnel. Le contrat du document traduit accepte le validateur composite faible et `HEAD` est associé à `405`. Le moteur, les budgets et le parseur restent inchangés. Les README et spécifications FR/EN sont synchronisés.
 
-**Travaux restants :** les lots 5–7 doivent implémenter la récupération conditionnelle, le calcul du hash source, la vérification du contexte et de l’accès, la réponse HTTP `304`, puis le stockage navigateur. Les contrats livrés seuls ne récupèrent ni ne traduisent encore un fichier via un endpoint public.
+**Travaux restants :** les lots 6–7 doivent exposer la réponse HTTP `304` et stocker le fichier dans le navigateur. Le lot 5 est implémenté et qualifié localement ; les fournisseurs réels restent à qualifier avec leurs accès. Aucun endpoint public de traduction n’est encore enregistré.
+
+
+### Livraison du lot 5 — 2026-11-11
+
+`revalidate_subtitle` contrôle le descripteur, les droits, l’expiration, le fournisseur et les révisions avant toute sélection, mesure fournisseur, détection ou réservation de quota. Un ETag amont, un timestamp ou un hash source inchangé permet de retourner `NotModified`. Si la langue, le YAML ou le contexte ne correspondent plus, le premier téléchargement est volontairement non conditionnel : il fournit directement le corps nécessaire à la nouvelle traduction, sans premier GET donnant `304` à refaire. Un `304` inattendu sans condition valide est refusé.
+
+`translate_subtitle` segmente et mesure les candidats texte, classe selon préférence, ordre, nombre de lots puis identifiant, et conserve un seul pont pour tout le document. La voie URL est limitée aux URL publiques directes explicitement autorisées, sans query/credentials/en-têtes requis/redirection, et aux services sans budget d’unités ni limite d’unités dépourvue d’unité déclarée. Le résultat conserve structure, métadonnées, temps et balisage ; la stabilité de la source est revérifiée. Un échec ne publie aucun document partiel et ne provoque aucun repli fournisseur.
+
+`StreamScraper::translate_subtitle` fournit le cœur proxy et conserve un instantané applicatif pour l’opération ; son empreinte de contexte inclut les en-têtes, la politique de voie, les options de l’appelant et les limites. Les liens internes au proxy sont décodés sans requête au contrôleur local, en réutilisant le décodeur des options de la route proxy. Pays, repli direct, cookies, actions de réponse/redirection, classificateurs et TLS autorisé restent appliqués. Le client proxy générique conserve le nom logique pour le routage et TLS tout en fixant l’IP validée pour la connexion/tunnel ; les redirections sont vérifiées séparément, les en-têtes et cookies retirés entre origines et les corps bornés. Une source redirigée ou transformée utilise un hash. Les réponses proxy doivent respecter `Accept-Encoding: identity` ; un encodage inattendu est refusé explicitement.
+
+Aucun fichier ni index de résultats n’est conservé. La mutualisation en cours est facultative et n’est pas activée : des demandes simultanées sans corps client peuvent traduire séparément, dans les budgets de concurrence existants. Le validateur permet toujours une revalidation après redémarrage sans état documentaire serveur.
+
+**Qualification manuelle locale :** programme temporaire avec service LibreTranslate YAML exécuté par Scrapyfy, query URL générique et proxy HTTP simulés. Scénarios réussis : première traduction complète ; ETag, date et hash inchangés sans nouvel appel fournisseur ; source modifiée ; langue/YAML/options modifiés ; tag malformé ; accès/expiration/source indisponible ; nouvel assemblage après redémarrage ; demandes concurrentes ; budget épuisé laissant passer un `304` valide ; échec fournisseur sans résultat ; voie URL valide, structure temporelle modifiée refusée, URL signée renvoyée à la voie texte ; proxy interne avec cookies/en-têtes/paramètres, CONNECT vers l’IP fixée et Host logique, `304`, redirections, retrait des secrets entre origines, transformation VTT, refus d’une destination privée, dépassement de taille et refus du TLS non autorisé. Programme temporaire retiré ; aucun nouveau test permanent.
+
+**Limites de validation :** aucun appel Azure/LibreTranslate réel faute d’accès. Les transports REST/Tauri et le cache du navigateur ne sont pas encore présents ; ils appartiennent aux lots 6–7. Les tests existants et checks de compilation/formatage sont consignés ci-dessous après leur exécution finale.
+
+**Checks finaux du lot 5 :** compilation ciblée Proxy/Stream/Translation/Scrapyfy et compilation des cibles de test existantes réussies. Tests existants : Proxy 90/90 avec fonctionnalités par défaut et 96/96 avec `controller-service`, Scrapyfy 80/80, Stream 14/14 (5 scénarios fournisseurs réels ignorés), Translation aucune suite unitaire existante. Les tests utilisant des sockets locaux ont été exécutés avec l’accès local nécessaire ; les deux échecs de sandbox consignés pour les contrats des lots 1–4 ne se reproduisent pas. Formatage et contrôle des différences validés.

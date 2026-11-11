@@ -19,10 +19,12 @@ use crate::core::ArachneaProxyCore;
 mod handler;
 mod headers;
 mod options;
+mod prepare;
 mod redirects;
 mod urls;
 
 pub use handler::handle_proxy_http;
+pub use prepare::{prepare_proxy_http_source, PreparedProxyHttpSource};
 pub use urls::{
     proxied_url_with_countries, proxied_url_with_countries_and_insecure_tls,
     proxied_url_with_countries_and_options, proxied_url_with_countries_and_policy,

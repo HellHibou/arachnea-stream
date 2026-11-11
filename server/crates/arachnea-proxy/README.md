@@ -1170,3 +1170,25 @@ no dependency enables it by default. Cargo features are additive, so
 filter when comparing captures. The duplicate `finished progressive proxy provider
 load` and `finished bounded proxy reserve preparation` summaries were removed;
 owned lifecycle summaries provide their outcome and duration.
+
+
+### In-process validated HTTP sources
+
+`proxy_service::prepare_proxy_http_source` decodes an authorized controller-shaped
+proxy route without accessing the network. The controller and internal consumers
+share the same options, cookies, routing parameters, response policy, TLS
+allowlist and redirect-header actions. Prepared values contain source secrets and
+must not be logged or sent to a client.
+
+`SimpleHttpClient::request_proxied_with_resolved_ip` executes one hop with a
+caller-validated transport IP. `ConnectRequest::with_resolved_ip` keeps the
+logical hostname for routing, destination observations, Host and TLS verification,
+while transport connections and final proxy handshakes use the pinned IP. The
+IP override is request-local and skipped during serialization/deserialization;
+both logical and physical destinations are checked against core security policy.
+Automatic redirects are refused by this API: the consumer validates each new
+hop before supplying a new IP. HTTP proxy routes use CONNECT for pinned plain
+HTTP requests, so a forward proxy cannot independently resolve the hostname.
+Normal requests without an override retain their existing resolution and
+absolute-form forwarding behavior. Consumers choosing this API explicitly use
+local validated resolution rather than upstream hostname resolution.

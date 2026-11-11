@@ -136,6 +136,10 @@ impl ArachneaProxyCore {
                 .as_config()
                 .security
                 .validate_destination(&request.destination)?;
+            self.config
+                .as_config()
+                .security
+                .validate_destination(&request.transport_destination())?;
             let decision = self
                 .config
                 .as_config()
@@ -263,6 +267,10 @@ impl ArachneaProxyCore {
                 .as_config()
                 .security
                 .validate_destination(&request.destination)?;
+            self.config
+                .as_config()
+                .security
+                .validate_destination(&request.transport_destination())?;
             let decision = self
                 .config
                 .as_config()
@@ -282,7 +290,8 @@ impl ArachneaProxyCore {
                 } else {
                     self.resolve_proxy_pools_in_chain(&chain, &request).await?
                 };
-                let use_absolute_form = request.destination.protocol == ApplicationProtocol::Http
+                let use_absolute_form = !request.has_resolved_ip()
+                    && request.destination.protocol == ApplicationProtocol::Http
                     && resolved_chain
                         .chain
                         .nodes
@@ -455,7 +464,9 @@ impl ArachneaProxyCore {
             .collect();
 
         if proxy_nodes.is_empty() {
-            let destination = self.resolve_destination_to_ip(&request.destination).await?;
+            let destination = self
+                .resolve_destination_to_ip(&request.transport_destination())
+                .await?;
             return crate::core::transport::direct::connect_tcp(
                 &destination,
                 self.config.as_config().timeouts.connect_duration(),
@@ -534,7 +545,7 @@ impl ArachneaProxyCore {
                 })?;
                 Destination::from_authority(endpoint, crate::core::ApplicationProtocol::Tcp)?
             } else {
-                request.destination.clone()
+                request.transport_destination()
             };
 
             self.connect_proxy_hop(&mut stream, node, &target)

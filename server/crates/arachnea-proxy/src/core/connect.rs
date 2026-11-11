@@ -1,3 +1,4 @@
+use std::net::IpAddr;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -34,6 +35,9 @@ pub struct ConnectRequest {
     pub client_context: ClientContext,
     /// Optional metadata supplied by an adapter.
     pub metadata: ConnectMetadata,
+    /// Trusted, request-local transport address; never accepted from serialized input.
+    #[serde(skip)]
+    resolved_ip: Option<IpAddr>,
 }
 
 impl ConnectRequest {
@@ -51,7 +55,35 @@ impl ConnectRequest {
             destination,
             client_context: ClientContext::new(),
             metadata: ConnectMetadata::default(),
+            resolved_ip: None,
         }
+    }
+
+    /// Pins the transport address while retaining the logical hostname for routing.
+    ///
+    /// HTTP adapters retain the logical hostname for Host and TLS as well.
+    /// Pinned HTTP connections use tunnels rather than absolute-form forwarding.
+    ///
+    /// # Arguments
+    /// * `address` - IP address already resolved and validated by a trusted caller.
+    pub fn with_resolved_ip(mut self, address: IpAddr) -> Self {
+        self.resolved_ip = Some(address);
+        self
+    }
+
+    /// Returns whether a trusted caller supplied a pinned transport address.
+    pub(crate) fn has_resolved_ip(&self) -> bool {
+        self.resolved_ip.is_some()
+    }
+
+    /// Returns the transport destination without changing the logical request identity.
+    pub(crate) fn transport_destination(&self) -> Destination {
+        self.resolved_ip
+            .map(|address| {
+                Destination::ip_port(address, self.destination.port)
+                    .with_protocol(self.destination.protocol.clone())
+            })
+            .unwrap_or_else(|| self.destination.clone())
     }
 
     /// Replaces the client context on this request.

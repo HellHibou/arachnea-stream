@@ -7,12 +7,14 @@ schéma YAML général reste décrit dans
 [arachnea-scrapyfy](arachnea-scrapyfy-fr.md) ; ce document ne décrit que les
 requêtes et sorties normalisées propres à la traduction.
 
-Statut : lots 1 à 4 implémentés (contrats, crate et module de sous-titres, pont
+Statut : lots 1 à 5 implémentés (contrats, crate et module de sous-titres, pont
 générique, catalogue effectif et administration, parseur WebVTT et
 planification documentaire, exécution texte Azure Translator/LibreTranslate avec
 reprises, budgets et métriques). La qualification réelle des fournisseurs
-requiert encore des credentials. Les lots 5 à 10 ajoutent l’orchestration
-récupération et revalidation du cache navigateur, le transport et l’interface utilisateur.
+requiert encore des credentials. Le lot 5 ajoute la récupération autorisée directe/proxy, la revalidation source
+et l’orchestration documentaire texte/URL, qualifiées localement avec des
+fournisseurs simulés. Les lots 6 à 10 ajoutent le transport public, le stockage
+navigateur et l’interface utilisateur.
 
 ## 1. Séparation des couches
 
@@ -372,9 +374,31 @@ compare les octets si la source ne fournit pas de validateur exploitable. Un tag
 client ne prouve ni les droits ni la fraîcheur : il faut vérifier le contexte
 autorisé puis revalider la source. Le navigateur conserve les fichiers traduits ;
 ces contrats ne fournissent pas de store documentaire serveur. Si le navigateur
-perd son fichier, une nouvelle traduction est nécessaire. L’implémentation de la
-récupération, du transport conditionnel et du cache navigateur reste prévue aux
-lots suivants.
+perd son fichier, une nouvelle traduction est nécessaire. Le transport conditionnel public et le cache navigateur restent à réaliser.
+
+Stream revalide le descripteur autorisé avant tout appel fournisseur et traduit
+un WebVTT complet avec le pont générique texte ou URL. La façade applicative
+fournit un instantané du catalogue/configuration et calcule l’empreinte des
+en-têtes source, options et limites locales. Les chemins directs et ceux du proxy
+applicatif contrôlent et fixent les adresses DNS publiques à chaque saut. Les
+liens internes sont décodés sans appel au contrôleur local ; paramètres de
+routage, cookies, actions, classificateurs et options TLS autorisées sont
+conservés. Le nom logique est conservé pour le routage et TLS, tandis que les
+connexions et tunnels utilisent l’IP validée. En-têtes et cookies sont retirés
+entre origines. Une source redirigée ou transformée utilise un hash. Le chemin
+proxy exige une réponse en encodage identity ; les octets source et le résultat
+des actions sont bornés.
+
+La voie URL fournisseur exige une URL publique directe explicitement autorisée,
+sans query, fragment, credentials, en-têtes requis ni redirection, et sans budget
+fournisseur ou plafond d’unités dépourvu d’unité déclarée. Sinon, la voie texte
+reste utilisable si disponible. La source est revérifiée après exécution et le
+résultat doit préserver métadonnées, structure, temps et balisage. Aucun repli
+fournisseur après le début de l’exécution. Aucun fichier source ou traduit n’est
+conservé ; les demandes simultanées sans corps en cache peuvent être exécutées
+séparément dans la limite de concurrence du fournisseur. La qualification locale
+avec fournisseur et proxy simulés est terminée ; les fournisseurs réels restent
+à qualifier avec leurs accès. Le transport public appartient au lot 6.
 
 ## 9. Contrat backend prévu
 

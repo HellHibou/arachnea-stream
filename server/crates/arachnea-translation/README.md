@@ -52,15 +52,16 @@ From `server/`:
 cargo check -p arachnea-translation -p arachnea-scrapyfy -p arachnea-stream
 ```
 
-No translation endpoint is public after lots 1 to 4. Stream loads the provider
+No translation endpoint is public after lots 1 to 5. Stream loads the provider
 catalog from the `arachnea-translation` Scrapyfy group and keeps Azure
 Translator and LibreTranslate disabled until configured. Generic text
 execution is implemented in the shared bridge, including automatic source
 handling, retries, budgets and metrics; the Azure Translator and LibreTranslate
 YAML definitions are exercised by local contract checks. Real provider
-qualification still requires credentials, and retrieval, browser revalidation
-and transport remain planned for later lots. Stream also owns the WebVTT
-document pipeline in its `subtitles` module.
+qualification still requires credentials. Stream owns the WebVTT document
+pipeline, authorized direct/proxy source retrieval, conditional revalidation
+and complete text/URL orchestration. Public transport and browser storage remain
+planned for later lots.
 
 Each query attempt has a 60-second timeout. A `Retry-After` hint above the
 retry-delay ceiling returns the failure immediately instead of retrying early.

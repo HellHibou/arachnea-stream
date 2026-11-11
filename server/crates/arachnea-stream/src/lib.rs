@@ -146,6 +146,15 @@ pub const DEFAULT_MAX_CUES: u64 = 10_000;
 /// Default maximum translatable units accepted in one document.
 pub const DEFAULT_MAX_TRANSLATABLE_UNITS: u64 = 500_000;
 
+/// Maximum encoded proxy options length accepted for a subtitle source, in bytes.
+pub const SUBTITLE_PROXY_OPTIONS_MAX_LENGTH: usize = 4096;
+
+/// Maximum redirects followed when retrieving a subtitle source.
+pub const SUBTITLE_SOURCE_MAX_REDIRECTS: usize = 5;
+
+/// Timeout for each subtitle source request, in seconds.
+pub const SUBTITLE_SOURCE_TIMEOUT_SECONDS: u64 = 30;
+
 /// Default lifetime of one prepared translation token, in seconds.
 pub const DEFAULT_TOKEN_TTL_SECONDS: u64 = 86_400;
 

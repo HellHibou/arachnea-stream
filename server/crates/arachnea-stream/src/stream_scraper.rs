@@ -855,6 +855,7 @@ mod test_support;
 mod catalog;
 mod playback;
 mod registration;
+mod subtitles;
 
 mod persistence;
 use arachnea_scrapyfy::synchronize_service_defaults;

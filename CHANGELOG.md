@@ -138,6 +138,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Added shared in-process proxy-route decoding and request-local resolved-IP HTTP execution. Routing, Host, TLS and destination observations retain the logical hostname; direct connections and proxy tunnels use the validated IP, and pinned HTTP requests require caller-checked redirects. The controller reuses the same options decoder.
+
 - Added ephemeral internal and hashed user API-key authentication to the shared application proxy, with 64-byte Base64url tokens, live port/network policies, retired-listener drainage and bounded tunnel revocation. User access defaults to disabled; internal traffic stays available on loopback.
 - Extended the crate harmonization tracking plan with a proxy follow-up analysis for extracting performance-only diagnostics and centralizing remaining constants and operational limits. Recorded module boundaries, lifecycle constraints, and validation criteria; implementation remains pending confirmation.
 - Add bounded DEBUG exploration-ranking diagnostics: unique ranking identities, up to eight ordered candidate snapshots, sampled pipeline lifecycle/completion order, and winner paths even outside the sample. Preserve the comparator, validation concurrency, eligibility and deadlines; distinguish cancellation from endpoint failures and stored probe latency from pipeline elapsed time.
@@ -344,6 +346,10 @@ All notable changes to the server workspace are recorded here.
 ### <u>arachnea-stream</u>
 
 #### Added
+
+- Completed subtitle lot 5 with application proxy routing/options, per-hop destination checks, bounded source collection and text/URL orchestration. The application facade fingerprints headers/options/limits, preserves the configuration snapshot and retains no source or translated files. Simulated provider/proxy qualification covers revalidation, invalidation, budgets, concurrency and failures; public REST/Tauri file transport remains lot 6.
+
+- Added authorized subtitle source revalidation, bounded direct HTTP retrieval with DNS pinning and per-hop destination checks, and WebVTT text translation orchestration through the existing Scrapyfy bridges. Recognized application proxy paths and explicitly approved public provider URLs are supported with documented restrictions; public file transport remains pending.
 
 - Added the `subtitles` module to `arachnea-stream`, defining the subtitle document boundary: WebVTT/SRT format identifiers, source track descriptors, document statistics, persistent translated-subtitle descriptor and opaque token with expiry/access checks, authorized retrieval and document cache ports, document cache identity with parser/pipeline revisions, and explicit HTTP status mapping including the no-result `HEAD` response.
 - Added the `subtitles` WebVTT document pipeline: a UTF-8 parser and serializer preserving signature/header metadata, cue identifiers, raw timing lines and settings, payload lines, `NOTE`, `STYLE` and `REGION` blocks; timestamp validation; visible-text extraction that keeps inline markup and internal timestamps as protected segment boundaries; entity decoding and re-escaping; sentence/word/Unicode-safe splitting of long cues with restored whitespace joiners; per-cue segment-to-block mapping and stable block identifiers; local decompressed-byte/cue/unit bounds; batch planning delegated to `arachnea-translation`; and reconstruction that rejects missing, extra, reordered or empty segments instead of publishing a partial file. It has no Scrapyfy or player dependency and performs no network access.

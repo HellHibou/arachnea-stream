@@ -6,11 +6,13 @@ This document describes the generic translation contract owned by
 general YAML schema remains documented in
 [arachnea-scrapyfy](arachnea-scrapyfy-en.md); this document only covers the translation-specific normalized queries and outputs.
 
-Status: lots 1 to 4 implemented (contracts, crate and subtitle module, generic
+Status: lots 1 to 5 implemented (contracts, crate and subtitle module, generic
 bridge, effective catalog and administration, WebVTT parser and document
 planning, Azure Translator/LibreTranslate text execution with retries, budgets
-and metrics). Real provider qualification still requires credentials. Lots 5
-to 10 add retrieval and browser-cache revalidation, transport and the user interface.
+and metrics), with authorized direct/proxy retrieval, conditional source
+revalidation and complete text/URL document orchestration. Local simulated-provider
+qualification passes; real provider qualification still requires credentials.
+Lots 6 to 10 add public transport, browser storage and the user interface.
 
 ## 1. Layer split
 
@@ -359,8 +361,29 @@ Client-supplied tags do not authorize access or establish freshness. They must b
 checked against the authorized request and revalidated with the source. The
 browser retains translated bytes; these contracts do not provide a server-side
 translated-document store. If the browser loses its body, a new translation is
-required. Retrieval implementation, conditional HTTP transport and browser cache
-integration remain planned for later lots.
+required. Public conditional HTTP transport and browser cache integration remain planned.
+
+Stream revalidates an authorized descriptor before provider execution and can
+translate a complete WebVTT document using the generic text or URL bridge. The
+application facade supplies one catalog/configuration snapshot and fingerprints
+source headers, options and local limits. Direct HTTP and application proxy
+sources validate and pin public DNS addresses at each hop. Internal proxy URLs
+are decoded without requesting a local controller endpoint; routing parameters,
+cookies, actions, classifiers and allowlisted TLS options are preserved. The
+logical hostname remains available for routing and TLS while CONNECT and direct
+connections use the validated IP. Headers/cookies are cleared across origins.
+Redirected and transformed sources use a content hash. Proxy responses must honor
+identity content encoding; source bytes and post-action output are bounded.
+
+Provider URL translation requires an explicitly approved public direct URL with
+no query, fragment, credentials, required headers or redirect, and no provider
+unit budget or unit limit lacking a declared unit. Otherwise the text route is
+used when available. The source is checked again afterward and the result must
+preserve metadata, cue structure, timing and markup. No provider fallback occurs
+after execution starts. No source or translated file is retained; simultaneous
+uncached requests can execute independently within provider concurrency limits.
+The local simulated provider/proxy qualification is complete; real-provider
+qualification still requires access. Public file transport belongs to lot 6.
 
 ## 9. Planned backend contract
 
