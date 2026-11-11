@@ -10,14 +10,14 @@ Status: lots 1 to 4 implemented (contracts, crate and subtitle module, generic
 bridge, effective catalog and administration, WebVTT parser and document
 planning, Azure Translator/LibreTranslate text execution with retries, budgets
 and metrics). Real provider qualification still requires credentials. Lots 5
-to 10 add retrieval/cache orchestration, transport and the user interface.
+to 10 add retrieval and browser-cache revalidation, transport and the user interface.
 
 ## 1. Layer split
 
 | Layer | Responsibilities | Prohibitions |
 |---|---|---|
-| `arachnea-translation` | Two-letter languages, abstract blocks, capabilities and limits, metadata, selection, planning, cache identity, Scrapyfy bridge. | No knowledge of WebVTT, cues, players or video tracks. No provider-specific Rust. |
-| `arachnea-stream` | Rights, proxy-link resolution, catalogs, REST/Tauri assembly and file transport, plus its `subtitles` module: source descriptors, WebVTT parsing/serialization, cue segmentation and document planning, persistent descriptor and token, authorized retrieval and document cache ports, document cache identity and HTTP statuses. | No provider mapping or provider-specific Rust; no unrestricted network access. |
+| `arachnea-translation` | Two-letter languages, abstract blocks, capabilities and limits, metadata, selection, planning, translation revision identity, Scrapyfy bridge. | No knowledge of WebVTT, cues, players or video tracks. No provider-specific Rust. |
+| `arachnea-stream` | Rights, proxy-link resolution, catalogs, REST/Tauri assembly and file transport, plus its `subtitles` module: source descriptors, WebVTT parsing/serialization, cue segmentation and document planning, persistent descriptor and token, authorized conditional retrieval, composite validator and HTTP statuses. | No provider mapping or provider-specific Rust; no unrestricted network access. |
 | Public front | Preferences, translation request decision, Video.js lifecycle. | No credentials or provider protocol. |
 
 Providers are described and executed exclusively by Scrapyfy. The generic
@@ -340,20 +340,27 @@ documents without any provider or player dependency.
 
 SRT is still not part of the initial path and is never served as raw WebVTT.
 
-## 8. Cache
+## 8. Browser cache and validators
 
-The generic identity includes the source content fingerprint, effective source
-and target languages, service, endpoint/model, language options, YAML/action
-configuration revision, Translation pipeline revision and access scope. It never
-contains credentials. An unknown source stays `auto`; no code is invented.
+The generic `TranslationRevision` records requested source and target languages,
+service identity, YAML hash, configuration and pipeline revisions, and an opaque
+fingerprint of output-affecting options. Stream's `SubtitleTranslationValidator`
+adds the source validator, opaque source and access-scope fingerprints, format,
+parser and subtitle pipeline revisions. The composite ETag is weak, versioned,
+URL-safe base64-encoded JSON and limited to 4096 bytes. Its payload is visible:
+never include credentials, signed URLs or other secret values. The catalog exposes
+an optional `service_yaml_hash`; without it a reliable validator cannot be built.
 
-The `arachnea-stream` subtitle module adds the document fingerprint, format,
-WebVTT parser revision and subtitle pipeline revision. The final document ETag
-is a strong digest of its bytes, including quotes; the remote ETag only
-validates the source.
-
-The generic cache combines backend persistence with HTTP validation. An ETag
-alone cannot prevent retranslation after all backend state is lost.
+The source validator contains either the upstream HTTP ETag or a hash of the
+source bytes with an optional `Last-Modified` value. The retrieval port accepts
+this validator and distinguishes an unchanged source from a complete document;
+the caller must compare bytes when the source supplies no usable validator.
+Client-supplied tags do not authorize access or establish freshness. They must be
+checked against the authorized request and revalidated with the source. The
+browser retains translated bytes; these contracts do not provide a server-side
+translated-document store. If the browser loses its body, a new translation is
+required. Retrieval implementation, conditional HTTP transport and browser cache
+integration remain planned for later lots.
 
 ## 9. Planned backend contract
 
@@ -361,8 +368,8 @@ alone cannot prevent retranslation after all backend state is lost.
 |---|---|
 | `get_translation_services` | Public catalog of usable services, capabilities and languages; no secret. |
 | `prepare_subtitle_translation` | Checks rights and candidates, then produces a descriptor and token without retrieving or translating the document. |
-| `GET <public-path>/subtitle_translation/<token>.vtt` | Returns the complete WebVTT file, its ETag and cache policy. |
-| `HEAD` on the same path | Serves metadata from an existing result only. Without a result, answers `404` without retrieval or translation. |
+| `GET <public-path>/subtitle_translation/<token>.vtt` | Returns a complete WebVTT file and composite ETag, or `304` after successful source and context revalidation. |
+| `HEAD` on the same path | Returns `405` without retrieval or translation. |
 
 The token is opaque, stable for its lifetime, and contains no source URL or
 credential. Access is checked again on download, and one user's token cannot
@@ -377,12 +384,12 @@ file.
 | Access denied | `403 Forbidden` |
 | Expired token | `410 Gone` |
 | Document, cue or unit bounds exceeded | `413 Payload Too Large` |
-| `HEAD` without an existing result | `404 Not Found` |
+| `HEAD` | `405 Method Not Allowed` |
 | Source unavailable or retrieval failed | `502 Bad Gateway` |
 | Unsupported pair, capability or size | `422 Unprocessable Entity` |
 | Quota or budget unavailable | `429 Too Many Requests` |
 | Metadata unavailable or temporary incident | `503 Service Unavailable` |
-| Cache or internal state failure | `500 Internal Server Error` |
+| Internal state failure | `500 Internal Server Error` |
 
 `Cache-Control: private, no-cache` is proposed to keep the body while
 revalidating with `If-None-Match`. A `304` response has no body and keeps the

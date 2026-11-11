@@ -73,11 +73,23 @@ Native GUI behavior and provider health require separate validation.
 `src/subtitles/` owns the subtitle document boundary inside Stream. It defines
 WebVTT and SRT media identifiers, source track descriptors, document format and
 statistics, the persistent translated-subtitle descriptor and its opaque token
-with expiry/access checks, authorized retrieval and document cache ports, the
-document cache identity (including parser and pipeline revisions), HTTP status
+with expiry/access checks, an authorized conditional retrieval port, a versioned
+weak composite ETag (including source validator, YAML and pipeline revisions), HTTP status
 mapping and the local document limits. It depends only on the generic
 `arachnea-translation` contracts: no Scrapyfy provider mapping, player logic or
 network access lives here.
+
+A translated-subtitle validator encodes the upstream ETag or a source-content
+hash with optional `Last-Modified`, the service YAML hash and configuration
+revision, target language, non-secret source/access fingerprints and pipeline
+revisions. It is client-controlled and must be checked against authorized
+request context and revalidated against the source before use. The encoded
+payload is not encrypted; callers must exclude secrets. The catalog exposes an
+optional YAML hash; its absence prevents constructing a reliable validator.
+The retrieval port represents `NotModified` separately from a complete source
+body. The planned file transport uses `405` for `HEAD` without retrieval or
+translation. No translated file store is provided. The actual retrieval,
+conditional HTTP orchestration and browser storage remain future work.
 
 The WebVTT pipeline parses and serializes complete documents while keeping the
 signature, optional header metadata, cue identifiers, raw timing lines and

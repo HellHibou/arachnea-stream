@@ -23,8 +23,8 @@ video tracks: subtitle parsing and document orchestration live in the
   normalized provider failure categories.
 - Account-level budget and concurrency reservations before each provider
   attempt, plus non-sensitive execution metrics.
-- Generic result cache identity excluding credentials and including service
-  configuration and pipeline revisions.
+- Generic translation revision identity excluding credentials and including the
+  service YAML hash, effective configuration and pipeline revisions.
 - Optional positional response matching for providers that preserve request
   order without returning block identifiers.
 - A single generic Scrapyfy bridge. Provider endpoints, headers, bodies and
@@ -58,7 +58,7 @@ Translator and LibreTranslate disabled until configured. Generic text
 execution is implemented in the shared bridge, including automatic source
 handling, retries, budgets and metrics; the Azure Translator and LibreTranslate
 YAML definitions are exercised by local contract checks. Real provider
-qualification still requires credentials, and retrieval, cache orchestration
+qualification still requires credentials, and retrieval, browser revalidation
 and transport remain planned for later lots. Stream also owns the WebVTT
 document pipeline in its `subtitles` module.
 

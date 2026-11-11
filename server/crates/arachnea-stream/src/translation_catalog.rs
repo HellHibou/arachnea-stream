@@ -66,6 +66,8 @@ pub struct TranslationCatalogEntry {
     pub max_units_per_window: Option<u64>,
     /// Account quota window duration in seconds.
     pub budget_window_seconds: u64,
+    /// Hash of the source YAML, absent when the catalog cannot determine it.
+    pub service_yaml_hash: Option<String>,
     /// Configuration revision influencing translation output.
     pub configuration_revision: String,
 }
@@ -216,10 +218,13 @@ impl TranslationCatalog {
                 .and_then(|parameter| parameter.value.trim().parse::<u64>().ok())
                 .unwrap_or(DEFAULT_TRANSLATION_BUDGET_WINDOW_SECONDS)
                 .max(1);
-            let yaml_hash = aggregator
+            let service_yaml_hash = aggregator
                 .source_yaml_hash(group_name, &service_id)
-                .unwrap_or("unknown");
-            let mut revision_parts = vec![format!("yaml={yaml_hash}")];
+                .map(str::to_owned);
+            let mut revision_parts = vec![format!(
+                "yaml={}",
+                service_yaml_hash.as_deref().unwrap_or("unknown")
+            )];
             revision_parts.extend(
                 parameters
                     .iter()
@@ -248,6 +253,7 @@ impl TranslationCatalog {
                 max_concurrent_requests,
                 max_units_per_window,
                 budget_window_seconds,
+                service_yaml_hash,
                 configuration_revision,
             });
         }

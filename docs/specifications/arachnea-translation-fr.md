@@ -12,14 +12,14 @@ générique, catalogue effectif et administration, parseur WebVTT et
 planification documentaire, exécution texte Azure Translator/LibreTranslate avec
 reprises, budgets et métriques). La qualification réelle des fournisseurs
 requiert encore des credentials. Les lots 5 à 10 ajoutent l’orchestration
-récupération/cache, le transport et l’interface utilisateur.
+récupération et revalidation du cache navigateur, le transport et l’interface utilisateur.
 
 ## 1. Séparation des couches
 
 | Couche | Responsabilités | Interdictions |
 |---|---|---|
-| `arachnea-translation` | Langues à deux lettres, blocs abstraits, capacités et limites, métadonnées, sélection, planification, identité de cache, pont Scrapyfy. | Aucune connaissance de WebVTT, des cues, du player ou des pistes vidéo. Aucun fournisseur Rust spécifique. |
-| `arachnea-stream` | Droits, résolution des liens de proxy, catalogues, assemblage REST/Tauri et transport du fichier, plus son module `subtitles` : descripteurs de piste source, parsing/sérialisation WebVTT, découpage des cues et planification documentaire, descripteur persistant et jeton, ports de récupération autorisée et de cache documentaire, identité de cache du document et statuts HTTP. | Aucun mapping fournisseur ni Rust spécifique à un fournisseur ; aucun accès réseau non autorisé. |
+| `arachnea-translation` | Langues à deux lettres, blocs abstraits, capacités et limites, métadonnées, sélection, planification, identité de révision de traduction, pont Scrapyfy. | Aucune connaissance de WebVTT, des cues, du player ou des pistes vidéo. Aucun fournisseur Rust spécifique. |
+| `arachnea-stream` | Droits, résolution des liens de proxy, catalogues, assemblage REST/Tauri et transport du fichier, plus son module `subtitles` : descripteurs de piste source, parsing/sérialisation WebVTT, découpage des cues et planification documentaire, descripteur persistant et jeton, récupération conditionnelle autorisée, validateur composite et statuts HTTP. | Aucun mapping fournisseur ni Rust spécifique à un fournisseur ; aucun accès réseau non autorisé. |
 | Front public | Préférences, décision de demander une traduction, cycle de vie Video.js. | Aucun credential ni protocole fournisseur. |
 
 Les fournisseurs sont exclusivement décrits et exécutés par Scrapyfy. Le pont
@@ -352,21 +352,29 @@ WebVTT complets sans dépendance à un fournisseur ni au player.
 
 SRT reste hors du chemin initial et n’est jamais servi comme du WebVTT brut.
 
-## 8. Cache
+## 8. Cache navigateur et validateurs
 
-L'identité générique comprend : empreinte du contenu source, langues source et
-cible effectives, service, endpoint/modèle, options linguistiques, révision de
-configuration YAML/actions, révision du pipeline Translation et périmètre
-d'accès. Aucun credential n'y figure. Une source inconnue reste `auto` ; aucun
-code n'est inventé.
+`TranslationRevision` décrit les langues source demandée et cible, le service,
+le hash YAML, les révisions de configuration et du pipeline, ainsi qu’une
+empreinte opaque des options influant sur le résultat. Le
+`SubtitleTranslationValidator` de Stream ajoute le validateur source, les
+empreintes opaques de source et de périmètre d’accès, le format et les révisions
+du parseur et du pipeline de sous-titres. L’ETag composite est faible, versionné,
+encodé en JSON/base64 compatible URL et limité à 4096 octets. Son contenu reste
+lisible : ne jamais y inclure de credentials, URL signées ou autres secrets. Le
+catalogue expose `service_yaml_hash`, optionnel ; son absence empêche de créer
+un validateur fiable.
 
-Le module `subtitles` d’`arachnea-stream` ajoute l’empreinte du document, le
-format, la révision du parseur WebVTT et la révision du pipeline documentaire.
-L’ETag du document final est une empreinte forte de ses octets, entre
-guillemets ; l’ETag distant ne valide que la source.
-
-Le cache générique combine persistance backend et validation HTTP. L'ETag seul
-n'empêche pas une retraduction après perte de l'état backend.
+Le validateur source contient l’ETag HTTP amont ou un hash des octets source,
+accompagné éventuellement de `Last-Modified`. Le port de récupération accepte ce
+validateur et distingue une source inchangée d’un document complet ; l’appelant
+compare les octets si la source ne fournit pas de validateur exploitable. Un tag
+client ne prouve ni les droits ni la fraîcheur : il faut vérifier le contexte
+autorisé puis revalider la source. Le navigateur conserve les fichiers traduits ;
+ces contrats ne fournissent pas de store documentaire serveur. Si le navigateur
+perd son fichier, une nouvelle traduction est nécessaire. L’implémentation de la
+récupération, du transport conditionnel et du cache navigateur reste prévue aux
+lots suivants.
 
 ## 9. Contrat backend prévu
 
@@ -374,8 +382,8 @@ n'empêche pas une retraduction après perte de l'état backend.
 |---|---|
 | `get_translation_services` | Catalogue public des services utilisables, capacités et langues ; aucun secret. |
 | `prepare_subtitle_translation` | Vérifie les droits et candidats, puis produit un descripteur et un jeton sans récupérer ni traduire le document. |
-| `GET <public-path>/subtitle_translation/<token>.vtt` | Retourne le fichier WebVTT complet, son ETag et sa politique de cache. |
-| `HEAD` sur le même chemin | Sert uniquement les métadonnées d'un résultat existant. Sans résultat, répond `404` sans récupération ni traduction. |
+| `GET <public-path>/subtitle_translation/<token>.vtt` | Retourne le fichier WebVTT et son ETag composite, ou `304` après revalidation de la source et du contexte. |
+| `HEAD` sur le même chemin | Répond `405` sans récupération ni traduction. |
 
 Le jeton est opaque, stable pendant sa durée de vie, sans URL source ni
 credential. L'accès est revérifié au téléchargement et un jeton d'un utilisateur
@@ -390,12 +398,12 @@ servies comme un fichier VTT.
 | Accès refusé | `403 Forbidden` |
 | Jeton expiré | `410 Gone` |
 | Document, cues ou unités au-delà des bornes | `413 Payload Too Large` |
-| `HEAD` sans résultat existant | `404 Not Found` |
+| `HEAD` | `405 Method Not Allowed` |
 | Source indisponible ou récupération échouée | `502 Bad Gateway` |
 | Couple, capacité ou taille refusés | `422 Unprocessable Entity` |
 | Quota ou budget indisponible | `429 Too Many Requests` |
 | Métadonnées indisponibles ou incident temporaire | `503 Service Unavailable` |
-| Cache ou état interne en échec | `500 Internal Server Error` |
+| État interne en échec | `500 Internal Server Error` |
 
 `Cache-Control: private, no-cache` est proposé pour conserver le corps tout en
 revalidant avec `If-None-Match`. Une réponse `304` est vide et conserve l'ETag.

@@ -332,6 +332,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Replaced persistent result-cache keys with a provider-independent translation revision carrying the YAML hash, target language and output-affecting configuration for browser revalidation.
+
 - `TranslatedTexts` and `TranslatedDocument` now carry `TranslationMetrics`; callers that construct these results must provide the field (defaults to zero metrics for deserialization). The bridge reports batches, attempts, retries, detection attempts, blocks, units and elapsed time without exposing text or credentials.
 - The bridge now accepts an injected `TranslationBudgetPort` and retry policy while retaining unlimited-budget and default-policy behavior for callers that do not configure them.
 
@@ -419,6 +421,8 @@ All notable changes to the server workspace are recorded here.
 - The Stream translation port now maps `ArachneaHttpError::HttpStatus` to normalized provider categories and injects a process-local budget shared by service identifier. Budgets are created on first use, so changing their catalog parameters requires a restart; consumed units are not refunded after a failed provider attempt.
 
 #### Changed
+
+- Replaced translated-subtitle server-cache contracts with a bounded, versioned weak composite ETag and conditional retrieval types. The catalog exposes its optional YAML hash, and `HEAD` maps to `405`. Source retrieval, HTTP revalidation and browser storage are planned for later lots.
 
 - Subtitle document processing now lives in the `arachnea-stream` `subtitles` module. The module documentation and Stream README describe the implemented WebVTT parser, segmentation and document planning.
 
@@ -937,6 +941,8 @@ All notable changes to the server workspace are recorded here.
 - Documented the shared Scrapyfy loopback proxy server, configurable port, per-connection routing contexts, and browser profile negotiation. Recorded user approval of approach B and the `407` challenge; delivery and validation details are recorded in the development analysis.
 
 #### Changed
+
+- Revised the subtitle translation analysis to keep translated files exclusively in the browser and revalidate a composite source-validator/YAML/target-language ETag before translation. Audited commits `7c9208d3`, `49b96042` and `8bd1dff4`, recorded the required contract corrections for delivered lots 1–4, and updated the remaining implementation plan; runtime code is unchanged.
 
 - Documented `build_json_array`, `json_array_projection` and `preserves_request_order` in the Scrapyfy and Translation specifications (French and English), and recorded the translation catalog, credentials lookup and administrator reload behavior in the translation analysis and TODO.
 - Updated the approved Arachnéa Proxy administration analysis: API tokens belong in the password field, optional routing parameters in the username, and internal/user keys contain 128 random bytes encoded as 171 unpadded Base64url characters for SOCKS5 compatibility. Recorded approval of configuration, persistence, and hot application choices; implementation remains pending.

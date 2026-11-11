@@ -64,37 +64,6 @@ impl SubtitleFormat {
     }
 }
 
-/// Opaque fingerprint of the source document content.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct DocumentFingerprint(String);
-
-impl DocumentFingerprint {
-    /// Creates a validated fingerprint.
-    ///
-    /// # Arguments
-    ///
-    /// * `value` - Nonblank opaque content digest.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`SubtitleTranslationError::InvalidDescriptor`] for a blank value.
-    pub fn new(value: impl Into<String>) -> Result<Self, SubtitleTranslationError> {
-        let value = value.into();
-        if value.trim().is_empty() {
-            return Err(SubtitleTranslationError::InvalidDescriptor {
-                detail: "document fingerprint must not be blank".to_string(),
-            });
-        }
-        Ok(Self(value))
-    }
-
-    /// Returns the fingerprint as a string.
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
 /// Persistent source track identity and retrieval metadata.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SubtitleSourceDescriptor {
@@ -140,8 +109,20 @@ pub struct RetrievedSubtitle {
     pub content_type: Option<String>,
     /// Upstream validator, distinct from the final document ETag.
     pub remote_etag: Option<String>,
+    /// Upstream Last-Modified header, when present.
+    pub last_modified: Option<String>,
     /// Final URL after authorized redirects, when known.
     pub final_url: Option<String>,
+}
+
+/// Result of an authorized conditional source retrieval.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SubtitleRetrievalOutcome {
+    /// Complete source bytes and current upstream metadata.
+    Modified(RetrievedSubtitle),
+    /// The upstream server confirmed the conditional request was unchanged.
+    /// This variant is only valid when a conditional validator was sent.
+    NotModified,
 }
 
 /// Measured document characteristics.
@@ -222,7 +203,7 @@ impl LocalSubtitleLimits {
 pub struct TranslatedSubtitleDocument {
     /// Complete WebVTT bytes.
     pub bytes: Vec<u8>,
-    /// Strong ETag of the final bytes, including its surrounding quotes.
+    /// Composite weak ETag identifying the source and translation context.
     pub etag: String,
     /// Response media type.
     pub media_type: String,
@@ -236,19 +217,20 @@ impl TranslatedSubtitleDocument {
     /// # Arguments
     ///
     /// * `bytes` - Complete translated WebVTT bytes.
-    /// * `etag` - Strong ETag including surrounding quotes.
+    /// * `etag` - Versioned composite weak ETag including surrounding quotes.
     ///
     /// # Errors
     ///
     /// Returns [`SubtitleTranslationError::InvalidDescriptor`] when the ETag is
-    /// empty or not quoted as a strong validator.
+    /// not a valid composite weak validator.
     pub fn new(bytes: Vec<u8>, etag: impl Into<String>) -> Result<Self, SubtitleTranslationError> {
         let etag = etag.into();
-        if etag.len() < 2 || !etag.starts_with('"') || !etag.ends_with('"') {
+        if !etag.starts_with("W/\"") {
             return Err(SubtitleTranslationError::InvalidDescriptor {
-                detail: "final document ETag must be a quoted strong validator".to_string(),
+                detail: "subtitle document ETag must be weak".to_string(),
             });
         }
+        super::cache::SubtitleTranslationValidator::from_etag(&etag)?;
         Ok(Self {
             bytes,
             etag,

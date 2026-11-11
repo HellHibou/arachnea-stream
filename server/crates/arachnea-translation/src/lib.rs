@@ -3,14 +3,13 @@
 //!
 //! This crate owns language and block identifiers, provider capability and
 //! limit metadata, normalized query inputs and outputs, deterministic service
-//! selection, batch planning, result cache identity and the generic bridge used
+//! selection, batch planning, translation revision identity and the generic bridge used
 //! to execute translation queries through `arachnea-scrapyfy`.
 //!
 //! It deliberately has no knowledge of WebVTT, subtitle cues, players or
 //! tracks. Document parsing, cue segmentation, subtitle retrieval and the
-//! subtitle cache live in the `arachnea-stream` subtitle module; stream
-//! services provide the authorized retrieval and persistence implementations
-//! through the injected ports defined there.
+//! subtitle revalidation live in the `arachnea-stream` subtitle module; stream
+//! services provide authorized retrieval through the injected port defined there.
 //!
 //! # Boundaries
 //!
@@ -46,7 +45,7 @@ pub use budget::{
     BudgetLimit, InMemoryTranslationBudget, TranslationBudgetPort, TranslationBudgetReservation,
     UnlimitedTranslationBudget,
 };
-pub use cache::{AccessScope, SourceFingerprint, TranslationCacheIdentity, TranslationCacheKey};
+pub use cache::{AccessScope, TranslationRevision};
 pub use capability::{
     SizeUnit, SourceDetection, TextTranslationCapability, UrlResultMode, UrlTranslationCapability,
 };
@@ -84,7 +83,7 @@ pub const TRANSLATION_DOCUMENT_MEDIA_TYPE: &str = "application/arachnea-translat
 /// Media type identifying normalized source-detection rows.
 pub const TRANSLATION_DETECTION_MEDIA_TYPE: &str = "application/arachnea-translation-detection";
 
-/// Revision of the generic translation pipeline recorded in result cache keys.
+/// Revision of the generic translation pipeline used to revalidate browser-held results.
 ///
 /// Changing this value invalidates previously cached translations that were
 /// produced by an incompatible contract or validation pipeline.
@@ -117,15 +116,6 @@ pub const PARAM_DOCUMENT_URL: &str = "translation_document_url";
 /// omitting the field or sending `auto`. It is not a language code and never
 /// appears in [`TranslationMetadata::languages`].
 pub const AUTO_SOURCE_LANGUAGE: &str = "auto";
-
-/// Version prefix of persisted translation result cache keys.
-pub const TRANSLATION_CACHE_KEY_VERSION: &str = "t1";
-
-/// Separator between the fields of a persisted translation cache key.
-pub const TRANSLATION_CACHE_KEY_SEPARATOR: char = '\u{1f}';
-
-/// Separator between a cache-key field name and its value.
-pub const TRANSLATION_CACHE_KEY_PAIR_SEPARATOR: char = '\u{1e}';
 
 /// Default local cap on serialized request bytes.
 ///

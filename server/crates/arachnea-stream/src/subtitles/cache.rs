@@ -1,156 +1,155 @@
-//! Subtitle document cache identity and persisted entries.
+//! Browser-held subtitle validators and composite HTTP entity tags.
 
-use super::document::{DocumentFingerprint, SubtitleFormat};
-use crate::{
-    SUBTITLE_CACHE_KEY_PAIR_SEPARATOR, SUBTITLE_CACHE_KEY_SEPARATOR, SUBTITLE_CACHE_KEY_VERSION,
-};
-use arachnea_translation::TranslationCacheIdentity;
+use super::error::SubtitleTranslationError;
+use crate::{SUBTITLE_ETAG_MAX_LENGTH, SUBTITLE_ETAG_PREFIX};
+use arachnea_translation::TranslationRevision;
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use serde::{Deserialize, Serialize};
-use std::fmt;
 
-/// Complete identity of one translated subtitle document.
-///
-/// The generic translation identity already covers languages, service,
-/// endpoint, options, configuration and access scope. This identity adds the
-/// source document fingerprint, format, parser revision and subtitle pipeline
-/// revision so a parser change cannot reuse an incompatible document.
+/// Validator used to check whether the upstream subtitle source changed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SubtitleTranslationCacheIdentity {
-    /// Generic translation identity that produced the document.
-    pub translation: TranslationCacheIdentity,
-    /// Content fingerprint of the source subtitle document.
-    pub document_fingerprint: DocumentFingerprint,
-    /// Source document format.
-    pub document_format: SubtitleFormat,
-    /// WebVTT parser and serializer revision.
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum SubtitleSourceValidator {
+    /// Original HTTP entity tag, including quotes and any `W/` prefix.
+    Etag {
+        /// Upstream entity tag to send in `If-None-Match`.
+        etag: String,
+    },
+    /// Digest of the source bytes, optionally with an HTTP modification date.
+    Content {
+        /// Digest of the complete source bytes.
+        hash: String,
+        /// Original `Last-Modified` value for `If-Modified-Since`, if present.
+        last_modified: Option<String>,
+    },
+}
+
+/// Complete identity of a browser-held translated subtitle representation.
+///
+/// Fingerprints are opaque, non-secret digests bound to the authorized source
+/// and access scope. This tag is client-controlled and must never authorize a
+/// request: check access and compare its fields with the current request before
+/// using its source validator. A tag does not prove source freshness.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SubtitleTranslationValidator {
+    /// Opaque fingerprint of the authorized source track identity.
+    pub source_fingerprint: String,
+    /// Opaque fingerprint binding the tag to the authorized access scope.
+    pub access_scope_fingerprint: String,
+    /// Upstream source validator or content digest.
+    pub source: SubtitleSourceValidator,
+    /// Provider, language and translation revision identity.
+    pub translation: TranslationRevision,
+    /// Source document format and interpretation revision.
+    pub document_format: String,
+    /// Revision of the WebVTT parser and serializer.
     pub parser_revision: String,
-    /// Subtitle orchestration pipeline revision.
+    /// Revision of the subtitle orchestration pipeline.
     pub subtitle_pipeline_revision: String,
 }
 
-impl SubtitleTranslationCacheIdentity {
-    /// Creates a cache identity from a generic translation identity.
+impl SubtitleTranslationValidator {
+    /// Encodes the identity as a versioned, weak HTTP entity tag.
     ///
-    /// # Arguments
+    /// # Errors
     ///
-    /// * `translation` - Generic translation result identity.
-    /// * `document_fingerprint` - Source document content fingerprint.
-    /// * `document_format` - Source document format.
-    /// * `parser_revision` - WebVTT parser and serializer revision.
-    /// * `subtitle_pipeline_revision` - Subtitle orchestration revision.
-    pub fn new(
-        translation: TranslationCacheIdentity,
-        document_fingerprint: DocumentFingerprint,
-        document_format: SubtitleFormat,
-        parser_revision: impl Into<String>,
-        subtitle_pipeline_revision: impl Into<String>,
-    ) -> Self {
-        Self {
-            translation,
-            document_fingerprint,
-            document_format,
-            parser_revision: parser_revision.into(),
-            subtitle_pipeline_revision: subtitle_pipeline_revision.into(),
+    /// Returns an invalid-descriptor error for malformed or oversized input.
+    pub fn to_etag(&self) -> Result<String, SubtitleTranslationError> {
+        self.validate()?;
+        let json = serde_json::to_vec(self).map_err(|_| invalid_validator())?;
+        let tag = format!(
+            "W/\"{}{}\"",
+            SUBTITLE_ETAG_PREFIX,
+            URL_SAFE_NO_PAD.encode(json)
+        );
+        if tag.len() > SUBTITLE_ETAG_MAX_LENGTH {
+            return Err(invalid_validator());
         }
+        Ok(tag)
     }
 
-    /// Builds the persisted subtitle document cache key.
-    pub fn cache_key(&self) -> SubtitleTranslationCacheKey {
-        let mut key = String::from(SUBTITLE_CACHE_KEY_VERSION);
-        let mut push = |name: &str, value: &str| {
-            key.push(SUBTITLE_CACHE_KEY_SEPARATOR);
-            key.push_str(&escape(name));
-            key.push(SUBTITLE_CACHE_KEY_PAIR_SEPARATOR);
-            key.push_str(&escape(value));
-        };
-        push("translation", self.translation.cache_key().as_str());
-        push("document", self.document_fingerprint.as_str());
-        push("format", format_name(self.document_format));
-        push("parser", &self.parser_revision);
-        push("pipeline", &self.subtitle_pipeline_revision);
-        SubtitleTranslationCacheKey(key)
-    }
-}
-
-/// Persisted subtitle document cache key.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct SubtitleTranslationCacheKey(String);
-
-impl SubtitleTranslationCacheKey {
-    /// Returns the key as a string.
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-
-    /// Consumes the key and returns its string.
-    pub fn into_string(self) -> String {
-        self.0
-    }
-}
-
-impl fmt::Display for SubtitleTranslationCacheKey {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.0)
-    }
-}
-
-/// Persisted translated subtitle document and its response metadata.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CachedSubtitleTranslation {
-    /// Complete translated WebVTT bytes.
-    pub bytes: Vec<u8>,
-    /// Strong ETag of the final bytes, including surrounding quotes.
-    pub etag: String,
-    /// Response media type.
-    pub media_type: String,
-    /// Response cache policy.
-    pub cache_control: String,
-    /// Publication time as Unix seconds.
-    pub created_at_unix_seconds: u64,
-    /// Retention expiration as Unix seconds.
-    pub expires_at_unix_seconds: u64,
-}
-
-impl CachedSubtitleTranslation {
-    /// Returns whether the entry is still retained.
+    /// Decodes a single entity tag produced by [`Self::to_etag`].
+    ///
+    /// `If-None-Match` lists and `*` must be parsed by the transport layer;
+    /// a caller must independently authorize and revalidate the decoded data.
     ///
     /// # Arguments
     ///
-    /// * `now_unix_seconds` - Current Unix time in seconds.
-    pub fn is_retained(&self, now_unix_seconds: u64) -> bool {
-        now_unix_seconds < self.expires_at_unix_seconds
+    /// * `etag` - One weak or strong entity tag, including its quotes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an invalid-descriptor error for malformed, unsupported or oversized tags.
+    pub fn from_etag(etag: &str) -> Result<Self, SubtitleTranslationError> {
+        let etag = etag.trim();
+        if etag.len() > SUBTITLE_ETAG_MAX_LENGTH {
+            return Err(invalid_validator());
+        }
+        let quoted = etag.strip_prefix("W/").unwrap_or(etag);
+        let encoded = quoted
+            .strip_prefix('"')
+            .and_then(|v| v.strip_suffix('"'))
+            .and_then(|v| v.strip_prefix(SUBTITLE_ETAG_PREFIX))
+            .ok_or_else(invalid_validator)?;
+        let json = URL_SAFE_NO_PAD
+            .decode(encoded)
+            .map_err(|_| invalid_validator())?;
+        let validator: Self = serde_json::from_slice(&json).map_err(|_| invalid_validator())?;
+        validator.validate()?;
+        Ok(validator)
     }
-}
 
-/// Returns the serialized name of one subtitle format.
-///
-/// # Arguments
-///
-/// * `format` - Format to name.
-fn format_name(format: SubtitleFormat) -> &'static str {
-    match format {
-        SubtitleFormat::WebVtt => "webvtt",
-        SubtitleFormat::Srt => "srt",
-    }
-}
-
-/// Escapes key separators so distinct identities cannot collide.
-///
-/// # Arguments
-///
-/// * `value` - Raw component value.
-fn escape(value: &str) -> String {
-    let mut escaped = String::with_capacity(value.len());
-    for character in value.chars() {
-        if character == '\\' {
-            escaped.push_str("\\\\");
-        } else if character == SUBTITLE_CACHE_KEY_SEPARATOR
-            || character == SUBTITLE_CACHE_KEY_PAIR_SEPARATOR
+    /// Checks required fields and the syntax of the upstream validator.
+    fn validate(&self) -> Result<(), SubtitleTranslationError> {
+        let t = &self.translation;
+        if [
+            self.source_fingerprint.as_str(),
+            self.access_scope_fingerprint.as_str(),
+            self.document_format.as_str(),
+            self.parser_revision.as_str(),
+            self.subtitle_pipeline_revision.as_str(),
+            t.service_id.as_str(),
+            t.service_yaml_hash.as_str(),
+            t.service_configuration_revision.as_str(),
+            t.pipeline_revision.as_str(),
+            t.context_fingerprint.as_str(),
+        ]
+        .iter()
+        .any(|value| value.trim().is_empty())
         {
-            escaped.push_str(&format!("\\u{{{:x}}}", character as u32));
-        } else {
-            escaped.push(character);
+            return Err(invalid_validator());
+        }
+        match &self.source {
+            SubtitleSourceValidator::Etag { etag } if valid_entity_tag(etag) => Ok(()),
+            SubtitleSourceValidator::Content {
+                hash,
+                last_modified,
+            } if !hash.trim().is_empty()
+                && last_modified.as_ref().is_none_or(|value| {
+                    !value.trim().is_empty() && http::HeaderValue::from_str(value).is_ok()
+                }) =>
+            {
+                Ok(())
+            }
+            _ => Err(invalid_validator()),
         }
     }
-    escaped
+}
+
+/// Accepts one HTTP entity tag, preserving weak upstream validators.
+fn valid_entity_tag(value: &str) -> bool {
+    let value = value.strip_prefix("W/").unwrap_or(value);
+    let Some(inner) = value.strip_prefix('"').and_then(|v| v.strip_suffix('"')) else {
+        return false;
+    };
+    inner
+        .bytes()
+        .all(|byte| byte == 0x21 || (0x23..=0x7e).contains(&byte) || byte >= 0x80)
+}
+
+fn invalid_validator() -> SubtitleTranslationError {
+    SubtitleTranslationError::InvalidDescriptor {
+        detail: "invalid subtitle translation validator".to_string(),
+    }
 }

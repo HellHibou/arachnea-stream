@@ -9,7 +9,7 @@ use http::StatusCode;
 /// error is never serialized as a WebVTT body.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum SubtitleTranslationError {
-    /// A descriptor, token or cache identity is structurally invalid.
+    /// A descriptor, token or revalidation identity is structurally invalid.
     #[error("invalid subtitle translation descriptor: {detail}")]
     InvalidDescriptor {
         /// Human-readable detail.
@@ -66,20 +66,14 @@ pub enum SubtitleTranslationError {
     /// The source is unavailable.
     #[error("subtitle source is unavailable")]
     SourceUnavailable,
-    /// The document cache failed.
-    #[error("subtitle translation cache failed: {detail}")]
-    CacheUnavailable {
-        /// Human-readable detail.
-        detail: String,
-    },
     /// Generic translation failed.
     #[error("subtitle translation failed: {0}")]
     Translation(#[from] TranslationError),
-    /// A HEAD request has no existing cached result.
+    /// HEAD is unsupported because the server does not retain translated files.
     ///
-    /// HEAD must never trigger retrieval or translation. The documented
-    /// response is `404 Not Found` until a GET has produced a result.
-    #[error("no translated subtitle result is available for HEAD")]
+    /// HEAD never triggers retrieval or translation; the planned transport
+    /// responds with `405 Method Not Allowed`.
+    #[error("HEAD is not supported for translated subtitles")]
     HeadUnavailable,
     /// An unexpected internal failure occurred.
     #[error("internal subtitle translation failure: {detail}")]
@@ -101,11 +95,9 @@ impl SubtitleTranslationError {
             Self::DocumentTooLarge { .. }
             | Self::TooManyCues { .. }
             | Self::TooManyUnits { .. } => StatusCode::PAYLOAD_TOO_LARGE,
-            Self::HeadUnavailable => StatusCode::NOT_FOUND,
+            Self::HeadUnavailable => StatusCode::METHOD_NOT_ALLOWED,
             Self::RetrievalFailed { .. } | Self::SourceUnavailable => StatusCode::BAD_GATEWAY,
-            Self::CacheUnavailable { .. } | Self::Internal { .. } => {
-                StatusCode::INTERNAL_SERVER_ERROR
-            }
+            Self::Internal { .. } => StatusCode::INTERNAL_SERVER_ERROR,
             Self::Translation(error) => error.http_status(),
         }
     }
