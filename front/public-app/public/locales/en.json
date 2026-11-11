@@ -227,7 +227,10 @@
       "addLanguage": "Add a language",
       "removeLanguage": "Remove language {code}",
       "moveLanguageUp": "Move {code} up",
-      "moveLanguageDown": "Move {code} down"
+      "moveLanguageDown": "Move {code} down",
+      "generateTranslation": "Generate by translation",
+      "generateTranslationFor": "Generate {language} subtitles by translation when absent",
+      "generateTranslationHint": "Allows the player to request {language} subtitles by translation when no subtitle track exists."
     },
     "addAudioProfile": "Add an audio profile",
     "removeAudioProfile": "Remove this profile",
@@ -360,6 +363,12 @@
       "skipOutro": "Skip Outro",
       "ads": "Ad",
       "skipAds": "Skip Ads"
+    },
+    "subtitleTranslation": {
+      "generate": "Translate subtitles into {language}",
+      "trackLabel": "{language} (translated)",
+      "loading": "Translating subtitles into {language}…",
+      "dismissError": "Dismiss subtitle translation error"
     }
   },
   "live": {
@@ -425,6 +434,15 @@
     "unexpectedHomeResponseFormat": "Unexpected home response format returned by the backend.",
     "unexpectedSeasonResponseFormat": "Unexpected season response format returned by the backend.",
     "unexpectedRecommendationsResponseFormat": "Unexpected recommendations response format returned by the backend.",
+    "unexpectedTranslationCatalogResponse": "Unexpected translation catalog response returned by the backend.",
+    "unexpectedSubtitleTranslationResponse": "Unexpected subtitle translation response returned by the backend.",
+    "subtitleTranslationFailed": "Unable to load the translated subtitles.",
+    "subtitleTranslationExpired": "The translated subtitle link expired. Prepare it again.",
+    "subtitleTranslationAccessDenied": "Translated subtitles are not available for this session.",
+    "subtitleTranslationSourceUnavailable": "The subtitle source is unavailable.",
+    "subtitleTranslationInvalidResponse": "The backend returned an invalid translated subtitle file.",
+    "subtitleTranslationNetwork": "Unable to download the translated subtitles.",
+    "subtitleTranslationUnavailable": "The player is not ready to load translated subtitles.",
     "notifications": {
       "title": "Source unavailable",
       "messageWithSource": "{operation} could not be completed for {source}.",

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
-import { LANGUAGES, formatLanguageLabel } from '@/services/languages'
+import { LANGUAGES, formatLanguageLabel, getBaseLanguageCode, normalizeLanguageCode } from '@/services/languages'
 import { useI18n } from '@/i18n'
 import { MAX_SUBTITLE_LANGUAGE_PRIORITY } from '@/services/storage/sanitizers'
 
@@ -16,6 +16,10 @@ interface Props {
    * Accessible label for the list.
    */
   label: string
+  /**
+   * Per-language authorization to generate subtitles by translation.
+   */
+  translationByLanguage: Record<string, boolean>
 }
 
 const props = withDefaults(defineProps<Props>(), {})
@@ -25,6 +29,8 @@ const { t } = useI18n()
 const emit = defineEmits<{
   /** Emitted when the ordered language list changes. */
   'update:modelValue': [value: string[]]
+  /** Emitted when translation authorization changes. */
+  'update:translationByLanguage': [value: Record<string, boolean>]
 }>()
 
 /** Working copy of the configured language list. */
@@ -39,6 +45,57 @@ const languageOptions = LANGUAGES.map((language) => ({
   value: language.code,
   label: formatLanguageLabel(language.code),
 }))
+
+/**
+ * Returns the normalized two-letter code used as a translation target.
+ *
+ * @param code Configured language code.
+ * @returns Two-letter translation code, or `null` when unsupported.
+ */
+function getTranslationCode(code: string): string | null {
+  const base = getBaseLanguageCode(normalizeLanguageCode(code))
+  return base && /^[a-z]{2}$/.test(base) ? base : null
+}
+
+/**
+ * Checks whether a language row can be authorized for translation.
+ *
+ * @param code Configured language code.
+ * @returns True when the row maps to a two-letter language code.
+ */
+function isTranslationAvailable(code: string): boolean {
+  return getTranslationCode(code) !== null
+}
+
+/**
+ * Checks whether translation is enabled for a language row.
+ *
+ * @param code Configured language code.
+ * @returns True when the language is explicitly authorized.
+ */
+function isTranslationEnabled(code: string): boolean {
+  const translationCode = getTranslationCode(code)
+  return translationCode !== null && props.translationByLanguage[translationCode] === true
+}
+
+/**
+ * Toggles translation authorization for one language row.
+ *
+ * @param code Configured language code.
+ * @param enabled Whether translation should be authorized.
+ */
+function handleTranslationToggle(code: string, enabled: boolean): void {
+  const translationCode = getTranslationCode(code)
+  if (!translationCode) return
+
+  const next = { ...props.translationByLanguage }
+  if (enabled) {
+    next[translationCode] = true
+  } else {
+    delete next[translationCode]
+  }
+  emit('update:translationByLanguage', next)
+}
 
 /**
  * Updates the language code at one row.
@@ -122,6 +179,24 @@ function moveLanguage(index: number, direction: -1 | 1): void {
             {{ language.label }}
           </option>
         </select>
+
+        <label
+          v-if="code"
+          class="parameter-subtitle-languages__translation"
+          :title="t('settings.subtitleLanguages.generateTranslationHint', { language: formatLanguageLabel(code) })"
+        >
+          <input
+            type="checkbox"
+            class="parameter-subtitle-languages__translation-input"
+            :checked="isTranslationEnabled(code)"
+            :disabled="!isTranslationAvailable(code)"
+            :aria-label="t('settings.subtitleLanguages.generateTranslationFor', { language: formatLanguageLabel(code) })"
+            @change="(event: Event) => handleTranslationToggle(code, (event.target as HTMLInputElement).checked)"
+          />
+          <span class="parameter-subtitle-languages__translation-label">
+            {{ t('settings.subtitleLanguages.generateTranslation') }}
+          </span>
+        </label>
 
         <button
           type="button"
@@ -242,6 +317,39 @@ function moveLanguage(index: number, direction: -1 | 1): void {
 
 .parameter-subtitle-languages__button--hidden {
   visibility: hidden;
+}
+
+.parameter-subtitle-languages__translation {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.parameter-subtitle-languages__translation-input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--accent-color);
+  cursor: pointer;
+}
+
+.parameter-subtitle-languages__translation-input:disabled {
+  cursor: not-allowed;
+}
+
+.parameter-subtitle-languages__translation-label {
+  max-width: 124px;
+}
+
+.parameter-subtitle-languages__translation:has(.parameter-subtitle-languages__translation-input:focus-visible) {
+  outline: var(--common-focus-ring);
+  outline-offset: 2px;
+  border-radius: 4px;
 }
 
 @media (max-width: 720px) {

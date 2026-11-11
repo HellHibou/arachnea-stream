@@ -1,13 +1,27 @@
 import type { ResolvedVideoMediaSource } from '@/services/players'
 import type { VideoJsPlayerState } from '@/types/media'
-import type { VideoJsPlayer, VideoJsRemoteTextTrackHandle, VideoJsSourceInput, VideoJsMediaRendererProps } from './types'
+import type { SubtitleTranslationFile } from '@/types/translation'
+import type {
+  VideoJsPlayer,
+  VideoJsRemoteTextTrackHandle,
+  VideoJsSourceInput,
+  VideoJsMediaRendererProps,
+  VideoJsTextTrackHandle,
+  VideoJsTextTrackListHandle,
+} from './types'
 import type { QualityController } from './qualityController'
 import type { StoryboardController } from './storyboardController'
 import type { PlayerUiState } from './playerUiState'
 import { buildDashKeySystemOptions, isDashSource } from './dash'
 import { resolveSpriteThumbnailOptions } from './storyboard'
 import { addRemoteSubtitleTracks, clearRemoteSubtitleTracks } from './subtitles'
-import { applyPersistedPlayerState, prepareTrackPreferenceRestore, restorePersistedTrackPreferences } from './state'
+import {
+  applyPersistedPlayerState,
+  markAppliedTextTrack,
+  prepareTrackPreferenceRestore,
+  restorePersistedTrackPreferences,
+} from './state'
+import { applyTextTrackSelection } from './trackPreferences'
 import type { VideoJsTrackSelectionConfig } from './trackPreferences'
 import { disableControlBarMenuHoverBehavior } from './quality'
 import { installSeekOnClick } from './controls'
@@ -20,6 +34,7 @@ interface SourceControllerOptions {
   storyboard: Pick<StoryboardController, 'configure' | 'syncInterval' | 'reset'>
   ui: Pick<PlayerUiState, 'startSource' | 'metadataLoaded' | 'complete'>
   getTrackSelectionConfig?: () => VideoJsTrackSelectionConfig | null | undefined
+  onTrackPreferencesApplied?: (player: VideoJsPlayer) => void
 }
 
 interface SourceTransition {
@@ -34,12 +49,23 @@ interface SourceTransition {
  * @returns Source application and cleanup operations for one renderer instance.
  */
 export function createSourceController(options: SourceControllerOptions) {
-  const { props, getPlayer, configurePlayer, quality, storyboard, ui, getTrackSelectionConfig } = options
+  const {
+    props,
+    getPlayer,
+    configurePlayer,
+    quality,
+    storyboard,
+    ui,
+    getTrackSelectionConfig,
+    onTrackPreferencesApplied,
+  } = options
   let loadId = 0
   let pendingSourceRestoreCleanup: (() => void) | null = null
   let pendingTrackRestoreCleanup: (() => void) | null = null
   let remoteSubtitleTracks: VideoJsRemoteTextTrackHandle[] = []
   let trackOwner: VideoJsPlayer | null = null
+  let translatedSubtitle: AppliedTranslatedSubtitle | null = null
+  let isApplyingTranslatedSubtitle = false
 
   /** Removes transient listeners from the preceding source transition. */
   function clearSourceListeners() {
@@ -54,12 +80,109 @@ export function createSourceController(options: SourceControllerOptions) {
     pendingTrackRestoreCleanup?.()
     pendingTrackRestoreCleanup = null
     quality.reset()
+    removeTranslatedSubtitle(false)
     if (trackOwner) {
       clearRemoteSubtitleTracks(trackOwner, remoteSubtitleTracks)
     }
     remoteSubtitleTracks = []
     trackOwner = null
     storyboard.reset()
+  }
+
+  /**
+   * Applies one downloaded translation as a renderer-owned remote WebVTT track.
+   *
+   * The active video source is never reapplied, so the current playback position
+   * is preserved. The previously selected human track is restored when the
+   * translated track is cleared.
+   *
+   * @param file Complete WebVTT document and display metadata.
+   * @param origin Origin to preserve when player state is captured.
+   * @returns True when the active player accepted the track.
+   */
+  function applyTranslatedSubtitle(
+    file: SubtitleTranslationFile,
+    origin: 'manual' | 'profile' = 'profile',
+  ): boolean {
+    const player = getPlayer()
+    if (!player) {
+      return false
+    }
+
+    const previousTrack = translatedSubtitle?.previousTrack ??
+      findShowingDisplayTextTrack(player)
+    removeTranslatedSubtitle(false)
+
+    const objectUrl = URL.createObjectURL(file.blob)
+    isApplyingTranslatedSubtitle = true
+    let addedTrack: VideoJsRemoteTextTrackHandle | undefined
+    try {
+      addedTrack = player.addRemoteTextTrack?.(
+        {
+          kind: 'subtitles',
+          src: objectUrl,
+          label: file.label,
+          srclang: file.lang,
+        },
+        true,
+      ) as VideoJsRemoteTextTrackHandle | undefined
+    } finally {
+      isApplyingTranslatedSubtitle = false
+    }
+    const track = addedTrack
+
+    if (!track) {
+      URL.revokeObjectURL(objectUrl)
+      return false
+    }
+
+    track.track.autoTranslate = true
+    remoteSubtitleTracks.push(track)
+    translatedSubtitle = {
+      owner: player,
+      track,
+      objectUrl,
+      previousTrack,
+    }
+    trackOwner = player
+    applyTextTrackSelection(player, track.track)
+    markAppliedTextTrack(player, track.track, origin)
+    return true
+  }
+
+  /** Removes the translated track and restores the subtitle choice it replaced. */
+  function clearTranslatedSubtitle(): void {
+    removeTranslatedSubtitle(true)
+  }
+
+  /** Removes the translated track without restoring the replaced subtitle choice. */
+  function discardTranslatedSubtitle(): void {
+    removeTranslatedSubtitle(false)
+  }
+
+  /**
+   * Removes the translated track, releasing its Blob URL exactly once.
+   *
+   * @param restoreSelection Whether the replaced human track should be selected again.
+   */
+  function removeTranslatedSubtitle(restoreSelection: boolean): void {
+    const applied = translatedSubtitle
+    if (!applied) {
+      return
+    }
+
+    translatedSubtitle = null
+    applied.owner.removeRemoteTextTrack?.(applied.track)
+    remoteSubtitleTracks = remoteSubtitleTracks.filter((track) => track !== applied.track)
+    URL.revokeObjectURL(applied.objectUrl)
+
+    if (
+      restoreSelection &&
+      applied.previousTrack &&
+      hasTextTrack(applied.owner, applied.previousTrack)
+    ) {
+      applyTextTrackSelection(applied.owner, applied.previousTrack)
+    }
   }
 
   /**
@@ -134,6 +257,7 @@ export function createSourceController(options: SourceControllerOptions) {
 
       applyPersistedPlayerState(player, playerState, getTrackSelectionConfig?.() ?? undefined)
       playerStateRestored = true
+      onTrackPreferencesApplied?.(player)
     }
 
     const handleLoadedMetadata = () => {
@@ -190,6 +314,7 @@ export function createSourceController(options: SourceControllerOptions) {
     player.src(buildPlayerSource(source, spriteThumbnailOptions))
     addRemoteSubtitleTracks(player, source, remoteSubtitleTracks)
     restorePersistedTrackPreferences(player, playerState, trackSelectionConfig)
+    onTrackPreferencesApplied?.(player)
 
     const audioTracks = player.audioTracks?.()
     const textTracks = player.textTracks?.()
@@ -206,9 +331,16 @@ export function createSourceController(options: SourceControllerOptions) {
         }
         const nextConfig = getTrackSelectionConfig?.() ?? undefined
         restorePersistedTrackPreferences(player, playerState, nextConfig)
+        onTrackPreferencesApplied?.(player)
       }, 150)
     }
-    const handleAddTrack = () => scheduleReapply()
+    const handleAddTrack = (event: Event) => {
+      const eventTrack = (event as Event & { track?: VideoJsTextTrackHandle }).track
+      if (isApplyingTranslatedSubtitle || eventTrack?.autoTranslate === true) {
+        return
+      }
+      scheduleReapply()
+    }
     audioTracks?.addEventListener?.('addtrack', handleAddTrack)
     textTracks?.addEventListener?.('addtrack', handleAddTrack)
     pendingTrackRestoreCleanup = () => {
@@ -222,7 +354,78 @@ export function createSourceController(options: SourceControllerOptions) {
     quality.install(player, source)
   }
 
-  return { applySource, reset }
+  return {
+    applySource,
+    reset,
+    applyTranslatedSubtitle,
+    clearTranslatedSubtitle,
+    discardTranslatedSubtitle,
+  }
+}
+
+/** One translated track owned by the source controller. */
+interface AppliedTranslatedSubtitle {
+  /** Player that received the remote track. */
+  owner: VideoJsPlayer
+  /** Remote text track handle returned by Video.js. */
+  track: VideoJsRemoteTextTrackHandle
+  /** Temporary Blob URL that must be revoked with the track. */
+  objectUrl: string
+  /** Human track selected before the translated track was applied. */
+  previousTrack: VideoJsTextTrackHandle | null
+}
+
+/**
+ * Finds the displayable track currently shown by the player.
+ *
+ * @param player Active Video.js player.
+ * @returns Showing subtitle or caption track, or `null` when subtitles are disabled.
+ */
+function findShowingDisplayTextTrack(
+  player: VideoJsPlayer,
+): VideoJsTextTrackHandle | null {
+  const tracks = (player.textTracks?.() as unknown as VideoJsTextTrackListHandle | undefined) ?? null
+  if (!tracks) {
+    return null
+  }
+
+  for (let index = 0; index < tracks.length; index += 1) {
+    const track = tracks[index]
+    if (
+      track &&
+      (track.kind === 'subtitles' || track.kind === 'captions') &&
+      track.mode === 'showing'
+    ) {
+      return track
+    }
+  }
+
+  return null
+}
+
+/**
+ * Checks whether a track is still exposed by the player.
+ *
+ * @param player Active Video.js player.
+ * @param expected Track captured before the translated track was applied.
+ * @returns True when the same track handle is still present.
+ */
+function hasTextTrack(
+  player: VideoJsPlayer,
+  expected: VideoJsTextTrackHandle,
+): boolean {
+  const tracks = (player.textTracks?.() as unknown as VideoJsTextTrackListHandle | undefined) ?? null
+  if (!tracks) {
+    return false
+  }
+
+  for (let index = 0; index < tracks.length; index += 1) {
+    if (tracks[index] === expected) {
+      return true
+    }
+  }
+
+  return false
 }
 
 /**

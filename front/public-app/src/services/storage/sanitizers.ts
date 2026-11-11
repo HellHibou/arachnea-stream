@@ -8,7 +8,7 @@ import type {
 } from '@/types/media'
 
 import { LANGUAGES } from '@/services/languages'
-import { normalizeLanguageCode } from '@/utils'
+import { getBaseLanguageCode, normalizeLanguageCode } from '@/utils'
 
 import {
   DEFAULT_SUBTITLE_LANGUAGE_PRIORITY,
@@ -293,6 +293,47 @@ export function sanitizeSubtitleLanguagePriority(
 }
 
 /**
+ * Returns the per-language authorization to generate subtitles by translation.
+ *
+ * Keys are normalized to the two-letter translation contract. Only explicit
+ * `true` entries are retained; missing entries therefore mean `false`.
+ *
+ * @param value Raw storage value to sanitize.
+ * @param languages Subtitle priority languages allowed by the current settings.
+ * @returns Bounded map of enabled two-letter language codes.
+ */
+export function sanitizeSubtitleTranslationByLanguage(
+  value: unknown,
+  languages: readonly string[],
+): Record<string, boolean> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return {}
+  }
+
+  const allowed = new Set<string>()
+  for (const language of languages) {
+    const normalized = normalizeLanguageCode(language)
+    const base = getBaseLanguageCode(normalized)
+    if (normalized) allowed.add(normalized)
+    if (base) allowed.add(base)
+  }
+
+  const result: Record<string, boolean> = {}
+  for (const [key, enabled] of Object.entries(value)) {
+    if (enabled !== true) continue
+
+    const base = getBaseLanguageCode(normalizeLanguageCode(key))
+    if (!base || !/^[a-z]{2}$/.test(base)) continue
+    if (!allowed.has(base) && !allowed.has(key)) continue
+
+    result[base] = true
+    if (Object.keys(result).length >= MAX_SUBTITLE_LANGUAGE_PRIORITY) break
+  }
+
+  return result
+}
+
+/**
  * Returns a sanitized, deduplicated configured subtitle language list.
  *
  * @param value Raw storage value to sanitize.
@@ -340,6 +381,7 @@ export function sanitizeTrackPreference(value: unknown): VideoJsTrackPreference 
       ...(record.origin === 'manual' || record.origin === 'profile'
         ? { origin: record.origin }
         : {}),
+      ...(record.autoTranslate === true ? { autoTranslate: true } : {}),
     };
 
     return trackPreference.id ||

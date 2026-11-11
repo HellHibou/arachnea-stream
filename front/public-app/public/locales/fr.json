@@ -227,7 +227,10 @@
       "addLanguage": "Ajouter une langue",
       "removeLanguage": "Retirer la langue {code}",
       "moveLanguageUp": "Monter {code}",
-      "moveLanguageDown": "Descendre {code}"
+      "moveLanguageDown": "Descendre {code}",
+      "generateTranslation": "Générer par traduction",
+      "generateTranslationFor": "Générer les sous-titres {language} par traduction si absents",
+      "generateTranslationHint": "Autorise le lecteur à demander des sous-titres {language} par traduction lorsqu’aucune piste n’existe."
     },
     "addAudioProfile": "Ajouter un profil audio",
     "removeAudioProfile": "Supprimer ce profil audio",
@@ -360,6 +363,12 @@
       "skipOutro": "Passer le générique",
       "ads": "Publicité",
       "skipAds": "Passer la publicité"
+    },
+    "subtitleTranslation": {
+      "generate": "Traduire les sous-titres en {language}",
+      "trackLabel": "{language} (traduction)",
+      "loading": "Traduction des sous-titres en {language}…",
+      "dismissError": "Masquer l’erreur de traduction des sous-titres"
     }
   },
   "live": {
@@ -425,6 +434,15 @@
     "unexpectedHomeResponseFormat": "Format de réponse inattendu pour la page d'accueil renvoyé par le backend.",
     "unexpectedSeasonResponseFormat": "Format de réponse inattendu pour la saison renvoyé par le backend.",
     "unexpectedRecommendationsResponseFormat": "Format de réponse inattendu pour les recommandations renvoyé par le backend.",
+    "unexpectedTranslationCatalogResponse": "Format de réponse inattendu pour le catalogue de traduction renvoyé par le backend.",
+    "unexpectedSubtitleTranslationResponse": "Format de réponse inattendu pour la préparation de traduction renvoyé par le backend.",
+    "subtitleTranslationFailed": "Impossible de charger les sous-titres traduits.",
+    "subtitleTranslationExpired": "Le lien du sous-titre traduit a expiré. Préparez-le à nouveau.",
+    "subtitleTranslationAccessDenied": "Les sous-titres traduits ne sont pas disponibles pour cette session.",
+    "subtitleTranslationSourceUnavailable": "La source du sous-titre est indisponible.",
+    "subtitleTranslationInvalidResponse": "Le backend a renvoyé un fichier de sous-titre traduit invalide.",
+    "subtitleTranslationNetwork": "Impossible de télécharger les sous-titres traduits.",
+    "subtitleTranslationUnavailable": "Le lecteur n'est pas prêt à charger des sous-titres traduits.",
     "notifications": {
       "title": "Source indisponible",
       "messageWithSource": "L'opération {operation} n'a pas pu être effectuée pour {source}.",

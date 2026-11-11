@@ -7,6 +7,7 @@ import {
   type VideoJsMediaRendererProps,
 } from '@/composables/video/useVideoJsMediaRenderer'
 import { markImageUrlFailed, resolveImageUrl } from '@/composables/media/useFailedImageUrls'
+import { getLanguageNativeName } from '@/services/languages'
 import { useI18n } from '@/i18n'
 
 import MediaCardDetailsContent from '@/components/media-card/MediaCardDetailsContent.vue'
@@ -69,11 +70,38 @@ const {
   storyboardPreviewSize,
   /** Direction of the prev/next control currently previewed, or null when none is. */
   previewedNavigationDirection,
+  /** Lifecycle state of the active translated subtitle request. */
+  subtitleTranslationStatus,
+  /** Last translated subtitle failure, or null. */
+  subtitleTranslationFailure,
+  /** Language of the active or applied translated subtitle. */
+  subtitleTranslationLanguage,
+  /** Whether a translated subtitle is being prepared or downloaded. */
+  isSubtitleTranslationLoading,
+  /** Requests one translated subtitle through the backend file transport. */
+  requestSubtitleTranslation,
+  /** Cancels the active translated subtitle request. */
+  cancelSubtitleTranslation,
+  /** Cancels the request and removes the translated track. */
+  resetSubtitleTranslation,
+  /** Dismisses the current translation failure without changing tracks. */
+  dismissSubtitleTranslationFailure,
 } = useVideoJsMediaRenderer({
   props,
   emit,
   hostElement,
   videoElement,
+})
+
+defineExpose({
+  requestSubtitleTranslation,
+  cancelSubtitleTranslation,
+  resetSubtitleTranslation,
+  dismissSubtitleTranslationFailure,
+  subtitleTranslationStatus,
+  subtitleTranslationFailure,
+  subtitleTranslationLanguage,
+  isSubtitleTranslationLoading,
 })
 
 /** Whether the big play button should be suppressed. */
@@ -177,6 +205,12 @@ const previewedNavigationImageUrl = computed(() => {
     item.imageUrl,
   ])
 })
+
+/** Localized name of the subtitle translation target, or an empty string. */
+const subtitleTranslationLanguageLabel = computed(() => {
+  const language = subtitleTranslationLanguage.value
+  return language ? getLanguageNativeName(language) ?? language.toLocaleUpperCase() : ''
+})
 </script>
 
 <template>
@@ -190,6 +224,39 @@ const previewedNavigationImageUrl = computed(() => {
       ref="videoElement"
       class="video-js videojs-media-element vjs-big-play-centered vjs-theme-city arachnea-videojs-theme"
     />
+
+    <div
+      v-if="isSubtitleTranslationLoading"
+      class="videojs-media-subtitle-translation"
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+    >
+      <span class="videojs-media-subtitle-translation__spinner" aria-hidden="true" />
+      <span class="videojs-media-subtitle-translation__message">
+        {{ t('player.subtitleTranslation.loading', { language: subtitleTranslationLanguageLabel }) }}
+      </span>
+    </div>
+
+    <div
+      v-else-if="subtitleTranslationFailure"
+      class="videojs-media-subtitle-translation videojs-media-subtitle-translation--error"
+      role="alert"
+      aria-live="assertive"
+      aria-atomic="true"
+    >
+      <span class="videojs-media-subtitle-translation__message">
+        {{ subtitleTranslationFailure.message }}
+      </span>
+      <button
+        type="button"
+        class="videojs-media-subtitle-translation__dismiss"
+        :aria-label="t('player.subtitleTranslation.dismissError')"
+        @click="dismissSubtitleTranslationFailure"
+      >
+        ×
+      </button>
+    </div>
 
     <div
       v-if="shouldRenderPosterOverlay && props.overlayLogoUrl"

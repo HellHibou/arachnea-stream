@@ -51,6 +51,7 @@ export const PARAMETERS_DEF: ParameterEntry[] = [
   { key: 'videoPlayer.autoskip.ads',      defaultValue: false      },
   { key: 'videoPlayer.trackProfiles',     defaultValue: DEFAULT_TRACK_PROFILES },
   { key: 'videoPlayer.subtitleLanguagePriority', defaultValue: DEFAULT_SUBTITLE_LANGUAGE_PRIORITY },
+  { key: 'videoPlayer.subtitleTranslationByLanguage', defaultValue: {} },
   { key: 'videoPlayer.subtitleLanguages',     defaultValue: DEFAULT_SUBTITLE_LANGUAGES },
   { key: 'videoPlayer.allowAudioDescription',    defaultValue: false },
   { key: 'securityMode',            defaultValue: 'safe'         },

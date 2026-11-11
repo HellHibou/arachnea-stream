@@ -107,6 +107,10 @@ const trackProfiles = computed(() => parameters['videoPlayer.trackProfiles'].val
 const allowAudioDescription = computed(() => parameters['videoPlayer.allowAudioDescription'].value)
 /** Configured subtitle languages, highest priority first. */
 const subtitleLanguages = computed(() => parameters['videoPlayer.subtitleLanguagePriority'].value)
+/** Per-language authorization to generate subtitles by translation. */
+const subtitleTranslationByLanguage = computed(
+  () => parameters['videoPlayer.subtitleTranslationByLanguage'].value,
+)
 /** Audio language options offered in the profile select, derived from the shared catalog. */
 const audioLanguageOptions = LANGUAGES.map((language) => ({
   value: language.code,
@@ -321,6 +325,15 @@ function handleRemoveAudioProfile(index: number): void {
  */
 function handleSubtitleLanguagesUpdate(value: string[]): void {
   parameters['videoPlayer.subtitleLanguagePriority'].value = value
+}
+
+/**
+ * Persists per-language subtitle translation authorization.
+ *
+ * @param value Updated authorization map.
+ */
+function handleSubtitleTranslationByLanguageUpdate(value: Record<string, boolean>): void {
+  parameters['videoPlayer.subtitleTranslationByLanguage'].value = value
 }
 
 /** Reapplies configured profiles after clearing choices made in the player menus. */
@@ -585,8 +598,10 @@ function handleOpenAdministration(): void {
         <ParametersPanel>
           <ParameterSubtitleLanguages
             :model-value="subtitleLanguages"
+            :translation-by-language="subtitleTranslationByLanguage"
             :label="t('settings.subtitleLanguagesTitle')"
             @update:model-value="handleSubtitleLanguagesUpdate"
+            @update:translation-by-language="handleSubtitleTranslationByLanguageUpdate"
           />
         </ParametersPanel>
 

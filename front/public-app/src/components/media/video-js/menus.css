@@ -171,3 +171,12 @@
 .videojs-media-host :deep(.vjs-thumbnail *) {
   border-radius: 5px !important;
 }
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-subs-caps-button .vjs-subtitle-translation-item) {
+  max-width: min(18em, 70vw);
+  white-space: normal;
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-subs-caps-button .vjs-subtitle-translation-item .vjs-menu-item-text) {
+  white-space: normal;
+}

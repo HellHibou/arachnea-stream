@@ -18,6 +18,7 @@ export { getLivePlayers, listLiveMediaItems, liveTargetMediaItem } from './live'
 export { dedupeMediaItems } from './media'
 export { interleaveLists } from './primitives/lists'
 export { searchMediaItems, searchMediaItemsPage } from './search'
+export { getTranslationServices, prepareSubtitleTranslation } from './translation'
 export { mediaTypeValues } from './types'
 export type {
   SearchFilterOption,

@@ -460,6 +460,77 @@ function findAudioLanguageMatch(
   return baseMatches.sort(compareAudioCandidates)[0]?.track ?? null
 }
 
+/** Subtitle selection planned for an `auto` track profile. */
+export interface VideoJsSubtitlePriorityPlan {
+  /** Existing subtitle track to show when no translation is needed. */
+  track: VideoJsTextTrackHandle | null
+  /** Two-letter target to generate, or `null` when no authorized target is missing. */
+  translationLanguage: string | null
+  /** Lower-priority existing track kept while the translation is pending. */
+  fallbackTrack: VideoJsTextTrackHandle | null
+}
+
+/**
+ * Returns the displayable text tracks exposed by the player.
+ *
+ * @param player Video.js player instance.
+ * @returns Captions and subtitles in manifest order.
+ */
+export function readDisplayTextTracks(player: VideoJsPlayer): VideoJsTextTrackHandle[] {
+  return readTracks(getTextTracks(player)).filter(isDisplayTextTrack)
+}
+
+/**
+ * Plans the highest-priority existing subtitle or authorized translation.
+ *
+ * A missing authorized language is selected before lower-priority existing
+ * tracks, which are returned as a fallback until the translation is ready.
+ *
+ * @param player Video.js player instance.
+ * @param subtitleLanguagePriority Ordered language codes.
+ * @param canGenerate Translation authorization predicate.
+ * @returns Existing track, translation target and fallback track.
+ */
+export function planPrioritySubtitleSelection(
+  player: VideoJsPlayer,
+  subtitleLanguagePriority: readonly string[],
+  canGenerate: (language: string) => boolean,
+): VideoJsSubtitlePriorityPlan {
+  const tracks = readDisplayTextTracks(player)
+  let translationLanguage: string | null = null
+
+  for (const priority of subtitleLanguagePriority) {
+    const targetLanguage = normalizeLanguageCode(priority)
+    if (!targetLanguage) {
+      continue
+    }
+
+    const exactMatch = findSubtitleTrack(tracks, targetLanguage, false)
+    const targetBaseLanguage = getBaseLanguageCode(targetLanguage)
+    const baseMatch = targetBaseLanguage
+      ? findSubtitleTrack(tracks, targetBaseLanguage, true)
+      : null
+    const match = exactMatch ?? baseMatch
+
+    if (match) {
+      return translationLanguage
+        ? { track: null, translationLanguage, fallbackTrack: match }
+        : { track: match, translationLanguage: null, fallbackTrack: null }
+    }
+
+    if (
+      !translationLanguage
+      && targetBaseLanguage
+      && /^[a-z]{2}$/.test(targetBaseLanguage)
+      && canGenerate(targetBaseLanguage)
+    ) {
+      translationLanguage = targetBaseLanguage
+    }
+  }
+
+  return { track: null, translationLanguage, fallbackTrack: null }
+}
+
 /**
  * Selects the subtitle track matching the ordered language priority.
  *
@@ -632,11 +703,13 @@ export function findMatchingTextTrack(
 export function createTrackPreference(
   track: VideoJsAudioTrackHandle | VideoJsTextTrackHandle,
 ): VideoJsTrackPreference {
+  const autoTranslate = (track as VideoJsTextTrackHandle).autoTranslate === true
   return {
-    id: normalizeTrackField(track.id),
+    id: autoTranslate ? null : normalizeTrackField(track.id),
     language: normalizeTrackField(track.language),
     label: normalizeTrackField(track.label),
     kind: normalizeTrackField(track.kind),
+    ...(autoTranslate ? { autoTranslate: true } : {}),
   }
 }
 
@@ -674,6 +747,7 @@ export function areTrackPreferencesEqual(
     && normalizeLanguageCode(left.language) === normalizeLanguageCode(right.language)
     && normalizeTrackField(left.label) === normalizeTrackField(right.label)
     && normalizeTrackField(left.kind) === normalizeTrackField(right.kind)
+    && (left.autoTranslate === true) === (right.autoTranslate === true)
 }
 
 /**

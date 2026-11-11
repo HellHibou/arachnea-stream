@@ -84,3 +84,80 @@
   object-fit: contain;
   object-position: center;
 }
+
+.videojs-media-subtitle-translation {
+  position: absolute;
+  bottom: calc(var(--videojs-control-bar-height) + 14px);
+  left: 16px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(420px, calc(100% - 32px));
+  padding: 8px 10px;
+  border: 1px solid var(--border-color-primary);
+  border-radius: 8px;
+  background: rgb(8 12 18 / 0.88);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.38);
+  color: var(--text-primary);
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.videojs-media-subtitle-translation--error {
+  border-color: var(--border-color-danger);
+}
+
+.videojs-media-subtitle-translation__spinner {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgb(255 255 255 / 0.25);
+  border-top-color: var(--text-primary);
+  border-radius: 50%;
+  animation: videojs-subtitle-translation-spin 0.8s linear infinite;
+}
+
+.videojs-media-subtitle-translation__message {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.videojs-media-subtitle-translation__dismiss {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--border-color-primary);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.videojs-media-subtitle-translation__dismiss:focus-visible {
+  outline: var(--common-focus-ring);
+  outline-offset: 2px;
+}
+
+@keyframes videojs-subtitle-translation-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 480px) {
+  .videojs-media-subtitle-translation {
+    bottom: calc(var(--videojs-control-bar-height) + 8px);
+    left: 8px;
+    max-width: calc(100% - 16px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .videojs-media-subtitle-translation__spinner {
+    animation-duration: 2s;
+  }
+}

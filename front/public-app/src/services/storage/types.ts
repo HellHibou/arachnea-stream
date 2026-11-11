@@ -181,6 +181,12 @@ export interface Parameters {
    */
   'videoPlayer.subtitleLanguagePriority': Ref<string[]>
   /**
+   * Per-language authorization to generate subtitles by translation when absent.
+   *
+   * Missing entries mean `false`; only normalized two-letter codes are retained.
+   */
+  'videoPlayer.subtitleTranslationByLanguage': Ref<Record<string, boolean>>
+  /**
    * Configured subtitle languages, highest priority first.
    */
   'videoPlayer.subtitleLanguages': Ref<string[]>

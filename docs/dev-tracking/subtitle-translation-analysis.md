@@ -1,8 +1,8 @@
 # Analyse — traduction automatique des sous-titres
 
-Date de l’analyse : 2026-11-06. Mise à jour : 2026-11-11. Statut : recommandations précisées par l’utilisateur ; plan révisé pour imposer Scrapyfy, séparer traduction et sous-titres, intégrer les langues favorites et sélectionner les services selon leurs métadonnées YAML. Lots 1 à 4 implémentés le 2026-11-10 ; qualification réelle des fournisseurs en attente d’accès ; correctifs des contrats des lots 1 à 4 livrés le 2026-11-11 (section 13) ; lots 5 et 6 livrés le 2026-11-11 ; lots 7 à 10 : TODO.
+Date de l’analyse : 2026-11-06. Mise à jour : 2026-11-11. Statut : recommandations précisées par l’utilisateur ; plan révisé pour imposer Scrapyfy, séparer traduction et sous-titres, intégrer les langues favorites et sélectionner les services selon leurs métadonnées YAML. Lots 1 à 4 implémentés le 2026-11-10 ; qualification réelle des fournisseurs en attente d’accès ; correctifs des contrats des lots 1 à 4 livrés le 2026-11-11 (section 13) ; lots 5 à 7 livrés le 2026-11-11 ; lots 8 à 10 : TODO.
 
-Périmètre initial : analyse et plan, désormais suivi de l’implémentation des lots 1 à 5. L’implémentation précédente, non conforme aux exigences précisées, a été supprimée. Les lots 1 (contrats et séparation des couches), 2 (catalogue, credentials et administration), 3 (parser WebVTT, segmentation et planification documentaire) et 4 (exécution générique Azure/LibreTranslate) sont livrés selon le plan révisé ; le lot 5 est livré ; les lots 6 à 10 restent à réaliser. Les validations de l’implémentation supprimée ne valent pas validation des futurs livrables. Aucun appel fournisseur réel ni benchmark de qualité n’a été réalisé pour cette révision.
+Périmètre initial : analyse et plan, désormais suivi de l’implémentation des lots 1 à 7. L’implémentation précédente, non conforme aux exigences précisées, a été supprimée. Les lots 1 (contrats et séparation des couches), 2 (catalogue, credentials et administration), 3 (parser WebVTT, segmentation et planification documentaire) et 4 (exécution générique Azure/LibreTranslate) sont livrés selon le plan révisé ; les lots 5 à 7 sont livrés ; les lots 8 à 10 restent à réaliser. Les validations de l’implémentation supprimée ne valent pas validation des futurs livrables. Aucun appel fournisseur réel ni benchmark de qualité n’a été réalisé pour cette révision.
 
 ## 1. Objectif et recommandation
 
@@ -339,7 +339,9 @@ Renvoyer `ETag` et `Cache-Control: private, no-cache` avec `200` et `304`, et ex
 
 ### Stockage et concurrence
 
-Le navigateur possède le couple `ETag + octets`. S’il perd le corps, il refait un GET sans validateur : une nouvelle traduction est alors nécessaire. Le serveur peut garder les métadonnées de catalogue, credentials, descripteurs autorisés et budgets existants ; cela ne constitue pas un cache de fichiers traduits. La persistance éventuelle des descripteurs sert à résoudre les jetons, pas à réutiliser des traductions.
+Le navigateur possède le couple `ETag + octets`. S’il perd le corps, il refait un GET sans validateur : une nouvelle traduction est alors nécessaire.
+
+Implémentation du lot 7 : le client REST utilise le cache HTTP natif avec `Cache-Control` revalidé, tandis qu’un cache applicatif borné (12 entrées, 8 Mio, éviction LRU) conserve le couple ETag/octets pour Tauri et pour traiter un `304` reçu sans corps disponible. Un `304` sans entrée locale déclenche un GET inconditionnel. Les réponses doivent être `text/vtt`, non vides et commencer par la signature `WEBVTT` ; les erreurs et statuts d’expiration ne sont jamais mis en cache. La clé est l’URL absolue du jeton, ce qui isole les déploiements par origine ; l’isolation entre utilisateurs reste celle du périmètre backend (IP locale en REST, portée locale en Tauri), sans identité authentifiée. Le cache n’est pas persisté dans IndexedDB. Une nouvelle demande annule la précédente, ignore les réponses tardives, et le contrôleur de source conserve la propriété de la piste distante et de son URL Blob jusqu’au changement de source ou au démontage. Le serveur peut garder les métadonnées de catalogue, credentials, descripteurs autorisés et budgets existants ; cela ne constitue pas un cache de fichiers traduits. La persistance éventuelle des descripteurs sert à résoudre les jetons, pas à réutiliser des traductions.
 
 Une mutualisation des demandes strictement identiques **en cours** peut partager leur résultat temporaire en mémoire, isolé par périmètre d’accès ; supprimer cet état à la fin de l’exécution, sans rétention pour des appels ultérieurs. Aucun index source/résultat, store documentaire, cache de lots ou réservation persistante de cache n’est requis. Sans coordination entre processus, des traductions simultanées peuvent être dupliquées ; documenter cette limite et maintenir les budgets fournisseur.
 
@@ -449,7 +451,7 @@ Aucune question produit n’empêche de commencer les lots de fondation. Les poi
 | Bornes locales et cache navigateur | Mesurer puis fixer des valeurs configurables : taille décompressée, cues, caractères, concurrence, budgets, délais, taille des ETags et plafond du cache client. Distinguer valeurs locales et limites fournisseur. | Contrats livrés au lot 1, valeurs qualifiées au lot 9 |
 | Nombre de processus | Mutualisation en cours possible dans un processus, sans cache de résultats ; documenter les doublons possibles entre processus et la portée des budgets fournisseur. | Lot 5 |
 | Durée acceptable d’un GET | Qualifier REST, reverse proxy et Tauri sur les volumes représentatifs. Si les délais imposent des tâches asynchrones, présenter ce changement de contrat avant de le réaliser. | Lots 6 et 9 |
-| Cache du protocole Tauri | Mesurer son comportement ; employer si nécessaire un cache applicatif borné `ETag + octets`. Aucun cache de résultats backend ; IndexedDB peut assurer la conservation du corps et de son ETag entre sessions lorsque le cache natif est insuffisant. | Lot 7 |
+| Cache du protocole Tauri | Le cache HTTP natif reste prioritaire en REST ; le client public conserve aussi un cache mémoire borné `ETag + octets` pour couvrir Tauri et un `304` sans corps disponible. Aucun cache de résultats backend. La persistance IndexedDB est différée : le cache applicatif est volontairement limité à la session. | Fait (lot 7) |
 | Parseur WebVTT | Résolu au lot 3 : parser et sérialiseur internes au module `subtitles` d’`arachnea-stream`, sans dépendance externe ni contrainte de licence supplémentaire. La qualification structurelle reste couverte par les scénarios manuels du lot 3 et le lot 9. | Fait (lot 3) |
 
 SRT, Google, DeepL, upload de documents, modes URL avec tâches/récupération différée, regroupement linguistique entre cues restent des extensions distinctes. Un cache de lots backend est exclu de cette révision. Le contrat URL optionnel et son repli vers le texte font partie du socle ; aucun fournisseur initial n’est annoncé compatible URL sans qualification. Leur réalisation n’est pas nécessaire pour terminer la première livraison.
@@ -586,7 +588,7 @@ Les lots sont des unités de réalisation et de revue, pas des estimations calen
 
 ### Lot 7 — Client de traduction et cycle de vie des pistes
 
-**Statut : TODO.**
+**Statut : DONE (2026-11-11), chargement technique et cycle de vie des pistes ; validation manuelle REST/Tauri et intégration visuelle différées au lot 8.**
 
 **Dépendance :** lot 6.
 
@@ -604,7 +606,7 @@ Les lots sont des unités de réalisation et de revue, pas des estimations calen
 
 ### Lot 8 — Menu, préférences et expérience utilisateur
 
-**Statut : TODO.**
+**Statut : DONE (2026-11-11), implémentation ; qualification manuelle des migrations de préférences, du catalogue réel et des gestes clavier restant au lot 9.**
 
 **Dépendance :** lot 7.
 
@@ -615,6 +617,8 @@ Les lots sont des unités de réalisation et de revue, pas des estimations calen
 3. Afficher chargement, erreur contextualisée et identification de la traduction automatique ; permettre de poursuivre la lecture et de conserver/retrouver la piste originale.
 4. Intégrer `trackPreferences.ts` et la réapplication des paramètres : parcourir les favoris dans l’ordre, utiliser une piste correspondante avant de générer, demander uniquement la première cible nécessaire autorisée et reprendre le repli en cas d’échec. Respecter choix manuels et profils `disabled` ; une restauration ne génère que selon l’autorisation explicite par langue. Persister une identité stable sans Blob ni jeton temporaire.
 5. Ajouter les traductions i18n et vérifier clavier, focus et affichage responsive sans refonte du player.
+
+**Livré :** réglage par langue avec sanitizer borné et purge lors du retrait d’un favori, menus natifs « Traduire vers … » avec libellés distincts, orchestration automatique limitée à la première cible autorisée et repli humain conservé en cas d’échec, annulation par choix manuel sans restauration forcée, overlay `aria-live` de chargement/erreur dismissible, catalogue public chargé une fois par session et vérification des couples source/cible avant requête. L’identité persistée des pistes traduites omet l’URL Blob et conserve `autoTranslate`, langue, libellé et type.
 
 **Livrable :** parcours utilisateur complet pour demander et sélectionner une traduction.
 

@@ -60,6 +60,48 @@ export function resetManualTrackPreferences(player: VideoJsPlayer): void {
 }
 
 /**
+ * Records a text track applied outside the normal profile restore flow.
+ *
+ * @param player Player owning the applied selection.
+ * @param track Text track that was just shown.
+ * @param origin Origin to preserve when the next state is captured.
+ */
+export function markAppliedTextTrack(
+  player: VideoJsPlayer,
+  track: VideoJsTextTrackHandle,
+  origin: 'manual' | 'profile' = 'profile',
+): void {
+  const context = trackPreferenceContexts.get(player) ?? {
+    audioTrack: null,
+    textTrack: null,
+    applied: null,
+    pending: false,
+  }
+  context.applied = {
+    audioTrack: context.applied?.audioTrack ?? null,
+    textTrack: {
+      ...createSelectedTrackPreference(track),
+      mode: 'showing',
+      origin,
+    },
+  }
+  context.pending = false
+  trackPreferenceContexts.set(player, context)
+}
+
+/**
+ * Returns the origin of the last programmatically applied subtitle track.
+ *
+ * @param player Player whose applied subtitle is inspected.
+ * @returns Applied origin, or `null` when no track was recorded.
+ */
+export function getAppliedTextTrackOrigin(
+  player: VideoJsPlayer,
+): 'manual' | 'profile' | null {
+  return trackPreferenceContexts.get(player)?.applied?.textTrack?.origin ?? null
+}
+
+/**
  * Keeps engine track-list changes from being captured as manual choices.
  * @param player Player about to rebuild or extend its track lists.
  * @param state Initial preferences, used only when this player has no history.
@@ -112,23 +154,6 @@ const DISABLED_TEXT_TRACK_PREFERENCE: VideoJsTextTrackPreference = {
  */
 function normalizeTrackField(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null
-}
-
-/**
- * Creates a track preference object from a track handle.
- *
- * @param track - Audio or text track handle.
- * @returns Track preference object with normalized fields.
- */
-function createTrackPreference(
-  track: VideoJsAudioTrackHandle | VideoJsTextTrackHandle,
-): VideoJsTrackPreference {
-  return {
-    id: normalizeTrackField(track.id),
-    language: normalizeTrackField(track.language),
-    label: normalizeTrackField(track.label),
-    kind: normalizeTrackField(track.kind),
-  }
 }
 
 /**
@@ -191,7 +216,7 @@ function captureSelectedAudioTrack(player: VideoJsPlayer): VideoJsTrackPreferenc
     const track = audioTracks[index]
 
     if (track?.enabled) {
-      return createTrackPreference(track)
+      return createSelectedTrackPreference(track)
     }
   }
 
@@ -216,7 +241,7 @@ function captureSelectedTextTrack(player: VideoJsPlayer): VideoJsTextTrackPrefer
 
     if (track?.mode === 'showing' && isDisplayTextTrack(track)) {
       return {
-        ...createTrackPreference(track),
+        ...createSelectedTrackPreference(track),
         mode: 'showing',
       }
     }

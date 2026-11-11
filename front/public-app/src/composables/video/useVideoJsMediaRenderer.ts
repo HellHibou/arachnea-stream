@@ -40,6 +40,8 @@ import { createStoryboardController } from './video-js-media-renderer/storyboard
 import { createSourceController } from './video-js-media-renderer/sourceController'
 import { createPlayerUiState } from './video-js-media-renderer/playerUiState'
 import type { VideoJsTrackSelectionConfig } from './video-js-media-renderer/trackPreferences'
+import { useSubtitleTranslationController } from './useSubtitleTranslationController'
+import { installSubtitleTranslationMenu } from './video-js-media-renderer/subtitleTranslationMenu'
 
 export type {
   VideoJsMediaDimensions,
@@ -88,11 +90,48 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
     getSource: () => props.source,
     hasControls: () => props.controls ?? false,
   })
+  let refreshSubtitleTranslationMenu: (() => void) | null = null
+  let disposeSubtitleTranslationMenu: (() => void) | null = null
+  let evaluateSubtitleTranslation: ((player: VideoJsPlayer) => void) | null = null
+  let ignoreNextPlayerStateEvent = false
+  let ignoreNextPlayerStateEventTimer: number | null = null
+
+  /** Ignores the state event caused by a programmatic translated-track removal. */
+  function suppressNextPlayerStateEvent() {
+    ignoreNextPlayerStateEvent = true
+    if (ignoreNextPlayerStateEventTimer !== null) {
+      window.clearTimeout(ignoreNextPlayerStateEventTimer)
+    }
+    ignoreNextPlayerStateEventTimer = window.setTimeout(() => {
+      ignoreNextPlayerStateEvent = false
+      ignoreNextPlayerStateEventTimer = null
+    }, 0)
+  }
   const sources = createSourceController({
     props, getPlayer: () => activePlayer.value,
     configurePlayer: syncExistingPlayerConfiguration, quality, storyboard, ui,
     getTrackSelectionConfig,
+    onTrackPreferencesApplied: (player) => evaluateSubtitleTranslation?.(player),
   })
+  const subtitleTranslation = useSubtitleTranslationController({
+    getPlayer: () => activePlayer.value,
+    getSource: () => props.source,
+    getTrackSelectionConfig,
+    getSubtitleLanguagePriority: () =>
+      trackParameters['videoPlayer.subtitleLanguagePriority'].value,
+    getTranslationByLanguage: () =>
+      trackParameters['videoPlayer.subtitleTranslationByLanguage'].value,
+    host: {
+      apply: (file, options) => sources.applyTranslatedSubtitle(file, options?.origin),
+      clear: () => sources.clearTranslatedSubtitle(),
+      discard: () => {
+        sources.discardTranslatedSubtitle()
+        suppressNextPlayerStateEvent()
+      },
+    },
+    onMenuInvalidated: () => refreshSubtitleTranslationMenu?.(),
+  })
+  evaluateSubtitleTranslation = subtitleTranslation.evaluateAuto
 
   watch(
     () => storage.trackPreferencesRevision,
@@ -100,8 +139,10 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
       const player = activePlayer.value
       const config = getTrackSelectionConfig()
       if (!player || !config) return
+      subtitleTranslation.resetForPreferences()
       resetManualTrackPreferences(player)
       restorePersistedTrackPreferences(player, quality.captureState(player), config)
+      void subtitleTranslation.evaluateAuto(player)
       emitCurrentPlayerState(player)
     },
   )
@@ -111,7 +152,14 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
    * @param player Player whose state is being saved.
    */
   function emitCurrentPlayerState(player: VideoJsPlayer) {
-    emit('update:player-state', quality.captureState(player))
+    if (ignoreNextPlayerStateEvent) {
+      ignoreNextPlayerStateEvent = false
+      return
+    }
+
+    const playerState = quality.captureState(player)
+    subtitleTranslation.handlePlayerState(playerState)
+    emit('update:player-state', playerState)
   }
 
   /**
@@ -190,6 +238,11 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
   function destroyCurrentPlayer() {
     const player = activePlayer.value
     if (player) emitCurrentPlayerState(player)
+    disposeSubtitleTranslationMenu?.()
+    disposeSubtitleTranslationMenu = null
+    refreshSubtitleTranslationMenu = null
+    evaluateSubtitleTranslation = null
+    subtitleTranslation.resetForPlayer()
     sources.reset()
     player?.dispose()
     activePlayer.value = null
@@ -263,6 +316,18 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
         })
       }
       storyboard.attach(player)
+
+      if (props.controls) {
+        void subtitleTranslation.ensureCatalog()
+        const subtitleTranslationMenu = installSubtitleTranslationMenu(
+          player,
+          subtitleTranslation,
+        )
+        if (subtitleTranslationMenu) {
+          refreshSubtitleTranslationMenu = subtitleTranslationMenu.refresh
+          disposeSubtitleTranslationMenu = subtitleTranslationMenu.dispose
+        }
+      }
 
       if (props.controls) {
         const baseChapters = source.chapters ?? []
@@ -459,6 +524,7 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
       }
       const player = activePlayer.value
       const playerState = quality.captureState(player)
+      subtitleTranslation.resetForSource()
       emit('update:player-state', playerState)
 
       const currentTime = player.currentTime()
@@ -575,5 +641,13 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
     storyboardPreviewSize: storyboard.storyboardPreviewSize,
     vttStoryboardGrid: storyboard.vttStoryboardGrid,
     previewedNavigationDirection: ui.previewedNavigationDirection,
+    subtitleTranslationStatus: subtitleTranslation.status,
+    subtitleTranslationFailure: subtitleTranslation.failure,
+    subtitleTranslationLanguage: subtitleTranslation.targetLanguage,
+    isSubtitleTranslationLoading: subtitleTranslation.isLoading,
+    requestSubtitleTranslation: subtitleTranslation.requestManual,
+    cancelSubtitleTranslation: subtitleTranslation.cancel,
+    resetSubtitleTranslation: subtitleTranslation.resetForPlayer,
+    dismissSubtitleTranslationFailure: subtitleTranslation.clearFailure,
   }
 }

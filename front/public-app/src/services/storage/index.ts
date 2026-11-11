@@ -42,6 +42,7 @@ import {
   sanitizeQuality,
   sanitizeSubtitleLanguagePriority,
   sanitizeSubtitleLanguages,
+  sanitizeSubtitleTranslationByLanguage,
   sanitizeTextTrackPreference,
   sanitizeTextTrackSettings,
   sanitizeTrackPreference,
@@ -63,6 +64,8 @@ export type {
 const LANGUAGE_PARAMETER_KEY = 'language'
 /** Parameter key for the subtitle language priority list. */
 const SUBTITLE_LANGUAGE_PRIORITY_PARAMETER_KEY = 'videoPlayer.subtitleLanguagePriority'
+/** Parameter key for per-language subtitle translation authorization. */
+const SUBTITLE_TRANSLATION_BY_LANGUAGE_PARAMETER_KEY = 'videoPlayer.subtitleTranslationByLanguage'
 
 /**
  * Checks whether two language priority lists are identical.
@@ -77,17 +80,36 @@ function areLanguageListsEqual(left: readonly string[], right: readonly string[]
 }
 
 /**
+ * Checks whether two translation authorization maps are identical.
+ *
+ * @param left First authorization map.
+ * @param right Second authorization map.
+ * @returns True when both maps contain the same enabled codes.
+ */
+function areTranslationLanguageMapsEqual(
+  left: Readonly<Record<string, boolean>>,
+  right: Readonly<Record<string, boolean>>,
+): boolean {
+  const leftKeys = Object.keys(left)
+  const rightKeys = Object.keys(right)
+  return leftKeys.length === rightKeys.length
+    && leftKeys.every((key) => left[key] === true && right[key] === true)
+}
+
+/**
  * Sanitizes one persisted parameter value.
  *
  * @param key Parameter key.
  * @param value Raw stored value.
  * @param defaultSubtitleLanguagePriority Interface-derived subtitle language default.
+ * @param subtitleLanguagePriority Current subtitle language priority.
  * @returns Sanitized parameter value.
  */
 function sanitizeParameterValue(
   key: string,
   value: unknown,
   defaultSubtitleLanguagePriority: string[],
+  subtitleLanguagePriority: readonly string[] = defaultSubtitleLanguagePriority,
 ): unknown {
     switch (key) {
       case LANGUAGE_PARAMETER_KEY:
@@ -97,6 +119,8 @@ function sanitizeParameterValue(
         return sanitizeTrackProfiles(value);
       case SUBTITLE_LANGUAGE_PRIORITY_PARAMETER_KEY:
         return sanitizeSubtitleLanguagePriority(value, defaultSubtitleLanguagePriority);
+      case SUBTITLE_TRANSLATION_BY_LANGUAGE_PARAMETER_KEY:
+        return sanitizeSubtitleTranslationByLanguage(value, subtitleLanguagePriority);
       case 'videoPlayer.subtitleLanguages':
         return sanitizeSubtitleLanguages(value, DEFAULT_SUBTITLE_LANGUAGES);
       case 'videoPlayer.allowAudioDescription':
@@ -134,6 +158,8 @@ export const useStorage = defineStore('storage', () => {
           param.key,
           rawValue,
           defaultSubtitleLanguagePriority,
+          (parameters as Partial<Parameters>)[SUBTITLE_LANGUAGE_PRIORITY_PARAMETER_KEY]?.value
+            ?? initialSubtitleLanguagePriority,
         )
         ;(parameters as any) [param.key] = ref(value);
         watch((parameters as any) [param.key], (new_val) => {
@@ -143,6 +169,7 @@ export const useStorage = defineStore('storage', () => {
                 param.key,
                 new_val,
                 defaultSubtitleLanguagePriority,
+                parameters[SUBTITLE_LANGUAGE_PRIORITY_PARAMETER_KEY].value,
               ),
             );
         })
@@ -165,6 +192,19 @@ export const useStorage = defineStore('storage', () => {
           sanitizeSubtitleLanguagePriority(nextPriority, currentDefault),
           currentDefault,
         )
+
+        const translationByLanguage = parameters[SUBTITLE_TRANSLATION_BY_LANGUAGE_PARAMETER_KEY].value
+        const sanitizedTranslationByLanguage = sanitizeSubtitleTranslationByLanguage(
+          translationByLanguage,
+          nextPriority,
+        )
+        if (!areTranslationLanguageMapsEqual(
+          translationByLanguage,
+          sanitizedTranslationByLanguage,
+        )) {
+          parameters[SUBTITLE_TRANSLATION_BY_LANGUAGE_PARAMETER_KEY].value =
+            sanitizedTranslationByLanguage
+        }
       },
       { deep: true },
     )
@@ -309,6 +349,7 @@ export const useStorage = defineStore('storage', () => {
       [
         parameters['videoPlayer.trackProfiles'],
         parameters['videoPlayer.subtitleLanguagePriority'],
+        parameters['videoPlayer.subtitleTranslationByLanguage'],
         parameters['videoPlayer.allowAudioDescription'],
       ],
       resetVideoPlayerTrackPreferences,
