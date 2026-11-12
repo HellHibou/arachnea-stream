@@ -174,18 +174,17 @@ pub fn plan_batches_with_measurement(
             });
         }
 
-        let mut candidate = current.clone();
-        candidate.push(block.clone());
-        let measurement = measure(&candidate)?;
-        let fits = candidate.len() as u64 <= max_blocks
+        current.push(block.clone());
+        let measurement = measure(&current)?;
+        let fits = current.len() as u64 <= max_blocks
             && measurement.units <= max_units_per_request
             && measurement.serialized_bytes <= max_request_bytes;
 
         if fits {
-            current = candidate;
             continue;
         }
 
+        let _ = current.pop();
         if current.is_empty() {
             return Err(TranslationError::SizeLimit {
                 detail: format!(

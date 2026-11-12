@@ -281,7 +281,7 @@ fn validate_timing(timing: &str) -> Result<(), SubtitleTranslationError> {
 /// # Arguments
 ///
 /// * `token` - Timestamp without surrounding whitespace.
-fn parse_timestamp(token: &str) -> Option<u64> {
+pub(super) fn parse_timestamp(token: &str) -> Option<u64> {
     let (clock, millis_text) = token.rsplit_once('.')?;
     if millis_text.len() != 3 || !millis_text.bytes().all(|byte| byte.is_ascii_digit()) {
         return None;

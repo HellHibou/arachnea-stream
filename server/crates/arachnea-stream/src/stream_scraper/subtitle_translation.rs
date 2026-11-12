@@ -1,13 +1,10 @@
-//! Public translation catalog, subtitle preparation and file transport.
+//! Public translation catalog and direct conditional WebVTT transport.
 //!
-//! The JSON commands never retrieve the source or call a provider. The file
-//! command resolves one persisted descriptor, authorizes the caller scope and
-//! revalidates or translates a complete WebVTT document. No translated file is
-//! retained: the browser keeps the `ETag` and bytes pair.
+//! Requests build an authorized descriptor in memory and revalidate or translate
+//! a complete document. Only the browser retains the `ETag` and bytes pair.
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use arachnea_core::controler::{ControlerStreamInput, ControlerStreamOutput, ResponseBody};
 use arachnea_scrapyfy::scrapyfy::conditional::hash62;
@@ -20,17 +17,10 @@ use super::StreamScraper;
 use crate::subtitles::{
     service_supports_pair, LocalSubtitleLimits, SubtitleFormat, SubtitleSourceDescriptor,
     SubtitleTranslationDescriptor, SubtitleTranslationError, SubtitleTranslationOutcome,
-    SubtitleTranslationPreparation, SubtitleTranslationRequest, SubtitleTranslationToken,
-    SubtitleTranslationValidator,
+    SubtitleTranslationRequest, SubtitleTranslationValidator,
 };
 use crate::translation_catalog::TranslationCatalogEntry;
-use crate::{DEFAULT_SUBTITLE_CACHE_CONTROL, DEFAULT_TOKEN_TTL_SECONDS};
-
-/// Revision included in the stable prepared token identity.
-const SUBTITLE_TRANSLATION_TOKEN_REVISION: &str = "subtitle-translation-token-1";
-
-/// Opaque context fingerprint covering this transport implementation.
-const SUBTITLE_TRANSLATION_CONTEXT_REVISION: &str = "subtitle-translation-transport-1";
+use crate::DEFAULT_SUBTITLE_CACHE_CONTROL;
 
 /// Maximum number of `If-None-Match` candidates evaluated per request.
 const IF_NONE_MATCH_MAX_TAGS: usize = 32;
@@ -42,9 +32,9 @@ const SUBTITLE_FILE_ALLOWED_METHODS: &str = "GET";
 #[derive(Debug, Deserialize)]
 pub(crate) struct GetTranslationServicesRequest {}
 
-/// Request preparing one persistent subtitle translation descriptor.
+/// Parameters of one direct conditional subtitle translation request.
 #[derive(Debug, Deserialize)]
-pub(crate) struct PrepareSubtitleTranslationRequest {
+pub(crate) struct TranslateSubtitleRequest {
     /// Source subtitle URL or recognized application proxy link.
     #[serde(alias = "link")]
     pub(crate) url: String,
@@ -94,15 +84,6 @@ pub(crate) struct TranslationServicesView {
     languages: Vec<String>,
 }
 
-/// Track-shaped prepared subtitle response compatible with the player contract.
-#[derive(Debug, Serialize)]
-pub(crate) struct PreparedSubtitleTrack {
-    link: String,
-    lang: String,
-    label: String,
-    auto_translate: bool,
-}
-
 impl StreamScraper {
     /// Returns the public effective translation catalog without credentials.
     pub(crate) fn get_translation_services(
@@ -127,20 +108,19 @@ impl StreamScraper {
         }
     }
 
-    /// Validates a translation request, persists its descriptor and returns a
-    /// browser-ready track link without retrieving the source or translating.
+    /// Validates the requested source, languages and policy into an in-memory descriptor.
     ///
     /// # Arguments
-    /// * `remote_addr` - Peer address exposed by the JSON transport.
+    /// * `remote_addr` - Trusted peer address used to isolate cache validators.
     /// * `request` - Source URL, languages, format and selection policy.
     ///
     /// # Errors
     /// Returns a descriptor, format or service eligibility error.
-    pub(crate) async fn prepare_subtitle_translation(
+    fn translation_descriptor(
         &self,
         remote_addr: Option<SocketAddr>,
-        request: PrepareSubtitleTranslationRequest,
-    ) -> Result<PreparedSubtitleTrack, SubtitleTranslationError> {
+        request: TranslateSubtitleRequest,
+    ) -> Result<SubtitleTranslationDescriptor, SubtitleTranslationError> {
         let source_language = request
             .source_language
             .as_deref()
@@ -179,110 +159,55 @@ impl StreamScraper {
             source_language.as_ref(),
             &target_language,
         )?;
-        let access_scope = access_scope(remote_addr);
-        let token = stable_token(
-            &access_scope,
-            &source,
-            source_language.as_ref(),
-            &target_language,
-            &policy,
-        )?;
-        let public_path = self
-            .subtitle_translation_public_path
-            .as_deref()
-            .ok_or_else(|| SubtitleTranslationError::Internal {
-                detail: "subtitle translation transport is not registered".to_string(),
-            })?
-            .trim_end_matches('/');
-        let now_unix_seconds = now_unix_seconds();
-        let descriptor = SubtitleTranslationDescriptor::prepare(SubtitleTranslationPreparation {
-            token: token.clone(),
+        Ok(SubtitleTranslationDescriptor {
             source,
             source_language,
-            target_language: target_language.clone(),
+            target_language,
             policy,
-            access_scope,
-            now_unix_seconds,
-            ttl_seconds: Some(DEFAULT_TOKEN_TTL_SECONDS),
-        })?;
-        self.stores
-            .subtitle_translations
-            .put(&descriptor)
-            .await
-            .map_err(|error| {
-                tracing::error!(error = %error, "failed to persist subtitle translation descriptor");
-                SubtitleTranslationError::Internal {
-                    detail: "subtitle translation descriptor could not be persisted".to_string(),
-                }
-            })?;
-        Ok(PreparedSubtitleTrack {
-            link: format!("{public_path}/{}.vtt", token.as_str()),
-            lang: target_language.as_str().to_string(),
-            label: target_language.as_str().to_ascii_uppercase(),
-            auto_translate: true,
+            access_scope: access_scope(remote_addr),
         })
     }
 
-    /// Serves one prepared translated subtitle as a complete WebVTT file.
+    /// Returns a complete translated WebVTT file or an empty conditional `304`.
     ///
     /// # Arguments
-    /// * `input` - Stream request whose path carries `<token>.vtt`.
+    /// * `input` - GET request with JSON-encoded query parameters and optional ETag.
     ///
     /// # Errors
-    /// Returns unexpected internal stream failures; protocol errors are returned
-    /// as explicit statuses so they are never serialized as WebVTT.
-    pub(crate) async fn subtitle_translation(
+    /// Protocol and translation failures are returned as explicit non-WebVTT responses.
+    pub(crate) async fn get_translated_subtitle(
         &self,
         input: ControlerStreamInput,
     ) -> Result<ControlerStreamOutput, SubtitleTranslationError> {
         if !input.method.eq_ignore_ascii_case("GET") {
             return Ok(method_not_allowed());
         }
-        let Some(token) = token_from_path(&input.path) else {
+        if !input.path.trim_matches('/').is_empty() {
             return Ok(not_found());
-        };
-        let token = match SubtitleTranslationToken::new(token) {
-            Ok(token) => token,
+        }
+        let request = match parse_request(&input.query) {
+            Ok(request) => request,
             Err(error) => return Ok(error_output(error)),
         };
-        let descriptor = match self
-            .stores
-            .subtitle_translations
-            .get(&token.as_str().to_string())
-            .await
-        {
-            Ok(Some(descriptor)) => descriptor,
-            Ok(None) => return Ok(not_found()),
-            Err(error) => {
-                tracing::error!(error = %error, "failed to read subtitle translation descriptor");
-                return Ok(internal_error());
-            }
+        let descriptor = match self.translation_descriptor(input.remote_addr, request) {
+            Ok(descriptor) => descriptor,
+            Err(error) => return Ok(error_output(error)),
         };
-        if let Err(error) = descriptor.validate() {
-            return Ok(error_output(error));
-        }
-        let now_unix_seconds = now_unix_seconds();
-        if descriptor.is_expired(now_unix_seconds) {
-            return Ok(error_output(SubtitleTranslationError::TokenExpired));
-        }
         let access_scope = access_scope(input.remote_addr);
-        if let Err(error) = descriptor.authorize(&access_scope) {
-            return Ok(error_output(error));
-        }
         let client_etag = input
             .headers
             .iter()
             .find(|(name, _)| name.eq_ignore_ascii_case("if-none-match"))
-            .and_then(|(_, value)| select_client_etag(value, &descriptor));
+            .and_then(|(_, value)| {
+                select_client_etag(value, &descriptor, &self.translation_catalog)
+            });
         let outcome = self
             .translate_subtitle(
                 SubtitleTranslationRequest {
                     descriptor: &descriptor,
                     access_scope: &access_scope,
-                    now_unix_seconds,
                     client_etag,
                     provider_accessible_url: None,
-                    context_fingerprint: SUBTITLE_TRANSLATION_CONTEXT_REVISION,
                     subtitle_limits: LocalSubtitleLimits::default(),
                     translation_limits: LocalTranslationLimits::default(),
                 },
@@ -473,36 +398,23 @@ fn access_scope(remote_addr: Option<SocketAddr>) -> AccessScope {
         .expect("derived subtitle translation access scope is never blank")
 }
 
-/// Builds a deterministic token so repeated preparations keep the same URL.
-fn stable_token(
-    access_scope: &AccessScope,
-    source: &SubtitleSourceDescriptor,
-    source_language: Option<&LanguageCode>,
-    target_language: &LanguageCode,
-    policy: &SelectionPolicy,
-) -> Result<SubtitleTranslationToken, SubtitleTranslationError> {
-    let bytes = serde_json::to_vec(&(
-        SUBTITLE_TRANSLATION_TOKEN_REVISION,
-        access_scope.as_str(),
-        source,
-        source_language,
-        target_language,
-        policy,
-    ))
-    .map_err(|_| SubtitleTranslationError::Internal {
-        detail: "unable to encode subtitle translation token identity".to_string(),
-    })?;
-    SubtitleTranslationToken::new(hash62(&bytes))
-}
-
-/// Extracts the token from `<token>.vtt` without accepting nested paths.
-fn token_from_path(path: &str) -> Option<&str> {
-    let path = path.trim_matches('/');
-    if !path.to_ascii_lowercase().ends_with(".vtt") {
-        return None;
+/// Decodes JSON query values using the same parameter convention as JSON commands.
+fn parse_request(query: &str) -> Result<TranslateSubtitleRequest, SubtitleTranslationError> {
+    let mut parameters = serde_json::Map::new();
+    for (name, value) in url::form_urlencoded::parse(query.as_bytes()) {
+        let value = serde_json::from_str(&value)
+            .unwrap_or_else(|_| serde_json::Value::String(value.into_owned()));
+        if parameters.insert(name.into_owned(), value).is_some() {
+            return Err(SubtitleTranslationError::InvalidDescriptor {
+                detail: "duplicate subtitle translation parameter".to_string(),
+            });
+        }
     }
-    let token = &path[..path.len() - 4];
-    (!token.is_empty() && !token.contains('/')).then_some(token)
+    serde_json::from_value(serde_json::Value::Object(parameters)).map_err(|_| {
+        SubtitleTranslationError::InvalidDescriptor {
+            detail: "invalid subtitle translation parameters".to_string(),
+        }
+    })
 }
 
 /// Selects one complete usable candidate from an `If-None-Match` list.
@@ -513,6 +425,7 @@ fn token_from_path(path: &str) -> Option<&str> {
 fn select_client_etag<'a>(
     header: &'a str,
     descriptor: &SubtitleTranslationDescriptor,
+    catalog: &crate::translation_catalog::TranslationCatalog,
 ) -> Option<&'a str> {
     entity_tags(header)
         .into_iter()
@@ -524,9 +437,21 @@ fn select_client_etag<'a>(
             let Ok(validator) = SubtitleTranslationValidator::from_etag(candidate) else {
                 return false;
             };
-            validator.translation.target_language == descriptor.target_language
-                && validator.translation.source_language == descriptor.source_language
-                && validator.document_format == descriptor.source.format.media_type()
+            let Some(service) = catalog.service(&validator.service_id) else {
+                return false;
+            };
+            let policy_allows = match &descriptor.policy {
+                SelectionPolicy::Constrained { service_id } => service_id == &validator.service_id,
+                SelectionPolicy::Auto { .. } => true,
+            };
+            policy_allows
+                && service.service_yaml_hash.as_deref()
+                    == Some(validator.service_yaml_hash.as_str())
+                && service_supports_pair(
+                    service,
+                    descriptor.source_language.as_ref(),
+                    &descriptor.target_language,
+                )
         })
 }
 
@@ -595,7 +520,7 @@ fn method_not_allowed() -> ControlerStreamOutput {
     }
 }
 
-/// Hides unknown and expired tokens behind the same not-found response.
+/// Rejects paths nested below the direct translation endpoint.
 fn not_found() -> ControlerStreamOutput {
     ControlerStreamOutput {
         status: 404,
@@ -603,22 +528,4 @@ fn not_found() -> ControlerStreamOutput {
         content_type: "text/plain; charset=utf-8".to_string(),
         headers: HashMap::new(),
     }
-}
-
-/// Hides persistence failures behind an internal error without leaking details.
-fn internal_error() -> ControlerStreamOutput {
-    ControlerStreamOutput {
-        status: 500,
-        body: ResponseBody::Buffered(b"internal subtitle translation failure".to_vec()),
-        content_type: "text/plain; charset=utf-8".to_string(),
-        headers: HashMap::new(),
-    }
-}
-
-/// Returns the current Unix time in seconds.
-fn now_unix_seconds() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_secs())
-        .unwrap_or(0)
 }

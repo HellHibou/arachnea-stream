@@ -335,6 +335,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Translation batch planning no longer clones every accumulated text block when considering the next block. Batch boundaries, serialized request measurement and provider calls remain unchanged.
+
 - Replaced persistent result-cache keys with a provider-independent translation revision carrying the YAML hash, target language and output-affecting configuration for browser revalidation.
 
 - `TranslatedTexts` and `TranslatedDocument` now carry `TranslationMetrics`; callers that construct these results must provide the field (defaults to zero metrics for deserialization). The bridge reports batches, attempts, retries, detection attempts, blocks, units and elapsed time without exposing text or credentials.
@@ -347,6 +349,8 @@ All notable changes to the server workspace are recorded here.
 ### <u>arachnea-stream</u>
 
 #### Added
+
+- Added bounded assembly of finite HLS WebVTT subtitle playlists for translation, preserving proxy routing, normalizing timestamp maps and revalidating the assembled content.
 
 - Completed subtitle lot 6 with the public translation catalog and preparation commands plus the `subtitle_translation/<token>.vtt` REST/Tauri file transport. `get_translation_services` exposes effective languages and text/URL capabilities without credentials; `prepare_subtitle_translation` validates the source URL, format, language pair and auto/preferred/constrained policy, persists a descriptor and returns a `ResolvedPlayerSubtitle`-compatible track without retrieving or translating. Tokens are deterministically derived from the access scope, source, languages and policy, so repeated preparations keep the same cacheable URL. The file route revalidates the source before any translation, supports `If-None-Match` lists and weak validators without mixing tags, ignores an unproven wildcard, returns an empty `304`, `Cache-Control: private, no-cache` and a CORS-exposed ETag, and answers `HEAD`/other methods with `405 Allow: GET` before any descriptor read or retrieval. Unknown and expired tokens both return `404` after store expiry; access is rechecked from the trusted peer IP in REST and the local scope in Tauri.
 - Persisted prepared subtitle translation descriptors in the new `subtitle-translations` typed SQLite store (and an in-memory store for compatibility constructors), keyed by token with an expiration column and JSON payload, so tokens resolve after a restart for their advertised lifetime.
@@ -430,6 +434,10 @@ All notable changes to the server workspace are recorded here.
 - The Stream translation port now maps `ArachneaHttpError::HttpStatus` to normalized provider categories and injects a process-local budget shared by service identifier. Budgets are created on first use, so changing their catalog parameters requires a restart; consumed units are not refunded after a failed provider attempt.
 
 #### Changed
+
+- Subtitle translation ETags now use the shared Scrapyfy `SOURCE=E:<yaml-hash>-<encoded-upstream-etag>` or `SOURCE=C:<yaml-hash>-<timestamp>-<content-hash>` fragment format. Languages and configuration are not embedded; the URL scopes request parameters. Existing `st1.` tags cause a fresh translation. Configuration and pipeline changes that leave the URL and YAML unchanged do not invalidate cached files.
+
+- Replaced subtitle preparation and tokenized download routes with one conditional `GET translate_subtitle` returning complete WebVTT or an empty `304` without provider execution. Removed descriptor persistence, tokens and expiry handling; no backward compatibility routes remain.
 
 - Replaced translated-subtitle server-cache contracts with a bounded, versioned weak composite ETag and conditional retrieval types. The catalog exposes its optional YAML hash, and `HEAD` maps to `405`. Source retrieval, HTTP revalidation and browser storage are planned for later lots.
 
@@ -620,6 +628,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Exposed the hash of loaded YAML bytes separately from the effective source identity, which continues to include editable parameter overrides for existing Scrapyfy conditional caching.
+
 - Shared canonical HTTP country normalization with Core without requiring Proxy or SQLite in minimal builds; YAML expansion behavior and sorted output are unchanged.
 
 - Moved generic proxy configuration, API-key management, policy rollback, shared application configuration, REST report adaptation and encrypted source credentials from Stream into reusable Scrapyfy modules. Added the generic administration composition and narrow application hooks; proxy modules remain feature-gated and persisted formats are unchanged.
@@ -787,6 +797,20 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- The subtitle menu now closes when clicking outside the menu.
+
+- Player control bar menus now close when another menu is opened.
+
+- Added language flags alongside audio tracks in the player menu.
+
+- Added a non-persisted subtitle delay field at the top of the player menu, accepting positive and negative seconds with decimal precision and applying the delay to loaded and subsequently added subtitle/caption cues.
+
+- Kept subtitle translation targets visible during generation, preventing duplicate requests for the pending target, and removed the subtitle delay field's colored focus outline.
+
+- Subtitle translation now discovers HLS renditions from the player and prefers complete subtitle tracks over forced tracks, without requiring English subtitles.
+
+- Added action icons and language flags to the subtitle menu, with aligned labels for unknown languages and more room for long lists.
+
 - Completed subtitle translation lot 7: public catalog/preparation calls map validated two-letter languages to the Stream commands, a dedicated downloader accepts only non-empty `text/vtt` bodies starting with `WEBVTT`, revalidates with ETags and retries unconditionally when a `304` arrives without a retained body, and keeps a bounded in-memory LRU of 12 ETag/body entries (8 MiB) for transport setups without native HTTP caching. The request composable aborts or ignores stale work across source changes, new requests, cancellation and unmount, while `sourceController` owns the translated Blob URL, restores the previously selected human track and never reapplies the video source. Cache entries are invalidated on `403`/`404`/`410` and are not persisted between sessions.
 - Completed subtitle translation lot 8: per-language “Generate by translation” authorizations are stored as a sanitized two-letter map pruned against the favorite subtitle list, the native Video.js subtitle menu adds manual “Translate subtitles into …” actions without a second service list, and `auto` profiles request only the first authorized missing target before falling back to lower-priority human tracks. The controller caches the public catalog once per session, checks source/target pair support, de-duplicates attempts, preserves a manual choice made during a request, and exposes a dismissible `aria-live` loading/error overlay while the translated track keeps a distinct localized label. Persisted translated identities omit Blob URLs and retain their automatic-translation marker.
 
@@ -799,6 +823,12 @@ All notable changes to the server workspace are recorded here.
 - Added the `ParameterSubtitleLanguages.vue` component (a language combo box plus an editable 2-letter code input, with add/remove buttons keeping at least one entry) and the `videoPlayer.subtitleLanguages` storage parameter for configuring subtitle languages.
 
 #### Changed
+
+- The subtitle translation progress message now displays the target language flag, English name and native name, and follows the skip button's height as player controls appear or disappear.
+
+- Available and generated subtitle translations now share the label `<English language name> - <native language name> (Automatic translation)`, localized for the interface. The subtitle menu grows with its labels up to 70% of the viewport and only wraps when that limit is reached.
+
+- Subtitle translation now downloads directly from `translate_subtitle` in one request, retaining the bounded file/ETag cache, conditional revalidation, cancellation and player lifecycle. Removed the JSON preparation client and response model.
 
 - The public parameters player section no longer caps audio language profiles at three: it now allows one profile per shared-catalog audio language plus the original track, and the storage sanitizer uses the same catalog-derived bound.
 
@@ -819,6 +849,12 @@ All notable changes to the server workspace are recorded here.
 - Merged the "Track selection" parameters section into the "Player" section: audio language profiles (label "Audio language") now follow automatic ad skipping, subtitle mode per profile became a switch ("Subtitles" / Enabled-Disabled), profiles can be added or removed (the first profile cannot be removed), "Allow audio description" was renamed to "Use audio description if available", and a subtitle language manager was added below it. The `settings.playerTracks` section and its `ParameterLanguagePriority` UI were removed from the parameters panel.
 
 #### Fixed
+
+- Localized the subtitle menu's off and settings entries and raised subtitles above visible video controls.
+
+- Preserved the automatic subtitle translation callback when destroying a Video.js player instance. The renderer's immediate element watcher calls cleanup before its first player creation; clearing the callback there disconnected automatic generation on startup and subsequent recreations while leaving manual translation available.
+
+- Automatic subtitle translation no longer aborts when a parent refreshes the media source with equivalent data while the translation catalog is loading. Automatic and manual requests now compare the video URL and subtitle tracks using the renderer's existing source identity rules, so a real source change still rejects stale work.
 
 - Restored episode Watch actions for inline-player sources such as Anime-Sama and French Animes. Entry episode collections now select locally in the current player without requiring an episode route; unavailable episodes remain disabled and catalog collections retain validated native navigation.
 

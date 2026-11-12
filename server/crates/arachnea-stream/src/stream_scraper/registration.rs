@@ -14,8 +14,6 @@ impl StreamScraper {
     pub(crate) fn prepare_registration(&mut self, controler: &mut dyn ControlerService) {
         self.player_resolver_endpoints.drm_license_public_path =
             controler.stream_public_path(DRM_LICENSE_PROXY_COMMAND);
-        self.subtitle_translation_public_path =
-            Some(controler.stream_public_path(SUBTITLE_TRANSLATION_COMMAND));
 
         let proxy_core = match self.proxy_http_core.clone() {
             Some(proxy_core) => Some(proxy_core),
@@ -58,8 +56,6 @@ impl StreamScraper {
             endpoints.drm_license_public_path.clone();
         self.player_resolver_endpoints.http_proxy_public_path =
             endpoints.http_proxy_public_path.clone();
-        self.subtitle_translation_public_path =
-            Some(endpoints.subtitle_translation_public_path.clone());
 
         self.configure_proxy_insecure_tls_hosts();
     }

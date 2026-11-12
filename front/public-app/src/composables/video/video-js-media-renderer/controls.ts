@@ -758,6 +758,43 @@ export function installAdaptiveControlBarMenuPositioning(player: VideoJsPlayer) 
 }
 
 /**
+ * Closes other control bar menus when a menu button is activated.
+ * @param player Player owning the menus.
+ */
+export function installExclusiveControlBarMenus(player: VideoJsPlayer) {
+  const playerElement = player.el()
+  if (!(playerElement instanceof HTMLElement)) return
+
+  const closeOtherMenus = (event: Event) => {
+    if (event instanceof KeyboardEvent && !['Enter', ' ', 'ArrowDown', 'ArrowUp'].includes(event.key)) return
+    const target = event.target
+    if (!(target instanceof Element) || target.closest('.vjs-menu')) return
+    const activeMenu = target.closest<HTMLElement>('.vjs-menu-button-popup')
+    if (!activeMenu || !playerElement.contains(activeMenu)) return
+
+    const children = player.getChild('controlBar')?.children() ?? []
+    for (const child of children) {
+      const menu = child as unknown as { el?: () => HTMLElement; unpressButton?: () => void }
+      const element = menu.el?.()
+      if (element && !element.contains(activeMenu) && !activeMenu.contains(element)) {
+        menu.unpressButton?.()
+      }
+    }
+    const autoplay = getEpisodeAutoplayMenuElement(player)
+    if (autoplay && !autoplay.contains(activeMenu) && !activeMenu.contains(autoplay)) {
+      episodeAutoplayMenus.get(autoplay)?.close()
+    }
+  }
+
+  playerElement.addEventListener('click', closeOtherMenus, true)
+  playerElement.addEventListener('keydown', closeOtherMenus, true)
+  player.on('dispose', () => {
+    playerElement.removeEventListener('click', closeOtherMenus, true)
+    playerElement.removeEventListener('keydown', closeOtherMenus, true)
+  })
+}
+
+/**
  * Makes the timer toggle between elapsed and remaining time when activated.
  *
  * @param player Video.js player currently bound to the renderer.

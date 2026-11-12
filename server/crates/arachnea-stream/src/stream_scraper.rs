@@ -59,9 +59,7 @@ pub use crate::STREAM_SERVICES_STORE_NAME;
 pub use crate::PERSISTENCE_DATA_ROOT;
 
 mod subtitle_translation;
-pub(crate) use subtitle_translation::{
-    GetTranslationServicesRequest, PrepareSubtitleTranslationRequest,
-};
+pub(crate) use subtitle_translation::GetTranslationServicesRequest;
 
 /// Typed persistence stores composing the application backends.
 ///
@@ -82,9 +80,6 @@ pub struct ApplicationStores {
     pub source_enabled: Arc<dyn TypedEntityStore<SourceServiceRecord>>,
     /// Atomic per-service administrator parameter overrides.
     pub service_parameters: Arc<dyn TypedEntityStore<ServiceParametersRecord>>,
-    /// Prepared subtitle translation descriptors (`subtitle-translations`).
-    pub subtitle_translations:
-        Arc<dyn TypedEntityStore<crate::subtitles::SubtitleTranslationDescriptor>>,
 }
 
 pub use crate::DEFAULT_SERVICES_CONFIG_PATH;
@@ -93,12 +88,9 @@ use crate::STREAM_HTTP_PROXY_COMMAND as HTTP_PROXY_COMMAND;
 
 pub(crate) use crate::STREAM_DRM_LICENSE_PROXY_COMMAND as DRM_LICENSE_PROXY_COMMAND;
 
-pub(crate) use crate::STREAM_SUBTITLE_TRANSLATION_COMMAND as SUBTITLE_TRANSLATION_COMMAND;
+pub(crate) use crate::STREAM_TRANSLATE_SUBTITLE_COMMAND as TRANSLATE_SUBTITLE_COMMAND;
 
-pub(crate) use crate::{
-    STREAM_GET_TRANSLATION_SERVICES_COMMAND as GET_TRANSLATION_SERVICES_COMMAND,
-    STREAM_PREPARE_SUBTITLE_TRANSLATION_COMMAND as PREPARE_SUBTITLE_TRANSLATION_COMMAND,
-};
+pub(crate) use crate::STREAM_GET_TRANSLATION_SERVICES_COMMAND as GET_TRANSLATION_SERVICES_COMMAND;
 
 /// Antenne Réunion player resolver singleton.
 static ANTENNE_REUNION_RESOLVER: AntenneReunionResolver = AntenneReunionResolver;
@@ -291,8 +283,6 @@ pub struct StreamScraper {
     pub(crate) player_resolver_endpoints: PlayerResolverEndpoints,
     /// Effective translation catalog loaded from the translation service group.
     translation_catalog: TranslationCatalog,
-    /// Public path of the translated subtitle file stream command.
-    pub(crate) subtitle_translation_public_path: Option<String>,
 }
 
 /// Options controlling how a [`StreamScraper`] instance is built or rebuilt.
@@ -449,7 +439,6 @@ impl StreamScraper {
             proxy_http_core,
             player_resolver_endpoints: PlayerResolverEndpoints::default(),
             translation_catalog: TranslationCatalog::default(),
-            subtitle_translation_public_path: None,
         }
     }
 

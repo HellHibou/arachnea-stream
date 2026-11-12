@@ -57,12 +57,12 @@ export interface ConstrainedSubtitleTranslationPolicy {
   serviceId: string
 }
 
-/** Selection policy accepted by the backend preparation command. */
+/** Selection policy accepted by the backend translation command. */
 export type SubtitleTranslationPolicy =
   | AutomaticSubtitleTranslationPolicy
   | ConstrainedSubtitleTranslationPolicy
 
-/** Source subtitle identity and location used to prepare a translation. */
+/** Source subtitle identity and location used to request a translation. */
 export interface SubtitleTranslationSource {
   /** Direct or application-proxy subtitle URL. */
   url: string
@@ -88,18 +88,6 @@ export interface SubtitleTranslationLanguageRequest {
   policy?: SubtitleTranslationPolicy
   /** Optional display label override for the generated track. */
   label?: string | null
-}
-
-/** Track-shaped preparation response compatible with the existing player contract. */
-export interface PreparedSubtitleTranslation {
-  /** Public tokenized WebVTT file URL. */
-  link: string
-  /** Effective target language. */
-  lang: string
-  /** Display label for the generated track. */
-  label: string
-  /** Always true for a translated track. */
-  autoTranslate: true
 }
 
 /** Successful file download retained by the browser cache. */

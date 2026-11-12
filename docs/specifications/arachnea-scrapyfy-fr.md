@@ -2379,3 +2379,12 @@ paramètres, URL et corps d'exécution, y compris `request_body_actions`. Elles
 retournent seulement le nombre d'octets du corps POST racine, sans HTTP ni
 exposition des credentials, et refusent les queries statiques, les méthodes
 hors POST et les URL racines multiples. Aucun champ YAML n'est ajouté.
+
+
+### Identité du YAML chargé
+
+Le moteur expose séparément le hash des octets exacts du YAML chargé et
+l’identité effective de la source, qui inclut les paramètres éditables. Les
+fragments de cache Scrapyfy existants conservent l’identité effective ; les
+consommateurs qui ont besoin du seul hash du fichier peuvent le demander
+séparément. Aucun champ n’est ajouté au schéma YAML.

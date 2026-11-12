@@ -203,7 +203,7 @@ impl LocalSubtitleLimits {
 pub struct TranslatedSubtitleDocument {
     /// Complete WebVTT bytes.
     pub bytes: Vec<u8>,
-    /// Composite weak ETag identifying the source and translation context.
+    /// Weak ETag identifying the translation service YAML and source validator.
     pub etag: String,
     /// Response media type.
     pub media_type: String,
@@ -217,12 +217,12 @@ impl TranslatedSubtitleDocument {
     /// # Arguments
     ///
     /// * `bytes` - Complete translated WebVTT bytes.
-    /// * `etag` - Versioned composite weak ETag including surrounding quotes.
+    /// * `etag` - Weak provider/source ETag including surrounding quotes.
     ///
     /// # Errors
     ///
     /// Returns [`SubtitleTranslationError::InvalidDescriptor`] when the ETag is
-    /// not a valid composite weak validator.
+    /// not a valid weak provider/source validator.
     pub fn new(bytes: Vec<u8>, etag: impl Into<String>) -> Result<Self, SubtitleTranslationError> {
         let etag = etag.into();
         if !etag.starts_with("W/\"") {

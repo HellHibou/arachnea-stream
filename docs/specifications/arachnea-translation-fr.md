@@ -22,7 +22,7 @@ stockage navigateur et l’interface utilisateur.
 | Couche | Responsabilités | Interdictions |
 |---|---|---|
 | `arachnea-translation` | Langues à deux lettres, blocs abstraits, capacités et limites, métadonnées, sélection, planification, identité de révision de traduction, pont Scrapyfy. | Aucune connaissance de WebVTT, des cues, du player ou des pistes vidéo. Aucun fournisseur Rust spécifique. |
-| `arachnea-stream` | Droits, résolution des liens de proxy, catalogues, assemblage REST/Tauri et transport du fichier, plus son module `subtitles` : descripteurs de piste source, parsing/sérialisation WebVTT, découpage des cues et planification documentaire, descripteur persistant et jeton, récupération conditionnelle autorisée, validateur composite et statuts HTTP. | Aucun mapping fournisseur ni Rust spécifique à un fournisseur ; aucun accès réseau non autorisé. |
+| `arachnea-stream` | Droits, résolution des liens de proxy, catalogues, assemblage REST/Tauri et transport du fichier, plus son module `subtitles` : descripteurs de piste source, parsing/sérialisation WebVTT, découpage des cues et planification documentaire, descripteur en mémoire, récupération conditionnelle autorisée, validateur source et statuts HTTP. | Aucun mapping fournisseur ni Rust spécifique à un fournisseur ; aucun accès réseau non autorisé. |
 | Front public | Préférences, décision de demander une traduction, cycle de vie Video.js. | Aucun credential ni protocole fournisseur. |
 
 Les fournisseurs sont exclusivement décrits et exécutés par Scrapyfy. Le pont
@@ -357,30 +357,29 @@ SRT reste hors du chemin initial et n’est jamais servi comme du WebVTT brut.
 
 ## 8. Cache navigateur et validateurs
 
-`TranslationRevision` décrit les langues source demandée et cible, le service,
-le hash YAML, les révisions de configuration et du pipeline, ainsi qu’une
-empreinte opaque des options influant sur le résultat. Le
-`SubtitleTranslationValidator` de Stream ajoute le validateur source, les
-empreintes opaques de source et de périmètre d’accès, le format et les révisions
-du parseur et du pipeline de sous-titres. L’ETag composite est faible, versionné,
-encodé en JSON/base64 compatible URL et limité à 4096 octets. Son contenu reste
-lisible : ne jamais y inclure de credentials, URL signées ou autres secrets. Le
-catalogue expose `service_yaml_hash`, optionnel ; son absence empêche de créer
-un validateur fiable.
+L’ETag faible de Stream suit la convention Scrapyfy avec un seul fragment :
+`W/"SOURCE=E:<hash-yaml>-<etag-amont-encodé>"` lorsque la source fournit un
+ETag, ou `W/"SOURCE=C:<hash-yaml>-<timestamp>-<hash-contenu>"` sinon. `SOURCE`
+est l’identifiant du service de traduction effectivement choisi ; `hash-yaml`
+est celui de son YAML. `timestamp` est la date `Last-Modified` amont en secondes
+Unix, ou `0` si elle est absente ou inexploitable ; le contenu est haché en
+XXH3-128/base62. Le fragment utilise l’encodage et les fonctions Scrapyfy
+existants ; la taille de l’ETag est limitée à 4096 octets.
 
-Le validateur source contient l’ETag HTTP amont ou un hash des octets source,
-accompagné éventuellement de `Last-Modified`. Le port de récupération accepte ce
-validateur et distingue une source inchangée d’un document complet ; l’appelant
-compare les octets si la source ne fournit pas de validateur exploitable. Un tag
-client ne prouve ni les droits ni la fraîcheur : il faut vérifier le contexte
-autorisé puis revalider la source. Le navigateur conserve les fichiers traduits ;
-ces contrats ne fournissent pas de store documentaire serveur. Si le navigateur
-perd son fichier, une nouvelle traduction est nécessaire. Le transport conditionnel public et le cache navigateur restent à réaliser.
+Les langues et options portées par l’URL sont isolées par la clé de cache URL.
+L’ETag ne contient ni ces paramètres ni les révisions de configuration, de
+pipeline ou de périmètre d’accès. Une modification de configuration ou de
+pipeline ne changeant ni l’URL ni le YAML du fournisseur ne provoque donc pas à
+elle seule l’invalidation d’un fichier en cache. Le préfixe `st1.` précédent
+n’est plus accepté et entraîne une nouvelle traduction. L’ETag amont encodé
+reste lisible ; il ne doit pas être considéré comme secret ou comme preuve de
+droits. Le serveur contrôle séparément les droits, la politique et l’éligibilité
+du service, puis revalide la source avant un `304`. Aucun fichier traduit ni
+index documentaire n’est conservé côté serveur.
 
 Stream revalide le descripteur autorisé avant tout appel fournisseur et traduit
 un WebVTT complet avec le pont générique texte ou URL. La façade applicative
-fournit un instantané du catalogue/configuration et calcule l’empreinte des
-en-têtes source, options et limites locales. Les chemins directs et ceux du proxy
+fournit un instantané du catalogue et de la configuration. Les chemins directs et ceux du proxy
 applicatif contrôlent et fixent les adresses DNS publiques à chaque saut. Les
 liens internes sont décodés sans appel au contrôleur local ; paramètres de
 routage, cookies, actions, classificateurs et options TLS autorisées sont
@@ -407,48 +406,44 @@ section 9.
 | Commande | Rôle |
 |---|---|
 | `get_translation_services` | Catalogue public des services utilisables, capacités et langues ; aucun secret. |
-| `prepare_subtitle_translation` | Vérifie les droits et candidats, puis produit un descripteur et un jeton sans récupérer ni traduire le document. |
-| `GET <public-path>/subtitle_translation/<token>.vtt` | Retourne le fichier WebVTT et son ETag composite, ou `304` après revalidation de la source et du contexte. |
-| `HEAD` sur le même chemin | Répond `405` sans récupération ni traduction. |
+| `GET <public-path>/translate_subtitle?...` | Valide la demande puis retourne directement le WebVTT avec son ETag, ou `304` après revalidation de la source et du YAML. |
+| `HEAD` sur le même chemin | Répond `405` avec `Allow: GET` sans récupération ni traduction. |
 
-Le jeton est opaque, dérivé de façon déterministe du périmètre d’accès
-autorisé, du descripteur source, des langues et de la politique de sélection ;
-il ne contient ni URL source ni credential. Une préparation répétée de la même
-demande conserve la même URL tant que son descripteur est retenu ; l’expiration
-ou l’éviction du descripteur impose une nouvelle préparation. L’accès est
-revérifié au téléchargement et un jeton d’un utilisateur ne donne pas accès aux
-sous-titres d’un autre. Le périmètre d’accès est l’IP cliente de confiance en
-REST (le loopback partage le périmètre local) et le périmètre local pour l’IPC
-Tauri. Les clients partageant une même IP, par exemple derrière un reverse proxy
-ou un NAT, partagent le même périmètre ; l’isolation par utilisateur exige alors
-un périmètre authentifié, hors de ce transport initial. Les erreurs ne sont
-jamais servies comme un fichier VTT.
+Une seule requête transmet `url`, `target_language` et, en option, `track_id`,
+`source_language`, `policy` et `format` dans la query. Les valeurs sont encodées
+avec JSON puis URL-encodées, comme pour les commandes JSON ; les chaînes simples
+non entourées de guillemets sont également acceptées. `policy` contient
+`{"mode":"auto"}` (avec `preferred_service` optionnel) ou
+`{"mode":"constrained","service_id":"…"}`. Le format par défaut est `webvtt`.
+Seul WebVTT est pris en charge. Les paramètres répétés sont refusés avec `400`.
 
-Les commandes de préparation ne récupèrent jamais la source, ne détectent aucune
-langue et n’appellent aucun fournisseur. La préparation accepte une URL HTTP(S)
-directe ou un lien proxy applicatif reconnu et ne rejette que les emplacements
-structurellement invalides. Elle vérifie qu’au moins un service actif capable de
-traduction texte prend en charge le couple demandé (ou la détection lorsque la
-langue source est omise), sans choisir le fournisseur final en mode automatique.
-Seul le WebVTT est accepté initialement.
+Le transport construit un descripteur en mémoire pour chaque demande et vérifie
+l’URL HTTP(S) directe ou proxy applicative, les langues et les services éligibles
+avant la récupération autorisée. Aucun jeton, descripteur ou fichier traduit
+n’est persisté. Les anciennes routes de préparation JSON et de téléchargement
+par jeton sont supprimées sans rétrocompatibilité.
 
-`If-None-Match` accepte les listes et les validateurs faibles en évaluant chaque
-candidat dans son ensemble ; les composants de plusieurs tags ne sont jamais
-mélangés. Le joker `*` ne transporte aucun validateur source, ne prouve donc
-jamais sa stabilité et le fichier est retraduit. Les réponses `200` et `304`
-réussies portent l’ETag composite et `Cache-Control: private, no-cache` ;
-l’ETag est exposé par CORS pour les déploiements cross-origin. `HEAD` répond
-`405` avec `Allow: GET` avant toute lecture de descripteur, récupération ou
-traduction. Les descripteurs expirés sont normalement purgés : un jeton inconnu
-ou purgé répond `404`, tandis qu’un descripteur encore lisible après son
-expiration logique répond `410`.
+Le périmètre d’accès vérifié pour la requête reste l’IP cliente de confiance
+en REST (le loopback partage le périmètre local) et le périmètre local pour le
+protocole Tauri ; il n’est pas inclus dans l’ETag. Des clients partageant une IP partagent ce périmètre ; une
+isolation par utilisateur exige un périmètre authentifié. Les contrôles réseau,
+proxy et de redirection restent appliqués. Les erreurs sont servies en texte,
+jamais comme un fichier VTT.
 
-Les deux transports renvoient un fichier complet mis en mémoire, jamais un
-document WebVTT partiel. Tauri collecte ce tampon avant de répondre à l’appel
-IPC : une récupération source ou une exécution fournisseur lente maintient donc
-l’appel en attente jusqu’à la fin ou au délai maximal, sans flux de progression.
-REST renvoie le même corps complet ; le préfixe public configuré est préservé
-lors des rechargements du scraper.
+`If-None-Match` accepte les validateurs faibles et examine au plus 32 candidats.
+Il retient le premier tag dont le service, le YAML et le couple de langues sont
+compatibles ; un candidat ultérieur peut donc être ignoré même si sa source
+correspond mieux. Le joker `*` ne prouve pas la stabilité de la source et entraîne une
+traduction complète. Une revalidation réussie retourne `304` sans corps et sans
+appel fournisseur. Les réponses traduites `200 text/vtt` et les réponses `304`
+portent l’ETag et `Cache-Control: private, no-cache` ; l’ETag est exposé
+par CORS. Le navigateur conserve le couple fichier/ETag, réutilise le corps sur
+`304` et renouvelle la requête sans validateur si ce corps manque.
+
+REST et le protocole Tauri renvoient un fichier complet mis en mémoire. Une
+récupération ou traduction lente garde la requête en attente jusqu’à sa fin ou
+au délai maximal, sans flux de progression. Le front construit l’URL avec la
+base API configurée ou le préfixe de l’application, sans appel JSON préalable.
 
 ### Statuts HTTP
 
@@ -456,8 +451,6 @@ lors des rechargements du scraper.
 |---|---|
 | Descripteur invalide, format ou document invalide | `400 Bad Request` |
 | Accès refusé | `403 Forbidden` |
-| Jeton expiré encore résoluble | `410 Gone` |
-| Jeton inconnu ou purgé | `404 Not Found` |
 | Document, cues ou unités au-delà des bornes | `413 Payload Too Large` |
 | `HEAD` | `405 Method Not Allowed` |
 | Source indisponible ou récupération échouée | `502 Bad Gateway` |
@@ -469,9 +462,11 @@ lors des rechargements du scraper.
 `Cache-Control: private, no-cache` est proposé pour conserver le corps tout en
 revalidant avec `If-None-Match`. Une réponse `304` est vide et conserve l'ETag.
 
+Les playlists média HLS finies de sous-titres WebVTT sont également acceptées. Le frontend découvre les URL via VHS et privilégie les pistes complètes aux pistes forcées. Le backend assemble les segments, normalise les horodatages via X-TIMESTAMP-MAP et déduplique les cues. Les options proxy sont conservées et chaque requête vérifie les destinations publiques. Les limites cumulées de taille et de cues restent appliquées ; l’assemblage est limité à 4096 segments et 120 secondes. Le direct, le chiffrement, les discontinuités, les plages d’octets et les cartes d’initialisation sont refusés. La revalidation utilise le hash du document assemblé, jamais le seul ETag de la playlist. Un fournisseur capable de traduire du texte est nécessaire ; la playlist n’est pas envoyée au mode de traduction par URL.
+
 ## 10. Hors périmètre du socle
 
-SRT reste derrière une extension explicite. Les sous-titres HLS/DASH intégrés,
+SRT reste derrière une extension explicite. Les sous-titres DASH intégrés,
 le direct, TTML/ASS, la transcription audio, les iframes sans piste externe, les
 modes URL avec tâche différée, l'upload de documents, un fournisseur supplémentaire
 et le regroupement linguistique entre cues demandent une analyse séparée.

@@ -7,7 +7,7 @@ import {
   type VideoJsMediaRendererProps,
 } from '@/composables/video/useVideoJsMediaRenderer'
 import { markImageUrlFailed, resolveImageUrl } from '@/composables/media/useFailedImageUrls'
-import { getLanguageNativeName } from '@/services/languages'
+import { formatLanguageLabel, isKnownLanguageCode } from '@/services/languages'
 import { useI18n } from '@/i18n'
 
 import MediaCardDetailsContent from '@/components/media-card/MediaCardDetailsContent.vue'
@@ -209,7 +209,7 @@ const previewedNavigationImageUrl = computed(() => {
 /** Localized name of the subtitle translation target, or an empty string. */
 const subtitleTranslationLanguageLabel = computed(() => {
   const language = subtitleTranslationLanguage.value
-  return language ? getLanguageNativeName(language) ?? language.toLocaleUpperCase() : ''
+  return language ? (isKnownLanguageCode(language) ? formatLanguageLabel(language) : language.toLocaleUpperCase()) : ''
 })
 </script>
 

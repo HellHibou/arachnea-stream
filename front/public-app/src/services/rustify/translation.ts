@@ -1,7 +1,5 @@
 import { t } from '@/i18n'
 import type {
-  PreparedSubtitleTranslation,
-  SubtitleTranslationLanguageRequest,
   SubtitleTranslationPolicy,
   TranslationCatalog,
   TranslationLanguagePair,
@@ -31,38 +29,6 @@ export async function getTranslationServices(): Promise<TranslationCatalog> {
   }
 
   return catalog
-}
-
-/**
- * Prepares one subtitle translation descriptor without retrieving or translating.
- *
- * @param request Language request carrying the authorized source track.
- * @returns Track-shaped link and metadata accepted by the player contract.
- */
-export async function prepareSubtitleTranslation(
-  request: SubtitleTranslationLanguageRequest,
-): Promise<PreparedSubtitleTranslation> {
-  const targetLanguage = normalizeTranslationLanguage(request.targetLanguage)
-  if (!targetLanguage) {
-    throw new Error('Invalid subtitle translation target language.')
-  }
-  const sourceLanguage = normalizeTranslationLanguage(request.sourceLanguage)
-  const trackId = normalizeOptionalText(request.source.trackId)
-  const response = await call_api<unknown>('prepare_subtitle_translation', {
-    url: request.source.url,
-    ...(trackId ? { track_id: trackId } : {}),
-    ...(sourceLanguage ? { source_language: sourceLanguage } : {}),
-    target_language: targetLanguage,
-    ...(request.policy ? { policy: toBackendPolicy(request.policy) } : {}),
-    ...(request.source.format ? { format: request.source.format } : {}),
-  })
-
-  const prepared = normalizePreparedSubtitleTranslation(response)
-  if (!prepared) {
-    throw new Error(t('errors.unexpectedSubtitleTranslationResponse'))
-  }
-
-  return prepared
 }
 
 /**
@@ -172,37 +138,12 @@ function normalizeSupportedPairs(value: unknown): TranslationLanguagePair[] | nu
 }
 
 /**
- * Normalizes one preparation response into the existing player track contract.
- *
- * @param payload Raw backend payload.
- * @returns Prepared track metadata, or `null` when the required fields are missing.
- */
-function normalizePreparedSubtitleTranslation(payload: unknown): PreparedSubtitleTranslation | null {
-  if (!isJsonRecord(payload)) {
-    return null
-  }
-
-  const link = firstNonEmptyString([payload.link])
-  const lang = firstNonEmptyString([payload.lang])
-  if (!link || !lang) {
-    return null
-  }
-
-  return {
-    link,
-    lang,
-    label: firstNonEmptyString([payload.label]) ?? lang.toLocaleUpperCase(),
-    autoTranslate: true,
-  }
-}
-
-/**
  * Converts the frontend policy model into the backend wire shape.
  *
  * @param policy Automatic or constrained selection policy.
  * @returns Backend-compatible policy object.
  */
-function toBackendPolicy(policy: SubtitleTranslationPolicy): Record<string, unknown> {
+export function toBackendPolicy(policy: SubtitleTranslationPolicy): Record<string, unknown> {
   if (policy.mode === 'constrained') {
     return { mode: 'constrained', service_id: policy.serviceId }
   }
@@ -230,7 +171,7 @@ function normalizeOptionalText(value: unknown): string | null {
  * @param value Raw optional language code.
  * @returns Two-letter lowercase code, or `null` when missing or unsupported.
  */
-function normalizeTranslationLanguage(value: unknown): string | null {
+export function normalizeTranslationLanguage(value: unknown): string | null {
   const normalized = normalizeOptionalText(value)
   if (!normalized) {
     return null

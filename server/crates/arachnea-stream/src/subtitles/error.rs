@@ -9,7 +9,7 @@ use http::StatusCode;
 /// error is never serialized as a WebVTT body.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum SubtitleTranslationError {
-    /// A descriptor, token or revalidation identity is structurally invalid.
+    /// A descriptor or revalidation identity is structurally invalid.
     #[error("invalid subtitle translation descriptor: {detail}")]
     InvalidDescriptor {
         /// Human-readable detail.
@@ -18,9 +18,6 @@ pub enum SubtitleTranslationError {
     /// The caller does not own the requested access scope.
     #[error("subtitle translation access denied")]
     AccessDenied,
-    /// The prepared token expired.
-    #[error("subtitle translation token expired")]
-    TokenExpired,
     /// The source format is unsupported.
     #[error("unsupported subtitle format {media_type}")]
     UnsupportedFormat {
@@ -91,7 +88,6 @@ impl SubtitleTranslationError {
             | Self::UnsupportedFormat { .. }
             | Self::InvalidDocument { .. } => StatusCode::BAD_REQUEST,
             Self::AccessDenied => StatusCode::FORBIDDEN,
-            Self::TokenExpired => StatusCode::GONE,
             Self::DocumentTooLarge { .. }
             | Self::TooManyCues { .. }
             | Self::TooManyUnits { .. } => StatusCode::PAYLOAD_TOO_LARGE,

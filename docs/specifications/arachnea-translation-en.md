@@ -20,7 +20,7 @@ add browser storage and the user interface.
 | Layer | Responsibilities | Prohibitions |
 |---|---|---|
 | `arachnea-translation` | Two-letter languages, abstract blocks, capabilities and limits, metadata, selection, planning, translation revision identity, Scrapyfy bridge. | No knowledge of WebVTT, cues, players or video tracks. No provider-specific Rust. |
-| `arachnea-stream` | Rights, proxy-link resolution, catalogs, REST/Tauri assembly and file transport, plus its `subtitles` module: source descriptors, WebVTT parsing/serialization, cue segmentation and document planning, persistent descriptor and token, authorized conditional retrieval, composite validator and HTTP statuses. | No provider mapping or provider-specific Rust; no unrestricted network access. |
+| `arachnea-stream` | Rights, proxy-link resolution, catalogs, REST/Tauri assembly and file transport, plus its `subtitles` module: source descriptors, WebVTT parsing/serialization, cue segmentation and document planning, in-memory descriptor, authorized conditional retrieval, source validator and HTTP statuses. | No provider mapping or provider-specific Rust; no unrestricted network access. |
 | Public front | Preferences, translation request decision, Video.js lifecycle. | No credentials or provider protocol. |
 
 Providers are described and executed exclusively by Scrapyfy. The generic
@@ -345,29 +345,27 @@ SRT is still not part of the initial path and is never served as raw WebVTT.
 
 ## 8. Browser cache and validators
 
-The generic `TranslationRevision` records requested source and target languages,
-service identity, YAML hash, configuration and pipeline revisions, and an opaque
-fingerprint of output-affecting options. Stream's `SubtitleTranslationValidator`
-adds the source validator, opaque source and access-scope fingerprints, format,
-parser and subtitle pipeline revisions. The composite ETag is weak, versioned,
-URL-safe base64-encoded JSON and limited to 4096 bytes. Its payload is visible:
-never include credentials, signed URLs or other secret values. The catalog exposes
-an optional `service_yaml_hash`; without it a reliable validator cannot be built.
+Stream's weak ETag follows Scrapyfy's single-fragment convention:
+`W/"SOURCE=E:<yaml-hash>-<encoded-upstream-etag>"` when the source supplies an
+ETag, or `W/"SOURCE=C:<yaml-hash>-<timestamp>-<content-hash>"` otherwise.
+`SOURCE` is the selected translation service ID and `yaml-hash` is its YAML
+hash. `timestamp` is the upstream `Last-Modified` date in Unix seconds, or `0`
+when absent or unusable; the content hash is XXH3-128/base62. The fragment uses
+the existing Scrapyfy encoding and helpers; ETags are limited to 4096 bytes.
 
-The source validator contains either the upstream HTTP ETag or a hash of the
-source bytes with an optional `Last-Modified` value. The retrieval port accepts
-this validator and distinguishes an unchanged source from a complete document;
-the caller must compare bytes when the source supplies no usable validator.
-Client-supplied tags do not authorize access or establish freshness. They must be
-checked against the authorized request and revalidated with the source. The
-browser retains translated bytes; these contracts do not provide a server-side
-translated-document store. If the browser loses its body, a new translation is
-required. Public conditional HTTP transport and browser cache integration remain planned.
+Languages and URL-carried options are isolated by the URL cache key. The ETag
+does not include these parameters or configuration, pipeline or access-scope
+revisions. Consequently, a configuration or pipeline change that does not alter
+the URL or the service YAML does not itself invalidate a cached file. The former
+`st1.` tag is no longer accepted and causes a new translation. The encoded
+upstream ETag remains readable and does not prove access rights. The server
+checks rights, policy and service eligibility separately, then revalidates the
+source before returning `304`. No translated file or document index is retained
+server-side.
 
 Stream revalidates an authorized descriptor before provider execution and can
 translate a complete WebVTT document using the generic text or URL bridge. The
-application facade supplies one catalog/configuration snapshot and fingerprints
-source headers, options and local limits. Direct HTTP and application proxy
+application facade supplies one catalog/configuration snapshot. Direct HTTP and application proxy
 sources validate and pin public DNS addresses at each hop. Internal proxy URLs
 are decoded without requesting a local controller endpoint; routing parameters,
 cookies, actions, classifiers and allowlisted TLS options are preserved. The
@@ -392,43 +390,43 @@ by lot 6 and documented in section 9.
 | Command | Purpose |
 |---|---|
 | `get_translation_services` | Public catalog of usable services, capabilities and languages; no secret. |
-| `prepare_subtitle_translation` | Checks rights and candidates, then produces a descriptor and token without retrieving or translating the document. |
-| `GET <public-path>/subtitle_translation/<token>.vtt` | Returns a complete WebVTT file and composite ETag, or `304` after successful source and context revalidation. |
-| `HEAD` on the same path | Returns `405` without retrieval or translation. |
+| `GET <public-path>/translate_subtitle?...` | Validates the request and directly returns complete WebVTT with its provider/source ETag, or `304` after source and YAML revalidation. |
+| `HEAD` on the same path | Returns `405` with `Allow: GET` without retrieval or translation. |
 
-The token is opaque, derived deterministically from the authorized access
-scope, source descriptor, languages and selection policy, and contains no source
-URL or credential. Repeated preparation of the same request keeps the same URL
-while its descriptor is retained; expiry or descriptor eviction requires a new
-preparation. Access is checked again on download, and one user's token cannot
-access another user's private subtitles. The access scope is the trusted client
-IP for REST (loopback shares the local scope) and the local scope for Tauri IPC.
-Clients sharing one IP, such as behind a reverse proxy or NAT, share the same
-scope; per-user isolation then requires an authenticated scope rather than this
-initial transport. Errors are never served as a WebVTT file.
+A single request carries `url`, `target_language` and optional `track_id`,
+`source_language`, `policy` and `format` query parameters. Values are JSON-encoded
+then URL-encoded, matching the JSON command convention; unquoted plain string
+values are also accepted. `policy` contains `{"mode":"auto"}` (with optional
+`preferred_service`) or `{"mode":"constrained","service_id":"…"}`. The default
+format is `webvtt`. Only WebVTT is supported. Duplicate parameters return `400`.
 
-The preparation commands never retrieve the source, detect a language or call a
-provider. Preparation accepts a direct HTTP(S) URL or a recognized application
-proxy link and only rejects structurally invalid locations. It verifies that at
-least one enabled text-capable service supports the requested pair (or source
-detection when the source language is omitted), but it does not select the final
-provider in automatic mode. Only WebVTT is accepted initially.
+The transport builds an in-memory descriptor per request and validates the
+direct HTTP(S) or application-proxy URL, languages and eligible services before
+authorized retrieval. No token, descriptor or translated file is persisted.
+The former JSON preparation and tokenized download routes are removed without
+backward compatibility.
 
-`If-None-Match` accepts lists and weak validators, evaluating each candidate as
-a whole; components from different tags are never mixed. A wildcard `*` carries
-no source validator, so it never proves source stability and the file is
-translated again. Successful `200` and `304` responses carry the composite ETag
-and `Cache-Control: private, no-cache`; the ETag is exposed through CORS for
-cross-origin deployments. `HEAD` returns `405` with `Allow: GET` before any
-descriptor read, retrieval or translation. Expired descriptors are normally
-purged, so unknown and purged tokens answer `404`; a descriptor still readable
-after its logical expiry answers `410`.
+The request access scope remains the trusted client IP for REST (loopback
+shares the local scope) and the local scope for the Tauri protocol; it is not
+included in the ETag. Clients
+sharing an IP share this scope; per-user isolation requires an authenticated
+scope. Network, proxy and redirect controls still apply. Errors are returned
+as text, never as WebVTT files.
 
-Both transports return one complete buffered file, never a partial WebVTT
-document. Tauri collects that buffer before replying to the IPC call, so a slow
-source retrieval or provider execution keeps the call pending until completion
-or timeout and exposes no progress stream. REST returns the same buffered body;
-the configured public path prefix is preserved across scraper reloads.
+`If-None-Match` accepts weak validators and examines at most 32 candidates. It
+selects the first tag with a compatible service, YAML and language pair, so a
+later candidate may be ignored even when its source matches. A wildcard `*` does
+not prove source stability and triggers a complete translation. Successful
+revalidation returns an empty `304` without calling a provider. Translated
+`200 text/vtt` and `304` responses carry the provider/source ETag and
+`Cache-Control: private, no-cache`, with the ETag exposed through CORS. The
+browser keeps the file/ETag pair, reuses the body on `304`, and retries without
+a validator when that body is missing.
+
+REST and the Tauri protocol return a complete buffered file. Slow retrieval or
+translation keeps the request pending until completion or timeout, without a
+progress stream. The frontend builds the URL from the configured API base or
+application prefix without a preliminary JSON call.
 
 ### HTTP statuses
 
@@ -436,8 +434,6 @@ the configured public path prefix is preserved across scraper reloads.
 |---|---|
 | Invalid descriptor, format or document | `400 Bad Request` |
 | Access denied | `403 Forbidden` |
-| Expired but still resolvable token | `410 Gone` |
-| Unknown or purged token | `404 Not Found` |
 | Document, cue or unit bounds exceeded | `413 Payload Too Large` |
 | `HEAD` | `405 Method Not Allowed` |
 | Source unavailable or retrieval failed | `502 Bad Gateway` |
@@ -450,9 +446,11 @@ the configured public path prefix is preserved across scraper reloads.
 revalidating with `If-None-Match`. A `304` response has no body and keeps the
 ETag.
 
+Finite HLS WebVTT subtitle media playlists are also accepted as sources. The frontend discovers rendition URLs through VHS and prefers complete tracks over forced tracks. The backend assembles segments with timestamp-map normalization and duplicate cue removal, preserving proxy options and applying public-destination checks to every request. Aggregate bytes/cues remain bounded; assembly is limited to 4096 segments and 120 seconds. Live playlists, encryption, discontinuities, byte ranges and initialization maps are rejected. Revalidation uses the assembled content hash, never the playlist ETag alone. Assembled documents require a text-capable translation provider; the playlist URL is never sent for provider URL translation.
+
 ## 10. Out of scope
 
-SRT remains behind an explicit extension. Integrated HLS/DASH subtitles, live
+SRT remains behind an explicit extension. Integrated DASH subtitles, live
 streams, TTML/ASS, audio transcription, iframes without an external track, URL
 modes with deferred tasks, document upload, additional providers and
 cross-cue linguistic grouping require a separate analysis.

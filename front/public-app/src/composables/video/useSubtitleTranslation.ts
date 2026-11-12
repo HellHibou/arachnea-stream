@@ -2,7 +2,6 @@ import { computed, onScopeDispose, shallowRef } from 'vue'
 
 import { t } from '@/i18n'
 import { getBaseLanguageCode, normalizeLanguageCode } from '@/services/languages'
-import { prepareSubtitleTranslation } from '@/services/rustify'
 import {
   fetchSubtitleTranslationFile,
   SubtitleTranslationFileError,
@@ -126,19 +125,11 @@ export function useSubtitleTranslation(options: UseSubtitleTranslationOptions) {
     const sourceLanguage = toTranslationLanguageCode(request.sourceLanguage)
 
     try {
-      const prepared = await prepareSubtitleTranslation({
-        ...request,
-        targetLanguage: target,
-        sourceLanguage,
-      })
-      if (!isCurrent(operationId)) {
-        return null
-      }
-
       status.value = 'downloading'
-      const downloaded = await fetchSubtitleTranslationFile(prepared, {
-        signal: controller.signal,
-      })
+      const downloaded = await fetchSubtitleTranslationFile(
+        { ...request, targetLanguage: target, sourceLanguage },
+        { signal: controller.signal },
+      )
       if (!isCurrent(operationId)) {
         return null
       }
@@ -146,7 +137,7 @@ export function useSubtitleTranslation(options: UseSubtitleTranslationOptions) {
       const label = request.label?.trim() || downloaded.label
       const file: SubtitleTranslationFile = {
         blob: downloaded.blob,
-        lang: prepared.lang,
+        lang: downloaded.lang,
         label,
         etag: downloaded.etag,
       }
@@ -161,7 +152,7 @@ export function useSubtitleTranslation(options: UseSubtitleTranslationOptions) {
         )
       }
 
-      targetLanguage.value = prepared.lang
+      targetLanguage.value = downloaded.lang
       status.value = 'ready'
       return file
     } catch (error) {

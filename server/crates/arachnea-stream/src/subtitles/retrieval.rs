@@ -78,6 +78,43 @@ impl SubtitleRetrievalPort for SubtitleHttpRetrieval {
         _access_scope: &AccessScope,
         validator: Option<&SubtitleSourceValidator>,
     ) -> Result<SubtitleRetrievalOutcome, SubtitleTranslationError> {
+        let result = self.retrieve_raw(source, validator).await?;
+        match result {
+            SubtitleRetrievalOutcome::Modified(document)
+                if document.bytes.starts_with(b"#EXTM3U") =>
+            {
+                tokio::time::timeout(
+                    Duration::from_secs(crate::SUBTITLE_HLS_TIMEOUT_SECONDS),
+                    super::hls::assemble(
+                        self,
+                        source,
+                        document,
+                        self.limits,
+                        self.proxy_public_path.as_deref(),
+                    ),
+                )
+                .await
+                .map_err(|_| retrieval_error("HLS subtitle assembly timed out"))?
+            }
+            other => Ok(other),
+        }
+    }
+}
+
+impl SubtitleHttpRetrieval {
+    /// Retrieves one bounded resource using the same destination and proxy policies.
+    ///
+    /// # Arguments
+    /// * `source` - Authorized resource descriptor.
+    /// * `validator` - Optional conditional validator for this resource only.
+    ///
+    /// # Errors
+    /// Returns destination, transport or size failures.
+    pub(super) async fn retrieve_raw(
+        &self,
+        source: &SubtitleSourceDescriptor,
+        validator: Option<&SubtitleSourceValidator>,
+    ) -> Result<SubtitleRetrievalOutcome, SubtitleTranslationError> {
         if let (Some(core), Some(prefix)) = (&self.proxy_core, &self.proxy_public_path) {
             if let Some(suffix) = source
                 .url

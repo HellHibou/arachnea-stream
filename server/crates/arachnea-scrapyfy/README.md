@@ -515,3 +515,9 @@ and query mappings, then reuse execution's URL and body action resolvers. Only
 one root URL is accepted. Static queries and non-POST requests are rejected;
 credentials and bodies remain internal. Translation selection uses this API
 instead of estimating a provider payload from intermediate block JSON.
+
+
+The loaded source exposes both the raw YAML-file hash and the effective
+configuration identity. Existing Scrapyfy conditional fragments continue using
+the effective identity, including editable overrides; callers can separately
+request the file-only hash when their contract requires it.

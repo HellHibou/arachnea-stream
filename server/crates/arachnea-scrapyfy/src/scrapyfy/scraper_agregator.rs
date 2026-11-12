@@ -693,6 +693,27 @@ impl ScraperAgregator {
             .map(ScraperQueryCollection::yaml_hash)
     }
 
+    /// Returns the loaded source file hash without effective parameter overrides.
+    ///
+    /// # Arguments
+    /// * `group_name` - Group containing the source.
+    /// * `source_name` - Source identifier to inspect.
+    ///
+    /// # Returns
+    /// The raw YAML hash, or `None` when the source or its file hash is unavailable.
+    pub fn source_yaml_file_hash(&self, group_name: &str, source_name: &str) -> Option<&str> {
+        self.queries_collection
+            .get(group_name)
+            .and_then(|group| {
+                group
+                    .services
+                    .iter()
+                    .find(|collection| collection.name() == source_name)
+            })
+            .map(ScraperQueryCollection::yaml_file_hash)
+            .filter(|hash| !hash.is_empty())
+    }
+
     /// Returns whether one loaded source declares a named query.
     ///
     /// # Arguments

@@ -348,3 +348,42 @@ navigation in its rails, includes live and collection rails, and preserves card
 order. Its static `get_live` emits the existing live resolver without a catalogue
 request. Search/recommendation media anchors and saved custom-home formats remain
 compatible. Actual authorized playback still depends on the provider.
+
+
+Subtitle translation choices use the same English-name/native-name label before
+and after generation, for example `French - Français (Automatic translation)`.
+The automatic translation marker follows the interface language. The native
+subtitle menu grows to fit its labels up to 70% of the viewport width, then wraps
+long entries to keep them readable.
+Translation targets remain visible while generation is in progress; activating
+the pending target again does not restart the request.
+
+At the top of the subtitle menu, the delay field accepts positive or negative seconds in
+0.1-second increments. Positive values display subtitles later; negative values
+display them earlier. The delay applies to subtitle/caption cues, including newly
+loaded and translated tracks, for the lifetime of the player instance. It starts
+at zero for a new player and is never persisted in preferences or playback state.
+
+
+Automatic subtitle translation requires the retained track profile to use
+`auto` subtitles and the target language to be authorized in the ordered subtitle
+favorites. Enabling a language alone does not override a `disabled` profile or a
+manual subtitle choice. Reapplying track preferences clears those manual choices.
+An existing higher-priority subtitle also takes precedence over translating a
+lower-priority favorite. A supported external subtitle source and an enabled,
+configured translation service are required.
+
+Refreshing a media source object with the same video URL and subtitle tracks
+preserves an automatic or manual translation request while its catalog is
+loading. Changes to the video URL or subtitle tracks still invalidate that work.
+
+The renderer keeps its automatic subtitle evaluation callback across Video.js
+instance cleanup. Track preferences trigger evaluation on the first player
+creation and after a recreation, while pending requests and instance listeners
+are still released during cleanup.
+
+The REST server and desktop application embed the frontend in their executable.
+After `npm run build-only` in `front/public-app/`, rebuild the executable with
+`cargo build -p arachnea-stream --bin arachnea` in `server/`, restart the running
+application, and reload the browser. Rebuilding the frontend alone does not
+replace the assets embedded in an already running server.

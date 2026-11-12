@@ -363,6 +363,14 @@ export type VideoJsTextTrackHandle = {
   mode?: string
   /** Whether the playback engine generated this track by automatic translation. */
   autoTranslate?: boolean
+  /** Loaded subtitle or caption cues, unavailable until the track has loaded. */
+  cues?: TextTrackCueList | null
+  /** Observes remote cue loading. */
+  addEventListener?: (eventName: 'loadeddata', listener: () => void) => void
+  /** Stops observing remote cue loading. */
+  removeEventListener?: (eventName: 'loadeddata', listener: () => void) => void
+  /** Refreshes the emulated subtitle display after cue timing changes. */
+  trigger?: (eventName: 'cuechange') => void
 }
 
 /**

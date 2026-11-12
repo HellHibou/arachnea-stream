@@ -366,6 +366,7 @@ pub struct ScraperQueryCollection {
     parameter_defaults: HashMap<String, String>,
     queries: HashMap<String, ScraperQueryDefinition>,
     yaml_hash: String,
+    yaml_file_hash: String,
 }
 
 /// Source identity and display metadata supplied to a query collection constructor.
@@ -418,6 +419,7 @@ impl ScraperQueryCollection {
             parameter_defaults,
             queries: HashMap::new(),
             yaml_hash: String::new(),
+            yaml_file_hash: String::new(),
         };
 
         for query in queries {
@@ -469,6 +471,20 @@ impl ScraperQueryCollection {
     /// this identity so configuration edits invalidate unchanged remote responses.
     pub fn yaml_hash(&self) -> &str {
         &self.yaml_hash
+    }
+
+    /// Returns the base62 hash of the loaded YAML file without parameter overrides.
+    pub fn yaml_file_hash(&self) -> &str {
+        &self.yaml_file_hash
+    }
+
+    /// Records the hash of the exact YAML bytes loaded for this collection.
+    ///
+    /// # Arguments
+    /// * `hash` - Base62 hash of the source file without effective overrides.
+    pub(crate) fn set_yaml_file_hash(&mut self, hash: String) -> &mut Self {
+        self.yaml_file_hash = hash;
+        self
     }
 
     /// Returns whether this source declares a query with the supplied name.

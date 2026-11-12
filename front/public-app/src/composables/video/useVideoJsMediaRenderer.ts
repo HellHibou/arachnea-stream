@@ -14,7 +14,7 @@ import { t } from '@/i18n'
 import { markImageUrlFailed } from '@/composables/media/useFailedImageUrls'
 import { PLAYBACK_SAVE_STEP_SECONDS, REMAINING_TIME_CLASS } from './video-js-media-renderer/constants'
 import {
-  installAdaptiveControlBarMenuPositioning, installTimerToggle, syncPrevNextVideoControls,
+  installAdaptiveControlBarMenuPositioning, installExclusiveControlBarMenus, installTimerToggle, syncPrevNextVideoControls,
 } from './video-js-media-renderer/controls'
 import { installStableFullscreenBridge } from './video-js-media-renderer/fullscreen'
 import {
@@ -41,7 +41,7 @@ import { createSourceController } from './video-js-media-renderer/sourceControll
 import { createPlayerUiState } from './video-js-media-renderer/playerUiState'
 import type { VideoJsTrackSelectionConfig } from './video-js-media-renderer/trackPreferences'
 import { useSubtitleTranslationController } from './useSubtitleTranslationController'
-import { installSubtitleTranslationMenu } from './video-js-media-renderer/subtitleTranslationMenu'
+import { installAudioMenuFlags, installSubtitleTranslationMenu } from './video-js-media-renderer/subtitleTranslationMenu'
 
 export type {
   VideoJsMediaDimensions,
@@ -95,6 +95,24 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
   let evaluateSubtitleTranslation: ((player: VideoJsPlayer) => void) | null = null
   let ignoreNextPlayerStateEvent = false
   let ignoreNextPlayerStateEventTimer: number | null = null
+
+  watch(
+    () => [
+      t('player.subtitles.off'), t('player.subtitles.settings'),
+      t('player.subtitles.offset'), t('player.subtitles.offsetHint'),
+    ],
+    ([off, settings]) => {
+      videojs.addLanguage('arachnea', {
+        'captions and subtitles off': off,
+        'subtitles off': off,
+        'captions off': off,
+        'subtitles settings': settings,
+        'captions settings': settings,
+      })
+      refreshSubtitleTranslationMenu?.()
+    },
+    { immediate: true },
+  )
 
   /** Ignores the state event caused by a programmatic translated-track removal. */
   function suppressNextPlayerStateEvent() {
@@ -241,7 +259,6 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
     disposeSubtitleTranslationMenu?.()
     disposeSubtitleTranslationMenu = null
     refreshSubtitleTranslationMenu = null
-    evaluateSubtitleTranslation = null
     subtitleTranslation.resetForPlayer()
     sources.reset()
     player?.dispose()
@@ -260,6 +277,7 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
     ui.startSource()
 
     const player = videojs(element, {
+      language: 'arachnea',
       autoplay: props.autoplay ?? false,
       controls: props.controls ?? false,
       loop: props.loop ?? false,
@@ -318,6 +336,7 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
       storyboard.attach(player)
 
       if (props.controls) {
+        installAudioMenuFlags(player)
         void subtitleTranslation.ensureCatalog()
         const subtitleTranslationMenu = installSubtitleTranslationMenu(
           player,
@@ -412,6 +431,7 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
       syncDurationAvailabilityState(player)
       syncEpisodeAutoplayControl(player, props, emit, activePlayer)
       disableControlBarMenuHoverBehavior(player)
+      installExclusiveControlBarMenus(player)
       installAdaptiveControlBarMenuPositioning(player)
 
       /**

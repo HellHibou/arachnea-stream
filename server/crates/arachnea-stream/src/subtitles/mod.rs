@@ -16,6 +16,7 @@ pub mod cache;
 pub mod descriptor;
 pub mod document;
 pub mod error;
+mod hls;
 pub mod orchestration;
 pub mod pipeline;
 pub mod ports;
@@ -26,9 +27,7 @@ mod segments;
 pub mod webvtt;
 
 pub use cache::{SubtitleSourceValidator, SubtitleTranslationValidator};
-pub use descriptor::{
-    SubtitleTranslationDescriptor, SubtitleTranslationPreparation, SubtitleTranslationToken,
-};
+pub use descriptor::SubtitleTranslationDescriptor;
 pub use document::{
     LocalSubtitleLimits, RetrievedSubtitle, SubtitleDocumentStats, SubtitleFormat,
     SubtitleRetrievalOutcome, SubtitleSourceDescriptor, TranslatedSubtitleDocument,

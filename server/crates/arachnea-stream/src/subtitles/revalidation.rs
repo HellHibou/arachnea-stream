@@ -1,9 +1,7 @@
 //! Authorized, conditional source revalidation before provider execution.
 
 use arachnea_scrapyfy::scrapyfy::conditional::hash62;
-use arachnea_translation::{
-    AccessScope, LanguageCode, SelectionPolicy, TRANSLATION_PIPELINE_REVISION,
-};
+use arachnea_translation::{AccessScope, LanguageCode, SelectionPolicy};
 
 use super::{
     LocalSubtitleLimits, RetrievedSubtitle, SubtitleRetrievalOutcome, SubtitleRetrievalPort,
@@ -11,14 +9,13 @@ use super::{
     SubtitleTranslationValidator,
 };
 use crate::translation_catalog::{TranslationCatalog, TranslationCatalogEntry};
-use crate::{SUBTITLE_TRANSLATION_PIPELINE_REVISION, WEBVTT_PARSER_REVISION};
 
 /// Result of checking a browser-held representation against its source.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SubtitleRevalidation {
     /// The client representation remains usable and needs no provider call.
     NotModified {
-        /// Previously issued composite ETag, including its weak prefix.
+        /// Previously issued provider/source ETag, including its weak prefix.
         etag: String,
     },
     /// A complete authorized source is available for translation.
@@ -36,14 +33,10 @@ pub struct SubtitleRevalidationRequest<'a> {
     pub descriptor: &'a SubtitleTranslationDescriptor,
     /// Access scope belonging to the current caller.
     pub access_scope: &'a AccessScope,
-    /// Current Unix time, used to reject expired descriptors.
-    pub now_unix_seconds: u64,
-    /// Single composite validator supplied by the client, if any.
+    /// Single provider/source validator supplied by the client, if any.
     pub client_etag: Option<&'a str>,
     /// Current provider catalog, already filtered for activation and credentials.
     pub catalog: &'a TranslationCatalog,
-    /// Opaque fingerprint of output-affecting options and source headers.
-    pub context_fingerprint: &'a str,
     /// Maximum source document size and other local limits.
     pub limits: LocalSubtitleLimits,
 }
@@ -51,8 +44,7 @@ pub struct SubtitleRevalidationRequest<'a> {
 /// Revalidates a subtitle source without invoking a translation provider.
 ///
 /// The retrieval implementation must enforce destination, redirect, proxy and
-/// header policies. A caller may only supply a fingerprint derived from trusted
-/// options. The descriptor is checked before retrieval and no result body is
+/// header policies. The descriptor is checked before retrieval and no result body is
 /// stored by this function. HTTP list and wildcard handling belongs to the
 /// transport layer.
 ///
@@ -63,7 +55,7 @@ pub struct SubtitleRevalidationRequest<'a> {
 ///
 /// # Errors
 ///
-/// Returns access, expiry, retrieval, size or invalid-source errors.
+/// Returns access, retrieval, size or invalid-source errors.
 pub async fn revalidate_subtitle(
     retrieval: &dyn SubtitleRetrievalPort,
     request: SubtitleRevalidationRequest<'_>,
@@ -71,31 +63,22 @@ pub async fn revalidate_subtitle(
     let descriptor = request.descriptor;
     descriptor.validate()?;
     descriptor.authorize(request.access_scope)?;
-    if descriptor.is_expired(request.now_unix_seconds) {
-        return Err(SubtitleTranslationError::TokenExpired);
-    }
-    if request.context_fingerprint.trim().is_empty() {
-        return Err(SubtitleTranslationError::InvalidDescriptor {
-            detail: "translation context fingerprint must not be blank".into(),
-        });
-    }
-    let source_fingerprint = source_identity(descriptor)?;
-    let scope_fingerprint = hash62(request.access_scope.as_str().as_bytes());
     let prior = request.client_etag.and_then(|etag| {
         let validator = SubtitleTranslationValidator::from_etag(etag).ok()?;
-        let service = request.catalog.service(&validator.translation.service_id)?;
-        if matches_context(
-            &validator,
-            descriptor,
-            service,
-            &source_fingerprint,
-            &scope_fingerprint,
-            request.context_fingerprint,
-        ) {
-            Some(validator)
-        } else {
-            None
-        }
+        let service = request.catalog.service(&validator.service_id)?;
+        let allowed = match &descriptor.policy {
+            SelectionPolicy::Constrained { service_id } => service_id == &service.service_id,
+            SelectionPolicy::Auto { .. } => true,
+        };
+        (allowed
+            && (service.supports_text_translation || service.supports_url_translation)
+            && service_supports_pair(
+                service,
+                descriptor.source_language.as_ref(),
+                &descriptor.target_language,
+            )
+            && service.service_yaml_hash.as_deref() == Some(validator.service_yaml_hash.as_str()))
+        .then_some(validator)
     });
     let outcome = retrieval
         .retrieve(
@@ -166,18 +149,6 @@ pub async fn revalidate_subtitle(
     }
 }
 
-/// Fingerprints the complete source descriptor, including URL and format.
-fn source_identity(
-    descriptor: &SubtitleTranslationDescriptor,
-) -> Result<String, SubtitleTranslationError> {
-    let bytes = serde_json::to_vec(&descriptor.source).map_err(|_| {
-        SubtitleTranslationError::InvalidDescriptor {
-            detail: "unable to encode source identity".into(),
-        }
-    })?;
-    Ok(hash62(&bytes))
-}
-
 /// Returns whether one service can translate the requested language pair.
 ///
 /// # Arguments
@@ -207,40 +178,4 @@ pub(crate) fn service_supports_pair(
                     })
             }
         }
-}
-
-/// Checks the client tag against the active, authorized request and service.
-fn matches_context(
-    validator: &SubtitleTranslationValidator,
-    descriptor: &SubtitleTranslationDescriptor,
-    service: &TranslationCatalogEntry,
-    source_fingerprint: &str,
-    scope_fingerprint: &str,
-    context_fingerprint: &str,
-) -> bool {
-    let translation = &validator.translation;
-    let allowed = match &descriptor.policy {
-        SelectionPolicy::Constrained { service_id } => service_id == &service.service_id,
-        SelectionPolicy::Auto { .. } => true,
-    };
-    let pair = service_supports_pair(
-        service,
-        descriptor.source_language.as_ref(),
-        &descriptor.target_language,
-    );
-    allowed
-        && pair
-        && (service.supports_text_translation || service.supports_url_translation)
-        && validator.source_fingerprint == source_fingerprint
-        && validator.access_scope_fingerprint == scope_fingerprint
-        && validator.document_format == descriptor.source.format.media_type()
-        && validator.parser_revision == WEBVTT_PARSER_REVISION
-        && validator.subtitle_pipeline_revision == SUBTITLE_TRANSLATION_PIPELINE_REVISION
-        && translation.source_language == descriptor.source_language
-        && translation.target_language == descriptor.target_language
-        && translation.service_id == service.service_id
-        && service.service_yaml_hash.as_deref() == Some(translation.service_yaml_hash.as_str())
-        && translation.service_configuration_revision == service.configuration_revision
-        && translation.pipeline_revision == TRANSLATION_PIPELINE_REVISION
-        && translation.context_fingerprint == context_fingerprint
 }

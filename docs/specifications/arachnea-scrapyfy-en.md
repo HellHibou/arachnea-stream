@@ -2334,3 +2334,12 @@ The Rust APIs `ScraperQueryCollection::measure_query_body` and
 URL and body construction, including `request_body_actions`. They return only
 the root POST body byte count, without HTTP or exposing credentials, and reject
 static/non-POST queries or multiple root URLs. This adds no YAML field.
+
+
+### Loaded YAML identity
+
+The runtime exposes the hash of the exact loaded YAML bytes separately from
+the effective source identity that includes editable parameter overrides.
+Existing Scrapyfy cache fragments continue to use the effective identity;
+consumers that explicitly need the file-only hash can request it separately.
+This adds no YAML schema field.

@@ -85,15 +85,68 @@
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-subs-caps-button.vjs-menu-button-popup .vjs-menu) {
   width: max-content;
   min-width: 10em;
+  max-width: 70vw;
 }
 
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-subs-caps-button.vjs-menu-button-popup .vjs-menu .vjs-menu-content) {
+  box-sizing: border-box;
   width: max-content;
   min-width: 100%;
+  max-width: 70vw;
+  max-height: min(35em, 60vh);
+  right: 0;
+  left: auto;
 }
 
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-subs-caps-button .vjs-menu-item-text) {
-  white-space: nowrap;
+  min-width: 0;
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-subs-caps-button .vjs-subtitle-menu-icon),
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-audio-button .vjs-subtitle-menu-icon) {
+  display: inline-block;
+  flex: 0 0 1.5em;
+  width: 1.5em;
+  margin-right: 0.4em;
+  text-align: center;
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-subtitle-offset-item label) {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65em;
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-subtitle-offset-item input) {
+  width: 6em;
+  padding: 0.25em 0.4em;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--bg-surface-strong);
+  color: var(--text-primary);
+  font: inherit;
+  outline: none;
+  box-shadow: none;
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-subtitle-offset-item input:focus) {
+  outline: none;
+  box-shadow: none;
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-subs-caps-button.vjs-menu-button-popup .vjs-menu .vjs-menu-content .vjs-subtitle-offset-item) {
+  align-items: center;
+  padding-top: 0.15rem;
+  padding-bottom: 0.15rem;
+  cursor: default;
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-menu .vjs-subtitle-offset-item:hover) {
+  background: transparent;
+  color: var(--text-secondary);
 }
 
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-menu-item.vjs-selected) {
@@ -103,8 +156,8 @@
   font-weight: bolder;
 }
 
-.videojs-media-host :deep(.arachnea-videojs-theme .vjs-menu-item:hover),
-.videojs-media-host :deep(.arachnea-videojs-theme .vjs-menu-item:focus-visible) {
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-menu-item:not(.vjs-subtitle-offset-item):hover),
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-menu-item:not(.vjs-subtitle-offset-item):focus-visible) {
   color: var(--text-primary) !important;
   background: var(--color-primary);
   border-radius: var(--radius);
@@ -155,9 +208,17 @@
 }
 
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-button:focus-visible),
-.videojs-media-host :deep(.arachnea-videojs-theme .vjs-menu-item:focus-visible) {
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-menu-item:not(.vjs-subtitle-offset-item):focus-visible) {
   outline: var(--common-focus-ring);
   outline-offset: 2px;
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme.vjs-controls-enabled .vjs-text-track-display) {
+  bottom: calc(var(--videojs-control-bar-height) + 1em);
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme.vjs-controls-enabled.vjs-user-inactive.vjs-playing .vjs-text-track-display) {
+  bottom: 1em;
 }
 
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-text-track-display > div > div > div) {
@@ -172,11 +233,10 @@
   border-radius: 5px !important;
 }
 
-.videojs-media-host :deep(.arachnea-videojs-theme .vjs-subs-caps-button .vjs-subtitle-translation-item) {
-  max-width: min(18em, 70vw);
-  white-space: normal;
-}
-
-.videojs-media-host :deep(.arachnea-videojs-theme .vjs-subs-caps-button .vjs-subtitle-translation-item .vjs-menu-item-text) {
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-subs-caps-button.vjs-menu-button-popup .vjs-menu .vjs-menu-content .vjs-menu-item) {
+  box-sizing: border-box;
+  display: flex !important;
+  justify-content: flex-start;
+  max-width: 100%;
   white-space: normal;
 }

@@ -70,28 +70,31 @@ Native GUI behavior and provider health require separate validation.
 
 ## Subtitle translation pipeline
 
+`GET <api-base>/translate_subtitle` directly returns complete `text/vtt` and a
+provider/source `ETag`, or an empty `304` after `If-None-Match` revalidation without
+provider execution. Its query accepts JSON-encoded `url`, `target_language`,
+optional `track_id`, `source_language`, `policy` and `format` (`webvtt` by default).
+The frontend retains the file/ETag pair. No preparation call, token route or
+persisted descriptor store remains. `HEAD` returns `405 Allow: GET` without work.
+
+
 `src/subtitles/` owns the subtitle document boundary inside Stream. It defines
 WebVTT and SRT media identifiers, source track descriptors, document format and
-statistics, the persistent translated-subtitle descriptor and its opaque token
-with expiry/access checks, an authorized conditional retrieval port, a versioned
-weak composite ETag (including source validator, YAML and pipeline revisions), HTTP status
+statistics, in-memory translation descriptors with access checks, an authorized conditional retrieval port, a
+weak provider/source ETag (including the source validator and service YAML hash), HTTP status
 mapping and the local document limits. It depends only on the generic
 `arachnea-translation` contracts and Stream’s generic translation bridge. The
 module contains no provider-specific mapping or player logic.
 
-A translated-subtitle validator encodes the upstream ETag or a source-content
-hash with optional `Last-Modified`, the service YAML hash and configuration
-revision, target language, non-secret source/access fingerprints and pipeline
-revisions. It is client-controlled and must be checked against authorized
-request context and revalidated against the source before use. The encoded
-payload is not encrypted; callers must exclude secrets. The catalog exposes an
-optional YAML hash; its absence prevents constructing a reliable validator.
-The retrieval port represents `NotModified` separately from a complete source
-body. `revalidate_subtitle` checks access, expiry, the active service and the
-composite validator before it invokes source retrieval. A `304` or matching
-source hash returns without selecting a provider. `translate_subtitle` segments
-per candidate, selects a text bridge using provider limits and budgets, and
-reconstructs a complete WebVTT document. No subtitle file is stored server-side.
+A translated subtitle uses `W/"SOURCE=E:<yaml-hash>-<encoded-upstream-etag>"`
+or `W/"SOURCE=C:<yaml-hash>-<timestamp>-<content-hash>"`. `SOURCE` is the
+translation service ID, the YAML hash identifies its definition and the source
+validator is rechecked before any provider call. Languages and caller options
+are isolated by the request URL; configuration, pipeline and access-scope
+revisions are not encoded. Changes to those values without a URL or YAML change
+do not invalidate an existing cached translation. The old `st1.` format forces
+a new translation. Access and service eligibility remain separately checked.
+No subtitle file is stored server-side.
 `SubtitleHttpRetrieval` validates and pins public DNS addresses at every hop.
 Direct sources use the HTTP client; known application proxy paths are decoded
 in-process by the shared proxy decoder and use the application routing core.
@@ -103,11 +106,15 @@ origins. Source and transformed-result byte counts are checked; proxy responses
 must honor `Accept-Encoding: identity`. Redirected or transformed sources use a
 content hash rather than replaying a validator from a different representation.
 
+Finite HLS WebVTT media playlists are assembled before translation, with timestamp-map
+normalization, duplicate cue removal and aggregate byte/cue bounds. Assembly is limited
+to 4096 segments and 120 seconds. Live, encrypted, discontinuous and byte-range
+playlists are rejected. Segment requests retain proxy routing and destination checks;
+revalidation hashes the assembled document. Provider URL mode is disabled for assembly.
+
 `StreamScraper::translate_subtitle` supplies the shared proxy runtime and holds
-one catalog/configuration snapshot for the complete request. It fingerprints
-source headers, caller context, route policy and local limits; sources requiring
-headers are excluded from provider URL translation. The lower-level API requires
-callers to supply that context fingerprint themselves.
+one catalog/configuration snapshot for the complete request. Sources requiring
+headers are excluded from provider URL translation.
 
 The orchestrator can use a provider URL capability when the caller explicitly
 marks the exact source URL public and credential-free; query strings, fragments,
@@ -115,8 +122,7 @@ redirects and unit-budgeted services disqualify that route. It checks the source
 afterward and rejects changed documents, altered cue structure, timing or markup.
 Local qualification covers text/URL execution and conditional retrieval using a
 simulated provider and HTTP proxy. Real providers remain to be qualified with
-credentials. No REST/Tauri file endpoint is registered until lot 6; its planned
-`HEAD` policy is `405` without retrieval or translation.
+credentials. The REST/Tauri file endpoint returns `405` to `HEAD` without retrieval or translation.
 
 Concurrent uncached requests can translate independently. Provider account
 budgets bound concurrency; no source/result index, durable lock or file cache

@@ -1,78 +1,13 @@
-//! Persistent subtitle translation descriptors and opaque tokens.
+//! In-memory descriptors of authorized subtitle translation requests.
 
 use super::document::SubtitleSourceDescriptor;
 use super::error::SubtitleTranslationError;
-use crate::DEFAULT_TOKEN_TTL_SECONDS;
-use arachnea_core::persistence::{
-    EntityReader, EntitySchema, EntityWriter, Field, PersistentEntity,
-};
 use arachnea_translation::{AccessScope, LanguageCode, SelectionPolicy};
 use serde::{Deserialize, Serialize};
-use std::time::{Duration, UNIX_EPOCH};
 
-/// Opaque token identifying a prepared subtitle translation.
-///
-/// The token is not a credential and must not contain a source URL. It has to
-/// remain stable for one authorized request so the browser HTTP cache stays
-/// useful, while backend renewal must resolve to the same result.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct SubtitleTranslationToken(String);
-
-impl SubtitleTranslationToken {
-    /// Creates a validated opaque token.
-    ///
-    /// # Arguments
-    ///
-    /// * `value` - Nonblank opaque token without whitespace.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`SubtitleTranslationError::InvalidDescriptor`] when the token
-    /// is blank or contains whitespace.
-    pub fn new(value: impl Into<String>) -> Result<Self, SubtitleTranslationError> {
-        let value = value.into();
-        if value.trim().is_empty() || value.chars().any(char::is_whitespace) {
-            return Err(SubtitleTranslationError::InvalidDescriptor {
-                detail: "subtitle translation token must be nonblank and contain no whitespace"
-                    .to_string(),
-            });
-        }
-        Ok(Self(value))
-    }
-
-    /// Returns the token as a string.
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-/// Inputs used to prepare a persistent subtitle translation descriptor.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SubtitleTranslationPreparation {
-    /// Opaque stable token.
-    pub token: SubtitleTranslationToken,
-    /// Source track descriptor.
-    pub source: SubtitleSourceDescriptor,
-    /// Known source language, or `None` when detection is requested.
-    pub source_language: Option<LanguageCode>,
-    /// Target language.
-    pub target_language: LanguageCode,
-    /// Automatic, preferred or constrained service policy.
-    pub policy: SelectionPolicy,
-    /// Access scope required to download the result.
-    pub access_scope: AccessScope,
-    /// Preparation time as Unix seconds.
-    pub now_unix_seconds: u64,
-    /// Optional lifetime; `None` uses [`DEFAULT_TOKEN_TTL_SECONDS`].
-    pub ttl_seconds: Option<u64>,
-}
-
-/// Persisted descriptor of one prepared subtitle translation.
+/// In-memory descriptor of one authorized subtitle translation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SubtitleTranslationDescriptor {
-    /// Opaque stable token.
-    pub token: SubtitleTranslationToken,
     /// Source track descriptor.
     pub source: SubtitleSourceDescriptor,
     /// Known source language, or `None` when detection is requested.
@@ -84,89 +19,23 @@ pub struct SubtitleTranslationDescriptor {
     pub policy: SelectionPolicy,
     /// Access scope required to download the result.
     pub access_scope: AccessScope,
-    /// Creation time as Unix seconds.
-    pub created_at_unix_seconds: u64,
-    /// Expiration time as Unix seconds.
-    pub expires_at_unix_seconds: u64,
 }
 
 impl SubtitleTranslationDescriptor {
-    /// Prepares a descriptor with a bounded lifetime.
-    ///
-    /// # Arguments
-    ///
-    /// * `preparation` - Token, source, languages, policy, access scope and
-    ///   lifetime inputs.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`SubtitleTranslationError::InvalidDescriptor`] for an invalid
-    /// source, a same-language request or a zero lifetime.
-    pub fn prepare(
-        preparation: SubtitleTranslationPreparation,
-    ) -> Result<Self, SubtitleTranslationError> {
-        let SubtitleTranslationPreparation {
-            token,
-            source,
-            source_language,
-            target_language,
-            policy,
-            access_scope,
-            now_unix_seconds,
-            ttl_seconds,
-        } = preparation;
-        source.validate()?;
-        if source_language.as_ref() == Some(&target_language) {
-            return Err(SubtitleTranslationError::InvalidDescriptor {
-                detail: "source and target languages are identical".to_string(),
-            });
-        }
-        let ttl_seconds = ttl_seconds.unwrap_or(DEFAULT_TOKEN_TTL_SECONDS);
-        if ttl_seconds == 0 {
-            return Err(SubtitleTranslationError::InvalidDescriptor {
-                detail: "subtitle translation token lifetime must be greater than zero".to_string(),
-            });
-        }
-        Ok(Self {
-            token,
-            source,
-            source_language,
-            target_language,
-            policy,
-            access_scope,
-            created_at_unix_seconds: now_unix_seconds,
-            expires_at_unix_seconds: now_unix_seconds.saturating_add(ttl_seconds),
-        })
-    }
-
     /// Validates the descriptor structure.
     ///
     /// # Errors
     ///
     /// Returns [`SubtitleTranslationError::InvalidDescriptor`] for an invalid
-    /// source or an inconsistent expiration.
+    /// source or identical source and target languages.
     pub fn validate(&self) -> Result<(), SubtitleTranslationError> {
         self.source.validate()?;
-        if self.expires_at_unix_seconds <= self.created_at_unix_seconds {
-            return Err(SubtitleTranslationError::InvalidDescriptor {
-                detail: "descriptor expiration must be after its creation".to_string(),
-            });
-        }
         if self.source_language.as_ref() == Some(&self.target_language) {
             return Err(SubtitleTranslationError::InvalidDescriptor {
                 detail: "source and target languages are identical".to_string(),
             });
         }
         Ok(())
-    }
-
-    /// Returns whether the token has expired.
-    ///
-    /// # Arguments
-    ///
-    /// * `now_unix_seconds` - Current Unix time in seconds.
-    pub fn is_expired(&self, now_unix_seconds: u64) -> bool {
-        now_unix_seconds >= self.expires_at_unix_seconds
     }
 
     /// Verifies that the caller owns the descriptor access scope.
@@ -184,39 +53,5 @@ impl SubtitleTranslationDescriptor {
         } else {
             Err(SubtitleTranslationError::AccessDenied)
         }
-    }
-}
-
-impl PersistentEntity for SubtitleTranslationDescriptor {
-    type Key = String;
-
-    fn key(&self) -> Self::Key {
-        self.token.as_str().to_string()
-    }
-
-    fn schema() -> EntitySchema {
-        EntitySchema::new()
-            .primary_key(Field::string("token"))
-            .field(Field::json("payload"))
-            .field(Field::date_time("expires_at").expiration().indexed())
-    }
-
-    fn write_to(&self, writer: &mut EntityWriter) -> anyhow::Result<()> {
-        writer.string("token", self.token.as_str())?;
-        writer.json("payload", serde_json::to_value(self)?)?;
-        writer.date_time(
-            "expires_at",
-            UNIX_EPOCH + Duration::from_secs(self.expires_at_unix_seconds),
-        )
-    }
-
-    fn read_from(reader: &EntityReader<'_>) -> anyhow::Result<Self> {
-        let token = reader.string("token")?.to_string();
-        let descriptor: Self = serde_json::from_value(reader.json("payload")?.clone())
-            .map_err(|_| anyhow::anyhow!("persisted subtitle translation payload is malformed"))?;
-        if descriptor.token.as_str() != token {
-            anyhow::bail!("persisted subtitle translation token does not match its payload");
-        }
-        Ok(descriptor)
     }
 }

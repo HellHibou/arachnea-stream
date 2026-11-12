@@ -1,10 +1,10 @@
 //! Subtitle revalidation and translation through the generic Scrapyfy bridge.
 
-use arachnea_scrapyfy::{scrapyfy::conditional::hash62, ScraperAgregator};
+use arachnea_scrapyfy::ScraperAgregator;
 use arachnea_translation::{
     selection::SelectionRoute, AccessScope, LocalTranslationLimits, SelectionPolicy,
     SelectionRequirement, TextTranslationRequest, TranslationError, TranslationOptions,
-    TranslationRevision, TranslationService, UrlTranslationRequest, TRANSLATION_PIPELINE_REVISION,
+    TranslationService, UrlTranslationRequest,
 };
 
 use super::{
@@ -18,16 +18,15 @@ use crate::translation_catalog::TranslationCatalog;
 use crate::translation_port::{
     load_translation_bridge, select_text_translation_bridge, shared_translation_budget,
 };
-use crate::{SUBTITLE_TRANSLATION_PIPELINE_REVISION, WEBVTT_PARSER_REVISION};
 
 /// Outcome of a complete subtitle translation request.
 pub enum SubtitleTranslationOutcome {
     /// The browser can reuse its representation without a provider call.
     NotModified {
-        /// Composite weak entity tag.
+        /// Weak provider/source entity tag.
         etag: String,
     },
-    /// Complete validated translated subtitle and its composite entity tag.
+    /// Complete validated translated subtitle and its provider/source entity tag.
     Translated(TranslatedSubtitleDocument),
     /// The source is already in the requested language or has no visible text.
     Original {
@@ -42,18 +41,12 @@ pub struct SubtitleTranslationRequest<'a> {
     pub descriptor: &'a SubtitleTranslationDescriptor,
     /// Caller access scope.
     pub access_scope: &'a AccessScope,
-    /// Current Unix timestamp.
-    pub now_unix_seconds: u64,
-    /// Previously issued composite entity tag, when the client has its body.
+    /// Previously issued provider/source entity tag, when the client has its body.
     pub client_etag: Option<&'a str>,
     /// Source URL independently verified by the caller as public and safe to
     /// disclose to the provider, with no required headers or credentials.
     /// It must equal the original source URL and have no query or fragment.
     pub provider_accessible_url: Option<&'a str>,
-    /// Output-affecting context fingerprint derived by the caller.
-    /// It must cover retrieval headers, the chosen route policy and other
-    /// representation-affecting inputs.
-    pub context_fingerprint: &'a str,
     /// Local document bounds.
     pub subtitle_limits: LocalSubtitleLimits,
     /// Local provider request bounds.
@@ -101,10 +94,8 @@ pub async fn translate_subtitle(
         SubtitleRevalidationRequest {
             descriptor,
             access_scope: request.access_scope,
-            now_unix_seconds: request.now_unix_seconds,
             client_etag: request.client_etag,
             catalog,
-            context_fingerprint: request.context_fingerprint,
             limits: request.subtitle_limits,
         },
     )
@@ -342,27 +333,10 @@ pub async fn translate_subtitle(
             output.to_bytes()
         }
     };
-    let source_identity = serde_json::to_vec(&descriptor.source).map_err(|_| {
-        SubtitleTranslationError::InvalidDescriptor {
-            detail: "unable to encode source identity".into(),
-        }
-    })?;
     let validator = SubtitleTranslationValidator {
-        source_fingerprint: hash62(&source_identity),
-        access_scope_fingerprint: hash62(request.access_scope.as_str().as_bytes()),
+        service_id: entry.service_id.clone(),
+        service_yaml_hash: entry.service_yaml_hash.clone().expect("filtered above"),
         source: source_validator,
-        translation: TranslationRevision {
-            source_language: descriptor.source_language.clone(),
-            target_language: descriptor.target_language.clone(),
-            service_id: entry.service_id.clone(),
-            service_yaml_hash: entry.service_yaml_hash.clone().expect("filtered above"),
-            service_configuration_revision: entry.configuration_revision.clone(),
-            pipeline_revision: TRANSLATION_PIPELINE_REVISION.into(),
-            context_fingerprint: request.context_fingerprint.into(),
-        },
-        document_format: descriptor.source.format.media_type().into(),
-        parser_revision: WEBVTT_PARSER_REVISION.into(),
-        subtitle_pipeline_revision: SUBTITLE_TRANSLATION_PIPELINE_REVISION.into(),
     };
     Ok(SubtitleTranslationOutcome::Translated(
         TranslatedSubtitleDocument::new(bytes, validator.to_etag()?)?,

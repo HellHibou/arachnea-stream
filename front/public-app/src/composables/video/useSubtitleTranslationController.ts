@@ -3,6 +3,7 @@ import { shallowRef, watch } from 'vue'
 import { t } from '@/i18n'
 import {
   getBaseLanguageCode,
+  getLanguageEnglishName,
   getLanguageNativeName,
   normalizeLanguageCode,
 } from '@/services/languages'
@@ -12,6 +13,7 @@ import type { TranslationCatalog, TranslationServiceCapabilities } from '@/types
 import type { VideoJsPlayerState } from '@/types/media'
 
 import { getAppliedTextTrackOrigin } from './video-js-media-renderer/state'
+import { areSubtitlesEqual } from './video-js-media-renderer/subtitles'
 import type { VideoJsPlayer } from './video-js-media-renderer/types'
 import {
   planPrioritySubtitleSelection,
@@ -30,6 +32,8 @@ export interface SubtitleTranslationMenuTarget {
   language: string
   /** Localized action label. */
   label: string
+  /** Whether this language is already being translated. */
+  pending: boolean
 }
 
 /** Options accepted by the subtitle translation controller. */
@@ -130,9 +134,23 @@ export function useSubtitleTranslationController(
   }
 
   /**
+   * Checks source identity using the same content comparison as the renderer.
+   *
+   * @param source Source captured before an asynchronous operation.
+   * @returns True when the current video URL and subtitle tracks are unchanged.
+   */
+  function isCurrentSource(source: ResolvedVideoMediaSource): boolean {
+    const current = options.getSource()
+    return current != null
+      && current.src === source.src
+      && areSubtitlesEqual(current.subtitles, source.subtitles)
+  }
+
+  /**
    * Finds the external subtitle entry used as translation source.
    *
-   * The currently shown human track wins, then the first human track, then the
+   * Complete HLS tracks are preferred over forced tracks. The currently shown
+   * human track wins among complete tracks, then the first human track, then the
    * first external entry. Renderer-owned translated Blob tracks are never used.
    *
    * @param player Active player.
@@ -140,7 +158,8 @@ export function useSubtitleTranslationController(
    * @returns Source entry and optional detected language.
    */
   function resolveSource(player: VideoJsPlayer, source: ResolvedVideoMediaSource) {
-    const entries = source.subtitles.filter((subtitle) => subtitle.link.trim())
+    const entries = [...source.subtitles.map((entry) => ({ ...entry, hls: false })), ...readHlsSubtitleSources(player)]
+      .filter((subtitle) => subtitle.link.trim())
     if (!entries.length) {
       return null
     }
@@ -177,6 +196,7 @@ export function useSubtitleTranslationController(
         format: 'webvtt' as const,
       },
       sourceLanguage: toTranslationCode(entry.lang),
+      requiresText: entry.hls,
     }
   }
 
@@ -224,22 +244,25 @@ export function useSubtitleTranslationController(
    *
    * @param sourceLanguage Known source language, or `null`.
    * @param targetLanguage Two-letter target language.
+   * @param requiresText Whether an assembled HLS document requires text translation.
    * @returns True when at least one service can translate the pair.
    */
-  function hasPairSupport(sourceLanguage: string | null, targetLanguage: string): boolean {
+  function hasPairSupport(sourceLanguage: string | null, targetLanguage: string, requiresText = false): boolean {
     const services = catalog.value?.services ?? []
-    return services.some((service) => serviceSupportsPair(service, sourceLanguage, targetLanguage))
+    return services.some((service) => (!requiresText || service.supportsTextTranslation)
+      && serviceSupportsPair(service, sourceLanguage, targetLanguage))
   }
 
   /**
-   * Builds the translation label used by the generated subtitle track.
+   * Builds the shared label for available and generated subtitle translations.
    *
    * @param language Two-letter target language.
    * @returns Localized track label.
    */
   function buildTrackLabel(language: string): string {
     return t('player.subtitleTranslation.trackLabel', {
-      language: getLanguageNativeName(language) ?? language.toLocaleUpperCase(),
+      englishName: getLanguageEnglishName(language) ?? language.toLocaleUpperCase(),
+      nativeName: getLanguageNativeName(language) ?? language.toLocaleUpperCase(),
     })
   }
 
@@ -293,7 +316,7 @@ export function useSubtitleTranslationController(
         || manualMode
         || translation.isLoading.value
         || options.getPlayer() !== player
-        || options.getSource() !== source
+        || !isCurrentSource(source)
       ) {
         return
       }
@@ -301,7 +324,7 @@ export function useSubtitleTranslationController(
       const plan = planPrioritySubtitleSelection(
         player,
         config.subtitleLanguagePriority,
-        (language) => authorized.has(language) && hasPairSupport(sourceLanguage, language),
+        (language) => authorized.has(language) && hasPairSupport(sourceLanguage, language, translationSource.requiresText),
       )
       const targetLanguage = plan.translationLanguage
       if (translation.isLoading.value) {
@@ -387,20 +410,18 @@ export function useSubtitleTranslationController(
         !language
         || seen.has(language)
         || existingLanguages.has(language)
-        || language === activeTarget
       ) {
         continue
       }
-      if (!hasPairSupport(translationSource.sourceLanguage, language)) {
+      if (!hasPairSupport(translationSource.sourceLanguage, language, translationSource.requiresText)) {
         continue
       }
 
       seen.add(language)
       targets.push({
         language,
-        label: t('player.subtitleTranslation.generate', {
-          language: getLanguageNativeName(language) ?? language.toLocaleUpperCase(),
-        }),
+        label: buildTrackLabel(language),
+        pending: language === activeTarget,
       })
     }
 
@@ -422,6 +443,9 @@ export function useSubtitleTranslationController(
     if (!player || !source || !target) {
       return
     }
+    if (translation.isLoading.value && translation.targetLanguage.value === target) {
+      return
+    }
 
     const translationSource = resolveSource(player, source)
     if (!translationSource) {
@@ -435,11 +459,11 @@ export function useSubtitleTranslationController(
     if (
       requestId !== manualRequestId
       || options.getPlayer() !== player
-      || options.getSource() !== source
+      || !isCurrentSource(source)
     ) {
       return
     }
-    if (!hasPairSupport(translationSource.sourceLanguage, target)) {
+    if (!hasPairSupport(translationSource.sourceLanguage, target, translationSource.requiresText)) {
       return
     }
 
@@ -590,4 +614,37 @@ function buildRequestKey(
   targetLanguage: string,
 ): string {
   return `${url}\u0000${sourceLanguage ?? ''}\u0000${targetLanguage}`
+}
+
+/**
+ * Reads complete subtitle rendition URLs discovered by the HLS engine.
+ * @param player Player whose master manifest has been loaded.
+ * @returns Complete renditions, falling back to forced renditions when necessary.
+ */
+function readHlsSubtitleSources(player: VideoJsPlayer) {
+  const tech = (player as unknown as {
+    tech?: (options: { IWillNotUseThisInPlugins: boolean }) => {
+      vhs?: { playlists?: { main?: { mediaGroups?: {
+        SUBTITLES?: Record<string, Record<string, {
+          language?: string
+          forced?: boolean
+          resolvedUri?: string
+          uri?: string
+        }>>
+      } } } }
+    }
+  }).tech?.({ IWillNotUseThisInPlugins: true })
+  const groups = tech?.vhs?.playlists?.main?.mediaGroups?.SUBTITLES ?? {}
+  const entries = Object.values(groups).flatMap((group) =>
+    Object.entries(group).map(([label, track]) => ({
+      link: track.resolvedUri ?? track.uri ?? '',
+      lang: track.language,
+      label,
+      forced: track.forced === true,
+      autoTranslate: false,
+      hls: true,
+    })),
+  ).filter((entry) => entry.link)
+  const complete = entries.filter((entry) => !entry.forced)
+  return complete.length ? complete : entries
 }

@@ -1,6 +1,8 @@
 import { isDesktopApp } from '@/services/rustify/desktop'
+import { resolveAppPath } from '@/services/baseUrl'
+import { normalizeTranslationLanguage, toBackendPolicy } from '@/services/rustify/translation'
 import type {
-  PreparedSubtitleTranslation,
+  SubtitleTranslationLanguageRequest,
   SubtitleTranslationFile,
 } from '@/types/translation'
 
@@ -60,21 +62,39 @@ export class SubtitleTranslationFileError extends Error {
 }
 
 /**
- * Downloads one prepared translated subtitle and validates it before playback.
+ * Requests one translated subtitle directly and validates it before playback.
  *
  * Conditional requests reuse the previous body only when the server proves the
  * representation is unchanged. A `304` received without a retained body is
  * retried without a validator instead of exposing an unusable empty file.
  *
- * @param prepared Prepared track returned by `prepare_subtitle_translation`.
+ * @param request Source track, languages and provider selection policy.
  * @param options Abort signal owned by the caller.
  * @returns Complete WebVTT file and its composite validator.
  */
 export async function fetchSubtitleTranslationFile(
-  prepared: PreparedSubtitleTranslation,
+  request: SubtitleTranslationLanguageRequest,
   options: { signal?: AbortSignal } = {},
 ): Promise<SubtitleTranslationDownload> {
-  const url = resolveSubtitleTranslationUrl(prepared.link)
+  const target = normalizeTranslationLanguage(request.targetLanguage)
+  if (!target) {
+    throw new SubtitleTranslationFileError('Invalid target language.', 'invalid-response')
+  }
+  const source = normalizeTranslationLanguage(request.sourceLanguage)
+  const parameters: Record<string, unknown> = {
+    url: request.source.url,
+    ...(request.source.trackId?.trim() ? { track_id: request.source.trackId.trim() } : {}),
+    ...(source ? { source_language: source } : {}),
+    target_language: target,
+    policy: toBackendPolicy(request.policy ?? { mode: 'auto' }),
+    format: request.source.format ?? 'webvtt',
+  }
+  const query = new URLSearchParams()
+  for (const [name, value] of Object.entries(parameters)) {
+    query.set(name, JSON.stringify(value))
+  }
+  const base = import.meta.env.VITE_RUSTIFY_API_BASE_URL ?? resolveAppPath('api')
+  const url = resolveSubtitleTranslationUrl(`${base.replace(/\/$/, '')}/translate_subtitle?${query}`)
   const cached = readCachedSubtitleFile(url)
   let response = await requestSubtitleFile(url, cached?.etag ?? null, options.signal, false)
 
@@ -83,7 +103,7 @@ export async function fetchSubtitleTranslationFile(
       const etag = response.headers.get('ETag') ?? cached.etag
       writeCachedSubtitleFile(url, etag, cached.blob)
       return {
-        ...toDownload(cached.blob, etag, prepared),
+        ...toDownload(cached.blob, etag, target),
         fromCache: true,
       }
     }
@@ -112,7 +132,7 @@ export async function fetchSubtitleTranslationFile(
   }
 
   return {
-    ...toDownload(blob, etag, prepared),
+    ...toDownload(blob, etag, target),
     fromCache: false,
   }
 }
@@ -129,9 +149,9 @@ export function clearSubtitleTranslationFileCache(): void {
 }
 
 /**
- * Resolves a prepared link into a fetchable URL and rejects unsafe schemes.
+ * Resolves a translation request URL into a fetchable URL and rejects unsafe schemes.
  *
- * @param link Backend-provided tokenized file URL.
+ * @param link Direct translation request URL.
  * @returns Absolute URL accepted by the current transport.
  */
 export function resolveSubtitleTranslationUrl(link: string): string {
@@ -162,7 +182,7 @@ export function resolveSubtitleTranslationUrl(link: string): string {
 /**
  * Sends one file request with optional conditional validation.
  *
- * @param url Absolute tokenized file URL.
+ * @param url Absolute translation request URL.
  * @param etag Previous composite validator, or `null` for an unconditional request.
  * @param signal Caller-owned abort signal.
  * @param bypassCache Whether the request must avoid the native HTTP cache.
@@ -245,18 +265,18 @@ async function readWebVttResponse(response: Response): Promise<Blob> {
  *
  * @param blob Complete WebVTT document.
  * @param etag Composite validator, if returned.
- * @param prepared Prepared track metadata.
+ * @param target Normalized target language.
  * @returns File metadata ready for the translation composable.
  */
 function toDownload(
   blob: Blob,
   etag: string | null,
-  prepared: PreparedSubtitleTranslation,
+  target: string,
 ): SubtitleTranslationFile {
   return {
     blob,
-    lang: prepared.lang,
-    label: prepared.label,
+    lang: target,
+    label: target.toLocaleUpperCase(),
     etag,
   }
 }

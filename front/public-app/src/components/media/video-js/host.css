@@ -87,7 +87,7 @@
 
 .videojs-media-subtitle-translation {
   position: absolute;
-  bottom: calc(var(--videojs-control-bar-height) + 14px);
+  bottom: 64px;
   left: 16px;
   z-index: 4;
   display: flex;
@@ -102,6 +102,10 @@
   color: var(--text-primary);
   font-size: 0.82rem;
   line-height: 1.35;
+}
+
+.videojs-media-host :deep(.video-js.vjs-playing.vjs-user-inactive) ~ .videojs-media-subtitle-translation {
+  bottom: 20px;
 }
 
 .videojs-media-subtitle-translation--error {
@@ -150,7 +154,6 @@
 
 @media (max-width: 480px) {
   .videojs-media-subtitle-translation {
-    bottom: calc(var(--videojs-control-bar-height) + 8px);
     left: 8px;
     max-width: calc(100% - 16px);
   }

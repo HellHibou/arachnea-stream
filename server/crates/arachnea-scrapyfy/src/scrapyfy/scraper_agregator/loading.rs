@@ -170,7 +170,7 @@ impl ScraperAgregator {
             super::super::service_parameters::apply_overrides(&mut raw.parameters, &overrides)
                 .map_err(|error| anyhow::anyhow!("Invalid stored parameters for {group_name}/{}; reset them in administration: {error:#}", raw.id))?;
             let effective_hash = arachnea_core::crypt::hash62_64(
-                serde_yaml::to_string(&(source_yaml_hash, &raw.parameters))?.as_bytes(),
+                serde_yaml::to_string(&(&source_yaml_hash, &raw.parameters))?.as_bytes(),
             );
 
             let mut collection: ScraperQueryCollection = raw.try_into().map_err(|error| {
@@ -179,6 +179,7 @@ impl ScraperAgregator {
                     source_path.display()
                 )
             })?;
+            collection.set_yaml_file_hash(source_yaml_hash);
             collection.set_yaml_hash(effective_hash);
             collection.set_runtime_handles_with_session_store(
                 self.proxy_handle.clone(),
@@ -241,6 +242,7 @@ impl ScraperAgregator {
             })?;
             let source_yaml_hash = arachnea_core::crypt::hash62_64(&source_bytes);
             let mut collection = ScraperQueryCollection::from_file_with(path, &parse)?;
+            collection.set_yaml_file_hash(source_yaml_hash.clone());
             collection.set_yaml_hash(source_yaml_hash);
             collection.set_runtime_handles_with_session_store(
                 self.proxy_handle.clone(),
