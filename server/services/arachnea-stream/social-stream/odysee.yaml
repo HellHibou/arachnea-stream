@@ -15,7 +15,7 @@ http:
 parameters:
   - name: base_url
     value: "https://odysee.com"
-    description: Public website base URL used for content API calls and web links.
+    description: Public website base URL used for content API calls, web links and player stream redirects.
     label: Base URL
     editor:
       type: regex
@@ -32,15 +32,24 @@ constants:
   - name: claim_search_url
     value: "{api_base}/api/v1/proxy?m=claim_search"
     description: Claim search proxy endpoint used for category listings.
-  - name: cdn_base
-    value: "https://player.odycdn.com"
-    description: Odysee CDN used to build direct stream links.
   - name: live_url
     value: "https://api.odysee.live"
     description: Odysee live API endpoint.
+  - name: search_url
+    value: "https://lighthouse.odysee.tv/search"
+    description: Lighthouse full-text search endpoint returning claim identifiers.
+  - name: page_size
+    value: "24"
+    description: Number of upstream search results requested per page.
   - name: category_body
-    value: '{"jsonrpc":"2.0","method":"claim_search","params":{"any_tags":"{any_tags}","page":{page},"page_size":24,"order_by":["trending_group","trending_mixed"],"has_source":true,"no_totals":true,"exclude_shorts":true},"id":1}'
-    description: JSON-RPC body used to list trending claims for one category tag.
+    value: '{"jsonrpc":"2.0","method":"claim_search","params":{{category_filter},"page":{page},"page_size":24,"order_by":["trending_group","trending_mixed"],"has_source":true,"no_totals":true,"exclude_shorts":true},"id":1}'
+    description: JSON-RPC body used to list tagged claims or videos from one channel.
+  - name: category_kind
+    value: tag
+    description: Category search mode, overridden with channel by channel category requests.
+  - name: category_label
+    value: "{any_tags}"
+    description: Section label, overridden with the channel title by channel category requests.
   - name: entry_body
     value: '{"jsonrpc":"2.0","method":"claim_search","params":{"claim_ids":["{query_url}"],"page_size":1,"no_totals":true},"id":1}'
     description: JSON-RPC body used to resolve one claim by its id.
@@ -94,7 +103,7 @@ shared:
         - type: replace_text
           search: "lbry://"
           replace: "https://odysee.com/"
-    - name: img/poster > link
+    - name: img/landscape > link
       type: string
       pointer: /value/thumbnail/url
     - name: img > link
@@ -158,9 +167,16 @@ queries:
     query_url: "{claim_search_url}"
     request_method: post
     request_body_pointer: /category_body
+    query_param_mappings:
+      - target_param: category_filter
+        source_param: category_kind
+        values:
+          tag: '"any_tags":"{any_tags}"'
+          channel: '"channel_ids":["{channel_id}"],"claim_type":"stream","stream_types":["video"]'
+        item_suffix: ""
     request_headers: *headers_json
     row_pointer: /
-    entries:
+    entries: &odysee_category_entries
       - name: sections
         type: object[]
         pointer: /
@@ -170,12 +186,12 @@ queries:
             type: string
             actions:
               - type: format_text
-                argument: "{any_tags}"
+                argument: "{category_label}"
           - name: key
             type: string
             actions:
               - type: format_text
-                argument: "rail:{any_tags}"
+                argument: "rail:{category_label}"
           - name: link
             type: string
             actions:
@@ -186,10 +202,188 @@ queries:
             actions:
               - type: format_text
                 argument: "{page}"
-          - name: entries
+          - name: request > category_filter
+            type: string
+            actions:
+              - type: format_text
+                argument: "{category_filter}"
+          - name: request > category_label
+            type: string
+            actions:
+              - type: format_text
+                argument: "{category_label}"
+          - name: page_size
+            type: number
+            pointer: /result/page_size
+          - name: infer_have_more_from_full_page
+            type: boolean
+            actions:
+              - type: format_text
+                argument: "true"
+          - name: pagination_items
             type: object[]
             pointer: /result/items/*
+            entries:
+              - name: id
+                type: string
+                pointer: /claim_id
+          - name: entries
+            type: object[]
+            pointer: /result/items/*[value_type=channel]
+            entries: &entries_channel_cards
+              - name: media-type
+                type: string
+                actions:
+                  - type: format_text
+                    argument: collection
+              - name: key
+                type: string
+                pointer: /claim_id
+              - name: title
+                type: string
+                pointer: /value/title
+              - name: img > link
+                type: string
+                pointer: /value/thumbnail/url
+              - name: request > query_url
+                type: string
+                actions:
+                  - type: format_text
+                    argument: "{claim_search_url}"
+              - name: request > category_kind
+                type: string
+                actions:
+                  - type: format_text
+                    argument: channel
+              - name: request > channel_id
+                type: string
+                pointer: /claim_id
+              - name: request > category_label
+                type: string
+                pointer: /value/title
+              - name: request > source
+                type: string
+                actions:
+                  - type: format_text
+                    argument: "{source}"
+          - name: entries
+            type: object[]
+            pointer: /result/items/*[value/stream_type=video]
             entries: *entries_media_cards
+    post_process: &odysee_category_pagination
+      - type: derive_pagination
+        source: sections
+        entries_field: pagination_items
+        page_size_field: page_size
+        infer_from_full_page_field: infer_have_more_from_full_page
+        remove_fields:
+          - pagination_items
+          - page_size
+          - infer_have_more_from_full_page
+
+  - name: get_section
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{claim_search_url}"
+    request_method: post
+    request_body_pointer: /category_body
+    request_headers: *headers_json
+    row_pointer: /
+    entries: *odysee_category_entries
+    post_process: *odysee_category_pagination
+
+  - name: search
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{search_url}?s={search_terms}&size={page_size}&from={offset}"
+    media_types: *media_types_odysee
+    row_pointer: /
+    entries:
+      - name: source
+        select: first
+        type: string
+        actions:
+          - type: format_text
+            argument: "{source}"
+      - name: current_page
+        select: first
+        type: number
+        actions:
+          - type: format_text
+            argument: "{page}"
+      - name: page_size
+        select: first
+        type: number
+        actions:
+          - type: format_text
+            argument: "{page_size}"
+      - name: infer_have_more_from_full_page
+        select: first
+        type: boolean
+        actions:
+          - type: format_text
+            argument: "true"
+      - name: pagination_items
+        type: object[]
+        pointer: /*
+        entries:
+          - name: id
+            type: string
+            pointer: /claimId
+      # One selected hit builds the batch body from the full response; an empty page skips it.
+      - name: search_body
+        type: string
+        pointer: /0/claimId
+        actions:
+          - type: extract_field
+            path: ""
+          - type: format_text
+            argument: >-
+              document.write(JSON.stringify({jsonrpc: "2.0", method: "claim_search", id: 1,
+                params: {claim_ids: {}.map(item => item.claimId),
+                  page_size: {page_size}, no_totals: true}}));
+          - type: exec_js
+          - type: replace_text
+            search: "document_write="
+            replace: ""
+      - name: search_request
+        type: string
+        pointer: /0/claimId
+        actions:
+          - type: format_text
+            argument: "{claim_search_url}"
+        sub_queries:
+          - scraper_type: json
+            target: parent
+            request_actions:
+              - type: format_text
+                argument: "{claim_search_url}"
+            request_method: post
+            request_body_actions:
+              - type: format_text
+                argument: "{search_body}"
+            request_headers: *headers_json
+            row_pointer: /
+            entries:
+              - name: entries
+                type: object[]
+                pointer: /result/items/*[value_type=channel]
+                entries: *entries_channel_cards
+              - name: entries
+                type: object[]
+                pointer: /result/items/*[value/stream_type=video]
+                entries: *entries_media_cards
+    post_process:
+      - type: derive_pagination
+        entries_field: pagination_items
+        page_size_field: page_size
+        infer_from_full_page_field: infer_have_more_from_full_page
+        remove_fields:
+          - search_body
+          - search_request
+          - pagination_items
+          - page_size
+          - infer_have_more_from_full_page
 
   - name: get_entry
     scraper_type: json
@@ -229,12 +423,30 @@ queries:
           - type: replace_text
             search: "lbry://"
             replace: "https://odysee.com/"
-      - name: img/poster > link
+      - name: img/landscape > link
         type: string
         pointer: /result/items/0/value/thumbnail/url
       - name: img > link
         type: string
         pointer: /result/items/0/value/thumbnail/url
+      - name: players
+        type: object[]
+        pointer: /result/items/*[value/stream_type=video]
+        select: all
+        entries:
+          - name: name
+            type: string
+            actions:
+              - type: format_text
+                argument: "Odysee (HLS)"
+          - name: direct-link
+            type: string
+            actions:
+              - type: build_url
+                base: "https://player.odycdn.com/v6/streams/{claim_id}/{sd_hash}/master.m3u8"
+                fields:
+                  claim_id: /claim_id
+                  sd_hash: /value/source/sd_hash
       - name: players
         type: object[]
         pointer: /result/items/*
@@ -244,12 +456,10 @@ queries:
             type: string
             actions:
               - type: format_text
-                argument: "Odysee"
+                argument: "Odysee (MP4)"
           - name: direct-link
             type: string
+            pointer: /name
             actions:
-              - type: build_url
-                base: "{cdn_base}/v6/streams/{claim_id}/{sd_hash}.mp4"
-                fields:
-                  claim_id: /claim_id
-                  sd_hash: /value/source/sd_hash
+              - type: format_text
+                argument: "{base_url}/$/rss/media/{}/{query_url}/stream.mp4"

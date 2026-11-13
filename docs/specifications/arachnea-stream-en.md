@@ -53,6 +53,37 @@ http:
 
 ## 3. Standard queries
 
+Odysee returns channels as clickable subcategory cards alongside videos in
+`sections[].entries`, using `media-type: collection` and `title`. These cards
+are not emitted in the page-level `categories` strip. Their request descriptors
+carry `category_kind=channel`, `channel_id` and `category_label`; `get_category`
+accepts these descriptors and searches video streams by `channel_ids` without
+reapplying the parent tag.
+Existing tag category links default to `category_kind=tag`. Audio and other
+non-video streams are omitted from video sections. Odysee thumbnails use
+`img/landscape`, including entry details, so video cards render in landscape.
+Odysee sections expose `have_more` when the upstream page contains 24 claims,
+counting claims before media filtering. `get_section` loads subsequent pages
+using the section request's resolved `category_filter` and `category_label`,
+preserving tag or channel selection. With `no_totals`, a full final page can
+require one empty request before pagination stops.
+Odysee `search` queries Lighthouse with URL-encoded `search_terms` and a
+24-result page offset, then resolves the returned claim IDs in one batched
+`claim_search` request. Video results use landscape cards; channel results use
+the same clickable `collection` cards as category sections. Audio and other
+claim types are omitted. Search continuation uses the Lighthouse result count
+before filtering or metadata resolution; an empty page skips the metadata
+request and stops pagination.
+The batched request body is emitted through `document.write` and the
+`document_write=` prefix is removed before POSTing: `exec_js` does not return
+JavaScript expression completion values.
+Odysee `get_entry` exposes an HLS player first for video claims, using
+`https://player.odycdn.com/v6/streams/<claim_id>/<full_sd_hash>/master.m3u8`.
+The master playlist supplies the available transcoded resolutions to the
+existing player quality selector. A separate MP4 player retains the public RSS
+media redirect as a fallback for claims without available HLS transcodes;
+the original file resolution does not imply that every HLS resolution exists.
+
 RMC BFM Play selects the home category rail by its "Toutes les catégories" title,
 since its provider-generated ID can change. Its deferred `get_section` query
 expects a `page_type=mosaique` tile URL; an editorial `fip-edito` page with content

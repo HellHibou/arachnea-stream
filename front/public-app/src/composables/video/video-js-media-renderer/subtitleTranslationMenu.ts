@@ -4,6 +4,7 @@ import { t } from '@/i18n'
 import { getBaseLanguageCode, getLanguageFlag, normalizeLanguageCode } from '@/services/languages'
 import type { VideoJsPlayer } from './types'
 import { createSubtitleOffsetControl, type SubtitleOffsetControl } from './subtitleOffset'
+import { readDisplayTextTracks } from './trackPreferences'
 import type {
   SubtitleTranslationMenuTarget,
 } from '@/composables/video/useSubtitleTranslationController'
@@ -144,6 +145,13 @@ export function installSubtitleTranslationMenu(
           : null
       addSubtitleMenuIcon(item, item.track?.language, icon)
     }
+    const translationItems = source.getManualTargets().map(createTranslationItem)
+    // Video.js hides the native menu when it only holds its off and settings
+    // entries. Do not add the translation controls in that case so the menu
+    // stays hidden instead of appearing without any subtitle to select.
+    if (readDisplayTextTracks(player).length === 0 && translationItems.length === 0) {
+      return items
+    }
     const offsetItem = createSubtitleOffsetItem(player, MenuItem, offset)
     items.unshift(offsetItem)
     // Video.js otherwise closes the menu when focus enters a child input.
@@ -156,7 +164,7 @@ export function installSubtitleTranslationMenu(
     }
     return [
       ...items,
-      ...source.getManualTargets().map(createTranslationItem),
+      ...translationItems,
     ]
   }
 

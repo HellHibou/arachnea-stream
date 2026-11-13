@@ -54,6 +54,38 @@ http:
 
 ## 3. Requêtes standard
 
+Odysee renvoie les chaînes sous forme de cartes de sous-catégories cliquables
+aux côtés des vidéos dans `sections[].entries`, avec `media-type: collection`
+et `title`. Ces cartes ne sont pas placées dans la liste `categories` de la page.
+Leur descripteur de requête transmet `category_kind=channel`, `channel_id` et
+`category_label` ; `get_category` accepte ces descripteurs et recherche les vidéos
+par `channel_ids`, sans réappliquer le tag parent. Les liens de catégories par tag
+existants utilisent `category_kind=tag` par défaut. Les flux audio et les autres
+contenus non vidéo sont exclus des sections vidéo. Les miniatures Odysee utilisent
+`img/landscape`, y compris dans les détails, pour afficher les vidéos en paysage.
+Les sections Odysee exposent `have_more` lorsque la page amont contient
+24 résultats, comptés avant le filtrage des médias. `get_section` charge les
+pages suivantes avec `category_filter` et `category_label` transmis dans la
+requête de section, en conservant la sélection du tag ou de la chaîne.
+Avec `no_totals`, une dernière page pleine peut nécessiter une requête vide
+supplémentaire avant l'arrêt de la pagination.
+La requête Odysee `search` interroge Lighthouse avec `search_terms` encodé dans
+l'URL et un décalage par pages de 24 résultats, puis résout les identifiants en
+un seul appel groupé à `claim_search`. Les vidéos utilisent les cartes paysage
+et les chaînes les mêmes cartes `collection` cliquables que dans les catégories.
+L'audio et les autres types de contenus sont exclus. La pagination utilise le
+nombre de résultats Lighthouse avant filtrage ou résolution des métadonnées ;
+une page vide évite l'appel de métadonnées et arrête la pagination.
+Le corps de la requête groupée est émis via `document.write`, puis le préfixe
+`document_write=` est retiré avant le POST : `exec_js` ne renvoie pas la valeur
+finale des expressions JavaScript.
+Odysee `get_entry` propose d'abord un lecteur HLS pour les vidéos, via
+`https://player.odycdn.com/v6/streams/<claim_id>/<sd_hash_complet>/master.m3u8`.
+Le manifeste maître fournit les résolutions transcodées disponibles au sélecteur
+de qualité existant. Un lecteur MP4 séparé conserve la redirection RSS publique
+en secours lorsque les transcodages HLS ne sont pas disponibles ; la résolution
+du fichier original ne garantit pas l'existence de toutes les qualités HLS.
+
 RMC BFM Play sélectionne le rail de catégories de l'accueil par son titre
 « Toutes les catégories », car son identifiant fournisseur peut changer.
 Sa requête différée `get_section` attend une URL de tuile `page_type=mosaique` ;
