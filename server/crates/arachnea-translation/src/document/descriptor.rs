@@ -1,8 +1,8 @@
 //! In-memory descriptors of authorized subtitle translation requests.
 
-use super::document::SubtitleSourceDescriptor;
 use super::error::SubtitleTranslationError;
-use arachnea_translation::{AccessScope, LanguageCode, SelectionPolicy};
+use super::retrieval::SubtitleSourceDescriptor;
+use crate::{AccessScope, LanguageCode, SelectionPolicy};
 use serde::{Deserialize, Serialize};
 
 /// In-memory descriptor of one authorized subtitle translation.
@@ -53,5 +53,22 @@ impl SubtitleTranslationDescriptor {
         } else {
             Err(SubtitleTranslationError::AccessDenied)
         }
+    }
+}
+
+#[cfg(feature = "runtime")]
+impl SubtitleTranslationDescriptor {
+    /// Computes the document-specific provider revision carried by validators.
+    ///
+    /// # Arguments
+    /// * `service` - Effective provider metadata and configuration revision.
+    pub fn validator_hash(&self, service: &crate::catalog::TranslationCatalogEntry) -> String {
+        let identity = serde_json::json!({
+            "pipeline": crate::DOCUMENT_PIPELINE_REVISION,
+            "descriptor": self,
+            "configuration": service.configuration_revision,
+            "yaml": service.service_yaml_hash,
+        });
+        arachnea_scrapyfy::scrapyfy::conditional::hash62(identity.to_string().as_bytes())
     }
 }

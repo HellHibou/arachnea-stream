@@ -1,28 +1,28 @@
 //! Effective public translation catalog loaded from Scrapyfy service metadata.
 //!
-//! The catalog is application-owned: it executes the mandatory
+//! The catalog is caller-configured: it executes the mandatory
 //! `get_translation_metadata` query through the generic service aggregator,
 //! validates every normalized metadata payload and exposes only public
 //! capabilities. Credentials, request headers and YAML internals never appear
 //! in the catalog.
 //!
 //! A missing or invalid translation manifest only leaves translation
-//! unavailable; the stream groups keep loading normally. Administrator
+//! unavailable; other service groups keep loading normally. Administrator
 //! activation overrides are applied by Scrapyfy before a service is loaded, so
 //! only enabled and valid services are considered here.
 
 use std::collections::{BTreeSet, HashMap};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::{
+    LanguageCode, SupportedPair, TranslationMetadata, GET_TRANSLATION_METADATA_QUERY,
+    TRANSLATION_METADATA_MEDIA_TYPE,
+};
 use anyhow::Result;
 use arachnea_core::crypt::hash62_64;
 use arachnea_core::persistence::CredentialsStore;
 use arachnea_scrapyfy::{
     load_service_catalog, ScraperAgregator, ScraperDataNode, ScraperServiceCatalogEntry,
-};
-use arachnea_translation::{
-    LanguageCode, SupportedPair, TranslationMetadata, GET_TRANSLATION_METADATA_QUERY,
-    TRANSLATION_METADATA_MEDIA_TYPE,
 };
 use serde::Serialize;
 
@@ -52,8 +52,12 @@ pub struct TranslationCatalogEntry {
     pub supports_text_translation: bool,
     /// Whether inline URL document translation is declared.
     pub supports_url_translation: bool,
+    /// Media types accepted by URL document translation.
+    pub url_translation_formats: Vec<String>,
     /// Whether the service can detect a missing source language.
     pub source_detection: bool,
+    /// Whether detection can identify the source for directional restrictions.
+    pub source_detection_identifies_language: bool,
     /// Whether credentials are stored; no credential value is exposed.
     pub credentials_configured: bool,
     /// Administrator selection order, lower values first.
@@ -70,6 +74,9 @@ pub struct TranslationCatalogEntry {
     pub service_yaml_hash: Option<String>,
     /// Configuration revision influencing translation output.
     pub configuration_revision: String,
+    /// Validated capabilities retained with this configuration revision.
+    #[serde(skip)]
+    pub(crate) metadata: TranslationMetadata,
 }
 
 /// One service that could not be published, with a non-secret diagnostic.
@@ -222,7 +229,10 @@ impl TranslationCatalog {
                 .source_yaml_file_hash(group_name, &service_id)
                 .map(str::to_owned);
             let effective_hash = aggregator.source_yaml_hash(group_name, &service_id);
-            let mut revision_parts = vec![format!("yaml={}", effective_hash.unwrap_or("unknown"))];
+            let mut revision_parts = vec![
+                format!("yaml={}", effective_hash.unwrap_or("unknown")),
+                format!("metadata={}", value),
+            ];
             revision_parts.extend(
                 parameters
                     .iter()
@@ -244,7 +254,13 @@ impl TranslationCatalog {
                 supported_pairs: metadata.supported_pairs.clone(),
                 supports_text_translation: metadata.text_translation.is_some(),
                 supports_url_translation: metadata.url_translation.is_some(),
+                url_translation_formats: metadata
+                    .url_translation
+                    .as_ref()
+                    .map(|capability| capability.accepted_formats.clone())
+                    .unwrap_or_default(),
                 source_detection: metadata.detection_available(),
+                source_detection_identifies_language: metadata.detection_can_establish_source(),
                 credentials_configured,
                 administrator_order,
                 preferred,
@@ -253,6 +269,7 @@ impl TranslationCatalog {
                 budget_window_seconds,
                 service_yaml_hash,
                 configuration_revision,
+                metadata,
             });
         }
 

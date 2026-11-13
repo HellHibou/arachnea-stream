@@ -49,17 +49,13 @@ use crate::stream_resolver::{
     resolve_scraper_query_stream, ResolvedStream, StreamResolver, GENERIC_STREAM_RESOLVER_ID,
     SCRAPER_QUERY_STREAM_RESOLVER_ID, STREAM_RESOLVER_CONFIG_PATH, STREAM_RESOLVER_GROUP_NAME,
 };
-use crate::translation_catalog::TranslationCatalog;
-use crate::translation_port::{load_translation_bridge, StreamTranslationPort};
+use arachnea_translation::catalog::TranslationCatalog;
 
 pub use crate::STREAM_SERVICE_GROUP_NAME;
 
 pub use crate::STREAM_SERVICES_STORE_NAME;
 
 pub use crate::PERSISTENCE_DATA_ROOT;
-
-mod subtitle_translation;
-pub(crate) use subtitle_translation::GetTranslationServicesRequest;
 
 /// Typed persistence stores composing the application backends.
 ///
@@ -87,10 +83,6 @@ pub use crate::DEFAULT_SERVICES_CONFIG_PATH;
 use crate::STREAM_HTTP_PROXY_COMMAND as HTTP_PROXY_COMMAND;
 
 pub(crate) use crate::STREAM_DRM_LICENSE_PROXY_COMMAND as DRM_LICENSE_PROXY_COMMAND;
-
-pub(crate) use crate::STREAM_TRANSLATE_SUBTITLE_COMMAND as TRANSLATE_SUBTITLE_COMMAND;
-
-pub(crate) use crate::STREAM_GET_TRANSLATION_SERVICES_COMMAND as GET_TRANSLATION_SERVICES_COMMAND;
 
 /// Antenne Réunion player resolver singleton.
 static ANTENNE_REUNION_RESOLVER: AntenneReunionResolver = AntenneReunionResolver;
@@ -614,35 +606,6 @@ impl StreamScraper {
         &self.scraper_agregator
     }
 
-    /// Returns the effective public translation catalog.
-    pub fn translation_catalog(&self) -> &TranslationCatalog {
-        &self.translation_catalog
-    }
-
-    /// Loads the generic translation bridge for one published service.
-    ///
-    /// # Arguments
-    /// * `service_id` - Service identifier present in the effective catalog.
-    ///
-    /// # Errors
-    /// Returns a translation error when the service is not published or its
-    /// metadata query fails validation.
-    pub async fn translation_bridge<'a>(
-        &'a self,
-        service_id: &str,
-    ) -> Result<
-        arachnea_translation::bridge::ScrapyfyTranslationBridge<StreamTranslationPort<'a>>,
-        arachnea_translation::TranslationError,
-    > {
-        load_translation_bridge(
-            &self.scraper_agregator,
-            &self.translation_catalog,
-            crate::TRANSLATION_SERVICE_GROUP_NAME,
-            service_id,
-        )
-        .await
-    }
-
     /// Stores the explicitly configured local country used by geo proxy decisions.
     ///
     /// # Arguments
@@ -862,8 +825,49 @@ mod test_support;
 mod catalog;
 mod playback;
 mod registration;
-mod subtitles;
 
 mod persistence;
 use arachnea_scrapyfy::synchronize_service_defaults;
 pub use persistence::{memory_application_stores, sqlite_application_stores};
+
+impl arachnea_translation::api::TranslationSnapshot for StreamScraper {
+    fn catalog(&self) -> &TranslationCatalog {
+        &self.translation_catalog
+    }
+
+    fn aggregator(&self) -> &ScraperAgregator {
+        &self.scraper_agregator
+    }
+
+    fn group_name(&self) -> &str {
+        crate::TRANSLATION_SERVICE_GROUP_NAME
+    }
+
+    fn retrieval(&self) -> Box<dyn arachnea_translation::document::SubtitleRetrievalPort> {
+        use arachnea_translation::document::{http::SubtitleHttpRetrieval, LocalSubtitleLimits};
+
+        let mut retrieval =
+            SubtitleHttpRetrieval::new(Default::default(), LocalSubtitleLimits::default());
+        if let Some(path) = self
+            .player_resolver_endpoints
+            .http_proxy_public_path
+            .as_deref()
+        {
+            retrieval = retrieval.with_proxy_public_path(path);
+        }
+        if let Some(core) = self
+            .proxy_http_core
+            .as_ref()
+            .or_else(|| self.scraper_agregator.proxy_core())
+        {
+            retrieval = retrieval.with_proxy_core(core.clone());
+        }
+        Box::new(retrieval)
+    }
+
+    fn proxy_public_path(&self) -> Option<&str> {
+        self.player_resolver_endpoints
+            .http_proxy_public_path
+            .as_deref()
+    }
+}

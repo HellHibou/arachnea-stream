@@ -1,28 +1,33 @@
 # Spécification des contrats de traduction Arachnea
 
 Ce document décrit le contrat générique de traduction porté par
-`arachnea-translation`, le pipeline documentaire de sous-titres porté par le
-module `subtitles` d’`arachnea-stream` et leur intégration avec Stream. Le
+`arachnea-translation`, le pipeline documentaire de sous-titres porté par
+`arachnea-translation` et leur intégration avec Stream. Le
 schéma YAML général reste décrit dans
 [arachnea-scrapyfy](arachnea-scrapyfy-fr.md) ; ce document ne décrit que les
 requêtes et sorties normalisées propres à la traduction.
 
-Statut : lots 1 à 6 implémentés (contrats, crate et module de sous-titres, pont
-générique, catalogue effectif et administration, parseur WebVTT et
-planification documentaire, exécution texte Azure Translator/LibreTranslate avec
-reprises, budgets et métriques). La qualification réelle des fournisseurs
-requiert encore des credentials. Le lot 5 ajoute la récupération autorisée
-directe/proxy, la revalidation source et l’orchestration documentaire
-texte/URL, qualifiées localement avec des fournisseurs simulés. Le lot 6 ajoute
-le transport public JSON et fichier REST/Tauri. Les lots 7 à 10 ajoutent le
-stockage navigateur et l’interface utilisateur.
+Statut : la refonte documentaire est implémentée. Translation porte
+l’orchestration, la revalidation conditionnelle et les handlers API ; Stream
+injecte un instantané du runtime et configure les adaptateurs autorisés HTTP,
+proxy et HLS de Translation. Le frontend partage le catalogue effectif entre réglages et lecture. Les
+vérifications REST simulées et de résolution des routes sont décrites dans
+[l’analyse de refonte](../dev-tracking/translation-document-refactor-analysis.md).
+Les changements de modèles LibreTranslate réels, une WebView Tauri et le cycle
+complet lecteur/rechargement de configuration restent à qualifier.
+
+La feature `runtime` fournit le catalogue effectif, la sélection et les budgets
+partagés ; l’appelant fournit l’agrégateur, le groupe, le manifeste et les
+credentials. `api` active l’intégration des contrôleurs avec ce runtime ;
+`document-vtt` enregistre WebVTT. Sans feature documentaire, le registre est
+vide et refuse les formats non pris en charge.
 
 ## 1. Séparation des couches
 
 | Couche | Responsabilités | Interdictions |
 |---|---|---|
-| `arachnea-translation` | Langues à deux lettres, blocs abstraits, capacités et limites, métadonnées, sélection, planification, identité de révision de traduction, pont Scrapyfy. | Aucune connaissance de WebVTT, des cues, du player ou des pistes vidéo. Aucun fournisseur Rust spécifique. |
-| `arachnea-stream` | Droits, résolution des liens de proxy, catalogues, assemblage REST/Tauri et transport du fichier, plus son module `subtitles` : descripteurs de piste source, parsing/sérialisation WebVTT, découpage des cues et planification documentaire, descripteur en mémoire, récupération conditionnelle autorisée, validateur source et statuts HTTP. | Aucun mapping fournisseur ni Rust spécifique à un fournisseur ; aucun accès réseau non autorisé. |
+| `arachnea-translation` | Langues, métadonnées, sélection, budgets, pont Scrapyfy, répartition et orchestration documentaires, revalidation, traitement WebVTT optionnel et handlers API. | Aucun player ni fournisseur Rust spécifique. |
+| `arachnea-stream` | Assemblage du runtime et des contrôleurs, credentials et configuration des adaptateurs de récupération partagés. | Aucun mapping fournisseur ni Rust spécifique à un fournisseur ; aucun accès réseau non autorisé. |
 | Front public | Préférences, décision de demander une traduction, cycle de vie Video.js. | Aucun credential ni protocole fournisseur. |
 
 Les fournisseurs sont exclusivement décrits et exécutés par Scrapyfy. Le pont
@@ -229,7 +234,7 @@ Les statuts HTTP Scrapyfy sont classés en `authentication` (`401`, `403`),
 `ProviderRejected` avec `retry_after_seconds` facultatif, sans rejouer le corps
 ni changer de fournisseur.
 
-Les paramètres de budget lus par Stream dans le YAML sont
+Les paramètres de budget lus par Translation dans le YAML sont
 `translation_max_concurrent_requests`, `translation_max_units_per_window` et
 `translation_budget_window_seconds`. Un quota nul signifie « sans quota » ; la
 concurrence et la fenêtre doivent être positives. Le budget en mémoire est
@@ -260,7 +265,7 @@ Paramètres normalisés : `translation_document_url`,
 `translation_source_language`, `translation_target_language`.
 La sortie normalisée contient `content` et `content_type` pour
 `inline_document`. Le contenu complet est validé par l’adaptateur du format du
-module `subtitles` d’`arachnea-stream`.
+module documentaire d’`arachnea-translation`.
 
 Sans capacité URL, le document est récupéré par le moteur, découpé en blocs
 abstraits, puis traduit par `translate_texts`. Une URL privée, une URL
@@ -299,13 +304,13 @@ La planification respecte simultanément :
 
 `plan_batches` reste une estimation JSON normalisée pour la couche documentaire.
 `plan_batches_with_measurement` et `ScrapyfyTranslationBridge::plan_texts`
-utilisent les octets du corps réel. `select_text_translation_bridge` dans Stream
+utilisent les octets du corps réel. Le runtime Translation
 emploie ces plans et la disponibilité effective des budgets pour sélectionner le
 service, conserve les limites locales à l'exécution et garde le même fournisseur
 pour tous les lots.
 
-Le découpage d’une cue trop longue reste dans le module `subtitles`
-d’`arachnea-stream`, qui ne doit couper ni Unicode ni balisage. Translation
+Le découpage d’une cue trop longue est assuré par le module VTT
+d’`arachnea-translation`, qui ne doit couper ni Unicode ni balisage. Translation
 refuse un bloc trop grand au lieu de le tronquer.
 
 Bornes locales par défaut : 50 blocs, 10 000 unités par bloc, 50 000 unités par
@@ -321,7 +326,10 @@ compte.
 
 ## 7. Pipeline documentaire WebVTT
 
-Le module `subtitles` d’`arachnea-stream` parse et sérialise des documents
+`DocumentTranslator::prepare` retourne un `PreparedDocument` pour chaque capacité candidate. Translation mesure ses blocs exacts avant sélection, puis exécute le plan conservé avec le bridge retenu. La segmentation est conservée jusqu’à l’exécution ; aucun repli fournisseur ne suit un échec. La feature `document-vtt` conditionne WebVTT ; un registre vide refuse tous les formats. La feature `api` enregistre les routes via une intégration applicative injectée.
+
+
+Le module VTT d’`arachnea-translation` parse et sérialise des documents
 WebVTT complets sans dépendance à un fournisseur ni au player.
 
 - L’entrée doit être en UTF-8 valide. Un BOM initial est accepté et les fins de
@@ -357,31 +365,21 @@ SRT reste hors du chemin initial et n’est jamais servi comme du WebVTT brut.
 
 ## 8. Cache navigateur et validateurs
 
-L’ETag faible de Stream suit la convention Scrapyfy avec un seul fragment :
-`W/"SOURCE=E:<hash-yaml>-<etag-amont-encodé>"` lorsque la source fournit un
-ETag, ou `W/"SOURCE=C:<hash-yaml>-<timestamp>-<hash-contenu>"` sinon. `SOURCE`
-est l’identifiant du service de traduction effectivement choisi ; `hash-yaml`
-est celui de son YAML. `timestamp` est la date `Last-Modified` amont en secondes
-Unix, ou `0` si elle est absente ou inexploitable ; le contenu est haché en
-XXH3-128/base62. Le fragment utilise l’encodage et les fonctions Scrapyfy
-existants ; la taille de l’ETag est limitée à 4096 octets.
+Translation émet un ETag faible compatible Scrapyfy avec un fragment par
+service. Celui-ci contient l’identifiant fournisseur, une révision composite et
+soit l’ETag amont encodé, soit un hash de contenu avec une date de modification
+facultative. La révision composite hache le descripteur documentaire (identité de
+source, MIME, langues, politique et périmètre d’accès), la révision du pipeline,
+le YAML et la configuration effective, y compris les métadonnées chargées. Les
+anciens validateurs ne correspondent plus à cette identité. L’ETag amont est
+encodé mais reste lisible ; il ne prouve pas les droits. Les tags sont limités à
+4096 octets.
 
-Les langues et options portées par l’URL sont isolées par la clé de cache URL.
-L’ETag ne contient ni ces paramètres ni les révisions de configuration, de
-pipeline ou de périmètre d’accès. Une modification de configuration ou de
-pipeline ne changeant ni l’URL ni le YAML du fournisseur ne provoque donc pas à
-elle seule l’invalidation d’un fichier en cache. Le préfixe `st1.` précédent
-n’est plus accepté et entraîne une nouvelle traduction. L’ETag amont encodé
-reste lisible ; il ne doit pas être considéré comme secret ou comme preuve de
-droits. Le serveur contrôle séparément les droits, la politique et l’éligibilité
-du service, puis revalide la source avant un `304`. Aucun fichier traduit ni
-index documentaire n’est conservé côté serveur.
-
-Stream revalide le descripteur autorisé avant tout appel fournisseur et traduit
-un WebVTT complet avec le pont générique texte ou URL. La façade applicative
-fournit un instantané du catalogue et de la configuration. Les chemins directs et ceux du proxy
-applicatif contrôlent et fixent les adresses DNS publiques à chaque saut. Les
-liens internes sont décodés sans appel au contrôleur local ; paramètres de
+Translation contrôle l’éligibilité et les droits, puis revalide la source avant
+un `304`. Aucun fichier source ou traduit n’est conservé côté serveur. Stream
+configure l’adaptateur de récupération de Translation et fournit un instantané du runtime pour l’opération.
+Les chemins directs et ceux du proxy applicatif contrôlent et fixent les adresses
+DNS publiques à chaque saut. Les liens internes sont décodés sans appel au contrôleur local ; paramètres de
 routage, cookies, actions, classificateurs et options TLS autorisées sont
 conservés. Le nom logique est conservé pour le routage et TLS, tandis que les
 connexions et tunnels utilisent l’IP validée. En-têtes et cookies sont retirés
@@ -398,23 +396,33 @@ fournisseur après le début de l’exécution. Aucun fichier source ou traduit 
 conservé ; les demandes simultanées sans corps en cache peuvent être exécutées
 séparément dans la limite de concurrence du fournisseur. La qualification locale
 avec fournisseur et proxy simulés est terminée ; les fournisseurs réels restent
-à qualifier avec leurs accès. Le transport public du lot 6 est documenté en
-section 9.
+à qualifier avec leurs accès. Le transport public est documenté en section 9.
 
 ## 9. Contrat backend
 
 | Commande | Rôle |
 |---|---|
-| `get_translation_services` | Catalogue public des services utilisables, capacités et langues ; aucun secret. |
-| `GET <public-path>/translate_subtitle?...` | Valide la demande puis retourne directement le WebVTT avec son ETag, ou `304` après revalidation de la source et du YAML. |
+| `translation/get_services` | Catalogue public des services utilisables, capacités et langues ; aucun secret. |
+| `GET <public-path>/translation/translate_url?...` | Valide la demande puis retourne directement le WebVTT avec son ETag, ou `304` après revalidation de la source et de la révision composite. |
 | `HEAD` sur le même chemin | Répond `405` avec `Allow: GET` sans récupération ni traduction. |
 
-Une seule requête transmet `url`, `target_language` et, en option, `track_id`,
-`source_language`, `policy` et `format` dans la query. Les valeurs sont encodées
+`arachnea_translation::api::register_routes` accepte un sous-chemin facultatif
+validé. Stream utilise `translation` ; sans sous-chemin les commandes sont
+`get_services` et `translate_url`. REST et Tauri utilisent la même commande
+complète enregistrée. Les anciennes routes et paramètres n’ont pas d’alias.
+
+Chaque service expose `url_translation_formats`, les types MIME acceptés par la
+traduction par URL, et `source_detection_identifies_language`, qui indique si la
+détection peut identifier la source avant la vérification des couples directionnels.
+Le frontend partage le catalogue entre réglages et lecteur, réessaie les chargements
+en échec et doit être rechargé après une modification de configuration des services.
+
+Une seule requête transmet `url`, `target` et `content-type` et, en option, `track_id`,
+`source` et `policy` dans la query. Les valeurs sont encodées
 avec JSON puis URL-encodées, comme pour les commandes JSON ; les chaînes simples
 non entourées de guillemets sont également acceptées. `policy` contient
 `{"mode":"auto"}` (avec `preferred_service` optionnel) ou
-`{"mode":"constrained","service_id":"…"}`. Le format par défaut est `webvtt`.
+`{"mode":"constrained","service_id":"…"}`. Le type MIME `text/vtt` est obligatoire et ses paramètres usuels sont acceptés.
 Seul WebVTT est pris en charge. Les paramètres répétés sont refusés avec `400`.
 
 Le transport construit un descripteur en mémoire pour chaque demande et vérifie
@@ -425,7 +433,7 @@ par jeton sont supprimées sans rétrocompatibilité.
 
 Le périmètre d’accès vérifié pour la requête reste l’IP cliente de confiance
 en REST (le loopback partage le périmètre local) et le périmètre local pour le
-protocole Tauri ; il n’est pas inclus dans l’ETag. Des clients partageant une IP partagent ce périmètre ; une
+protocole Tauri ; il participe à l’identité documentaire hachée portée par l’ETag. Des clients partageant une IP partagent ce périmètre ; une
 isolation par utilisateur exige un périmètre authentifié. Les contrôles réseau,
 proxy et de redirection restent appliqués. Les erreurs sont servies en texte,
 jamais comme un fichier VTT.
@@ -459,10 +467,17 @@ base API configurée ou le préfixe de l’application, sans appel JSON préalab
 | Métadonnées indisponibles ou incident temporaire | `503 Service Unavailable` |
 | État interne en échec | `500 Internal Server Error` |
 
-`Cache-Control: private, no-cache` est proposé pour conserver le corps tout en
+`Cache-Control: private, no-cache` est utilisé pour conserver le corps tout en
 revalidant avec `If-None-Match`. Une réponse `304` est vide et conserve l'ETag.
 
 Les playlists média HLS finies de sous-titres WebVTT sont également acceptées. Le frontend découvre les URL via VHS et privilégie les pistes complètes aux pistes forcées. Le backend assemble les segments, normalise les horodatages via X-TIMESTAMP-MAP et déduplique les cues. Les options proxy sont conservées et chaque requête vérifie les destinations publiques. Les limites cumulées de taille et de cues restent appliquées ; l’assemblage est limité à 4096 segments et 120 secondes. Le direct, le chiffrement, les discontinuités, les plages d’octets et les cartes d’initialisation sont refusés. La revalidation utilise le hash du document assemblé, jamais le seul ETag de la playlist. Un fournisseur capable de traduire du texte est nécessaire ; la playlist n’est pas envoyée au mode de traduction par URL.
+
+LibreTranslate charge les couples directionnels depuis `/languages` au chargement
+ou rechargement du catalogue. Seuls les codes publiés de deux lettres minuscules
+sont conservés ; les variantes sont exclues sans troncature. Une erreur HTTP,
+une réponse invalide ou l’absence de couple exploitable rend le fournisseur
+indisponible. Recharger la configuration des services après modification des
+modèles installés. Les métadonnées effectives participent à la révision.
 
 ## 10. Hors périmètre du socle
 
@@ -470,3 +485,33 @@ SRT reste derrière une extension explicite. Les sous-titres DASH intégrés,
 le direct, TTML/ASS, la transcription audio, les iframes sans piste externe, les
 modes URL avec tâche différée, l'upload de documents, un fournisseur supplémentaire
 et le regroupement linguistique entre cues demandent une analyse séparée.
+
+## Récupération partagée et instantané des métadonnées
+
+`retrieval-http` active l’adaptateur HTTP borné dans `document::http`. Avec
+`document-vtt`, il assemble aussi le HLS WebVTT fini. `retrieval-proxy` inclut
+HTTP et ajoute l’intégration optionnelle Core/Proxy ; l’application injecte les
+en-têtes, le préfixe et le runtime proxy. Un port de récupération personnalisé
+reste possible. Ces adaptateurs ne dépendent pas de Stream.
+
+Les bridges utilisent les métadonnées validées conservées dans le catalogue et
+leur révision, sans les recharger pendant la sélection ou l’exécution. Le bridge
+sélectionné reste associé au plan documentaire préparé. `DocumentTranslator`
+valide la source et les résultats URL ; orchestration et handlers API compilent
+indépendamment de `document-vtt`. Sans format compilé, la demande fichier échoue
+explicitement avant récupération.
+
+## Enregistrement unique de l’API et durée de vie du snapshot
+
+`api::register_routes(controller, factory, subpath)` prend en charge les routes,
+la construction des handlers, la sérialisation du catalogue et l’exécution
+documentaire. La factory retourne un `Arc<S>` implémentant `TranslationSnapshot`
+défini par Translation : catalogue, agrégateur Scrapyfy, groupe, récupération
+configurée et préfixe proxy fiable facultatif. Elle est appelée une seule fois
+par requête. Le snapshot reste vivant pendant tout le traitement asynchrone,
+y compris lors d’un rechargement concurrent. Une consultation du catalogue ne
+construit pas de récupérateur. Stream fournit les dépendances et sa factory
+retournant l’instance courante ; il ne définit aucun callback de route de
+traduction. L’ancien contrat Rust `TranslationApi` est retiré ; les noms de
+commandes, paramètres et réponses HTTP/Tauri conservent leur contrat actuel.
+Translation ne dépend pas de Stream.

@@ -21,7 +21,7 @@ import {
  * @returns Enabled services, their capabilities and the reachable languages.
  */
 export async function getTranslationServices(): Promise<TranslationCatalog> {
-  const response = await call_api<unknown>('get_translation_services', {})
+  const response = await call_api<unknown>('translation/get_services', {})
 
   const catalog = normalizeTranslationCatalog(response)
   if (!catalog) {
@@ -32,7 +32,7 @@ export async function getTranslationServices(): Promise<TranslationCatalog> {
 }
 
 /**
- * Normalizes the public catalog returned by `get_translation_services`.
+ * Normalizes the public catalog returned by `translation/get_services`.
  *
  * @param payload Raw backend payload.
  * @returns Normalized catalog, or `null` when the payload is unusable.
@@ -82,6 +82,12 @@ function normalizeTranslationService(payload: unknown): TranslationServiceCapabi
     ) === true,
     supportsUrlTranslation: readOptionalBoolean(
       payload.supports_url_translation ?? payload.supportsUrlTranslation,
+    ) === true,
+    urlTranslationFormats: readStringList(
+      payload.url_translation_formats ?? payload.urlTranslationFormats,
+    ).map((format) => format.toLowerCase()),
+    sourceDetectionIdentifiesLanguage: readOptionalBoolean(
+      payload.source_detection_identifies_language ?? payload.sourceDetectionIdentifiesLanguage,
     ) === true,
     sourceDetection: readOptionalBoolean(
       payload.source_detection ?? payload.sourceDetection,

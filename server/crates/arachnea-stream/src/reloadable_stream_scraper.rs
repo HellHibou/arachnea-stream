@@ -17,9 +17,8 @@ use arachnea_scrapyfy::{ScraperAdminSettings, ScraperRuntimeOptions, SourceServi
 use crate::stream_scraper::{
     category_sources_from_request, GetBannersRequest, GetCategoryRequest, GetEntryRequest,
     GetLiveRequest, GetPlayersRequest, GetRecommendationsRequest, GetSeasonRequest,
-    GetSectionRequest, GetServiceRequest, GetStreamRequest, GetTranslationServicesRequest,
-    ListLivesRequest, LoadHomeRequest, SearchRequest, StreamScraper, StreamScraperBuildOptions,
-    DRM_LICENSE_PROXY_COMMAND, GET_TRANSLATION_SERVICES_COMMAND, TRANSLATE_SUBTITLE_COMMAND,
+    GetSectionRequest, GetServiceRequest, GetStreamRequest, ListLivesRequest, LoadHomeRequest,
+    SearchRequest, StreamScraper, StreamScraperBuildOptions, DRM_LICENSE_PROXY_COMMAND,
 };
 
 /// Endpoints captured when routes are first registered.
@@ -512,17 +511,13 @@ fn register_routes(
         |reloadable, input| async move { reloadable.current().get_drm_license(input).await },
     );
 
-    controler.register_result_function_with_state(
-        GET_TRANSLATION_SERVICES_COMMAND,
-        Arc::clone(reloadable),
-        |reloadable, _context, input: GetTranslationServicesRequest| async move {
-            Ok::<_, String>((reloadable.current().get_translation_services(input), None))
+    arachnea_translation::api::register_routes(
+        controler,
+        {
+            let reloadable = Arc::clone(reloadable);
+            move || reloadable.current()
         },
-    );
-
-    controler.register_stream_function_with_state(
-        TRANSLATE_SUBTITLE_COMMAND,
-        Arc::clone(reloadable),
-        |reloadable, input| async move { reloadable.current().get_translated_subtitle(input).await },
-    );
+        Some("translation"),
+    )
+    .expect("static translation route prefix is valid");
 }

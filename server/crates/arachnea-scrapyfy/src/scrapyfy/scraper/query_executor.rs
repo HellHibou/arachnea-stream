@@ -571,7 +571,17 @@ async fn execute_query_internal(
             }
 
             // d. Apply post-processes on this item.
-            let response_body = response_body_str(&response);
+            let json_body = match &response {
+                FetchedResponse::Json(value)
+                    if query.post_processes().iter().any(|step| {
+                        matches!(step, ScraperPostProcess::ProjectJsonRelations { .. })
+                    }) =>
+                {
+                    Some(value.to_string())
+                }
+                _ => None,
+            };
+            let response_body = response_body_str(&response).or(json_body.as_deref());
             apply_post_processes(
                 query.post_processes(),
                 &mut item,

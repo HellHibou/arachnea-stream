@@ -21,6 +21,7 @@ mod math_helpers;
 mod merge_items_by_field;
 mod node_helpers;
 mod pivot_items_by_index;
+mod project_json_relations;
 mod regex_helpers;
 mod set_nested_fields;
 mod sort_items;
@@ -43,6 +44,30 @@ pub use types::{
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ScraperPostProcess {
+    /// Projects a JSON array of directional relations into a template object.
+    ProjectJsonRelations {
+        /// Output field containing the generated object.
+        target: String,
+        /// JSON pointer to the array in the response (empty selects the root).
+        pointer: String,
+        /// Key containing each item's identifier.
+        key: String,
+        /// Key containing each item's array of related identifiers.
+        relations: String,
+        /// Regular expression required for included identifiers.
+        pattern: String,
+        /// Template object augmented with the projected fields.
+        template: serde_json::Value,
+        /// Template field receiving the unique identifiers.
+        values_field: String,
+        /// Template field receiving directional pairs.
+        pairs_field: String,
+        /// Field name for the origin in each pair.
+        from_field: String,
+        /// Field name for the destination in each pair.
+        to_field: String,
+    },
+
     /// Applies an action pipeline to one root scalar field and stores the result.
     ApplyActionsToField {
         /// Root field containing the values supplied to the pipeline.
@@ -341,6 +366,30 @@ impl ScraperPostProcess {
     /// regex, empty field name, invalid math expression, etc.).
     pub fn validate(&self, owner: &str) -> Result<()> {
         match self {
+            ScraperPostProcess::ProjectJsonRelations {
+                target,
+                pointer,
+                key,
+                relations,
+                pattern,
+                template,
+                values_field,
+                pairs_field,
+                from_field,
+                to_field,
+            } => project_json_relations::validate(
+                owner,
+                target,
+                pointer,
+                key,
+                relations,
+                pattern,
+                template,
+                values_field,
+                pairs_field,
+                from_field,
+                to_field,
+            ),
             ScraperPostProcess::ApplyActionsToField {
                 source,
                 target,
@@ -464,6 +513,31 @@ impl ScraperPostProcess {
         context: &ScraperPostProcessContext<'_>,
     ) -> Result<()> {
         match self {
+            ScraperPostProcess::ProjectJsonRelations {
+                target,
+                pointer,
+                key,
+                relations,
+                pattern,
+                template,
+                values_field,
+                pairs_field,
+                from_field,
+                to_field,
+            } => project_json_relations::apply(
+                root,
+                context,
+                target,
+                pointer,
+                key,
+                relations,
+                pattern,
+                template,
+                values_field,
+                pairs_field,
+                from_field,
+                to_field,
+            ),
             ScraperPostProcess::ApplyActionsToField {
                 source,
                 target,

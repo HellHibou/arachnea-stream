@@ -5,11 +5,11 @@
 //! rebuilds a complete document from a normalized translation result. Provider
 //! selection and cache orchestration remain outside this module.
 
-use super::document::{LocalSubtitleLimits, SubtitleDocumentStats, SubtitleFormat};
-use super::error::SubtitleTranslationError;
 use super::segments::{segment, SegmentedDocument};
 use super::webvtt::WebVttDocument;
-use arachnea_translation::{
+use crate::document::error::SubtitleTranslationError;
+use crate::document::types::{LocalSubtitleLimits, SubtitleDocumentStats, SubtitleFormat};
+use crate::{
     plan_batches, LocalTranslationLimits, TextBlock, TextTranslationCapability, TranslatedTexts,
     TranslationPlan,
 };
@@ -131,7 +131,7 @@ impl SubtitleDocumentPlan {
     ///
     /// # Errors
     ///
-    /// Propagates [`arachnea_translation::TranslationError::SizeLimit`] when a
+    /// Propagates [`crate::TranslationError::SizeLimit`] when a
     /// planned block no longer fits the supplied limits.
     pub fn batches(
         &self,

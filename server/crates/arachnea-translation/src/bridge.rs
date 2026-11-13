@@ -228,15 +228,36 @@ impl<P: ScrapyfyQueryPort> ScrapyfyTranslationBridge<P> {
             })?;
         let value = metadata_value(row)?;
         let metadata = TranslationMetadata::from_value(&value)?;
-        Ok(Self {
+        Ok(Self::from_metadata(
             port,
             service_id,
+            configuration_revision,
+            metadata,
+        ))
+    }
+
+    /// Creates a bridge using validated metadata from a retained catalog snapshot.
+    ///
+    /// # Arguments
+    /// * `port` - Provider query executor belonging to the same snapshot.
+    /// * `service_id` - Stable provider identifier.
+    /// * `configuration_revision` - Revision that includes these metadata.
+    /// * `metadata` - Validated capabilities loaded with that revision.
+    pub(crate) fn from_metadata(
+        port: P,
+        service_id: impl Into<String>,
+        configuration_revision: impl Into<String>,
+        metadata: TranslationMetadata,
+    ) -> Self {
+        Self {
+            port,
+            service_id: service_id.into(),
             metadata,
             configuration_revision: configuration_revision.into(),
             budget: Arc::new(UnlimitedTranslationBudget),
             retry: TranslationRetryPolicy::default(),
             local_limits: LocalTranslationLimits::default(),
-        })
+        }
     }
 
     /// Replaces the account budget and concurrency port.

@@ -6,34 +6,43 @@
 //! selection, batch planning, translation revision identity and the generic bridge used
 //! to execute translation queries through `arachnea-scrapyfy`.
 //!
-//! It deliberately has no knowledge of WebVTT, subtitle cues, players or
-//! tracks. Document parsing, cue segmentation, subtitle retrieval and the
-//! subtitle revalidation live in the `arachnea-stream` subtitle module; stream
-//! services provide authorized retrieval through the injected port defined there.
+//! Optional document translators provide format-specific parsing and reconstruction.
+//! Optional HTTP and proxy adapters retrieve source documents; application configuration
+//! remains the caller’s responsibility.
 //!
 //! # Boundaries
 //!
 //! * Provider endpoints, authentication headers, request bodies and response
 //!   mappings are described by Scrapyfy service YAML files. No provider is
 //!   implemented in Rust here.
-//! * [`bridge::ScrapyfyQueryPort`] is the only outbound Scrapyfy dependency.
-//!   Stream supplies an implementation backed by its service catalog.
-//! * The `arachnea-stream` subtitle module depends on this crate, never the
-//!   opposite, and this crate never depends on `arachnea-stream`.
+//! * [`bridge::ScrapyfyQueryPort`] abstracts query execution. The optional
+//!   aggregator adapter accepts an already loaded service group from the caller.
+//! * Stream imports document and runtime contracts from this crate, which never
+//!   depends on `arachnea-stream`.
 //!
-//! Translation is not exposed publicly at this lot: the crate defines the
-//! contracts needed by the catalog, orchestrator and transport layers.
+//! The API feature provides shared transport handlers; callers supply a runtime
+//! snapshot and authorized retrieval adapters for document orchestration.
 
+#[path = "document/lib.rs"]
+pub mod document;
+
+pub mod aggregator_port;
+#[cfg(feature = "api")]
+pub mod api;
 pub mod block;
 pub mod bridge;
 pub mod budget;
 pub mod cache;
 pub mod capability;
+#[cfg(feature = "runtime")]
+pub mod catalog;
 pub mod error;
 pub mod language;
 pub mod metadata;
 pub mod metrics;
 pub mod planning;
+#[cfg(feature = "runtime")]
+pub mod runtime;
 pub mod selection;
 pub mod service;
 
@@ -151,3 +160,65 @@ pub const DEFAULT_QUERY_TIMEOUT_SECONDS: u64 = 60;
 
 /// Runtime parameter carrying the plain text for dedicated detection queries.
 pub const PARAM_DETECTION_TEXT: &str = "translation_detection_text";
+
+/// Canonical WebVTT media type.
+pub const WEBVTT_MEDIA_TYPE: &str = "text/vtt";
+/// Canonical SubRip media type, reserved for a future translator.
+pub const SRT_MEDIA_TYPE: &str = "application/x-subrip";
+/// Default maximum decompressed document size in bytes.
+pub const DEFAULT_MAX_DOCUMENT_BYTES: u64 = 4 * 1024 * 1024;
+/// Default maximum cue count per document.
+pub const DEFAULT_MAX_CUES: u64 = 10_000;
+/// Default maximum translatable units per document.
+pub const DEFAULT_MAX_TRANSLATABLE_UNITS: u64 = 500_000;
+
+/// Runtime parameter controlling the administrator selection order.
+pub const TRANSLATION_ORDER_PARAMETER: &str = "translation_selection_order";
+
+/// Runtime parameter marking the preferred translation provider.
+pub const TRANSLATION_PREFERRED_PARAMETER: &str = "translation_preferred";
+
+/// Runtime parameter bounding concurrent provider requests.
+pub const TRANSLATION_MAX_CONCURRENT_PARAMETER: &str = "translation_max_concurrent_requests";
+
+/// Runtime parameter bounding provider units per quota window.
+pub const TRANSLATION_MAX_UNITS_PER_WINDOW_PARAMETER: &str = "translation_max_units_per_window";
+
+/// Runtime parameter declaring the quota window in seconds.
+pub const TRANSLATION_BUDGET_WINDOW_SECONDS_PARAMETER: &str = "translation_budget_window_seconds";
+
+/// Default selection order when a service does not declare one.
+pub const DEFAULT_TRANSLATION_ORDER: u64 = 1_000;
+
+/// Default maximum concurrent provider requests.
+pub const DEFAULT_TRANSLATION_MAX_CONCURRENT_REQUESTS: usize = 1;
+
+/// Default account quota window: 30 days.
+pub const DEFAULT_TRANSLATION_BUDGET_WINDOW_SECONDS: u64 = 2_592_000;
+
+/// Maximum representable modification date in subtitle validators (Unix seconds).
+pub const SUBTITLE_ETAG_MAX_DATE_UNIX_SECONDS: u64 = 253_402_300_799;
+/// Maximum encoded subtitle entity-tag length in bytes.
+pub const SUBTITLE_ETAG_MAX_LENGTH: usize = 4096;
+/// Browser-only translation cache policy requiring revalidation.
+pub const DEFAULT_SUBTITLE_CACHE_CONTROL: &str = "private, no-cache";
+
+/// Revision of document-specific validator identity; changing it invalidates browser results.
+pub const DOCUMENT_PIPELINE_REVISION: &str = "document-2";
+
+/// Maximum encoded proxy options length accepted for a subtitle source, in bytes.
+pub const SUBTITLE_PROXY_OPTIONS_MAX_LENGTH: usize = 4096;
+
+/// Maximum redirects followed when retrieving a subtitle source.
+pub const SUBTITLE_SOURCE_MAX_REDIRECTS: usize = 5;
+
+/// Timeout for each subtitle source request, in seconds.
+pub const SUBTITLE_SOURCE_TIMEOUT_SECONDS: u64 = 30;
+
+/// Maximum number of segments assembled for one finite HLS subtitle track.
+#[cfg(feature = "document-vtt")]
+pub(crate) const SUBTITLE_HLS_MAX_SEGMENTS: usize = 4096;
+
+/// Maximum total retrieval and assembly time for an HLS subtitle rendition, in seconds.
+#[cfg(all(feature = "document-vtt", feature = "retrieval-http"))]
+pub(crate) const SUBTITLE_HLS_TIMEOUT_SECONDS: u64 = 120;

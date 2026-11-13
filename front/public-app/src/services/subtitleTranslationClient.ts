@@ -84,17 +84,17 @@ export async function fetchSubtitleTranslationFile(
   const parameters: Record<string, unknown> = {
     url: request.source.url,
     ...(request.source.trackId?.trim() ? { track_id: request.source.trackId.trim() } : {}),
-    ...(source ? { source_language: source } : {}),
-    target_language: target,
+    ...(source ? { source: source } : {}),
+    target: target,
     policy: toBackendPolicy(request.policy ?? { mode: 'auto' }),
-    format: request.source.format ?? 'webvtt',
+    'content-type': 'text/vtt',
   }
   const query = new URLSearchParams()
   for (const [name, value] of Object.entries(parameters)) {
     query.set(name, JSON.stringify(value))
   }
   const base = import.meta.env.VITE_RUSTIFY_API_BASE_URL ?? resolveAppPath('api')
-  const url = resolveSubtitleTranslationUrl(`${base.replace(/\/$/, '')}/translate_subtitle?${query}`)
+  const url = resolveSubtitleTranslationUrl(`${base.replace(/\/$/, '')}/translation/translate_url?${query}`)
   const cached = readCachedSubtitleFile(url)
   let response = await requestSubtitleFile(url, cached?.etag ?? null, options.signal, false)
 

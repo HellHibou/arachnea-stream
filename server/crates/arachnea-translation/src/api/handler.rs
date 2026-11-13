@@ -1,4 +1,4 @@
-//! Public translation catalog and direct conditional WebVTT transport.
+//! Public translation catalog and direct conditional document transport.
 //!
 //! Requests build an authorized descriptor in memory and revalidate or translate
 //! a complete document. Only the browser retains the `ETag` and bytes pair.
@@ -6,20 +6,17 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
 
+use crate::{AccessScope, LanguageCode, LocalTranslationLimits, SelectionPolicy, SupportedPair};
 use arachnea_core::controler::{ControlerStreamInput, ControlerStreamOutput, ResponseBody};
 use arachnea_scrapyfy::scrapyfy::conditional::hash62;
-use arachnea_translation::{
-    AccessScope, LanguageCode, LocalTranslationLimits, SelectionPolicy, SupportedPair,
-};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
-use super::StreamScraper;
-use crate::subtitles::{
-    service_supports_pair, LocalSubtitleLimits, SubtitleFormat, SubtitleSourceDescriptor,
+use crate::catalog::TranslationCatalogEntry;
+use crate::document::{
+    service_supports_pair, LocalSubtitleLimits, SubtitleSourceDescriptor,
     SubtitleTranslationDescriptor, SubtitleTranslationError, SubtitleTranslationOutcome,
     SubtitleTranslationRequest, SubtitleTranslationValidator,
 };
-use crate::translation_catalog::TranslationCatalogEntry;
 use crate::DEFAULT_SUBTITLE_CACHE_CONTROL;
 
 /// Maximum number of `If-None-Match` candidates evaluated per request.
@@ -28,31 +25,7 @@ const IF_NONE_MATCH_MAX_TAGS: usize = 32;
 /// HEAD and other unsupported methods never retrieve or translate.
 const SUBTITLE_FILE_ALLOWED_METHODS: &str = "GET";
 
-/// Empty request payload for the public translation catalog command.
-#[derive(Debug, Deserialize)]
-pub(crate) struct GetTranslationServicesRequest {}
-
-/// Parameters of one direct conditional subtitle translation request.
-#[derive(Debug, Deserialize)]
-pub(crate) struct TranslateSubtitleRequest {
-    /// Source subtitle URL or recognized application proxy link.
-    #[serde(alias = "link")]
-    pub(crate) url: String,
-    /// Stable source track identifier when the caller already knows one.
-    #[serde(default)]
-    pub(crate) track_id: Option<String>,
-    /// Known source language, or omitted for automatic detection.
-    #[serde(default, alias = "lang")]
-    pub(crate) source_language: Option<String>,
-    /// Requested target language.
-    pub(crate) target_language: String,
-    /// Automatic, preferred or constrained service policy.
-    #[serde(default)]
-    pub(crate) policy: Option<SelectionPolicy>,
-    /// Source subtitle format; only WebVTT is accepted initially.
-    #[serde(default)]
-    pub(crate) format: Option<String>,
-}
+use super::{parse_format, parse_request, TranslateSubtitleRequest};
 
 /// Public capability of one published translation service.
 #[derive(Debug, Serialize)]
@@ -66,7 +39,9 @@ struct TranslationServiceView {
     supported_pairs: Option<Vec<TranslationPairView>>,
     supports_text_translation: bool,
     supports_url_translation: bool,
+    url_translation_formats: Vec<String>,
     source_detection: bool,
+    source_detection_identifies_language: bool,
     preferred: bool,
 }
 
@@ -79,25 +54,19 @@ struct TranslationPairView {
 
 /// Public translation catalog response.
 #[derive(Debug, Serialize)]
-pub(crate) struct TranslationServicesView {
+pub struct TranslationServicesView {
     services: Vec<TranslationServiceView>,
     languages: Vec<String>,
 }
 
-impl StreamScraper {
-    /// Returns the public effective translation catalog without credentials.
-    pub(crate) fn get_translation_services(
-        &self,
-        _request: GetTranslationServicesRequest,
-    ) -> TranslationServicesView {
-        let services = self
-            .translation_catalog
-            .services()
-            .iter()
-            .map(service_view)
-            .collect();
-        let languages = self
-            .translation_catalog
+impl TranslationServicesView {
+    /// Builds a public catalog view without constructing a source retriever.
+    ///
+    /// # Arguments
+    /// * `catalog` - Validated provider metadata from the retained snapshot.
+    pub fn from_catalog(catalog: &crate::catalog::TranslationCatalog) -> Self {
+        let services = catalog.services().iter().map(service_view).collect();
+        let languages = catalog
             .available_languages()
             .iter()
             .map(|language| language.as_str().to_string())
@@ -107,7 +76,23 @@ impl StreamScraper {
             languages,
         }
     }
+}
 
+/// One operation's borrowed translation configuration and authorized retrieval.
+pub struct TranslationHandler<'a> {
+    /// Effective provider catalog from the retained runtime snapshot.
+    pub translation_catalog: &'a crate::catalog::TranslationCatalog,
+    /// Loaded provider services and resolved credentials.
+    pub aggregator: &'a arachnea_scrapyfy::ScraperAgregator,
+    /// Caller-supplied provider group name.
+    pub group_name: &'a str,
+    /// Authorized source retrieval implementation.
+    pub retrieval: &'a dyn crate::document::SubtitleRetrievalPort,
+    /// Recognized application proxy URL prefix.
+    pub proxy_public_path: Option<&'a str>,
+}
+
+impl TranslationHandler<'_> {
     /// Validates the requested source, languages and policy into an in-memory descriptor.
     ///
     /// # Arguments
@@ -122,12 +107,12 @@ impl StreamScraper {
         request: TranslateSubtitleRequest,
     ) -> Result<SubtitleTranslationDescriptor, SubtitleTranslationError> {
         let source_language = request
-            .source_language
+            .source
             .as_deref()
             .map(|value| parse_language(value, "source language"))
             .transpose()?;
-        let target_language = parse_language(&request.target_language, "target language")?;
-        let format = parse_format(request.format.as_deref())?;
+        let target_language = parse_language(&request.target, "target language")?;
+        let format = parse_format(&request.content_type)?;
         let track_id = request
             .track_id
             .filter(|value| !value.trim().is_empty())
@@ -139,12 +124,7 @@ impl StreamScraper {
             format,
         };
         source.validate()?;
-        validate_source_url(
-            &source.url,
-            self.player_resolver_endpoints
-                .http_proxy_public_path
-                .as_deref(),
-        )?;
+        validate_source_url(&source.url, self.proxy_public_path)?;
         if source_language.as_ref() == Some(&target_language) {
             return Err(SubtitleTranslationError::InvalidDescriptor {
                 detail: "source and target languages are identical".to_string(),
@@ -168,14 +148,14 @@ impl StreamScraper {
         })
     }
 
-    /// Returns a complete translated WebVTT file or an empty conditional `304`.
+    /// Returns a complete translated document or an empty conditional `304`.
     ///
     /// # Arguments
     /// * `input` - GET request with JSON-encoded query parameters and optional ETag.
     ///
     /// # Errors
-    /// Protocol and translation failures are returned as explicit non-WebVTT responses.
-    pub(crate) async fn get_translated_subtitle(
+    /// Protocol and translation failures are returned as explicit error responses.
+    pub async fn get_translated_subtitle(
         &self,
         input: ControlerStreamInput,
     ) -> Result<ControlerStreamOutput, SubtitleTranslationError> {
@@ -201,40 +181,42 @@ impl StreamScraper {
             .and_then(|(_, value)| {
                 select_client_etag(value, &descriptor, &self.translation_catalog)
             });
-        let outcome = self
-            .translate_subtitle(
-                SubtitleTranslationRequest {
-                    descriptor: &descriptor,
-                    access_scope: &access_scope,
-                    client_etag,
-                    provider_accessible_url: None,
-                    subtitle_limits: LocalSubtitleLimits::default(),
-                    translation_limits: LocalTranslationLimits::default(),
-                },
-                HashMap::new(),
-                self.player_resolver_endpoints
-                    .http_proxy_public_path
-                    .as_deref(),
-            )
-            .await;
+        let outcome = crate::document::translate_subtitle(
+            self.retrieval,
+            self.aggregator,
+            self.translation_catalog,
+            self.group_name,
+            SubtitleTranslationRequest {
+                descriptor: &descriptor,
+                access_scope: &access_scope,
+                client_etag,
+                provider_accessible_url: None,
+                subtitle_limits: LocalSubtitleLimits::default(),
+                translation_limits: LocalTranslationLimits::default(),
+            },
+        )
+        .await;
         match outcome {
             Ok(SubtitleTranslationOutcome::NotModified { etag }) => Ok(file_response(
                 304,
                 Vec::new(),
                 Some(etag),
                 DEFAULT_SUBTITLE_CACHE_CONTROL,
+                descriptor.source.format.media_type(),
             )),
             Ok(SubtitleTranslationOutcome::Translated(document)) => Ok(file_response(
                 200,
                 document.bytes,
                 Some(document.etag),
                 &document.cache_control,
+                &document.media_type,
             )),
             Ok(SubtitleTranslationOutcome::Original { bytes }) => Ok(file_response(
                 200,
                 bytes,
                 None,
                 DEFAULT_SUBTITLE_CACHE_CONTROL,
+                descriptor.source.format.media_type(),
             )),
             Err(error) => Ok(error_output(error)),
         }
@@ -255,7 +237,9 @@ fn service_view(entry: &TranslationCatalogEntry) -> TranslationServiceView {
             .map(|pairs| pairs.iter().map(pair_view).collect()),
         supports_text_translation: entry.supports_text_translation,
         supports_url_translation: entry.supports_url_translation,
+        url_translation_formats: entry.url_translation_formats.clone(),
         source_detection: entry.source_detection,
+        source_detection_identifies_language: entry.source_detection_identifies_language,
         preferred: entry.preferred,
     }
 }
@@ -283,26 +267,6 @@ fn parse_language(value: &str, field: &str) -> Result<LanguageCode, SubtitleTran
             detail: format!("{field} must be a two-letter language code"),
         }
     })
-}
-
-/// Parses the source subtitle format, accepting only initial-delivery formats.
-fn parse_format(value: Option<&str>) -> Result<SubtitleFormat, SubtitleTranslationError> {
-    let media_type = value.unwrap_or("webvtt").trim().to_ascii_lowercase();
-    let format = match media_type.as_str() {
-        "webvtt" | "vtt" | "text/vtt" => SubtitleFormat::WebVtt,
-        "srt" | "application/x-subrip" => SubtitleFormat::Srt,
-        other => {
-            return Err(SubtitleTranslationError::UnsupportedFormat {
-                media_type: other.to_string(),
-            })
-        }
-    };
-    if !format.is_initial_delivery_supported() {
-        return Err(SubtitleTranslationError::UnsupportedFormat {
-            media_type: format.media_type().to_string(),
-        });
-    }
-    Ok(format)
 }
 
 /// Validates the source location without resolving DNS or retrieving content.
@@ -354,7 +318,7 @@ fn validate_policy(
                 .any(|entry| entry.service_id == *service_id);
             if !found {
                 return Err(SubtitleTranslationError::Translation(
-                    arachnea_translation::TranslationError::NoEligibleService {
+                    crate::TranslationError::NoEligibleService {
                         detail: format!(
                             "translation service `{service_id}` is unavailable or incompatible"
                         ),
@@ -365,7 +329,7 @@ fn validate_policy(
         SelectionPolicy::Auto { .. } => {
             if !services.iter().filter(eligible).any(|_| true) {
                 return Err(SubtitleTranslationError::Translation(
-                    arachnea_translation::TranslationError::NoEligibleService {
+                    crate::TranslationError::NoEligibleService {
                         detail: "no eligible subtitle translation service".to_string(),
                     },
                 ));
@@ -398,25 +362,6 @@ fn access_scope(remote_addr: Option<SocketAddr>) -> AccessScope {
         .expect("derived subtitle translation access scope is never blank")
 }
 
-/// Decodes JSON query values using the same parameter convention as JSON commands.
-fn parse_request(query: &str) -> Result<TranslateSubtitleRequest, SubtitleTranslationError> {
-    let mut parameters = serde_json::Map::new();
-    for (name, value) in url::form_urlencoded::parse(query.as_bytes()) {
-        let value = serde_json::from_str(&value)
-            .unwrap_or_else(|_| serde_json::Value::String(value.into_owned()));
-        if parameters.insert(name.into_owned(), value).is_some() {
-            return Err(SubtitleTranslationError::InvalidDescriptor {
-                detail: "duplicate subtitle translation parameter".to_string(),
-            });
-        }
-    }
-    serde_json::from_value(serde_json::Value::Object(parameters)).map_err(|_| {
-        SubtitleTranslationError::InvalidDescriptor {
-            detail: "invalid subtitle translation parameters".to_string(),
-        }
-    })
-}
-
 /// Selects one complete usable candidate from an `If-None-Match` list.
 ///
 /// Wildcards add no source validator and never prove source stability, so they
@@ -425,7 +370,7 @@ fn parse_request(query: &str) -> Result<TranslateSubtitleRequest, SubtitleTransl
 fn select_client_etag<'a>(
     header: &'a str,
     descriptor: &SubtitleTranslationDescriptor,
-    catalog: &crate::translation_catalog::TranslationCatalog,
+    catalog: &crate::catalog::TranslationCatalog,
 ) -> Option<&'a str> {
     entity_tags(header)
         .into_iter()
@@ -445,8 +390,7 @@ fn select_client_etag<'a>(
                 SelectionPolicy::Auto { .. } => true,
             };
             policy_allows
-                && service.service_yaml_hash.as_deref()
-                    == Some(validator.service_yaml_hash.as_str())
+                && descriptor.validator_hash(service) == validator.service_yaml_hash
                 && service_supports_pair(
                     service,
                     descriptor.source_language.as_ref(),
@@ -480,6 +424,7 @@ fn file_response(
     body: Vec<u8>,
     etag: Option<String>,
     cache_control: &str,
+    content_type: &str,
 ) -> ControlerStreamOutput {
     let mut headers = HashMap::from([("cache-control".to_string(), cache_control.to_string())]);
     if let Some(etag) = etag {
@@ -492,12 +437,12 @@ fn file_response(
     ControlerStreamOutput {
         status,
         body: ResponseBody::Buffered(body),
-        content_type: "text/vtt".to_string(),
+        content_type: content_type.to_string(),
         headers,
     }
 }
 
-/// Builds an explicit error response that is never served as WebVTT.
+/// Builds an explicit error response with a non-document media type.
 fn error_output(error: SubtitleTranslationError) -> ControlerStreamOutput {
     ControlerStreamOutput {
         status: error.http_status().as_u16(),

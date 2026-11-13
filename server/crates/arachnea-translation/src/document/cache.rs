@@ -6,28 +6,11 @@ use arachnea_scrapyfy::scrapyfy::conditional::{
     conditional_from_fragment, fragment_from_response, fragment_yaml_hash,
 };
 use arachnea_scrapyfy::scrapyfy::global_etag::{build_global_etag, decode_client_fragments};
-use serde::{Deserialize, Serialize};
 
 use super::error::SubtitleTranslationError;
 use crate::{SUBTITLE_ETAG_MAX_DATE_UNIX_SECONDS, SUBTITLE_ETAG_MAX_LENGTH};
 
-/// Validator used to check whether the upstream subtitle source changed.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
-pub enum SubtitleSourceValidator {
-    /// Original HTTP entity tag, including quotes and any `W/` prefix.
-    Etag {
-        /// Upstream entity tag to send in `If-None-Match`.
-        etag: String,
-    },
-    /// Digest of the source bytes, optionally with an HTTP modification date.
-    Content {
-        /// Digest of the complete source bytes.
-        hash: String,
-        /// Original `Last-Modified` value for `If-Modified-Since`, if present.
-        last_modified: Option<String>,
-    },
-}
+pub use super::retrieval::SubtitleSourceValidator;
 
 /// One provider and source validator carried by a translated subtitle ETag.
 ///
@@ -37,7 +20,7 @@ pub enum SubtitleSourceValidator {
 pub struct SubtitleTranslationValidator {
     /// Translation service identifier used as the source name.
     pub service_id: String,
-    /// Translation service YAML hash.
+    /// Composite document, access-scope and provider configuration revision.
     pub service_yaml_hash: String,
     /// Upstream source validator or content digest.
     pub source: SubtitleSourceValidator,
@@ -167,7 +150,10 @@ fn is_base62(value: &str) -> bool {
 }
 
 /// Accepts one HTTP entity tag, preserving weak upstream validators.
-pub(super) fn valid_entity_tag(value: &str) -> bool {
+///
+/// # Arguments
+/// * `value` - Header value to validate.
+pub fn valid_entity_tag(value: &str) -> bool {
     let value = value.strip_prefix("W/").unwrap_or(value);
     let Some(inner) = value.strip_prefix('"').and_then(|v| v.strip_suffix('"')) else {
         return false;

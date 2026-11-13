@@ -1,6 +1,6 @@
 //! Subtitle document errors and explicit HTTP status mapping.
 
-use arachnea_translation::TranslationError;
+use crate::TranslationError;
 use http::StatusCode;
 
 /// Error produced by subtitle document orchestration.

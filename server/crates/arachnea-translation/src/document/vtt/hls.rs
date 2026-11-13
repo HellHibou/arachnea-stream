@@ -3,30 +3,32 @@
 use std::collections::HashSet;
 use url::Url;
 
-use super::retrieval::retrieval_error;
-use super::{
-    LocalSubtitleLimits, RetrievedSubtitle, SubtitleHttpRetrieval, SubtitleRetrievalOutcome,
+use crate::document::{
+    LocalSubtitleLimits, RetrievedSubtitle, SubtitleRetrievalOutcome, SubtitleRetrievalPort,
     SubtitleSourceDescriptor, SubtitleTranslationError, WebVttBlock, WebVttDocument,
 };
+use crate::AccessScope;
 
 /// Retrieves and merges a finite, unencrypted WebVTT media playlist.
 ///
 /// # Arguments
-/// * `retrieval` - Retriever enforcing destination, proxy and body policies.
+/// * `retrieval` - Raw segment retriever enforcing destination, proxy and body policies.
 /// * `source` - Original rendition descriptor, including its proxy route.
 /// * `playlist` - Retrieved media playlist and final upstream URL.
 /// * `limits` - Aggregate source document bounds.
-/// * `proxy_prefix` - Trusted application proxy prefix, when configured.
+/// * `access_scope` - Caller scope forwarded to each segment retrieval.
+/// * `route_url` - Application routing applied to resolved upstream segment URLs.
 ///
 /// # Errors
 /// Rejects live, encrypted, discontinuous or non-WebVTT playlists, unsupported
 /// byte ranges, excessive segments, malformed timing maps and oversized results.
-pub(super) async fn assemble(
-    retrieval: &SubtitleHttpRetrieval,
+pub async fn assemble(
+    retrieval: &dyn SubtitleRetrievalPort,
     source: &SubtitleSourceDescriptor,
     playlist: RetrievedSubtitle,
     limits: LocalSubtitleLimits,
-    proxy_prefix: Option<&str>,
+    access_scope: &AccessScope,
+    route_url: &(dyn Fn(&str, &Url) -> Result<String, SubtitleTranslationError> + Send + Sync),
 ) -> Result<SubtitleRetrievalOutcome, SubtitleTranslationError> {
     let text = std::str::from_utf8(&playlist.bytes)
         .map_err(|_| retrieval_error("HLS subtitle playlist is not UTF-8"))?;
@@ -85,9 +87,9 @@ pub(super) async fn assemble(
     let mut origin = None;
     for (url, duration) in segments {
         let mut child = source.clone();
-        child.url = routed_url(&source.url, &url, proxy_prefix)?;
+        child.url = route_url(&source.url, &url)?;
         let SubtitleRetrievalOutcome::Modified(segment) =
-            retrieval.retrieve_raw(&child, None).await?
+            retrieval.retrieve(&child, access_scope, None).await?
         else {
             return Err(retrieval_error(
                 "unexpected conditional HLS segment response",
@@ -108,7 +110,7 @@ pub(super) async fn assemble(
                 let mut transport = None;
                 for field in map.split(',') {
                     if let Some(value) = field.trim().strip_prefix("LOCAL:") {
-                        local = super::webvtt::parse_timestamp(value);
+                        local = crate::document::vtt::webvtt::parse_timestamp(value);
                     } else if let Some(value) = field.trim().strip_prefix("MPEGTS:") {
                         transport = value
                             .parse::<u64>()
@@ -168,47 +170,6 @@ pub(super) async fn assemble(
     }))
 }
 
-/// Preserves application proxy options while resolving an upstream segment URL.
-fn routed_url(
-    source: &str,
-    target: &Url,
-    prefix: Option<&str>,
-) -> Result<String, SubtitleTranslationError> {
-    if let Some(prefix) = prefix {
-        if target
-            .path()
-            .strip_prefix(prefix)
-            .is_some_and(|rest| rest.starts_with('/'))
-        {
-            let mut route = target.path().to_string();
-            if let Some(query) = target.query() {
-                route.push('?');
-                route.push_str(query);
-            }
-            return Ok(route);
-        }
-        if let Some(suffix) = source
-            .strip_prefix(prefix)
-            .and_then(|rest| rest.strip_prefix('/'))
-        {
-            let options = if suffix.starts_with("opts_") {
-                suffix
-                    .split_once('/')
-                    .ok_or_else(|| retrieval_error("invalid HLS proxy route"))?
-                    .0
-            } else {
-                ""
-            };
-            return Ok(if options.is_empty() {
-                format!("{prefix}/{target}")
-            } else {
-                format!("{prefix}/{options}/{target}")
-            });
-        }
-    }
-    Ok(target.to_string())
-}
-
 /// Shifts cue timing tokens and inline timestamps while preserving all other text.
 fn shift_timestamps(
     line: &str,
@@ -225,7 +186,7 @@ fn shift_timestamps(
             continue;
         }
         output.push_str(&line[end..found.start()]);
-        let millis = super::webvtt::parse_timestamp(found.as_str())
+        let millis = crate::document::vtt::webvtt::parse_timestamp(found.as_str())
             .ok_or_else(|| retrieval_error("invalid HLS cue timestamp"))?
             as i64
             + offset;
@@ -241,4 +202,11 @@ fn shift_timestamps(
     }
     output.push_str(&line[end..]);
     Ok(output)
+}
+
+/// Creates a contextual HLS retrieval error without exposing upstream URLs.
+fn retrieval_error(detail: &str) -> SubtitleTranslationError {
+    SubtitleTranslationError::RetrievalFailed {
+        detail: detail.into(),
+    }
 }

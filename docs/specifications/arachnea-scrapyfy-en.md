@@ -1601,6 +1601,20 @@ Transformations applied after extraction and sub-queries, in declaration order. 
 
 Tagged by `type` in snake_case.
 
+### `project_json_relations`
+
+Projects a JSON response array into an object. Required fields: `target` is the
+`>`-separated output path; `pointer` is an RFC 6901 pointer (empty selects the
+root); `key` and `relations` identify each row's string identifier and array of
+string identifiers; `pattern` is a Rust regex applied to both. `template` is an
+object containing strings, numbers, booleans, objects, string arrays or object
+arrays. `values_field` and `pairs_field` name fields written in the template;
+`from_field` and `to_field` name the pair fields. Matching identifiers and
+non-self edges are deduplicated and sorted; edges whose destination is not a
+published identifier are discarded. Invalid JSON or row shapes, unsupported
+template values, and an empty resulting edge set fail the query. Use a JSON
+query with `row_pointer: /` to apply the projection once to the whole response.
+
 ### `remove_fields`
 
 Removes temporary fields from the current result after earlier processors used

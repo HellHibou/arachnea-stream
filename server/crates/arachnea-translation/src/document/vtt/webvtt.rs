@@ -5,7 +5,7 @@
 //! changes line endings and the leading byte-order mark; timestamps and cue
 //! settings are preserved verbatim. Translation never rewrites timing data.
 
-use super::error::SubtitleTranslationError;
+use crate::document::error::SubtitleTranslationError;
 
 /// Parsed WebVTT document.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -281,7 +281,7 @@ fn validate_timing(timing: &str) -> Result<(), SubtitleTranslationError> {
 /// # Arguments
 ///
 /// * `token` - Timestamp without surrounding whitespace.
-pub(super) fn parse_timestamp(token: &str) -> Option<u64> {
+pub fn parse_timestamp(token: &str) -> Option<u64> {
     let (clock, millis_text) = token.rsplit_once('.')?;
     if millis_text.len() != 3 || !millis_text.bytes().all(|byte| byte.is_ascii_digit()) {
         return None;

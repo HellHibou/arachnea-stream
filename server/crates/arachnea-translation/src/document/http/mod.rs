@@ -1,11 +1,15 @@
 //! Direct HTTP retrieval with destination checks and pinned DNS answers.
 
+#[cfg(feature = "retrieval-proxy")]
+mod proxy;
+
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::Duration;
 
+use crate::AccessScope;
+#[cfg(feature = "retrieval-proxy")]
 use arachnea_proxy::core::ArachneaProxyCore;
-use arachnea_translation::AccessScope;
 use async_trait::async_trait;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use http::header::{
@@ -13,7 +17,7 @@ use http::header::{
 };
 use url::Url;
 
-use super::{
+use crate::document::{
     LocalSubtitleLimits, RetrievedSubtitle, SubtitleRetrievalOutcome, SubtitleRetrievalPort,
     SubtitleSourceDescriptor, SubtitleSourceValidator, SubtitleTranslationError,
 };
@@ -28,6 +32,7 @@ pub struct SubtitleHttpRetrieval {
     headers: HashMap<String, String>,
     limits: LocalSubtitleLimits,
     proxy_public_path: Option<String>,
+    #[cfg(feature = "retrieval-proxy")]
     proxy_core: Option<ArachneaProxyCore>,
 }
 
@@ -43,6 +48,7 @@ impl SubtitleHttpRetrieval {
             headers,
             limits,
             proxy_public_path: None,
+            #[cfg(feature = "retrieval-proxy")]
             proxy_core: None,
         }
     }
@@ -50,6 +56,7 @@ impl SubtitleHttpRetrieval {
     ///
     /// # Arguments
     /// * `core` - Shared application proxy runtime, including routing and TLS policy.
+    #[cfg(feature = "retrieval-proxy")]
     pub fn with_proxy_core(mut self, core: ArachneaProxyCore) -> Self {
         self.proxy_core = Some(core);
         self
@@ -75,28 +82,37 @@ impl SubtitleRetrievalPort for SubtitleHttpRetrieval {
     async fn retrieve(
         &self,
         source: &SubtitleSourceDescriptor,
-        _access_scope: &AccessScope,
+        access_scope: &AccessScope,
         validator: Option<&SubtitleSourceValidator>,
     ) -> Result<SubtitleRetrievalOutcome, SubtitleTranslationError> {
         let result = self.retrieve_raw(source, validator).await?;
+        #[cfg(feature = "document-vtt")]
         match result {
             SubtitleRetrievalOutcome::Modified(document)
                 if document.bytes.starts_with(b"#EXTM3U") =>
             {
                 tokio::time::timeout(
                     Duration::from_secs(crate::SUBTITLE_HLS_TIMEOUT_SECONDS),
-                    super::hls::assemble(
-                        self,
+                    crate::document::vtt::hls::assemble(
+                        &RawRetrieval(self),
                         source,
                         document,
                         self.limits,
-                        self.proxy_public_path.as_deref(),
+                        access_scope,
+                        &|source, target| {
+                            routed_url(source, target, self.proxy_public_path.as_deref())
+                        },
                     ),
                 )
                 .await
                 .map_err(|_| retrieval_error("HLS subtitle assembly timed out"))?
             }
             other => Ok(other),
+        }
+        #[cfg(not(feature = "document-vtt"))]
+        {
+            let _ = access_scope;
+            Ok(result)
         }
     }
 }
@@ -115,13 +131,14 @@ impl SubtitleHttpRetrieval {
         source: &SubtitleSourceDescriptor,
         validator: Option<&SubtitleSourceValidator>,
     ) -> Result<SubtitleRetrievalOutcome, SubtitleTranslationError> {
+        #[cfg(feature = "retrieval-proxy")]
         if let (Some(core), Some(prefix)) = (&self.proxy_core, &self.proxy_public_path) {
             if let Some(suffix) = source
                 .url
                 .strip_prefix(prefix)
                 .and_then(|rest| rest.strip_prefix('/'))
             {
-                return super::retrieval_proxy::retrieve(
+                return proxy::retrieve(
                     core,
                     prefix,
                     suffix,
@@ -461,4 +478,63 @@ pub(super) async fn resolve_public_addresses(
         ));
     }
     Ok(addresses)
+}
+
+/// Raw HTTP segment adapter that bypasses playlist assembly to prevent recursion.
+#[cfg(feature = "document-vtt")]
+struct RawRetrieval<'a>(&'a SubtitleHttpRetrieval);
+
+#[cfg(feature = "document-vtt")]
+#[async_trait]
+impl SubtitleRetrievalPort for RawRetrieval<'_> {
+    async fn retrieve(
+        &self,
+        source: &SubtitleSourceDescriptor,
+        _access_scope: &AccessScope,
+        validator: Option<&SubtitleSourceValidator>,
+    ) -> Result<SubtitleRetrievalOutcome, SubtitleTranslationError> {
+        self.0.retrieve_raw(source, validator).await
+    }
+}
+
+#[cfg(feature = "document-vtt")]
+/// Preserves application proxy options while resolving an upstream segment URL.
+fn routed_url(
+    source: &str,
+    target: &Url,
+    prefix: Option<&str>,
+) -> Result<String, SubtitleTranslationError> {
+    if let Some(prefix) = prefix {
+        if target
+            .path()
+            .strip_prefix(prefix)
+            .is_some_and(|rest| rest.starts_with('/'))
+        {
+            let mut route = target.path().to_string();
+            if let Some(query) = target.query() {
+                route.push('?');
+                route.push_str(query);
+            }
+            return Ok(route);
+        }
+        if let Some(suffix) = source
+            .strip_prefix(prefix)
+            .and_then(|rest| rest.strip_prefix('/'))
+        {
+            let options = if suffix.starts_with("opts_") {
+                suffix
+                    .split_once('/')
+                    .ok_or_else(|| retrieval_error("invalid HLS proxy route"))?
+                    .0
+            } else {
+                ""
+            };
+            return Ok(if options.is_empty() {
+                format!("{prefix}/{target}")
+            } else {
+                format!("{prefix}/{options}/{target}")
+            });
+        }
+    }
+    Ok(target.to_string())
 }

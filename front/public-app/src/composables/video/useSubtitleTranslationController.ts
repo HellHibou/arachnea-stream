@@ -1,4 +1,4 @@
-import { shallowRef, watch } from 'vue'
+import { watch } from 'vue'
 
 import { t } from '@/i18n'
 import {
@@ -8,8 +8,7 @@ import {
   normalizeLanguageCode,
 } from '@/services/languages'
 import type { ResolvedVideoMediaSource } from '@/services/players'
-import { getTranslationServices } from '@/services/rustify'
-import type { TranslationCatalog, TranslationServiceCapabilities } from '@/types/translation'
+import { ensureTranslationCatalog, serviceSupportsSubtitlePair, toTranslationCode, translationCatalog } from '@/services/translationCatalog'
 import type { VideoJsPlayerState } from '@/types/media'
 
 import { getAppliedTextTrackOrigin } from './video-js-media-renderer/state'
@@ -54,9 +53,6 @@ export interface UseSubtitleTranslationControllerOptions {
   onMenuInvalidated?: () => void
 }
 
-/** Shared catalog promise so services are loaded once per application session. */
-let catalogPromise: Promise<TranslationCatalog | null> | null = null
-
 /**
  * Orchestrates automatic and manual subtitle translation for one renderer.
  *
@@ -67,7 +63,6 @@ export function useSubtitleTranslationController(
   options: UseSubtitleTranslationControllerOptions,
 ) {
   const translation = useSubtitleTranslation({ host: options.host })
-  const catalog = shallowRef<TranslationCatalog | null>(null)
 
   /** Whether a manual subtitle choice must keep automatic generation disabled. */
   let manualMode = false
@@ -80,31 +75,8 @@ export function useSubtitleTranslationController(
   /** Invalidates pending manual requests after a user choice or reset. */
   let manualRequestId = 0
 
-  /**
-   * Loads the public translation catalog once per application session.
-   *
-   * A failed load is cached as unavailable so automatic and manual generation
-   * stay disabled until the application is reloaded.
-   *
-   * @returns Catalog, or `null` when the backend does not expose one.
-   */
-  async function ensureCatalog(): Promise<TranslationCatalog | null> {
-    if (catalog.value) {
-      return catalog.value
-    }
-
-    if (!catalogPromise) {
-      catalogPromise = getTranslationServices().catch(() => null)
-    }
-
-    const loaded = await catalogPromise
-    if (loaded && catalog.value !== loaded) {
-      catalog.value = loaded
-      options.onMenuInvalidated?.()
-    }
-
-    return loaded
-  }
+  /** Loads the shared catalog, allowing later retries after a failure. */
+  const ensureCatalog = ensureTranslationCatalog
 
   /**
    * Returns the authorized two-letter target languages in favorite order.
@@ -201,56 +173,15 @@ export function useSubtitleTranslationController(
   }
 
   /**
-   * Checks whether one service can translate a source/target pair.
-   *
-   * @param service Service capabilities.
-   * @param sourceLanguage Known two-letter source language, or `null`.
-   * @param targetLanguage Two-letter target language.
-   * @returns True when the backend can route this pair through the service.
-   */
-  function serviceSupportsPair(
-    service: TranslationServiceCapabilities,
-    sourceLanguage: string | null,
-    targetLanguage: string,
-  ): boolean {
-    if (!service.supportsTextTranslation && !service.supportsUrlTranslation) {
-      return false
-    }
-    if (!languageMatches(service.targetLanguages, targetLanguage)) {
-      return false
-    }
-
-    if (sourceLanguage) {
-      if (!languageMatches(service.sourceLanguages, sourceLanguage)) {
-        return false
-      }
-    } else if (!service.sourceDetection) {
-      return false
-    }
-
-    if (!service.supportedPairs) {
-      return true
-    }
-
-    return service.supportedPairs.some((pair) => {
-      const targetMatches = toTranslationCode(pair.target) === targetLanguage
-      if (!targetMatches) return false
-      return sourceLanguage ? toTranslationCode(pair.source) === sourceLanguage : true
-    })
-  }
-
-  /**
-   * Checks whether any catalog service supports one pair.
-   *
-   * @param sourceLanguage Known source language, or `null`.
-   * @param targetLanguage Two-letter target language.
-   * @param requiresText Whether an assembled HLS document requires text translation.
-   * @returns True when at least one service can translate the pair.
+   * Checks whether an effective service can translate a subtitle pair.
+   * @param sourceLanguage Source code, or null when detection is required.
+   * @param targetLanguage Two-letter target code.
+   * @param requiresText Whether the source requires text translation.
+   * @returns Whether a compatible service is available.
    */
   function hasPairSupport(sourceLanguage: string | null, targetLanguage: string, requiresText = false): boolean {
-    const services = catalog.value?.services ?? []
-    return services.some((service) => (!requiresText || service.supportsTextTranslation)
-      && serviceSupportsPair(service, sourceLanguage, targetLanguage))
+    return (translationCatalog.value?.services ?? []).some((service) =>
+      serviceSupportsSubtitlePair(service, sourceLanguage, targetLanguage, requiresText))
   }
 
   /**
@@ -536,6 +467,8 @@ export function useSubtitleTranslationController(
     }
   }
 
+  watch(translationCatalog, () => options.onMenuInvalidated?.())
+
   watch(
     [translation.status, translation.targetLanguage, translation.failure],
     () => options.onMenuInvalidated?.(),
@@ -560,29 +493,6 @@ export function useSubtitleTranslationController(
       translation.cancel()
     },
   }
-}
-
-/**
- * Normalizes one language code for the two-letter translation contract.
- *
- * @param value Raw language code.
- * @returns Lowercase two-letter code, or `null`.
- */
-function toTranslationCode(value: unknown): string | null {
-  const base = getBaseLanguageCode(normalizeLanguageCode(value))
-  return base && /^[a-z]{2}$/.test(base) ? base : null
-}
-
-/**
- * Checks whether a language list contains one base language.
- *
- * @param values Catalog language list.
- * @param language Two-letter language code.
- * @returns True when the base language appears in the list.
- */
-function languageMatches(values: readonly string[], language: string): boolean {
-  const target = toTranslationCode(language)
-  return target !== null && values.some((value) => toTranslationCode(value) === target)
 }
 
 /**

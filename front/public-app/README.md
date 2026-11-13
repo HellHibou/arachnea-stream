@@ -371,7 +371,13 @@ favorites. Enabling a language alone does not override a `disabled` profile or a
 manual subtitle choice. Reapplying track preferences clears those manual choices.
 An existing higher-priority subtitle also takes precedence over translating a
 lower-priority favorite. A supported external subtitle source and an enabled,
-configured translation service are required.
+configured translation service are required. The player and subtitle settings share
+one effective translation catalog. Settings retain saved authorizations but disable
+their controls while loading, after a failed load, and for targets without a
+compatible WebVTT translation direction. Failed catalog loads can be retried by
+reopening the settings, returning focus to the window, or using the player again.
+After a service configuration reload, reload the frontend to refresh a successful
+cached catalog.
 
 Refreshing a media source object with the same video URL and subtitle tracks
 preserves an automatic or manual translation request while its catalog is

@@ -447,6 +447,16 @@ shared:
           type: string
           pointer: /language
           select: first
+          actions:
+            - type: map
+              default: "{}"
+              argument:
+                "English": "en"
+                "French": "fr"
+                "Spanish": "es"
+                "Italian": "it"
+                "German": "de"
+                "Portuguese": "pt"
         - name: label
           type: string
           pointer: /language

@@ -6,9 +6,9 @@
 //! sentence, word, or last-resort Unicode character boundaries. The segment
 //! table records which abstract block belongs to each part of each cue.
 
-use super::error::SubtitleTranslationError;
 use super::webvtt::{WebVttBlock, WebVttDocument};
-use arachnea_translation::{
+use crate::document::error::SubtitleTranslationError;
+use crate::{
     plan_batches, BlockId, LocalTranslationLimits, TextBlock, TextTranslationCapability,
     TranslatedTexts, TranslationError,
 };

@@ -7,9 +7,8 @@ use serde::{Deserialize, Serialize};
 
 /// Opaque identifier of one abstract translation block.
 ///
-/// The identifier has no subtitle or cue semantics. The `arachnea-stream`
-/// subtitle module owns the mapping from a cue or segment to these block
-/// identifiers.
+/// The identifier has no subtitle or cue semantics. The document format implementation owns the mapping from a cue or segment
+/// to these block identifiers.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct BlockId(String);

@@ -1,14 +1,14 @@
 //! Authorized, conditional source revalidation before provider execution.
 
+use crate::{AccessScope, LanguageCode, SelectionPolicy};
 use arachnea_scrapyfy::scrapyfy::conditional::hash62;
-use arachnea_translation::{AccessScope, LanguageCode, SelectionPolicy};
 
 use super::{
     LocalSubtitleLimits, RetrievedSubtitle, SubtitleRetrievalOutcome, SubtitleRetrievalPort,
     SubtitleSourceValidator, SubtitleTranslationDescriptor, SubtitleTranslationError,
     SubtitleTranslationValidator,
 };
-use crate::translation_catalog::{TranslationCatalog, TranslationCatalogEntry};
+use crate::catalog::{TranslationCatalog, TranslationCatalogEntry};
 
 /// Result of checking a browser-held representation against its source.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -77,8 +77,8 @@ pub async fn revalidate_subtitle(
                 descriptor.source_language.as_ref(),
                 &descriptor.target_language,
             )
-            && service.service_yaml_hash.as_deref() == Some(validator.service_yaml_hash.as_str()))
-        .then_some(validator)
+            && descriptor.validator_hash(service) == validator.service_yaml_hash)
+            .then_some(validator)
     });
     let outcome = retrieval
         .retrieve(
@@ -156,7 +156,7 @@ pub async fn revalidate_subtitle(
 /// * `service` - Published service capability.
 /// * `source_language` - Known source language, or `None` for detection.
 /// * `target_language` - Requested target language.
-pub(crate) fn service_supports_pair(
+pub fn service_supports_pair(
     service: &TranslationCatalogEntry,
     source_language: Option<&LanguageCode>,
     target_language: &LanguageCode,

@@ -36,7 +36,8 @@ pub(super) fn register(
             move |_app, request, responder| {
                 let request_path = request_path_from_tauri_uri(request.uri(), &web_scheme);
 
-                if let Some((command, path, query)) = split_stream_route(&request_path, &api_prefix)
+                if let Some((command, path, query)) =
+                    split_stream_route(&request_path, &api_prefix, &stream_handlers)
                 {
                     if let Some((_cmd, handler, entry_point)) = stream_handlers
                         .iter()
@@ -167,6 +168,7 @@ fn request_path_from_tauri_uri(uri: &::tauri::http::Uri, web_scheme: &str) -> St
 /// # Arguments
 /// * `request_path` - The full request path.
 /// * `api_prefix` - The API prefix to strip from the path.
+/// * `handlers` - Registered commands used to resolve the longest matching route.
 ///
 /// # Returns
 /// `Some((command, remaining_path, query))` if the path matches a stream route.
@@ -174,6 +176,7 @@ fn request_path_from_tauri_uri(uri: &::tauri::http::Uri, web_scheme: &str) -> St
 fn split_stream_route<'a>(
     request_path: &'a str,
     api_prefix: &str,
+    handlers: &[(String, StreamControlerFunction, String)],
 ) -> Option<(&'a str, String, String)> {
     let (path_only, query) = match request_path.split_once('?') {
         Some((path, query)) => (path, query.to_string()),
@@ -181,10 +184,21 @@ fn split_stream_route<'a>(
     };
 
     let stream_path = path_only.strip_prefix(api_prefix)?;
-    let (command, remaining_path) = match stream_path.split_once('/') {
-        Some((command, tail)) => (command, tail.to_string()),
-        None => (stream_path, String::new()),
-    };
+    let registered = handlers
+        .iter()
+        .map(|(command, _, _)| command.as_str())
+        .filter(|command| {
+            !command.is_empty()
+                && stream_path
+                    .strip_prefix(command)
+                    .is_some_and(|suffix| suffix.is_empty() || suffix.starts_with('/'))
+        })
+        .max_by_key(|command| command.len())?;
+    let command = &stream_path[..registered.len()];
+    let remaining_path = stream_path[registered.len()..]
+        .strip_prefix('/')
+        .unwrap_or("")
+        .to_string();
 
     Some((command, remaining_path, query))
 }

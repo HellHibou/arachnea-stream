@@ -90,6 +90,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Tauri binary routes now resolve the longest registered command on a segment boundary, preserving the remaining path and query for handlers. This permits nested command names while retaining existing single-segment routes.
+
 - `ControlerStreamInput` now carries the optional trusted peer address exposed by the transport. REST fills it from the supervisor-injected connection address (falling back to `warp::addr::remote()`) and Tauri leaves it empty for local IPC; internal proxy and subtitle retrieval constructors set it to `None`. Existing stream handlers are otherwise unchanged.
 - Exposed the existing local-interface subnet resolver for shared Web/proxy private-network admission; proxy callers deny remote peers if interface enumeration fails.
 - Simplified ASCII-insensitive content-type checks, route-pair capacity calculation, API-prefix matching, log token splitting and private SQLite fixture path arguments. Header precedence, route order, log matching and stored paths are unchanged.
@@ -335,6 +337,27 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- `api::register_routes` now accepts a snapshot factory and constructs both handlers within Translation. The `TranslationSnapshot` dependency contract replaces application route callbacks; a single retained snapshot covers each request and catalog reads no longer construct HTTP retrievers. Stream removes its subtitle translation delegate module. HTTP/Tauri routes and response contracts are preserved.
+
+- Moved bounded HTTP/proxy source retrieval into Translation behind optional `retrieval-http` and `retrieval-proxy` features. Finite HLS WebVTT assembly now lives with the VTT translator and accepts injected segment retrieval and routing; Stream supplies application configuration and retains its HTTP retriever import path.
+- Source inspection and URL-result structure validation now belong to `DocumentTranslator`; document orchestration and API handlers compile independently of WebVTT support.
+
+- Aligned the translation and Scrapyfy specifications and operational guidance with the delivered document refactor, composite validators, catalog reload behavior and remaining real-world qualification.
+
+- Public catalog capabilities now include accepted URL document media types and whether detection identifies the source language for restricted pairs.
+
+- LibreTranslate now loads directional language pairs from its configured `/languages` endpoint on catalog reload; unusable catalogs disable the provider, and metadata changes affect configuration revisions.
+
+- Moved catalog/file handlers, source revalidation and document orchestration into Translation with injected application retrieval. Document validators now cover source, MIME type, languages, policy, access scope and effective provider configuration, invalidating legacy tags.
+
+- Translation controller registration now accepts an injected runtime and optional validated subpath. Stream exposes `translation/get_services` and `translation/translate_url`; the file request requires `url`, `target` and `content-type`, with optional `source`, and frontend callers use the new contract.
+
+- Extracted the effective catalog, provider selection and shared budget runtime into the `runtime` feature. Conditional retrieval contracts now live in Translation while Stream supplies HTTP, proxy and HLS adapters; existing Stream imports remain available.
+
+- Extracted the Scrapyfy aggregator query adapter into Translation with its service group and identifier injected; Stream keeps a compatibility reexport.
+
+- Moved WebVTT parsing, segmentation and document planning into the optional `document-vtt` feature of `arachnea-translation`, retaining Stream imports and its current selection and orchestration. Added a document translator contract and MIME resolver, plus the optional `api` integration feature for the subsequent route migration. Stream now prepares candidate blocks through this contract and executes the retained plan with the selected bridge; URL-result structure checks also live in Translation.
+
 - Translation batch planning no longer clones every accumulated text block when considering the next block. Batch boundaries, serialized request measurement and provider calls remain unchanged.
 
 - Replaced persistent result-cache keys with a provider-independent translation revision carrying the YAML hash, target language and output-affecting configuration for browser revalidation.
@@ -343,6 +366,8 @@ All notable changes to the server workspace are recorded here.
 - The bridge now accepts an injected `TranslationBudgetPort` and retry policy while retaining unlimited-budget and default-policy behavior for callers that do not configure them.
 
 #### Fixed
+
+- Fixed `runtime,document-vtt` compilation without `api` by activating its URL dependency. Runtime bridges now retain catalog metadata and revision together, and documentary selection keeps the measured bridge with its prepared plan instead of reloading provider metadata.
 
 - Completed provider-body batch measurement through Scrapyfy, shared HTTP failure classification for collection-backed execution, 60-second attempt timeouts, sanitized attempt diagnostics and rejection of empty or inconsistent responses. Retry hints beyond the delay ceiling no longer cause an early retry; live budget reconfiguration retains consumed quota and active reservations.
 
@@ -434,6 +459,10 @@ All notable changes to the server workspace are recorded here.
 - The Stream translation port now maps `ArachneaHttpError::HttpStatus` to normalized provider categories and injects a process-local budget shared by service identifier. Budgets are created on first use, so changing their catalog parameters requires a restart; consumed units are not refunded after a failed provider attempt.
 
 #### Changed
+
+- Removed Stream’s translation compatibility modules (`subtitles`, `translation_catalog`, `translation_port`), unused translation accessors and duplicated subtitle constants. Stream now imports directly from Translation. Removed the unused alternate text-selection helper and Stream-named port alias from Translation. Rust consumers must use the owning Translation APIs.
+
+- Removed the unused `StreamScraper::translate_subtitle` method and its dedicated module, together with Stream's unused orchestration compatibility exports. Application translation remains routed through `translation/translate_url` and the `arachnea-translation` handler.
 
 - Subtitle translation ETags now use the shared Scrapyfy `SOURCE=E:<yaml-hash>-<encoded-upstream-etag>` or `SOURCE=C:<yaml-hash>-<timestamp>-<content-hash>` fragment format. Languages and configuration are not embedded; the URL scopes request parameters. Existing `st1.` tags cause a fresh translation. Configuration and pipeline changes that leave the URL and YAML unchanged do not invalidate cached files.
 
@@ -589,6 +618,8 @@ All notable changes to the server workspace are recorded here.
 ### <u>arachnea-scrapyfy</u>
 
 #### Added
+
+- Added the generic `project_json_relations` post-processor for projecting JSON identifiers and directional relations into a configured object.
 
 - Added the generic `build_json` request action. Its `fields` mapping builds a typed JSON object from `string_parameter` values (escaped strings) and `json_parameter` values (validated decoded JSON), serializes it without a network call, and fails the request on a missing parameter or invalid JSON. Request-body resolution now propagates action errors instead of silently dropping the body.
 - Added the generic `build_json_array` request action and the `json_array_projection` field source. `build_json_array` turns a JSON array parameter into an array of objects selected by per-field JSON pointers, while `json_array_projection` inserts the values selected from every item into one `build_json` property. Both fail on non-array sources, blank fields or missing pointers, without adding provider-specific code.
@@ -824,6 +855,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Subtitle settings and playback now share a retryable translation catalog; generation controls follow compatible WebVTT targets while preserving stored authorizations. Reload the frontend after service configuration changes.
+
 - The subtitle translation progress message now displays the target language flag, English name and native name, and follows the skip button's height as player controls appear or disappear.
 
 - Available and generated subtitle translations now share the label `<English language name> - <native language name> (Automatic translation)`, localized for the interface. The subtitle menu grows with its labels up to 70% of the viewport and only wraps when that limit is reached.
@@ -969,6 +1002,8 @@ All notable changes to the server workspace are recorded here.
 ### <u>Other</u>
 
 #### Added
+
+- Document translation refactor analysis in `docs/dev-tracking/translation-document-refactor-analysis.md`, covering MIME-based document dispatch, Rust features, reusable route registration, REST/Tauri API migration, live LibreTranslate language metadata and frontend capability filtering. The proposal is approved and the retained decisions are recorded; implementation has not started.
 
 - Added the `arachnea-translation` service manifest with disabled-by-default Azure Translator and LibreTranslate definitions. Their static metadata, editable provider order/preference, credentials and request mappings stay in Scrapyfy YAML; language lists are provisional subsets pending provider qualification.
 - Documented the proposed migration from card-kind fields to centralized media-type routing, including collection/live/video precedence, compatibility rules, target validation and affected catalog surfaces. Implemented after approval; the analysis records final behavior and validation.

@@ -1,26 +1,31 @@
 # Arachnea translation contracts specification
 
 This document describes the generic translation contract owned by
-`arachnea-translation`, the subtitle document pipeline owned by the
-`arachnea-stream` subtitle module, and their integration with Stream. The
+`arachnea-translation`, the subtitle document pipeline owned by
+`arachnea-translation`, and their integration with Stream. The
 general YAML schema remains documented in
 [arachnea-scrapyfy](arachnea-scrapyfy-en.md); this document only covers the translation-specific normalized queries and outputs.
 
-Status: lots 1 to 6 implemented (contracts, crate and subtitle module, generic
-bridge, effective catalog and administration, WebVTT parser and document
-planning, Azure Translator/LibreTranslate text execution with retries, budgets
-and metrics), with authorized direct/proxy retrieval, conditional source
-revalidation, complete text/URL document orchestration, and the public
-REST/Tauri JSON and file transport. Local simulated-provider qualification
-passes; real provider qualification still requires credentials. Lots 7 to 10
-add browser storage and the user interface.
+Status: the document refactor is implemented. Translation owns document
+orchestration, conditional revalidation and API handlers; Stream injects a
+runtime snapshot and configures Translation’s authorized HTTP, proxy and HLS adapters. The frontend
+shares the effective catalog between settings and playback. The simulated REST
+and route-resolution checks are recorded in the [refactor analysis](../dev-tracking/translation-document-refactor-analysis.md).
+Real LibreTranslate model changes, an actual Tauri WebView and the end-to-end
+player/configuration-reload cycle remain to be qualified.
+
+The `runtime` feature provides the effective catalog, provider selection and
+shared budgets; the caller supplies the aggregator, group, manifest and
+credentials. `api` enables runtime-backed controller integration, while
+`document-vtt` registers WebVTT support. With no document feature the registry
+is empty and rejects unsupported formats.
 
 ## 1. Layer split
 
 | Layer | Responsibilities | Prohibitions |
 |---|---|---|
-| `arachnea-translation` | Two-letter languages, abstract blocks, capabilities and limits, metadata, selection, planning, translation revision identity, Scrapyfy bridge. | No knowledge of WebVTT, cues, players or video tracks. No provider-specific Rust. |
-| `arachnea-stream` | Rights, proxy-link resolution, catalogs, REST/Tauri assembly and file transport, plus its `subtitles` module: source descriptors, WebVTT parsing/serialization, cue segmentation and document planning, in-memory descriptor, authorized conditional retrieval, source validator and HTTP statuses. | No provider mapping or provider-specific Rust; no unrestricted network access. |
+| `arachnea-translation` | Languages, metadata, selection, budgets, Scrapyfy bridge, document dispatch and orchestration, revalidation, optional WebVTT processing and API handlers. | No player or provider-specific Rust. |
+| `arachnea-stream` | Runtime and controller assembly, credentials and configuration of shared retrieval adapters. | No provider mapping or provider-specific Rust; no unrestricted network access. |
 | Public front | Preferences, translation request decision, Video.js lifecycle. | No credentials or provider protocol. |
 
 Providers are described and executed exclusively by Scrapyfy. The generic
@@ -222,7 +227,7 @@ Scrapyfy HTTP statuses are classified as `authentication` (`401`, `403`),
 returned as `ProviderRejected` with an optional `retry_after_seconds`, without
 retrying the body or changing provider.
 
-Budget parameters read by Stream from the service YAML are
+Budget parameters read by Translation from the service YAML are
 `translation_max_concurrent_requests`,
 `translation_max_units_per_window` and `translation_budget_window_seconds`.
 A zero quota means no quota limit; concurrency and window values must be
@@ -252,8 +257,7 @@ detected languages within one batch are rejected as invalid responses.
 Normalized parameters: `translation_document_url`,
 `translation_source_language`, `translation_target_language`. The normalized
 output contains `content` and `content_type` for `inline_document`. The complete
-content is validated by the format adapter in the `arachnea-stream` subtitle
-module.
+content is validated by the format adapter in the `arachnea-translation` document module.
 
 Without a URL capability, the engine retrieves the document, splits it into
 abstract blocks and translates them with `translate_texts`. Private URLs,
@@ -292,11 +296,11 @@ Planning simultaneously respects:
 
 `plan_batches` remains a standalone normalized estimate for document planning.
 `plan_batches_with_measurement` and `ScrapyfyTranslationBridge::plan_texts`
-use actual body bytes. Stream's `select_text_translation_bridge` uses these
+use actual body bytes. The Translation runtime uses these
 plans and live budget availability for selection, carries local limits into
 execution, and keeps one provider for all batches.
 
-Splitting an oversized cue remains in the `arachnea-stream` subtitle module,
+Splitting an oversized cue is handled by the `arachnea-translation` VTT module,
 which must not cut Unicode or markup. Translation rejects an oversized block
 instead of truncating it.
 
@@ -312,7 +316,10 @@ when other clients share the same provider account.
 
 ## 7. WebVTT document pipeline
 
-The `arachnea-stream` subtitle module parses and serializes complete WebVTT
+`DocumentTranslator::prepare` returns a `PreparedDocument` for each candidate capability. Translation measures its exact blocks before selection, then executes the retained plan with the selected bridge. Segmentation is preserved through execution; provider errors never trigger fallback. The `document-vtt` feature gates WebVTT; an empty registry rejects every format. The `api` feature registers controller routes through an injected application integration.
+
+
+The `arachnea-translation` VTT module parses and serializes complete WebVTT
 documents without any provider or player dependency.
 
 - Input must be valid UTF-8. A leading BOM is accepted and CRLF/CR line endings
@@ -345,28 +352,19 @@ SRT is still not part of the initial path and is never served as raw WebVTT.
 
 ## 8. Browser cache and validators
 
-Stream's weak ETag follows Scrapyfy's single-fragment convention:
-`W/"SOURCE=E:<yaml-hash>-<encoded-upstream-etag>"` when the source supplies an
-ETag, or `W/"SOURCE=C:<yaml-hash>-<timestamp>-<content-hash>"` otherwise.
-`SOURCE` is the selected translation service ID and `yaml-hash` is its YAML
-hash. `timestamp` is the upstream `Last-Modified` date in Unix seconds, or `0`
-when absent or unusable; the content hash is XXH3-128/base62. The fragment uses
-the existing Scrapyfy encoding and helpers; ETags are limited to 4096 bytes.
+Translation emits a weak Scrapyfy-compatible ETag with one service fragment.
+The fragment contains the provider ID, a composite revision and either the
+encoded upstream ETag or a content digest and optional last-modified time. The
+composite revision hashes the document descriptor (including source identity,
+MIME type, languages, policy and access scope), pipeline revision, provider YAML
+and effective configuration, including loaded metadata. Earlier validators do
+not match the current document identity. The upstream ETag is encoded, not
+secret, and never proves access rights. Tags are limited to 4096 bytes.
 
-Languages and URL-carried options are isolated by the URL cache key. The ETag
-does not include these parameters or configuration, pipeline or access-scope
-revisions. Consequently, a configuration or pipeline change that does not alter
-the URL or the service YAML does not itself invalidate a cached file. The former
-`st1.` tag is no longer accepted and causes a new translation. The encoded
-upstream ETag remains readable and does not prove access rights. The server
-checks rights, policy and service eligibility separately, then revalidates the
-source before returning `304`. No translated file or document index is retained
-server-side.
-
-Stream revalidates an authorized descriptor before provider execution and can
-translate a complete WebVTT document using the generic text or URL bridge. The
-application facade supplies one catalog/configuration snapshot. Direct HTTP and application proxy
-sources validate and pin public DNS addresses at each hop. Internal proxy URLs
+Translation verifies eligibility and access and revalidates the source before
+returning `304`. No source or translated file is retained server-side. Stream
+configures Translation’s authorized retrieval adapter and supplies an operation-wide runtime
+snapshot. Direct HTTP and application proxy sources validate and pin public DNS addresses at each hop. Internal proxy URLs
 are decoded without requesting a local controller endpoint; routing parameters,
 cookies, actions, classifiers and allowlisted TLS options are preserved. The
 logical hostname remains available for routing and TLS while CONNECT and direct
@@ -382,23 +380,32 @@ preserve metadata, cue structure, timing and markup. No provider fallback occurs
 after execution starts. No source or translated file is retained; simultaneous
 uncached requests can execute independently within provider concurrency limits.
 The local simulated provider/proxy qualification is complete; real-provider
-qualification still requires access. The public file transport is implemented
-by lot 6 and documented in section 9.
+qualification still requires access. The public file transport is documented in section 9.
 
 ## 9. Backend contract
 
 | Command | Purpose |
 |---|---|
-| `get_translation_services` | Public catalog of usable services, capabilities and languages; no secret. |
-| `GET <public-path>/translate_subtitle?...` | Validates the request and directly returns complete WebVTT with its provider/source ETag, or `304` after source and YAML revalidation. |
+| `translation/get_services` | Public catalog of usable services, capabilities and languages; no secret. |
+| `GET <public-path>/translation/translate_url?...` | Validates the request and directly returns complete WebVTT with its provider/source ETag, or `304` after source and composite revision revalidation. |
 | `HEAD` on the same path | Returns `405` with `Allow: GET` without retrieval or translation. |
 
-A single request carries `url`, `target_language` and optional `track_id`,
-`source_language`, `policy` and `format` query parameters. Values are JSON-encoded
+`arachnea_translation::api::register_routes` accepts an optional validated
+subpath. Stream uses `translation`; without a subpath, commands are
+`get_services` and `translate_url`. REST and Tauri use the same full registered
+command. The former routes and parameter names have no compatibility aliases.
+
+Each service includes `url_translation_formats`, the media types accepted by URL
+translation, and `source_detection_identifies_language`, which indicates whether
+detection can identify the source before checking directional pair restrictions.
+The frontend shares the catalog between settings and playback, retries failed
+loads, and requires a frontend reload after service configuration changes.
+
+A single request carries `url`, `target` and `content-type`, plus optional `track_id`,
+`source` and `policy` query parameters. Values are JSON-encoded
 then URL-encoded, matching the JSON command convention; unquoted plain string
 values are also accepted. `policy` contains `{"mode":"auto"}` (with optional
-`preferred_service`) or `{"mode":"constrained","service_id":"…"}`. The default
-format is `webvtt`. Only WebVTT is supported. Duplicate parameters return `400`.
+`preferred_service`) or `{"mode":"constrained","service_id":"…"}`. The required content type is `text/vtt`; optional MIME parameters are accepted. Only WebVTT is supported. Duplicate parameters return `400`.
 
 The transport builds an in-memory descriptor per request and validates the
 direct HTTP(S) or application-proxy URL, languages and eligible services before
@@ -407,8 +414,7 @@ The former JSON preparation and tokenized download routes are removed without
 backward compatibility.
 
 The request access scope remains the trusted client IP for REST (loopback
-shares the local scope) and the local scope for the Tauri protocol; it is not
-included in the ETag. Clients
+shares the local scope) and the local scope for the Tauri protocol; it participates in the hashed document identity carried by the ETag. Clients
 sharing an IP share this scope; per-user isolation requires an authenticated
 scope. Network, proxy and redirect controls still apply. Errors are returned
 as text, never as WebVTT files.
@@ -442,11 +448,17 @@ application prefix without a preliminary JSON call.
 | Metadata unavailable or temporary incident | `503 Service Unavailable` |
 | Internal state failure | `500 Internal Server Error` |
 
-`Cache-Control: private, no-cache` is proposed to keep the body while
+`Cache-Control: private, no-cache` is used to keep the body while
 revalidating with `If-None-Match`. A `304` response has no body and keeps the
 ETag.
 
 Finite HLS WebVTT subtitle media playlists are also accepted as sources. The frontend discovers rendition URLs through VHS and prefers complete tracks over forced tracks. The backend assembles segments with timestamp-map normalization and duplicate cue removal, preserving proxy options and applying public-destination checks to every request. Aggregate bytes/cues remain bounded; assembly is limited to 4096 segments and 120 seconds. Live playlists, encryption, discontinuities, byte ranges and initialization maps are rejected. Revalidation uses the assembled content hash, never the playlist ETag alone. Assembled documents require a text-capable translation provider; the playlist URL is never sent for provider URL translation.
+
+LibreTranslate loads directional pairs from `/languages` at catalog load or
+reload. Only published lowercase two-letter codes are retained; variants are
+excluded without truncation. HTTP errors, invalid responses or no usable pair
+make the provider unavailable. Reload the service configuration after changing
+installed models. Effective metadata contributes to the configuration revision.
 
 ## 10. Out of scope
 
@@ -454,3 +466,32 @@ SRT remains behind an explicit extension. Integrated DASH subtitles, live
 streams, TTML/ASS, audio transcription, iframes without an external track, URL
 modes with deferred tasks, document upload, additional providers and
 cross-cue linguistic grouping require a separate analysis.
+
+## Shared retrieval and metadata snapshots
+
+`retrieval-http` enables the shared bounded HTTP adapter in `document::http`.
+With `document-vtt` it also assembles finite HLS WebVTT playlists.
+`retrieval-proxy` includes HTTP retrieval and adds optional Core/Proxy integration;
+the application supplies headers, proxy prefix and runtime. A custom retrieval
+port remains supported. These adapters never depend on Stream.
+
+Runtime bridges use validated metadata retained in the catalog, paired with its
+configuration revision, without reloading metadata per candidate or execution.
+The selected bridge and prepared document are retained together. Source and URL
+result validation belong to `DocumentTranslator`; orchestration and API handlers
+compile independently of `document-vtt`. Without a compiled format, file requests
+fail explicitly before retrieval.
+
+## Single API registration and snapshot lifetime
+
+`api::register_routes(controller, factory, subpath)` owns route registration,
+handler construction, catalog serialization and document execution. The factory
+returns `Arc<S>` implementing Translation's `TranslationSnapshot`: catalog,
+Scrapyfy aggregator, service group, configured retrieval and optional trusted
+proxy prefix. It is called once per request. The snapshot remains alive through
+all asynchronous work, including during a concurrent application reload.
+Catalog requests do not construct a retriever. Stream supplies dependencies and
+a factory returning its current instance; it defines no translation route
+callbacks. The former Rust `TranslationApi` callback contract is removed;
+HTTP/Tauri command names, parameters and responses retain their current contract.
+Translation has no dependency on Stream.

@@ -70,31 +70,26 @@ Native GUI behavior and provider health require separate validation.
 
 ## Subtitle translation pipeline
 
-`GET <api-base>/translate_subtitle` directly returns complete `text/vtt` and a
-provider/source `ETag`, or an empty `304` after `If-None-Match` revalidation without
-provider execution. Its query accepts JSON-encoded `url`, `target_language`,
-optional `track_id`, `source_language`, `policy` and `format` (`webvtt` by default).
-The frontend retains the file/ETag pair. No preparation call, token route or
-persisted descriptor store remains. `HEAD` returns `405 Allow: GET` without work.
+`translation/get_services` returns the effective public catalog. `GET
+<api-base>/translation/translate_url` returns complete `text/vtt` with an ETag,
+or an empty `304` after conditional revalidation. The query requires `url`,
+`target` and `content-type: text/vtt`; `source`, `track_id` and `policy` are
+optional. The frontend JSON-encodes query values, retains the file/ETag pair and
+retries without a validator if the body is missing. `HEAD` returns `405 Allow:
+GET` before retrieval or translation. The former routes and parameter names
+have no compatibility aliases.
 
+`arachnea-translation` owns document contracts, MIME dispatch, WebVTT,
+orchestration, revalidation and the handlers. Stream injects the current runtime
+snapshot and configures the shared authorized retrieval adapters. Rust consumers
+import document contracts, retrieval and catalog types directly from
+`arachnea-translation`; the former Stream translation compatibility modules
+and unused translation accessors have been removed.
+Application translation requests use `translation/translate_url`. Its composite ETag binds the source,
+document type, languages, policy, access scope, pipeline and effective provider
+configuration, including loaded metadata. Source freshness and eligibility are
+rechecked before `304`. No subtitle file is stored server-side.
 
-`src/subtitles/` owns the subtitle document boundary inside Stream. It defines
-WebVTT and SRT media identifiers, source track descriptors, document format and
-statistics, in-memory translation descriptors with access checks, an authorized conditional retrieval port, a
-weak provider/source ETag (including the source validator and service YAML hash), HTTP status
-mapping and the local document limits. It depends only on the generic
-`arachnea-translation` contracts and Stream’s generic translation bridge. The
-module contains no provider-specific mapping or player logic.
-
-A translated subtitle uses `W/"SOURCE=E:<yaml-hash>-<encoded-upstream-etag>"`
-or `W/"SOURCE=C:<yaml-hash>-<timestamp>-<content-hash>"`. `SOURCE` is the
-translation service ID, the YAML hash identifies its definition and the source
-validator is rechecked before any provider call. Languages and caller options
-are isolated by the request URL; configuration, pipeline and access-scope
-revisions are not encoded. Changes to those values without a URL or YAML change
-do not invalidate an existing cached translation. The old `st1.` format forces
-a new translation. Access and service eligibility remain separately checked.
-No subtitle file is stored server-side.
 `SubtitleHttpRetrieval` validates and pins public DNS addresses at every hop.
 Direct sources use the HTTP client; known application proxy paths are decoded
 in-process by the shared proxy decoder and use the application routing core.
@@ -112,8 +107,17 @@ to 4096 segments and 120 seconds. Live, encrypted, discontinuous and byte-range
 playlists are rejected. Segment requests retain proxy routing and destination checks;
 revalidation hashes the assembled document. Provider URL mode is disabled for assembly.
 
-`StreamScraper::translate_subtitle` supplies the shared proxy runtime and holds
-one catalog/configuration snapshot for the complete request. Sources requiring
+HTTP, proxy and HLS retrieval implementations live in `arachnea-translation`;
+Stream activates `retrieval-proxy` and `document-vtt` and imports
+`document::http::SubtitleHttpRetrieval` directly. Provider metadata remains fixed to the loaded
+catalog revision throughout selection and execution.
+
+Stream implements `TranslationSnapshot` to expose the catalog, aggregator,
+service group and configured retriever. It calls `api::register_routes` once
+with a factory returning `reloadable.current()`. Translation constructs both
+route handlers and retains one snapshot for the complete request; Stream has no
+translation route delegates or `stream_scraper/subtitle_translation.rs` module.
+The application supplies the shared proxy runtime. Sources requiring
 headers are excluded from provider URL translation.
 
 The orchestrator can use a provider URL capability when the caller explicitly
@@ -151,12 +155,12 @@ translatable units (`LocalSubtitleLimits`). Batch planning is delegated to
 
 The effective translation catalog exposes `translation_max_concurrent_requests`,
 `translation_max_units_per_window` and `translation_budget_window_seconds`. The
-generic bridge maps provider HTTP statuses to normalized categories. Stream
-injects a process-local budget shared by service identifier; reloading account
+generic bridge maps provider HTTP statuses to normalized categories. Translation
+provides a process-local budget shared by service identifier; reloading account
 limits preserves consumed quota and active reservations. A zero unit quota means
-no quota limit but concurrency remains bounded. `select_text_translation_bridge`
-combines offline Scrapyfy body measurement, deterministic candidate ranking and
-live account availability before execution. It carries the selected local limits
+no quota limit but concurrency remains bounded. Document orchestration combines
+offline Scrapyfy body measurement, deterministic candidate ranking and live
+account availability before execution. It carries the selected local limits
 into execution and never switches providers after a translation failure.
 Budgets are fixed windows starting with first use, reset on process restart and
 cannot observe other clients using the same provider account. Separate YAML

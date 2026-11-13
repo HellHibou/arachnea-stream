@@ -27,13 +27,17 @@ export interface TranslationServiceCapabilities {
   supportsTextTranslation: boolean
   /** Whether the service can translate a document from its URL. */
   supportsUrlTranslation: boolean
+  /** Media types accepted for URL document translation. */
+  urlTranslationFormats: string[]
+  /** Whether the service can identify a detected source language. */
+  sourceDetectionIdentifiesLanguage: boolean
   /** Whether the service can translate without an explicit source language. */
   sourceDetection: boolean
   /** Whether the service is ranked first in automatic mode. */
   preferred: boolean
 }
 
-/** Public translation catalog returned by `get_translation_services`. */
+/** Public translation catalog returned by `translation/get_services`. */
 export interface TranslationCatalog {
   /** Enabled services with effective capabilities. */
   services: TranslationServiceCapabilities[]

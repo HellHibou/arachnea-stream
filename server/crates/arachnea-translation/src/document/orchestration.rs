@@ -1,23 +1,20 @@
 //! Subtitle revalidation and translation through the generic Scrapyfy bridge.
 
-use arachnea_scrapyfy::ScraperAgregator;
-use arachnea_translation::{
+use crate::{
     selection::SelectionRoute, AccessScope, LocalTranslationLimits, SelectionPolicy,
-    SelectionRequirement, TextTranslationRequest, TranslationError, TranslationOptions,
-    TranslationService, UrlTranslationRequest,
+    SelectionRequirement, TranslationError, TranslationOptions, TranslationService,
+    UrlTranslationRequest,
 };
+use arachnea_scrapyfy::ScraperAgregator;
 
 use super::{
-    revalidate_subtitle, LocalSubtitleLimits, SubtitleDocumentPlan, SubtitleFormat,
-    SubtitleRetrievalOutcome, SubtitleRetrievalPort, SubtitleRevalidation,
-    SubtitleRevalidationRequest, SubtitleSourceValidator, SubtitleTranslationDescriptor,
-    SubtitleTranslationError, SubtitleTranslationValidator, TranslatedSubtitleDocument,
-    WebVttBlock, WebVttDocument,
+    revalidate_subtitle, LocalSubtitleLimits, SubtitleRetrievalOutcome, SubtitleRetrievalPort,
+    SubtitleRevalidation, SubtitleRevalidationRequest, SubtitleSourceValidator,
+    SubtitleTranslationDescriptor, SubtitleTranslationError, SubtitleTranslationValidator,
+    TranslatedSubtitleDocument,
 };
-use crate::translation_catalog::TranslationCatalog;
-use crate::translation_port::{
-    load_translation_bridge, select_text_translation_bridge, shared_translation_budget,
-};
+use crate::catalog::TranslationCatalog;
+use crate::runtime::{load_translation_bridge, shared_translation_budget};
 
 /// Outcome of a complete subtitle translation request.
 pub enum SubtitleTranslationOutcome {
@@ -55,11 +52,11 @@ pub struct SubtitleTranslationRequest<'a> {
 
 /// Document route selected before the first provider request.
 enum DocumentRoute {
-    Text(SubtitleDocumentPlan),
+    Text(Box<dyn crate::document::PreparedDocument>),
     Url(String),
 }
 
-/// Revalidates or translates a complete WebVTT document.
+/// Revalidates or translates a complete document using its registered translator.
 ///
 /// Provider candidates are segmented and measured independently; the selected
 /// bridge is held for the entire document and an execution failure never
@@ -84,11 +81,7 @@ pub async fn translate_subtitle(
     request: SubtitleTranslationRequest<'_>,
 ) -> Result<SubtitleTranslationOutcome, SubtitleTranslationError> {
     let descriptor = request.descriptor;
-    if descriptor.source.format != SubtitleFormat::WebVtt {
-        return Err(SubtitleTranslationError::UnsupportedFormat {
-            media_type: descriptor.source.format.media_type().into(),
-        });
-    }
+    let translator = crate::document::translator(descriptor.source.format.media_type())?;
     let (source, source_validator) = match revalidate_subtitle(
         retrieval,
         SubtitleRevalidationRequest {
@@ -106,13 +99,7 @@ pub async fn translate_subtitle(
         }
         SubtitleRevalidation::Modified { source, validator } => (source, validator),
     };
-    let document = WebVttDocument::parse(&source.bytes)?;
-    if document.cue_count() > request.subtitle_limits.max_cues {
-        return Err(SubtitleTranslationError::TooManyCues {
-            cues: document.cue_count(),
-            limit: request.subtitle_limits.max_cues,
-        });
-    }
+    translator.validate_source(&source.bytes, &request.subtitle_limits)?;
     let preferred = match &descriptor.policy {
         SelectionPolicy::Auto { preferred_service } => preferred_service
             .as_deref()
@@ -195,9 +182,8 @@ pub async fn translate_subtitle(
         let Some(capability) = bridge.metadata().text_translation.as_ref() else {
             continue;
         };
-        let plan = match SubtitleDocumentPlan::plan(
-            document.clone(),
-            source.bytes.len() as u64,
+        let plan = match translator.prepare(
+            &source.bytes,
             capability,
             &request.translation_limits,
             &request.subtitle_limits,
@@ -225,12 +211,34 @@ pub async fn translate_subtitle(
         let policy = SelectionPolicy::Constrained {
             service_id: entry.service_id.clone(),
         };
-        let Ok((bridge, decision)) =
-            select_text_translation_bridge(aggregator, catalog, group_name, &policy, &requirement)
-                .await
-        else {
+        let text_request = crate::TextTranslationRequest {
+            source_language: requirement.source_language.clone(),
+            target_language: requirement.target_language.clone(),
+            blocks: requirement.blocks.clone(),
+            options: TranslationOptions::default(),
+        };
+        let measured = bridge.plan_texts(&text_request, &request.translation_limits);
+        let units = measured
+            .as_ref()
+            .ok()
+            .and_then(|plan| bridge.planned_budget_units(&text_request, plan).ok())
+            .unwrap_or(u64::MAX);
+        let candidate = crate::ServiceCandidate {
+            service_id: entry.service_id.clone(),
+            metadata: bridge.metadata().clone(),
+            metadata_fresh: true,
+            budget_available: shared_translation_budget(entry).available(units),
+            administrator_order: entry.administrator_order.min(u32::MAX as u64) as u32,
+        };
+        let Ok(decision) = crate::selection::select_service_with_planner(
+            &[candidate],
+            &policy,
+            &requirement,
+            |_, _| measured.clone(),
+        ) else {
             continue;
         };
+        let bridge = bridge.with_local_limits(request.translation_limits);
         let batches = decision
             .evaluations
             .iter()
@@ -255,20 +263,25 @@ pub async fn translate_subtitle(
     };
     let bytes = match plan {
         DocumentRoute::Text(plan) => {
-            let translated = bridge
-                .translate_texts(TextTranslationRequest {
-                    source_language: descriptor.source_language.clone(),
-                    target_language: descriptor.target_language.clone(),
-                    blocks: plan.blocks().to_vec(),
-                    options: TranslationOptions::default(),
-                })
+            let translated = plan
+                .execute(
+                    crate::document::DocumentRequest {
+                        bytes: &source.bytes,
+                        source: descriptor.source_language.clone(),
+                        target: descriptor.target_language.clone(),
+                        options: TranslationOptions::default(),
+                        translation_limits: request.translation_limits,
+                        document_limits: request.subtitle_limits,
+                    },
+                    &bridge,
+                )
                 .await?;
-            if translated.source_language.as_ref() == Some(&descriptor.target_language) {
+            if translated.original {
                 return Ok(SubtitleTranslationOutcome::Original {
                     bytes: source.bytes,
                 });
             }
-            plan.render(&translated)?
+            translated.document.bytes
         }
         DocumentRoute::Url(url) => {
             let translated = bridge
@@ -295,7 +308,11 @@ pub async fn translate_subtitle(
                 .content_type
                 .split(';')
                 .next()
-                .is_some_and(|media_type| media_type.trim().eq_ignore_ascii_case("text/vtt"))
+                .is_some_and(|media_type| {
+                    media_type
+                        .trim()
+                        .eq_ignore_ascii_case(translator.content_type())
+                })
             {
                 return Err(SubtitleTranslationError::UnsupportedFormat {
                     media_type: translated.content_type,
@@ -324,64 +341,15 @@ pub async fn translate_subtitle(
                     detail: "source changed during URL translation".into(),
                 });
             }
-            let output = WebVttDocument::parse(&translated.bytes)?;
-            if !same_structure(&document, &output) {
-                return Err(SubtitleTranslationError::InvalidDocument {
-                    detail: "provider changed WebVTT structure or cue timing".into(),
-                });
-            }
-            output.to_bytes()
+            translator.validate_url_result(&source.bytes, &translated.bytes)?
         }
     };
     let validator = SubtitleTranslationValidator {
         service_id: entry.service_id.clone(),
-        service_yaml_hash: entry.service_yaml_hash.clone().expect("filtered above"),
+        service_yaml_hash: descriptor.validator_hash(entry),
         source: source_validator,
     };
-    Ok(SubtitleTranslationOutcome::Translated(
-        TranslatedSubtitleDocument::new(bytes, validator.to_etag()?)?,
-    ))
-}
-
-/// Checks that URL translation preserves metadata, block kinds and cue timing.
-fn same_structure(source: &WebVttDocument, translated: &WebVttDocument) -> bool {
-    source.header == translated.header
-        && source.blocks.len() == translated.blocks.len()
-        && source
-            .blocks
-            .iter()
-            .zip(&translated.blocks)
-            .all(|(left, right)| match (left, right) {
-                (WebVttBlock::Cue(left), WebVttBlock::Cue(right)) => {
-                    left.identifier == right.identifier
-                        && left.timing == right.timing
-                        && markup_tokens(&left.payload).is_some_and(|left_tokens| {
-                            markup_tokens(&right.payload)
-                                .is_some_and(|right_tokens| left_tokens == right_tokens)
-                        })
-                }
-                (WebVttBlock::Note(left), WebVttBlock::Note(right))
-                | (WebVttBlock::Style(left), WebVttBlock::Style(right))
-                | (WebVttBlock::Region(left), WebVttBlock::Region(right)) => left == right,
-                _ => false,
-            })
-}
-
-/// Extracts angle-bracket markup and inline timestamps in their original order.
-fn markup_tokens(lines: &[String]) -> Option<Vec<&str>> {
-    let mut tokens = Vec::new();
-    for line in lines {
-        let mut remainder = line.as_str();
-        while let Some(start) = remainder.find('<') {
-            remainder = &remainder[start..];
-            let end = remainder.find('>')?;
-            let token = &remainder[..=end];
-            if token[1..token.len() - 1].contains('<') {
-                return None;
-            }
-            tokens.push(token);
-            remainder = &remainder[end + 1..];
-        }
-    }
-    Some(tokens)
+    let mut document = TranslatedSubtitleDocument::new(bytes, validator.to_etag()?)?;
+    document.media_type = translator.content_type().into();
+    Ok(SubtitleTranslationOutcome::Translated(document))
 }

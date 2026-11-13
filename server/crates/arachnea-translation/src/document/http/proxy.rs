@@ -14,8 +14,8 @@ use futures::StreamExt;
 use tracing::instrument::WithSubscriber;
 use url::Url;
 
-use super::retrieval::{resolve_public_addresses, retrieval_error};
-use super::{
+use super::{resolve_public_addresses, retrieval_error};
+use crate::document::{
     LocalSubtitleLimits, RetrievedSubtitle, SubtitleRetrievalOutcome, SubtitleSourceValidator,
     SubtitleTranslationError,
 };

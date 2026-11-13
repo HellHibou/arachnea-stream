@@ -19,7 +19,7 @@ performance-diagnostics = ["arachnea-proxy/performance-diagnostics", "arachnea-h
 arachnea-core = { path = "../arachnea-core", features = ["sqlite-persistence"] }
 arachnea-http = { path = "../arachnea-http", default-features = false, features = ["chaser-cf"] }
 arachnea-scrapyfy = { path = "../arachnea-scrapyfy", default-features = false, features = ["arachnea-proxy", "sqlite-persistence"] }
-arachnea-translation = { path = "../arachnea-translation" }
+arachnea-translation = { path = "../arachnea-translation", features = ["api", "document-vtt", "runtime", "retrieval-proxy"] }
 arachnea-proxy =    { path = "../arachnea-proxy", features = ["controller-service"] }
 argon2 = { workspace = true }
 anyhow.workspace = true

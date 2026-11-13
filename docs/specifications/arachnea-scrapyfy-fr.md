@@ -1635,6 +1635,21 @@ Transformations appliquées après l'extraction et les sous-requêtes, dans l'or
 
 Tagguées par `type` en snake_case.
 
+### `project_json_relations`
+
+Projette un tableau de réponse JSON dans un objet. Champs obligatoires : `target`
+est le chemin de sortie séparé par `>` ; `pointer` est un pointeur RFC 6901 (vide
+pour la racine) ; `key` et `relations` désignent l'identifiant textuel et le
+tableau d'identifiants textuels de chaque ligne ; `pattern` est une expression
+régulière Rust appliquée aux deux. `template` est un objet de chaînes, nombres,
+booléens, objets, tableaux de chaînes ou tableaux d'objets. `values_field` et
+`pairs_field` nomment les champs écrits dans le modèle ; `from_field` et `to_field`
+nomment les champs de chaque couple. Identifiants et relations distinctes sont
+triés et dédupliqués ; les relations réflexives ou vers un identifiant non publié
+sont exclues. JSON ou lignes invalides, valeurs de modèle non prises en charge et
+absence de relation exploitable font échouer la requête. Utiliser une requête
+JSON avec `row_pointer: /` pour appliquer la projection à toute la réponse.
+
 ### `remove_fields`
 
 Supprime les champs temporaires du résultat courant après leur utilisation par

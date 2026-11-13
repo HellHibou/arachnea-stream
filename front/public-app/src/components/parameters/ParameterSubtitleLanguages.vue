@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
-import { LANGUAGES, formatLanguageLabel, getBaseLanguageCode, normalizeLanguageCode } from '@/services/languages'
+import { onMounted, onUnmounted, ref, watch } from 'vue'
+import { LANGUAGES, formatLanguageLabel } from '@/services/languages'
+import { ensureTranslationCatalog, serviceSupportsSubtitleTarget, toTranslationCode, translationCatalog } from '@/services/translationCatalog'
 import { useI18n } from '@/i18n'
 import { MAX_SUBTITLE_LANGUAGE_PRIORITY } from '@/services/storage/sanitizers'
 
@@ -46,25 +47,26 @@ const languageOptions = LANGUAGES.map((language) => ({
   label: formatLanguageLabel(language.code),
 }))
 
-/**
- * Returns the normalized two-letter code used as a translation target.
- *
- * @param code Configured language code.
- * @returns Two-letter translation code, or `null` when unsupported.
- */
-function getTranslationCode(code: string): string | null {
-  const base = getBaseLanguageCode(normalizeLanguageCode(code))
-  return base && /^[a-z]{2}$/.test(base) ? base : null
+/** Requests the catalog again when the settings view regains focus after a failure. */
+function refreshCatalog(): void {
+  void ensureTranslationCatalog()
 }
 
+onMounted(() => {
+  refreshCatalog()
+  window.addEventListener('focus', refreshCatalog)
+})
+onUnmounted(() => window.removeEventListener('focus', refreshCatalog))
+
 /**
- * Checks whether a language row can be authorized for translation.
- *
- * @param code Configured language code.
- * @returns True when the row maps to a two-letter language code.
+ * Checks whether a target is available for WebVTT translation.
+ * @param code Configured subtitle language.
+ * @returns Whether an active service can translate into this language.
  */
 function isTranslationAvailable(code: string): boolean {
-  return getTranslationCode(code) !== null
+  const target = toTranslationCode(code)
+  return target !== null && (translationCatalog.value?.services ?? [])
+    .some((service) => serviceSupportsSubtitleTarget(service, target))
 }
 
 /**
@@ -74,7 +76,7 @@ function isTranslationAvailable(code: string): boolean {
  * @returns True when the language is explicitly authorized.
  */
 function isTranslationEnabled(code: string): boolean {
-  const translationCode = getTranslationCode(code)
+  const translationCode = toTranslationCode(code)
   return translationCode !== null && props.translationByLanguage[translationCode] === true
 }
 
@@ -85,8 +87,8 @@ function isTranslationEnabled(code: string): boolean {
  * @param enabled Whether translation should be authorized.
  */
 function handleTranslationToggle(code: string, enabled: boolean): void {
-  const translationCode = getTranslationCode(code)
-  if (!translationCode) return
+  const translationCode = toTranslationCode(code)
+  if (!translationCode || !isTranslationAvailable(code)) return
 
   const next = { ...props.translationByLanguage }
   if (enabled) {
