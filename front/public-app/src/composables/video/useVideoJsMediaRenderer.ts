@@ -12,9 +12,14 @@ import type { ResolvedVideoMediaSource } from '@/services/players'
 import { useStorage } from '@/services/storage'
 import { t } from '@/i18n'
 import { markImageUrlFailed } from '@/composables/media/useFailedImageUrls'
-import { PLAYBACK_SAVE_STEP_SECONDS, REMAINING_TIME_CLASS } from './video-js-media-renderer/constants'
 import {
-  installAdaptiveControlBarMenuPositioning, installExclusiveControlBarMenus, installTimerToggle, syncPrevNextVideoControls,
+  PLAYBACK_RATES,
+  PLAYBACK_SAVE_STEP_SECONDS,
+  REMAINING_TIME_CLASS,
+} from './video-js-media-renderer/constants'
+import {
+  installAdaptiveControlBarMenuPositioning, installExclusiveControlBarMenus, installPlaybackRateBadge,
+  installTimerToggle, syncPrevNextVideoControls,
 } from './video-js-media-renderer/controls'
 import { installStableFullscreenBridge } from './video-js-media-renderer/fullscreen'
 import {
@@ -32,7 +37,7 @@ import {
   restorePersistedTrackPreferences,
 } from './video-js-media-renderer/state'
 import type { UseVideoJsMediaRendererOptions, VideoJsPlayer } from './video-js-media-renderer/types'
-import { areSubtitlesEqual } from './video-js-media-renderer/subtitles'
+import { areSubtitlesEqual, syncSubtitleTrackActiveState } from './video-js-media-renderer/subtitles'
 import { syncVideoElementAttributes, installPosterImageErrorHandler } from './video-js-media-renderer/playerAttributes'
 import { syncEpisodeAutoplayControl } from './video-js-media-renderer/autoplayMenu'
 import { createQualityController } from './video-js-media-renderer/qualityController'
@@ -100,14 +105,16 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
     () => [
       t('player.subtitles.off'), t('player.subtitles.settings'),
       t('player.subtitles.offset'), t('player.subtitles.offsetHint'),
+      t('player.playbackRate.label'),
     ],
-    ([off, settings]) => {
+    ([off, settings, , , playbackRateLabel]) => {
       videojs.addLanguage('arachnea', {
         'captions and subtitles off': off,
         'subtitles off': off,
         'captions off': off,
         'subtitles settings': settings,
         'captions settings': settings,
+        'Playback Rate': playbackRateLabel,
       })
       refreshSubtitleTranslationMenu?.()
     },
@@ -290,6 +297,7 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
       inactivityTimeout: props.controls ? 2000 : 0,
       enableDocumentPictureInPicture: props.controls ?? false,
       liveui: true,
+      playbackRates: PLAYBACK_RATES,
       // Required by the DASH source handler so dash.js owns text track rendering.
       html5: {
         nativeCaptions: false,
@@ -417,8 +425,16 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
       const audioTracks = player.audioTracks?.()
       const textTracks = player.textTracks?.()
 
+      /**
+       * Synchronizes the subtitle icon state and persists the new player state.
+       */
+      const handleTextTracksChange = () => {
+        syncSubtitleTrackActiveState(player)
+        emitPlayerStateAfterUiUpdate()
+      }
+
       audioTracks?.addEventListener?.('change', emitPlayerStateAfterUiUpdate)
-      textTracks?.addEventListener?.('change', emitPlayerStateAfterUiUpdate)
+      textTracks?.addEventListener?.('change', handleTextTracksChange)
       playerElement?.addEventListener('change', handleTextTrackSettingsChange, true)
       playerElement?.addEventListener('click', handleTextTrackSettingsClick, true)
 
@@ -431,6 +447,7 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
       syncDurationAvailabilityState(player)
       syncEpisodeAutoplayControl(player, props, emit, activePlayer)
       disableControlBarMenuHoverBehavior(player)
+      installPlaybackRateBadge(player)
       installExclusiveControlBarMenus(player)
       installAdaptiveControlBarMenuPositioning(player)
 
@@ -511,12 +528,18 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
 
       player.on('dispose', () => {
         audioTracks?.removeEventListener?.('change', emitPlayerStateAfterUiUpdate)
-        textTracks?.removeEventListener?.('change', emitPlayerStateAfterUiUpdate)
+        textTracks?.removeEventListener?.('change', handleTextTracksChange)
         playerElement?.removeEventListener('change', handleTextTrackSettingsChange, true)
         playerElement?.removeEventListener('click', handleTextTrackSettingsClick, true)
       })
 
-      void sources.applySource(player, props.source, { playerState: props.initialPlayerState ?? null })
+      void sources
+        .applySource(player, props.source, { playerState: props.initialPlayerState ?? null })
+        .finally(() => {
+          if (activePlayer.value === player) {
+            syncSubtitleTrackActiveState(player)
+          }
+        })
     })
   }
   watch(

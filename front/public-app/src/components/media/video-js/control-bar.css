@@ -142,7 +142,16 @@
 }
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-subs-caps-button .vjs-icon-placeholder::before),
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-subtitles-button .vjs-icon-placeholder::before) {
-     font-size: 2.4em;   /* encore plus gros */
+  background-image: url("@/assets/icons/subtitles-outline.svg");
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 1.8rem;
+  content: '';
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme.arachnea-subtitles-active .vjs-subs-caps-button .vjs-icon-placeholder::before),
+.videojs-media-host :deep(.arachnea-videojs-theme.arachnea-subtitles-active .vjs-subtitles-button .vjs-icon-placeholder::before) {
+  background-image: url("@/assets/icons/subtitles-filled.svg");
 }
 
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-mute-control::before) {
@@ -327,6 +336,53 @@
   flex: 0 0 auto;
 }
 
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-playback-rate.vjs-menu-button-popup) {
+  order: 45;
+  position: relative;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  width: var(--videojs-icon-control-width);
+  font-size: var(--player-font-size);
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-playback-rate > .vjs-menu-button) {
+  background-image: url("@/assets/icons/playback-speed.svg");
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 1.6rem;
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-playback-rate .vjs-playback-rate-value) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme.arachnea-custom-playback-rate .vjs-playback-rate .vjs-playback-rate-value) {
+  top: 0.1rem;
+  right: 0;
+  left: auto;
+  width: auto;
+  height: auto;
+  padding: 0;
+  overflow: visible;
+  border: 1px solid rgb(255 255 255 / 0.14);
+  border-radius: 999px;
+  background: rgb(70 163 255 / 0.18);
+  clip-path: none;
+  color: var(--text-primary);
+  font-size: 0.62rem;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0.02em;
+  text-align: center;
+  white-space: nowrap;
+}
+
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-prev-video-control),
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-next-video-control) {
   order: 2;
@@ -448,7 +504,7 @@
 }
 
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-fullscreen-control) {
-  order: 50;
+  order: 56;
   flex: 0 0 auto;
   width: var(--videojs-icon-control-width);
   font-size: 1.7em;

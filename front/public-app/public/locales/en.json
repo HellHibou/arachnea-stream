@@ -353,6 +353,9 @@
     },
     "showElapsedTime": "Show elapsed time",
     "showRemainingTime": "Show remaining time",
+    "playbackRate": {
+      "label": "Playback speed"
+    },
     "defaultDisplayTitle": "this content",
     "trailerTitle": "Trailer for {title}",
     "videoTitle": "Embedded player for {title}",

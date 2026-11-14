@@ -1,4 +1,5 @@
 import {
+  CUSTOM_PLAYBACK_RATE_CLASS,
   EPISODE_AUTOPLAY_CONTROL_ACTIVE_CLASS,
   EPISODE_AUTOPLAY_CONTROL_CLASS,
   EPISODE_AUTOPLAY_MENU_CLASS,
@@ -903,4 +904,38 @@ export function installSeekOnClick(player: VideoJsPlayer, options: InstallSeekOn
   }
 
   progressControlElement.addEventListener('click', handleSeekOnClick, true)
+}
+
+/**
+ * Keeps the playback rate badge in sync with the player.
+ *
+ * The player class is present only while a rate other than normal speed is
+ * active, so the control bar can show the current rate next to the speedometer
+ * icon without exposing the default `1x` value. The label is shortened to the
+ * bare rate because the badge already conveys the unit.
+ *
+ * @param player Video.js player whose playback rate changes are observed.
+ */
+export function installPlaybackRateBadge(player: VideoJsPlayer) {
+  const syncBadgeState = () => {
+    const playerElement = player.el()
+
+    if (!playerElement) {
+      return
+    }
+
+    const playbackRate = player.playbackRate()
+    const rateLabel = playerElement.querySelector<HTMLElement>(
+      '.vjs-playback-rate .vjs-playback-rate-value',
+    )
+
+    if (rateLabel) {
+      rateLabel.textContent = String(playbackRate)
+    }
+
+    playerElement.classList.toggle(CUSTOM_PLAYBACK_RATE_CLASS, playbackRate !== 1)
+  }
+
+  player.on('ratechange', syncBadgeState)
+  syncBadgeState()
 }

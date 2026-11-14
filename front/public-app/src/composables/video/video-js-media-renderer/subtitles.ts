@@ -2,7 +2,9 @@ import type { ResolvedVideoMediaSource } from '@/services/players'
 import type {
   VideoJsPlayer,
   VideoJsRemoteTextTrackHandle,
+  VideoJsTextTrackListHandle,
 } from '@/composables/video/video-js-media-renderer/types'
+import { SUBTITLES_ACTIVE_CLASS } from '@/composables/video/video-js-media-renderer/constants'
 
 /**
  * Derives a display label from a WebVTT file URL when the resolver did not provide one.
@@ -46,6 +48,52 @@ export function areSubtitlesEqual(
       subtitle.label === other.label &&
       subtitle.autoTranslate === other.autoTranslate
   })
+}
+
+/**
+ * Checks whether the player currently displays a subtitle or caption track.
+ *
+ * @param player Player owning the text tracks.
+ * @returns True when at least one displayable text track is showing.
+ */
+export function hasShowingSubtitleTrack(player: VideoJsPlayer): boolean {
+  const tracks = (player.textTracks?.() as unknown as VideoJsTextTrackListHandle | undefined) ?? null
+
+  if (!tracks) {
+    return false
+  }
+
+  for (let index = 0; index < tracks.length; index += 1) {
+    const track = tracks[index]
+
+    if (
+      track &&
+      (track.kind === 'subtitles' || track.kind === 'captions') &&
+      track.mode === 'showing'
+    ) {
+      return true
+    }
+  }
+
+  return false
+}
+
+/**
+ * Reflects the current subtitle visibility on the player element.
+ *
+ * The control bar uses the toggled class to switch between the filled and
+ * outline subtitle icons.
+ *
+ * @param player Player whose subtitle state is synchronized.
+ */
+export function syncSubtitleTrackActiveState(player: VideoJsPlayer): void {
+  const playerElement = player.el()
+
+  if (!playerElement) {
+    return
+  }
+
+  playerElement.classList.toggle(SUBTITLES_ACTIVE_CLASS, hasShowingSubtitleTrack(player))
 }
 
 /**

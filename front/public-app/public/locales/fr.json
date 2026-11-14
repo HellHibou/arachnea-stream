@@ -353,6 +353,9 @@
     },
     "showElapsedTime": "Afficher le temps écoulé",
     "showRemainingTime": "Afficher le temps restant",
+    "playbackRate": {
+      "label": "Vitesse de lecture"
+    },
     "defaultDisplayTitle": "ce contenu",
     "trailerTitle": "Bande-annonce de {title}",
     "videoTitle": "Lecteur intégré de {title}",

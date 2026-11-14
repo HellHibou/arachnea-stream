@@ -361,6 +361,18 @@ export function disableSubtitleMenuHoverBehavior(player: VideoJsPlayer) {
 }
 
 /**
+ * Keeps the playback rate menu click-only by removing its hover handlers.
+ *
+ * @param player Video.js player currently bound to the renderer.
+ */
+export function disablePlaybackRateMenuHoverBehavior(player: VideoJsPlayer) {
+  disableMenuHoverBehavior(getControlBarMenuButton(player, [
+    'PlaybackRateMenuButton',
+    'playbackRateMenuButton',
+  ]))
+}
+
+/**
  * Keeps Video.js popup menus click-only when their default hover behavior is too eager.
  *
  * @param player Video.js player currently bound to the renderer.
@@ -369,4 +381,5 @@ export function disableControlBarMenuHoverBehavior(player: VideoJsPlayer) {
   disableQualityMenuHoverBehavior(player)
   disableAudioMenuHoverBehavior(player)
   disableSubtitleMenuHoverBehavior(player)
+  disablePlaybackRateMenuHoverBehavior(player)
 }
