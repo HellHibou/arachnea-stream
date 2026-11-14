@@ -361,7 +361,11 @@
     "videoTitle": "Embedded player for {title}",
     "loadEmbeddedPlayer": "Load player",
     "embeddedBlocked": "Embedded playback blocked by safe mode.",
+    "chapterMenu": {
+      "label": "Chapters"
+    },
     "chapter": {
+      "chapter": "Chapter",
       "intro": "Intro",
       "skipIntro": "Skip Intro",
       "previously": "Recap",

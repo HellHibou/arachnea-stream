@@ -836,6 +836,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Added a chapter menu button to the public player control bar: it lists each chapter start as a zero-padded `hh:mm:ss` timecode with its title or localized type label (`Intro`, `Ad`, ...), seeks to the start of the selected chapter, and stays hidden when the source has no chapter. When only typed chapters exist (`ads`, `intro`, `outro`, ...), synthetic content chapters are generated for the uncovered timeline ranges so the menu still covers the whole playback.
+
 - Added a playback speed control to the public player control bar: a speedometer icon opens a menu with rates from `0.25x` to `3x`, listed slowest first. The built-in Video.js menu is localized, click-only like the other control bar menus, and the selected rate still follows the existing in-session player state used across source and episode switches. A small badge in the button's top-right corner displays the active rate, without the `x` suffix, whenever it differs from `1`, styled like the quality menu's `HD` flag.
 
 - The player subtitles button now switches between a filled icon while subtitles or captions are showing and an outline icon when they are disabled.

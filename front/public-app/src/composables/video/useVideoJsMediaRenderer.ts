@@ -26,6 +26,7 @@ import {
   installAutoSkipChapters, installChapterOverlay, installChapterSegments,
   installSkipChapterButton, SKIP_CHAPTER_BUTTON_TYPES, type SkipChapterType,
 } from './video-js-media-renderer/chapters'
+import { installChapterMenuButton } from './video-js-media-renderer/chapterMenu'
 import { installDashPeriodChapters, isDashSource } from './video-js-media-renderer/dash'
 import {
   isDurationAvailable, isLiveStream, syncDurationAvailabilityState, updateLiveProgressBar,
@@ -372,6 +373,7 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
         if (!dashChaptersHandled && baseChapters.length > 0) {
           installChapterOverlay(player, baseChapters)
           installChapterSegments(player, baseChapters)
+          installChapterMenuButton(player, baseChapters)
         }
         if (baseChapters.length > 0) {
           for (const chapterType of SKIP_CHAPTER_BUTTON_TYPES) {

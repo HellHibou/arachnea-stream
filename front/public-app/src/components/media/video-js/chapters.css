@@ -99,3 +99,57 @@
 .videojs-media-host :deep(.vjs-skip-ads-button:active) {
   background: rgb(0 0 0 / 0.9);
 }
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-chapter-menu) {
+  order: 41;
+  position: relative;
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  height: 100%;
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-chapter-menu-button) {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  width: var(--videojs-icon-control-width) !important;
+  padding: 0;
+  background: transparent !important;
+  cursor: pointer;
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-chapter-menu-icon) {
+  font-size: 1.45rem;
+  line-height: 1;
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-chapter-menu .vjs-menu .vjs-menu-content) {
+  box-sizing: border-box;
+  min-width: min(24rem, 80vw);
+  max-width: min(48rem, 90vw);
+  max-height: min(18rem, 55vh);
+  overflow-y: auto;
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-chapter-menu .vjs-menu .vjs-menu-content .vjs-menu-item) {
+  display: block !important;
+  width: auto !important;
+  max-width: 100%;
+  padding: 0.45rem 0.65rem;
+  line-height: 1.35;
+  white-space: normal;
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-chapter-menu-time) {
+  display: inline;
+  margin-right: 0.75em;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  opacity: 0.72;
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-chapter-menu-label) {
+  display: inline;
+  overflow-wrap: anywhere;
+}

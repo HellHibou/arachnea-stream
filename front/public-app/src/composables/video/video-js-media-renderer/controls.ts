@@ -127,8 +127,13 @@ function getPositionableControlBarMenuButtons(playerElement: HTMLElement): HTMLE
  *
  * @param playerElement - Root player element.
  * @param menuButtonElement - Menu button element to position.
+ * @param alignment - Horizontal alignment of the menu inside the player.
  */
-function positionControlBarMenu(playerElement: HTMLElement, menuButtonElement: HTMLElement) {
+export function positionControlBarMenu(
+  playerElement: HTMLElement,
+  menuButtonElement: HTMLElement,
+  alignment: 'center' | 'right' = 'center',
+) {
   const menuElement = menuButtonElement.querySelector<HTMLElement>(':scope > .vjs-menu')
   const menuContentElement = menuElement?.querySelector<HTMLElement>('.vjs-menu-content')
 
@@ -150,7 +155,9 @@ function positionControlBarMenu(playerElement: HTMLElement, menuButtonElement: H
   const minimumLeft = playerRect.left + CONTROL_BAR_MENU_EDGE_PADDING_PX
   const maximumLeft = playerRect.right - CONTROL_BAR_MENU_EDGE_PADDING_PX - menuWidth
   const centeredLeft = buttonRect.left + ((buttonRect.width - menuWidth) / 2)
-  const menuLeft = clampMenuLeftOffset(centeredLeft, minimumLeft, maximumLeft)
+  const menuLeft = alignment === 'right'
+    ? maximumLeft
+    : clampMenuLeftOffset(centeredLeft, minimumLeft, maximumLeft)
 
   menuElement.style.left = `${Math.round(menuLeft - buttonRect.left)}px`
   menuElement.style.right = 'auto'
@@ -722,7 +729,8 @@ export function installAdaptiveControlBarMenuPositioning(player: VideoJsPlayer) 
     animationFrameId = null
 
     getPositionableControlBarMenuButtons(playerElement).forEach((menuButtonElement) => {
-      positionControlBarMenu(playerElement, menuButtonElement)
+      const alignment = menuButtonElement.dataset.menuAlignment === 'right' ? 'right' : 'center'
+      positionControlBarMenu(playerElement, menuButtonElement, alignment)
     })
   }
 
@@ -930,7 +938,7 @@ export function installPlaybackRateBadge(player: VideoJsPlayer) {
     )
 
     if (rateLabel) {
-      rateLabel.textContent = String(playbackRate)
+      rateLabel.textContent = String(playbackRate) + 'x'
     }
 
     playerElement.classList.toggle(CUSTOM_PLAYBACK_RATE_CLASS, playbackRate !== 1)

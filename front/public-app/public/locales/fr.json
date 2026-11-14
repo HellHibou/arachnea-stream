@@ -361,7 +361,11 @@
     "videoTitle": "Lecteur intégré de {title}",
     "loadEmbeddedPlayer": "Charger le lecteur",
     "embeddedBlocked": "Lecture embeded bloquée par le mode sécurisé.",
+    "chapterMenu": {
+      "label": "Chapitres"
+    },
     "chapter": {
+      "chapter": "Chapitre",
       "intro": "Introduction",
       "skipIntro": "Passer l’introduction",
       "previously": "Récapitulatif",

@@ -8,6 +8,7 @@ import {
   SKIP_CHAPTER_BUTTON_TYPES,
   type SkipChapterType,
 } from '@/composables/video/video-js-media-renderer/chapters'
+import { installChapterMenuButton } from '@/composables/video/video-js-media-renderer/chapterMenu'
 import type {
   VideoJsDashManifestPeriod,
   VideoJsDashMediaPlayerHandle,
@@ -262,6 +263,7 @@ export function installDashPeriodChapters(
     if (chapters.length > 0) {
       installChapterOverlay(player, chapters)
       installChapterSegments(player, chapters)
+      installChapterMenuButton(player, chapters)
     }
 
     if (adChapters.length > 0) {
