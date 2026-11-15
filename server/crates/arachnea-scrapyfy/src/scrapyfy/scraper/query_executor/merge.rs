@@ -14,6 +14,7 @@ use super::*;
 /// * `request_url` - The URL of the request that produced the item.
 /// * `response_body` - Optional response body for post-processes that need it.
 /// * `http_client` - HTTP client for post-processes that make requests.
+/// * `dynamic_variables` - Request-scoped dynamic variables produced by extraction actions.
 ///
 /// # Returns
 ///
@@ -29,11 +30,13 @@ pub(super) async fn apply_post_processes(
     request_url: &str,
     response_body: Option<&str>,
     http_client: &HttpClient,
+    dynamic_variables: &Mutex<DynamicTemplateVariables>,
 ) -> Result<()> {
     let ctx = ScraperPostProcessContext {
         params,
         request_url,
         response_body,
+        dynamic_variables,
         http_client,
     };
     for post_process in post_processes {

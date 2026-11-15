@@ -828,8 +828,11 @@ runs it with the media URL of that item.
 The query produces the same `players` shape as `get_entry`. When a source does
 not embed players in its episodes, it must declare `get_players`: the frontend
 then publishes the episode media `link` as its `players` collection and loads
-that collection through this command. Without this query, the API returns no
-player and playback stays unavailable for those items.
+that collection through this command. The link may contain a fragment used only
+by the scraper to select a client-side episode table; fragments are never sent
+to the upstream server and are exposed to YAML as `{url_fragment}`. Without
+this query, the API returns no player and playback stays unavailable for those
+items.
 
 ```yaml
 - name: get_players

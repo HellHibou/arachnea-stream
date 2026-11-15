@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use super::super::query_helpers::replace_template_placeholders;
 use super::super::scraper_data_node::{ScraperDataNode, ScraperOutputType};
 use super::node_helpers::{copy_field, get_node, set_node, split_path};
 use super::types::{ScraperFieldMapping, ScraperGeneratedField};
@@ -45,6 +46,8 @@ pub(super) fn validate() -> Result<(), anyhow::Error> {
 /// * `copy_target_fields` - Field mappings copied from `root` directly into
 ///   each target item (without passing through nested entries).
 /// * `generated_fields` - Scalar fields generated for each indexed target.
+///   `{}` is the one-based index and `{index0}` is the zero-based index.
+/// * `params` - Runtime values used to resolve query placeholders in formats.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn apply(
     root: &mut ScraperDataNode,
@@ -59,6 +62,7 @@ pub(super) fn apply(
     promote_first_nested_fields: &[ScraperFieldMapping],
     copy_target_fields: &[ScraperFieldMapping],
     generated_fields: &[ScraperGeneratedField],
+    params: &HashMap<String, String>,
 ) {
     let target_items = {
         let Some(source_node) = get_node(root, source) else {
@@ -120,13 +124,12 @@ pub(super) fn apply(
                 let generated_output_type = generated_field
                     .output_type
                     .unwrap_or(ScraperOutputType::String);
-                target_item.push_value_typed(
-                    generated_field_path,
-                    generated_field
-                        .format
-                        .replace("{}", &(index + 1).to_string()),
-                    generated_output_type,
-                );
+                let indexed_format = generated_field
+                    .format
+                    .replace("{index0}", &index.to_string())
+                    .replace("{}", &(index + 1).to_string());
+                let (value, _) = replace_template_placeholders(&indexed_format, params);
+                target_item.push_value_typed(generated_field_path, value, generated_output_type);
             }
 
             for source_item in &source_items {

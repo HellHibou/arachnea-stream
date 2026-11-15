@@ -2,7 +2,7 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use super::actions::ScraperAction;
+use super::actions::{ActionResponse, ScraperAction};
 use super::scraper::config::ScraperRequestHeaderRaw;
 use super::scraper_data_node::{ScraperDataNode, ScraperOutputType};
 
@@ -39,6 +39,82 @@ pub use types::{
     ScraperGeneratedField, ScraperNestedFieldDefinition, ScraperNestedFieldLookup,
     ScraperPostProcessContext, ScraperRegexItemEntry,
 };
+
+/// Applies one action of a post-process pipeline with the request-scoped
+/// dynamic variables produced during extraction.
+///
+/// Post-process pipelines used to run actions without a variable store, which
+/// left `{@name}` placeholders unresolved even when the owning request had
+/// already extracted them. Dynamic variables are scoped to that request, so
+/// they are exposed here with the same fallback semantics as
+/// [`ScraperAction::apply`]: a failing action keeps the values it received.
+///
+/// # Arguments
+///
+/// * `action` - Action declared by a post-process step or entry.
+/// * `texts` - Values produced by the previous actions of the pipeline.
+/// * `context` - Runtime context supplying parameters, request URL, response
+///   body, and dynamic variables.
+///
+/// # Returns
+///
+/// The transformed values, or the original input when the action fails.
+pub(super) fn apply_action_with_variables(
+    action: &ScraperAction,
+    texts: Vec<String>,
+    context: &ScraperPostProcessContext<'_>,
+) -> Vec<String> {
+    apply_action_with_response(
+        action,
+        texts,
+        context.params,
+        context.request_url,
+        context.response_body,
+        context.dynamic_variables,
+    )
+}
+
+/// Applies one post-process action against explicit response metadata.
+///
+/// This is the primitive shared by post-process steps that hold borrowed
+/// pieces of [`ScraperPostProcessContext`] instead of the context itself, such
+/// as regex helpers running against a fetched sub-response.
+///
+/// # Arguments
+///
+/// * `action` - Action declared by a post-process step or entry.
+/// * `texts` - Values produced by the previous actions of the pipeline.
+/// * `params` - Runtime template values available to formatting actions.
+/// * `request_url` - URL of the response exposed to the action.
+/// * `response_body` - Optional body of the response exposed to the action.
+/// * `dynamic_variables` - Request-scoped dynamic variables to resolve.
+///
+/// # Returns
+///
+/// The transformed values, or the original input when the action fails.
+pub(super) fn apply_action_with_response(
+    action: &ScraperAction,
+    texts: Vec<String>,
+    params: &HashMap<String, String>,
+    request_url: &str,
+    response_body: Option<&str>,
+    dynamic_variables: &std::sync::Mutex<super::query_helpers::DynamicTemplateVariables>,
+) -> Vec<String> {
+    let fallback = texts.clone();
+    action
+        .apply_with_dynamic_variables(
+            &None,
+            texts,
+            params,
+            ActionResponse {
+                request_url,
+                response_body,
+                response_json: None,
+            },
+            Some(dynamic_variables),
+        )
+        .unwrap_or(fallback)
+}
 
 /// Structured transformations applied after one query extracted its raw fields.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -164,6 +240,10 @@ pub enum ScraperPostProcess {
         source: String,
         /// Field name within each item containing the URL to fetch.
         request_field: String,
+        /// Optional URL template resolved from the source item's scalar fields
+        /// and runtime query parameters instead of `request_field` directly.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        request_template: Option<String>,
         /// Optional actions to apply to the request field before fetching.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         request_actions: Vec<ScraperAction>,
@@ -186,6 +266,12 @@ pub enum ScraperPostProcess {
         pattern: String,
         /// List of field mappings for extracted regex groups.
         entries: Vec<ScraperRegexItemEntry>,
+        /// Optional regex and fields extracted once from each fetched response
+        /// and copied onto every item extracted by `pattern` from that response.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        response_pattern: Option<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        response_entries: Vec<ScraperRegexItemEntry>,
         /// Fields to copy from source items to extracted items.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         copy_item_fields: Vec<ScraperFieldMapping>,
@@ -606,6 +692,7 @@ impl ScraperPostProcess {
             ScraperPostProcess::FetchRegexItemsFromItems {
                 source,
                 request_field,
+                request_template,
                 request_actions,
                 request_headers,
                 request_method,
@@ -614,6 +701,8 @@ impl ScraperPostProcess {
                 target_per_source,
                 pattern,
                 entries,
+                response_pattern,
+                response_entries,
                 copy_item_fields,
             } => {
                 fetch_regex_items_from_items::apply(
@@ -621,6 +710,7 @@ impl ScraperPostProcess {
                     context,
                     source,
                     request_field,
+                    request_template.as_deref(),
                     request_actions,
                     request_headers,
                     *request_method,
@@ -629,6 +719,8 @@ impl ScraperPostProcess {
                     *target_per_source,
                     pattern,
                     entries,
+                    response_pattern.as_deref(),
+                    response_entries,
                     copy_item_fields,
                 )
                 .await
@@ -686,6 +778,7 @@ impl ScraperPostProcess {
                     promote_first_nested_fields,
                     copy_target_fields,
                     generated_fields,
+                    context.params,
                 );
                 Ok(())
             }
@@ -754,7 +847,15 @@ impl ScraperPostProcess {
                 nested_source,
                 fields,
             } => {
-                set_nested_fields::apply(root, source, nested_source, fields);
+                set_nested_fields::apply(
+                    root,
+                    source,
+                    nested_source,
+                    fields,
+                    context.params,
+                    context.request_url,
+                    context.dynamic_variables,
+                );
                 Ok(())
             }
             ScraperPostProcess::SortItems {

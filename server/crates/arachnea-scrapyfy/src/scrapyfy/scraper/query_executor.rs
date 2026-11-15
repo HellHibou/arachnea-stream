@@ -247,6 +247,7 @@ async fn execute_query_internal(
                 "",
                 None,
                 context.http_client,
+                context.dynamic_template_variables,
             )
             .await?;
             if context.fields_filters.is_none()
@@ -589,6 +590,7 @@ async fn execute_query_internal(
                 &request_url,
                 response_body,
                 context.http_client,
+                context.dynamic_template_variables,
             )
             .await?;
 

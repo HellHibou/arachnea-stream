@@ -63,14 +63,7 @@ pub(super) fn apply(
     };
     let mut values = source_node.values.clone();
     for action in actions {
-        values = action.apply(
-            &None,
-            values,
-            context.params,
-            context.request_url,
-            context.response_body,
-            None,
-        );
+        values = super::apply_action_with_variables(action, values, context);
     }
 
     let mut target_node = ScraperDataNode::from_values(values);

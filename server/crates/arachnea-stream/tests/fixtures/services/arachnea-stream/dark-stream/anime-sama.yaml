@@ -4,7 +4,7 @@ source: anime-sama
 source_config: arachnea-stream/dark-stream/anime-sama.yaml
 
 capabilities:
-  expected: ["service_stream_metadata", "load_home", "get_category", "get_section", "search", "get_entry", "get_season"]
+  expected: ["service_stream_metadata", "load_home", "get_category", "get_section", "search", "get_entry", "get_players", "get_season"]
   not_expected: []
 
 steps:
@@ -139,9 +139,28 @@ steps:
         select: first_valid
         value_path: ["link"]
     expect:
-      items_path: []
+      items_path: ["episodes"]
       min_count: 1
       min_valid_count: 1
       required_non_empty:
-        - ["resolver"]
+        - ["title"]
+        - ["episode-number"]
         - ["link"]
+
+  - id: players
+    operation: get_players
+    inputs:
+      query_url:
+        from_step: season
+        items_path: ["episodes"]
+        select: first_valid
+        value_path: ["link"]
+    expect:
+      items_path: ["players"]
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["embed-link"]
+        - ["web-link"]
+        - ["hoster"]
+        - ["lang"]

@@ -3,6 +3,10 @@
 Ce fichier suit les tâches DNS, HTTP et proxy prévues qui restent pertinentes pour l'espace de travail serveur. Il doit être mis à jour lorsque des tâches sont ajoutées, terminées, déplacées vers un outil de suivi ou rendues obsolètes par des décisions de conception ultérieures.
 
 ## Streaming
+- rtbf-auvio: Manque les catégoriesln24: Manque sections dans home
+- animeultime: get_entry ne retourna plus d'épisode car le format des données sources a changé.
+- wiflix: load_home ne charger plus rien
+- 
 
 - Ajouter des vues dédiées aux contenus `audio/*` et `images/*` ; leur routage vers `get_entry` reste temporaire : [migration media-type](dev-tracking/media-type-routing-migration-analysis.md).
 - Identités YAML des rails : clés standardisées `rail:<provider-id>` ajoutées pour Arte, TF1, France TV et RMC BFM Play ; clé fixe du rail LN24. Trouver une identité persistante pour les rails featured TeleMB et recommandations Canal Zoom/Télésambre sans descripteur ; les UIDs de slider changent entre requêtes et sont exclus. Ne pas utiliser de position ni de titre normalisé comme fausse clé stable.

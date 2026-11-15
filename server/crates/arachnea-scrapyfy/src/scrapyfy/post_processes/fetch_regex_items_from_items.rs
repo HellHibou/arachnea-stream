@@ -4,6 +4,7 @@ use regex::Regex;
 use std::collections::{HashMap, HashSet};
 
 use super::super::actions::ScraperAction;
+use super::super::query_helpers::replace_template_placeholders;
 use super::super::scraper_data_node::ScraperDataNode;
 use super::node_helpers::{get_node, get_node_mut, prepare_copy_fields, set_node, split_path};
 use super::regex_helpers::build_regex_items;
@@ -39,7 +40,14 @@ pub(super) fn validate(
     request_actions: &[ScraperAction],
     request_headers: &[ScraperRequestHeaderRaw],
 ) -> Result<()> {
-    Regex::new(pattern).with_context(|| format!("Invalid post-process regex for {}", owner))?;
+    let quantifier_placeholder = Regex::new(r"\{\{[A-Za-z_][A-Za-z0-9_]*\}\}")
+        .expect("quantifier template placeholder regex must compile");
+    let pattern = quantifier_placeholder.replace_all(pattern, "{0}");
+    let placeholder = Regex::new(r"\{[A-Za-z_][A-Za-z0-9_]*\}")
+        .expect("named template placeholder regex must compile");
+    let validation_pattern = placeholder.replace_all(&pattern, "placeholder");
+    Regex::new(&validation_pattern)
+        .with_context(|| format!("Invalid post-process regex for {}", owner))?;
     for entry in entries {
         let Some(output_type) = entry.output_type else {
             anyhow::bail!(
@@ -148,6 +156,7 @@ pub(super) async fn apply(
     context: &ScraperPostProcessContext<'_>,
     source: &str,
     request_field: &str,
+    request_template: Option<&str>,
     request_actions: &[ScraperAction],
     request_headers: &[ScraperRequestHeaderRaw],
     request_method: ScraperRequestMethod,
@@ -156,6 +165,8 @@ pub(super) async fn apply(
     target_per_source: bool,
     pattern: &str,
     entries: &[ScraperRegexItemEntry],
+    response_pattern: Option<&str>,
+    response_entries: &[ScraperRegexItemEntry],
     copy_item_fields: &[ScraperFieldMapping],
 ) -> Result<()> {
     /// Prepared source-item fetch and copied fields retained for ordered result attachment.
@@ -165,6 +176,7 @@ pub(super) async fn apply(
         prepared_copy_fields: Vec<(String, ScraperDataNode)>,
     }
 
+    let (pattern, _) = replace_template_placeholders(pattern, context.params);
     let mut extracted_items = Vec::new();
     let mut seen_request_urls = HashSet::new();
     let mut fetch_jobs = Vec::new();
@@ -186,16 +198,25 @@ pub(super) async fn apply(
                 continue;
             };
 
-            let mut resolved_request_urls = request_values;
+            let mut resolved_request_urls = if let Some(request_template) = request_template {
+                let mut template_params = context.params.clone();
+                for (name, node) in &source_item.children {
+                    if let Some(value) = node.values.first() {
+                        template_params.insert(name.clone(), value.clone());
+                    }
+                }
+                let (request_url, missing_keys) =
+                    replace_template_placeholders(request_template, &template_params);
+                if !missing_keys.is_empty() {
+                    continue;
+                }
+                vec![request_url]
+            } else {
+                request_values
+            };
             for action in request_actions {
-                resolved_request_urls = action.apply(
-                    &None,
-                    resolved_request_urls,
-                    context.params,
-                    context.request_url,
-                    context.response_body,
-                    None,
-                );
+                resolved_request_urls =
+                    super::apply_action_with_variables(action, resolved_request_urls, context);
             }
 
             for request_url in resolved_request_urls
@@ -240,6 +261,25 @@ pub(super) async fn apply(
 
     for fetch_result in fetch_results {
         let (job, response_body) = fetch_result?;
+        let response_copy_fields = response_pattern
+            .map(|response_pattern| {
+                let (response_pattern, _) =
+                    replace_template_placeholders(response_pattern, context.params);
+                build_regex_items(
+                    &response_body,
+                    &response_pattern,
+                    response_entries,
+                    context.params,
+                    &job.request_url,
+                    Some(&response_body),
+                    context.dynamic_variables,
+                )
+                .into_iter()
+                .next()
+                .map(|item| item.children.into_iter().collect::<Vec<_>>())
+                .unwrap_or_default()
+            })
+            .unwrap_or_default();
         let response_texts = if let Some(pointer) = response_pointer {
             let response_json: serde_json::Value = serde_json::from_str(&response_body)
                 .with_context(|| {
@@ -256,13 +296,17 @@ pub(super) async fn apply(
         for response_text in response_texts {
             for mut item in build_regex_items(
                 &response_text,
-                pattern,
+                &pattern,
                 entries,
                 context.params,
                 &job.request_url,
                 Some(&response_body),
+                context.dynamic_variables,
             ) {
                 for (target, node) in &job.prepared_copy_fields {
+                    set_node(&mut item, &split_path(target), node.clone());
+                }
+                for (target, node) in &response_copy_fields {
                     set_node(&mut item, &split_path(target), node.clone());
                 }
 

@@ -72,14 +72,7 @@ pub(super) async fn apply(
 
     let mut request_urls = source_node.values.clone();
     for action in request_actions {
-        request_urls = action.apply(
-            &None,
-            request_urls,
-            context.params,
-            context.request_url,
-            context.response_body,
-            None,
-        );
+        request_urls = super::apply_action_with_variables(action, request_urls, context);
     }
 
     let mut output_values = Vec::new();
@@ -94,13 +87,13 @@ pub(super) async fn apply(
             .with_context(|| format!("Failed to fetch post-process request {}", request_url))?;
         let mut values = Vec::new();
         for action in actions {
-            values = action.apply(
-                &None,
+            values = super::apply_action_with_response(
+                action,
                 values,
                 context.params,
                 &request_url,
                 Some(&response_body),
-                None,
+                context.dynamic_variables,
             );
         }
         output_values.extend(values);

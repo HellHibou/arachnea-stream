@@ -1856,14 +1856,17 @@ Pour chaque item d'un groupe, fait une requête HTTP, applique une regex sur la 
 |-------|------|-------------|
 | `source` | string | Champ groupe source |
 | `request_field` | string | Champ de l'item contenant l'URL à fetch |
+| `request_template` | string (opt.) | Modèle d'URL résolu depuis les champs scalaires directs de l'item source et les paramètres de requête |
 | `request_actions` | array | Actions appliquées à l'URL avant la requête |
 | `request_headers` | array (opt.) | En-têtes attachés à chaque requête ; même structure que la section [`request_headers`](#request_headers) |
 | `request_method` | `get` ou `post` (opt.) | Méthode HTTP ; `get` par défaut |
 | `response_pointer` | string (opt.) | Pointeur JSON sélectionnant le texte de réponse avant l'extraction regex |
 | `target` | string | Chemin cible pour les items extraits |
 | `target_per_source` | boolean (opt.) | Ajoute les items sous chaque item source plutôt qu'à la racine |
-| `pattern` | string | Regex appliquée sur le corps de la réponse |
+| `pattern` | string | Modèle de regex appliqué sur le corps de la réponse ; les placeholders sont résolus à l'exécution, et `{{name}}` rend `{value}` pour un quantificateur de répétition |
 | `entries` | array | Définition des champs extraits |
+| `response_pattern` | string (opt.) | Regex appliquée une fois au corps complet de chaque réponse fetchée |
+| `response_entries` | array (opt.) | Champs extraits par `response_pattern` et recopiés sur chaque item extrait de cette réponse |
 | `copy_item_fields` | array | Champs à copier de l'item source vers l'item cible |
 
 ```yaml
@@ -1906,7 +1909,7 @@ Réorganise des listes de valeurs alignées en items indexés.
 | `copy_root_fields` | array | Champs racine à copier |
 | `promote_first_nested_fields` | array | Champs à promouvoir du premier item |
 | `copy_target_fields` | array | Champs à copier dans l'item cible |
-| `generated_fields` | array | Champs générés (index 1-based) |
+| `generated_fields` | array | Champs générés (`{}` est l'index 1-based ; `{index0}` est l'index zéro-based) |
 
 Structure `ScraperFieldMapping` (pour `copy_item_fields`, `copy_root_fields`, `copy_target_fields`) :
 
@@ -1921,7 +1924,7 @@ Structure `ScraperGeneratedField` :
 |-------|------|-------------|
 | `name` | string | Nom du champ |
 | `type` | string (opt.) | Type JSON |
-| `format` | string | Template où `{}` = index 1-based |
+| `format` | string | Template où `{}` = index 1-based et `{index0}` = index zéro-based ; les placeholders de requête sont aussi résolus |
 
 ```yaml
 - type: pivot_items_by_index

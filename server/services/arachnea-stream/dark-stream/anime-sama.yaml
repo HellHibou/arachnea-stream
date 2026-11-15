@@ -1004,7 +1004,7 @@ queries:
             entries: *entries_catalog_cards
 
   # ---------------------------------------------------------------
-  # Season
+  # Seasons and deferred players
   # ---------------------------------------------------------------
   - name: get_season
     scraper_type: html
@@ -1027,102 +1027,21 @@ queries:
         actions:
           - type: format_text
             argument: "false"
-      - name: link
-        type: string
-        actions:
-          - type: get_request_url
-      - name: resolver
-        type: string
-        actions:
-          - type: format_text
-            argument: "stream-resolver"
-      # The season page inlines the hoster directory used by its own player
-      # labels (see `/js/contenu/lecteur.js`): hostname -> { "nom": "Vidmoly" }.
-      - name: hoster-infos
+      # The season page no longer loads an external `episodes.js`: every reader
+      # table is inlined as `var eps<index> = [...]`, whose entries are opaque
+      # `lien:<id>` references. Players are resolved only when an episode is
+      # selected through `get_players`.
+      - name: raw-html
         type: string
         actions:
           - type: get_response_body
-          - type: regex_find_all
-            pattern: '(?s)var\s+lecteursInfos\s*=\s*(\{.*?\});'
-            format: "{1}"
-      - name: languages
-        type: object
-        entries:
-          - name: lang
-            type: string
-            actions:
-              - type: get_request_url
-              - type: regex_find_all
-                pattern: '/(fr|vf|vostfr|vo|va|var|vkr|vcn|vqc|vf1|vf2)(?:/|$)'
-                format: "{1}"
-              - type: map
-                argument:
-                  fr: vf
-                default: "{}"
-          - name: link
-            type: string
-            actions:
-              - type: get_request_url
-      - name: languages
-        type: object
-        selector: "a[id^='switch']"
-        select: all
-        entries:
-          - name: class
-            type: string
-            actions:
-              - type: get_attribut
-                argument: class
-          - name: lang
-            type: string
-            actions:
-              - type: get_attribut
-                argument: href
-              - type: regex_find_all
-                pattern: '/?([^/]+)/?$'
-                format: "{1}"
-              - type: map
-                argument:
-                  fr: vf
-                  vostfr: vo
-                default: "{}"
-          - name: link
-            type: string
-            actions: *actions_get_href_resolve
     post_process:
-      # Every language page references its own `episodes.js` with a
-      # `?filever=<file size>` cache-busting version that cannot be rebuilt from
-      # the season link alone, so the script URL is read from each language page
-      # before it is fetched.
-      - type: fetch_regex_items_from_items
-        source: languages
-        request_field: link
-        target: season-scripts
-        pattern: '(?s)<script[^>]*\ssrc=["'']([^"'']*episodes\.js[^"'']*)["'']'
-        copy_item_fields:
-          - source: lang
-            target: lang
-        entries:
-          - name: link
-            type: string
-            capture_group: 1
-            actions:
-              - type: resolve_url
-      # Cloudflare blocks `episodes.js` hotlinking unless the request carries a
-      # same-origin `Referer`, which the generic query fetch does not send.
-      - type: fetch_regex_items_from_items
-        source: season-scripts
-        request_field: link
+      # Each inline `eps<N>` table is one player server. Its entries are aligned
+      # by position, so the pivot below builds one episode per shared index.
+      - type: extract_regex_items
+        source: raw-html
         target: player-arrays
-        request_headers:
-          - name: Referer
-            actions:
-              - type: format_text
-                argument: "{base_url}/"
-        pattern: "(?s)var\\s+eps(\\d+)\\s*=\\s*\\[(.*?)\\]\\s*;"
-        copy_item_fields:
-          - source: lang
-            target: lang
+        pattern: 'var\s+eps(\d+)\s*=\s*\[([^\]]*)\]'
         entries:
           - name: server-index
             type: number
@@ -1132,65 +1051,130 @@ queries:
             capture_group: 2
             actions:
               - type: regex_find_all
-                pattern: "['\\\"]([^'\\\"]+)['\\\"]"
-                format: "{1}"
-          - name: name
-            type: string[]
-            capture_group: 2
-            actions:
-              - type: regex_find_all
-                pattern: "['\\\"]([^'\\\"]+)['\\\"]"
-                format: "{1}"
-              - type: get_url_host
+                pattern: 'lien:(\d+)'
+                format: '{1}'
+      # Each `eps<N>` value at the same index belongs to the same episode. The
+      # generated fragment is zero-based so get_players can select that index
+      # in every server table without downloading other player URLs.
       - type: pivot_items_by_index
         source: player-arrays
         target: episodes
         values_field: links
-        nested_field: players
-        nested_value_field: web-link
+        nested_field: player-ids
+        nested_value_field: id
         sort_by: server-index
-        copy_item_fields:
-          - source: lang
-            target: lang
-        copy_target_fields:
-          - source: name
-            target: name
         generated_fields:
           - name: episode-number
             type: number
-            format: "{}"
+            format: '{}'
           - name: title
-            format: "Episode {}"
-      # Turn the inline hoster directory into lookup items for `set_nested_fields`.
-      - type: extract_regex_items
-        source: hoster-infos
-        target: hosters
-        pattern: '"([^"]+)"\s*:\s*\{\s*"nom"\s*:\s*"([^"]+)"'
-        entries:
-          - name: host
-            type: string
-            capture_group: 1
-          - name: label
-            type: string
-            capture_group: 2
-      - type: set_nested_fields
+            format: 'Episode {}'
+          - name: link
+            format: '{query_url}#{index0}'
+      - type: filter_fields
         source: episodes
-        nested_source: players
-        fields:
-          - target: resolver > kind
-            value: "stream-resolver"
-          - target: resolver > target_id
-            copy_from: web-link
-          - target: name
-            host_from: web-link
-            lookup:
-              source: hosters
-              key: host
-              value: label
+        field: episode-number
+        pattern: '^[0-9]+$'
+        keep_matching: true
+        remove:
+          - player-ids
       - type: derive_pagination
         remove_fields:
-          - languages
-          - season-scripts
+          - raw-html
           - player-arrays
-          - hoster-infos
-          - hosters
+
+  # The episode link supplied by get_season carries its zero-based index as a
+  # fragment. Reload the season page to obtain a fresh epsJeton, then resolve
+  # the value at that index from each inline player-server table.
+  - name: get_players
+    scraper_type: html
+    base_url: "{base_url}"
+    query_url: "{query_url}"
+    media_types: *media_types_anime_sama
+    http:
+      mode: direct
+    row_selector: "html"
+    pre_process:
+      - type: remove_text_blocks
+        start: '<script>window.__CF$cv$params='
+        end: '</script>'
+    entries:
+      - name: raw-html
+        type: string
+        actions:
+          - type: get_response_body
+      # The language switcher lists every available version, including the
+      # currently active page. Its URLs are fetched below so each resolved
+      # player retains the version language.
+      - name: language-pages
+        type: object[]
+        selector: 'div.ct-langues > a.ct-langue'
+        select: all
+        entries:
+          - name: lang
+            type: string[]
+            actions:
+              - type: get_attribut
+                argument: href
+              - type: regex_find_all
+                pattern: '/([^/?#]+)/?$'
+                format: '{1}'
+              - type: map
+                argument:
+                  fr: vf
+                default: '{}'
+          - name: link
+            type: string
+            actions: *actions_get_href_resolve
+    post_process:
+      - type: fetch_regex_items_from_items
+        source: language-pages
+        request_field: link
+        target: player-ids
+        # Each player-server table uses the same positional episode index.
+        # `{{url_fragment}}` becomes a regex repetition quantifier.
+        pattern: 'var\s+eps\d+\s*=\s*\[\s*(?:["'']lien:\d+["'']\s*,\s*){{url_fragment}}["'']lien:(\d+)["'']'
+        entries:
+          - name: id
+            type: string
+            capture_group: 1
+        response_pattern: 'var\s+epsJeton\s*=\s*"([^"]+)"'
+        response_entries:
+          - name: token
+            type: string
+            capture_group: 1
+        copy_item_fields:
+          - source: lang
+            target: lang
+      - type: fetch_regex_items_from_items
+        source: player-ids
+        request_field: id
+        request_template: '{base_url}/api/lien.php?j={token}&l={id}'
+        response_pointer: /u
+        target: players
+        pattern: '^(.+)$'
+        entries:
+          - name: embed-link
+            type: string
+            capture_group: 1
+          - name: web-link
+            type: string
+            capture_group: 1
+          - name: hoster
+            type: string
+            capture_group: 1
+            actions:
+              - type: get_url_host
+          - name: name
+            type: string
+            capture_group: 1
+            actions:
+              - type: get_url_host
+        copy_item_fields:
+          - source: lang
+            target: lang
+      - type: remove_fields
+        fields:
+          - raw-html
+          - language-pages
+          - player-ids

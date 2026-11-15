@@ -125,8 +125,10 @@ pub(super) fn resolve_manifest_sources_recursive(
                     anyhow::bail!("Manifest {} source {} uses retired parameters; move constants/defaults to its YAML and edit parameters through administration", config_path.display(), source.path);
                 }
                 let resolved_path = manifest_rel_dir.join(Path::new(&source.path));
+                // Normalize to forward slashes for cross-platform consistency.
+                let normalized_path = format!("{}", resolved_path.display()).replace('\\', "/");
                 resolved.push(ScraperAggregatorSourceEntry {
-                    path: format!("{}", resolved_path.display()),
+                    path: normalized_path,
                     enabled: source.enabled,
                     parameters: source.parameters,
                 });

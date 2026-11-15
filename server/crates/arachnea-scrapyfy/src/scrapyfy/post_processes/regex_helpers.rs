@@ -3,6 +3,7 @@ use std::sync::{Mutex, OnceLock};
 
 use regex::Regex;
 
+use super::super::query_helpers::DynamicTemplateVariables;
 use super::super::scraper_data_node::ScraperDataNode;
 use super::types::ScraperRegexItemEntry;
 
@@ -52,6 +53,8 @@ pub(super) fn get_cached_regex(pattern: &str) -> Option<Regex> {
 /// * `request_url` - Final URL used to resolve the `{request_url}` placeholder.
 /// * `response_body` - Optional response body forwarded to actions that need
 ///   to read the original payload.
+/// * `dynamic_variables` - Request-scoped dynamic variables resolved by action
+///   pipelines.
 ///
 /// # Returns
 ///
@@ -64,6 +67,7 @@ pub(super) fn build_regex_items(
     params: &HashMap<String, String>,
     request_url: &str,
     response_body: Option<&str>,
+    dynamic_variables: &Mutex<DynamicTemplateVariables>,
 ) -> Vec<ScraperDataNode> {
     let Some(regex) = get_cached_regex(pattern) else {
         return Vec::new();
@@ -94,7 +98,14 @@ pub(super) fn build_regex_items(
                 .unwrap_or_default();
 
             for action in &entry.actions {
-                values = action.apply(&None, values, params, request_url, response_body, None);
+                values = super::apply_action_with_response(
+                    action,
+                    values,
+                    params,
+                    request_url,
+                    response_body,
+                    dynamic_variables,
+                );
             }
 
             for value in values {

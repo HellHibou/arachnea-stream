@@ -1819,14 +1819,17 @@ For each item in a group, makes an HTTP request, applies a regex on the response
 |-------|------|-------------|
 | `source` | string | Source group field |
 | `request_field` | string | Item field containing the URL to fetch |
+| `request_template` | string (opt.) | URL template resolved from the source item's direct scalar fields and runtime query parameters |
 | `request_actions` | array | Actions applied to the URL before the request |
 | `request_headers` | array (opt.) | Headers attached to every request; same structure as the [`request_headers`](#request_headers) section |
 | `request_method` | `get` or `post` (opt.) | HTTP method; defaults to `get` |
 | `response_pointer` | string (opt.) | JSON pointer selecting response text before regex extraction |
 | `target` | string | Target path for extracted items |
 | `target_per_source` | boolean (opt.) | Append items below each source item instead of the root target |
-| `pattern` | string | Regex applied to the response body |
+| `pattern` | string | Regex template applied to the response body; runtime placeholders are resolved, and `{{name}}` renders `{value}` for a repetition quantifier |
 | `entries` | array | Field definitions for extracted items |
+| `response_pattern` | string (opt.) | Regex applied once to each complete fetched response |
+| `response_entries` | array (opt.) | Fields extracted by `response_pattern` and copied onto every item extracted from that response |
 | `copy_item_fields` | array | Fields to copy from source item to target item |
 
 ```yaml
@@ -1869,7 +1872,7 @@ Reorganises aligned value lists into indexed items.
 | `copy_root_fields` | array | Root fields to copy |
 | `promote_first_nested_fields` | array | Fields to promote from the first item |
 | `copy_target_fields` | array | Fields to copy into the target item |
-| `generated_fields` | array | Generated fields (1-based index) |
+| `generated_fields` | array | Generated fields (`{}` is the one-based index; `{index0}` is the zero-based index) |
 
 `ScraperFieldMapping` structure (for `copy_item_fields`, `copy_root_fields`, `copy_target_fields`):
 
@@ -1884,7 +1887,7 @@ Reorganises aligned value lists into indexed items.
 |-------|------|-------------|
 | `name` | string | Field name |
 | `type` | string (opt.) | JSON type |
-| `format` | string | Template where `{}` = 1-based index |
+| `format` | string | Template where `{}` = 1-based index and `{index0}` = zero-based index; runtime query placeholders are also resolved |
 
 ```yaml
 - type: pivot_items_by_index

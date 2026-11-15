@@ -375,6 +375,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Anime-Sama now exposes season episodes with deferred links and resolves the selected episode's opaque `lien:<id>` entries through its fresh `epsJeton` player API in `get_players`. The deferred response follows every language page advertised by the source, returns the actual host embed URLs instead of leaking temporary `/api/lien.php` endpoints, and labels each player with its source language.
+
 - Added Odysee full-text `search` through Lighthouse with one batched claim metadata lookup per nonempty page, landscape video cards, clickable channel cards and pagination based on unfiltered search results.
 
 - Added bounded assembly of finite HLS WebVTT subtitle playlists for translation, preserving proxy routing, normalizing timestamp maps and revalidating the assembled content.
@@ -626,6 +628,8 @@ All notable changes to the server workspace are recorded here.
 ### <u>arachnea-scrapyfy</u>
 
 #### Added
+
+- `extract_regex_items` now resolves runtime query placeholders, including `{{name}}` inside a regex repetition quantifier, and `pivot_items_by_index` generated fields accept `{index0}` alongside the existing one-based `{}`. `fetch_regex_items_from_items` can derive a request URL from source fields and copy response-scoped regex fields to every extracted item. This permits generic deferred selectors and per-response credentials without source-specific Rust code.
 
 - Added the generic `project_json_relations` post-processor for projecting JSON identifiers and directional relations into a configured object.
 

@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use regex::Regex;
 
+use super::super::query_helpers::replace_template_placeholders;
 use super::super::scraper_data_node::ScraperDataNode;
 use super::node_helpers::{get_node, split_path};
 use super::regex_helpers::build_regex_items;
@@ -11,7 +12,7 @@ use super::types::{ScraperPostProcessContext, ScraperRegexItemEntry};
 /// # Arguments
 ///
 /// * `owner` - Human-readable owner name used in error messages.
-/// * `pattern` - Regular expression source to compile.
+/// * `pattern` - Regular-expression template source to compile.
 /// * `entries` - Field definitions whose `actions` are recursively validated.
 ///
 /// # Errors
@@ -23,7 +24,17 @@ pub(super) fn validate(
     pattern: &str,
     entries: &[ScraperRegexItemEntry],
 ) -> Result<()> {
-    Regex::new(pattern).with_context(|| format!("Invalid post-process regex for {}", owner))?;
+    // Runtime placeholders are substituted only during query execution. Replace
+    // named placeholders here so structural validation checks the surrounding
+    // regex without treating `{url_fragment}` as an invalid repetition syntax.
+    let quantifier_placeholder = Regex::new(r"\{\{[A-Za-z_][A-Za-z0-9_]*\}\}")
+        .expect("quantifier template placeholder regex must compile");
+    let pattern = quantifier_placeholder.replace_all(pattern, "{0}");
+    let placeholder = Regex::new(r"\{[A-Za-z_][A-Za-z0-9_]*\}")
+        .expect("named template placeholder regex must compile");
+    let validation_pattern = placeholder.replace_all(&pattern, "placeholder");
+    Regex::new(&validation_pattern)
+        .with_context(|| format!("Invalid post-process regex for {}", owner))?;
     for entry in entries {
         let Some(output_type) = entry.output_type else {
             anyhow::bail!(
@@ -71,6 +82,7 @@ pub(super) fn apply(
     pattern: &str,
     entries: &[ScraperRegexItemEntry],
 ) {
+    let (pattern, _) = replace_template_placeholders(pattern, context.params);
     let extracted_items = {
         let Some(source_node) = get_node(root, source) else {
             return;
@@ -82,11 +94,12 @@ pub(super) fn apply(
             .flat_map(|source_value| {
                 build_regex_items(
                     source_value,
-                    pattern,
+                    &pattern,
                     entries,
                     context.params,
                     context.request_url,
                     context.response_body,
+                    context.dynamic_variables,
                 )
             })
             .collect::<Vec<_>>()

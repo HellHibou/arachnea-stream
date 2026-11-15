@@ -856,7 +856,10 @@ La requête produit le même `players` que `get_entry`. Lorsqu'une source
 n'expose pas de lecteurs embarqués sur ses épisodes, elle doit déclarer
 `get_players` : le frontend publie le `link` média de l'épisode comme collection
 `players` et charge celle-ci via cette commande. Sans cette requête, l'API ne
-renvoie aucun lecteur et la lecture reste indisponible pour ces éléments.
+renvoie aucun lecteur et la lecture reste indisponible pour ces éléments. Le
+lien peut contenir un fragment utilisé uniquement par le scraper pour sélectionner
+une table d'épisode côté client ; ce fragment n'est jamais envoyé à la source et
+est exposé au YAML sous la forme `{url_fragment}`.
 
 ```yaml
 - name: get_players

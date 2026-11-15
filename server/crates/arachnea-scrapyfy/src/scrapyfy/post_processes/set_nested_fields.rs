@@ -1,7 +1,9 @@
 use std::collections::HashMap;
+use std::sync::Mutex;
 
 use anyhow::{bail, Result};
 
+use super::super::query_helpers::{replace_template_placeholders, DynamicTemplateVariables};
 use super::super::scraper_data_node::{ScraperDataNode, ScraperOutputType};
 use super::node_helpers::{get_node, get_node_mut, lookup_node_scalar_value, set_node, split_path};
 use super::types::{ScraperNestedFieldDefinition, ScraperNestedFieldLookup};
@@ -54,27 +56,38 @@ pub(super) fn validate(
                 owner
             );
         }
-        let source_count = field.value.is_some() as u8
+        // Count primary sources (value, copy_from, host_from)
+        let primary_count = field.value.is_some() as u8
             + field.copy_from.is_some() as u8
             + field.host_from.is_some() as u8;
-        if source_count == 0 {
+        // template is a modifier that requires a primary source
+        let has_template = field.template.is_some();
+
+        if primary_count == 0 {
             bail!(
                 "set_nested_fields for {} field '{}' requires one of value, copy_from, or host_from",
                 owner,
                 field.target
             );
         }
-        if source_count > 1 {
+        if primary_count > 1 {
             bail!(
-                "set_nested_fields for {} field '{}' has more than one source (value, copy_from, host_from)",
+                "set_nested_fields for {} field '{}' has more than one primary source (value, copy_from, host_from)",
+                owner,
+                field.target
+            );
+        }
+        if has_template && primary_count == 0 {
+            bail!(
+                "set_nested_fields for {} field '{}' template requires a primary source (value or copy_from)",
                 owner,
                 field.target
             );
         }
         if let Some(lookup) = &field.lookup {
-            if field.value.is_some() {
+            if field.value.is_some() || field.template.is_some() {
                 bail!(
-                    "set_nested_fields for {} field '{}' cannot combine lookup with value",
+                    "set_nested_fields for {} field '{}' cannot combine lookup with value or template",
                     owner,
                     field.target
                 );
@@ -103,6 +116,37 @@ fn extract_host(url: &str) -> Option<String> {
     let parsed = url::Url::parse(url).ok()?;
     let host = parsed.host_str()?;
     Some(host.strip_prefix("www.").unwrap_or(host).to_string())
+}
+
+/// Applies a template to a source value, resolving dynamic variables and params.
+///
+/// The template supports:
+/// - `{}` replaced with the source value
+/// - `{@var}` replaced with dynamic variables (from `dynamic_variables`)
+/// - `{param}` replaced with query parameters (from `params`)
+/// - `{request_url}` replaced with the request URL
+fn apply_template(
+    template: &str,
+    source_value: &str,
+    params: &HashMap<String, String>,
+    request_url: &str,
+    dynamic_variables: &Mutex<DynamicTemplateVariables>,
+) -> String {
+    let text = template.replace("{}", source_value);
+    let (text, _) = replace_template_placeholders(&text, params);
+    let text = text.replace("{request_url}", request_url);
+    // Dynamic variables are resolved by the action pipeline, but here we
+    // can't run actions. We'll do a simple replacement for @-prefixed vars.
+    let dyn_vars = dynamic_variables.lock().ok();
+    if let Some(vars) = dyn_vars {
+        let mut text = text;
+        for (key, value) in vars.as_map() {
+            text = text.replace(&format!("{{{}}}", key), value);
+        }
+        text
+    } else {
+        text
+    }
 }
 
 /// Builds a key/value map from the items of one root group.
@@ -136,34 +180,13 @@ fn build_lookup_map(
         .collect()
 }
 
-/// Looks up `host` in `map`, trying the full hostname first and then each
-/// parent domain (for example `video.sibnet.ru` then `sibnet.ru`).
-///
-/// # Arguments
-///
-/// * `map` - Hostname-to-value directory.
-/// * `host` - Hostname extracted from a URL.
-///
-/// # Returns
-///
-/// The mapped value for the first matching hostname or parent domain.
-fn lookup_host<'a>(map: &'a HashMap<String, String>, host: &str) -> Option<&'a str> {
-    let labels: Vec<&str> = host.split('.').collect();
-    for start in 0..labels.len().saturating_sub(1) {
-        let candidate = labels[start..].join(".");
-        if let Some(value) = map.get(&candidate) {
-            return Some(value);
-        }
-    }
-    None
-}
-
 /// Sets one or more fields on every nested item inside every source item.
 ///
 /// For each item in `source`, the `nested_source` sub-array is resolved.  For
 /// every nested item, every field definition is applied: a static `value` is
 /// written to the field path, a sibling field is copied via `copy_from`, or
-/// the hostname from a URL in a sibling field is extracted via `host_from`.
+/// the hostname from a URL in a sibling field is extracted via `host_from`,
+/// or a `template` is applied to the `copy_from` value (or `value`).
 /// When a field declares a `lookup`, the resulting value is translated through
 /// the referenced root group before it is written.
 ///
@@ -174,11 +197,17 @@ fn lookup_host<'a>(map: &'a HashMap<String, String>, host: &str) -> Option<&'a s
 /// * `nested_source` - `>`-delimited path of the nested group inside each
 ///   source item.
 /// * `fields` - Field definitions to apply on each nested item.
+/// * `params` - Runtime template parameters.
+/// * `request_url` - Request URL for `{request_url}` placeholder.
+/// * `dynamic_variables` - Dynamic variables for `{@var}` placeholders.
 pub(super) fn apply(
     root: &mut ScraperDataNode,
     source: &str,
     nested_source: &str,
     fields: &[ScraperNestedFieldDefinition],
+    params: &HashMap<String, String>,
+    request_url: &str,
+    dynamic_variables: &Mutex<DynamicTemplateVariables>,
 ) {
     let lookup_maps: Vec<Option<HashMap<String, String>>> = fields
         .iter()
@@ -209,51 +238,59 @@ pub(super) fn apply(
 
         for nested_item in &mut nested_node.items {
             for (field, lookup_map) in fields.iter().zip(lookup_maps.iter()) {
-                if let Some(value) = &field.value {
-                    set_node(
-                        nested_item,
-                        &split_path(&field.target),
-                        ScraperDataNode::from_values_typed(
-                            vec![value.clone()],
-                            ScraperOutputType::String,
-                        ),
-                    );
+                // Determine the source value for this field
+                let source_value = if let Some(value) = &field.value {
+                    // Static value provided directly
+                    Some(value.clone())
                 } else if let Some(copy_from) = &field.copy_from {
-                    let cloned = get_node(nested_item, copy_from).cloned();
-                    if let Some(cloned) = cloned {
-                        let node = match lookup_map {
-                            Some(lookup_map) => {
-                                let key = cloned.values.first().cloned().unwrap_or_default();
-                                let value = lookup_map.get(&key).cloned().unwrap_or(key);
-                                ScraperDataNode::from_values_typed(
-                                    vec![value],
-                                    ScraperOutputType::String,
-                                )
-                            }
-                            None => cloned,
-                        };
-                        set_node(nested_item, &split_path(&field.target), node);
-                    }
-                } else if let Some(host_from) = &field.host_from {
-                    let host = get_node(nested_item, host_from)
+                    // Copy from sibling field
+                    get_node(nested_item, copy_from)
                         .and_then(|node| node.values.first())
-                        .and_then(|url| extract_host(url));
-                    if let Some(host) = host {
-                        let name = lookup_map
-                            .as_ref()
-                            .and_then(|map| lookup_host(map, &host))
-                            .map(str::to_string)
-                            .unwrap_or_else(|| host.clone());
-                        set_node(
-                            nested_item,
-                            &split_path(&field.target),
-                            ScraperDataNode::from_values_typed(
-                                vec![name],
-                                ScraperOutputType::String,
-                            ),
-                        );
-                    }
+                        .cloned()
+                } else if let Some(host_from) = &field.host_from {
+                    // Extract hostname from URL
+                    get_node(nested_item, host_from)
+                        .and_then(|node| node.values.first())
+                        .and_then(|url| extract_host(url))
+                } else {
+                    None
+                };
+
+                let Some(mut source_value) = source_value else {
+                    continue;
+                };
+
+                // Apply template if provided
+                if let Some(template) = &field.template {
+                    source_value = apply_template(
+                        template,
+                        &source_value,
+                        params,
+                        request_url,
+                        dynamic_variables,
+                    );
                 }
+
+                // Apply lookup if provided (only for copy_from/host_from, not template)
+                let final_value = if field.template.is_none() {
+                    if let Some(lookup_map) = lookup_map {
+                        let key = &source_value;
+                        lookup_map.get(key).cloned().unwrap_or_else(|| key.clone())
+                    } else {
+                        source_value
+                    }
+                } else {
+                    source_value
+                };
+
+                set_node(
+                    nested_item,
+                    &split_path(&field.target),
+                    ScraperDataNode::from_values_typed(
+                        vec![final_value],
+                        ScraperOutputType::String,
+                    ),
+                );
             }
         }
     }

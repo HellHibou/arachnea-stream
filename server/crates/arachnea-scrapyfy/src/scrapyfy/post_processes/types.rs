@@ -1,7 +1,9 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::Mutex;
 
 use super::super::actions::ScraperAction;
+use super::super::query_helpers::DynamicTemplateVariables;
 use super::super::scraper_data_node::ScraperOutputType;
 
 /// Runtime context exposed to query post-processors.
@@ -12,6 +14,9 @@ pub struct ScraperPostProcessContext<'a> {
     pub request_url: &'a str,
     /// Optional parent response body available to actions.
     pub response_body: Option<&'a str>,
+    /// Request-scoped dynamic variables produced by extraction actions for the
+    /// same request.
+    pub dynamic_variables: &'a Mutex<DynamicTemplateVariables>,
     /// Shared HTTP client used by follow-up requests.
     pub http_client: &'a super::super::http_client::HttpClient,
 }
@@ -87,22 +92,28 @@ pub(crate) fn default_source_params_target() -> String {
 /// - `value` — a static string,
 /// - `copy_from` — copy from a sibling field,
 /// - `host_from` — extract the hostname from a URL in a sibling field,
+/// - `template` — a format template applied to the `copy_from` value (or `value`),
 ///
 /// plus an optional `lookup` that translates the copied or extracted value.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScraperNestedFieldDefinition {
     /// Target path (supports `>` nesting) where the value will be set.
     pub target: String,
-    /// Static value to set. Mutually exclusive with `copy_from` and `host_from`.
+    /// Static value to set. Mutually exclusive with `copy_from`, `host_from`, and `template`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub value: Option<String>,
-    /// Copy the value from this sibling field path. Mutually exclusive with `value` and `host_from`.
+    /// Copy the value from this sibling field path. Mutually exclusive with `value`, `host_from`, and `template`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub copy_from: Option<String>,
     /// Extract the hostname from the URL stored in this sibling field. Mutually
-    /// exclusive with `value` and `copy_from`.
+    /// exclusive with `value`, `copy_from`, and `template`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host_from: Option<String>,
+    /// Format template applied to the `copy_from` value (or `value` if no `copy_from`).
+    /// Supports `{}` for the source value, `{@var}` for dynamic variables,
+    /// and `{param}` for query parameters. Mutually exclusive with `value`, `copy_from`, and `host_from`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub template: Option<String>,
     /// Optional key/value lookup applied to the `copy_from` or `host_from`
     /// value. `host_from` lookups also try parent domains when the exact
     /// hostname is absent.
