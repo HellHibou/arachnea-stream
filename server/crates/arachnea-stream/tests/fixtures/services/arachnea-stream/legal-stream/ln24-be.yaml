@@ -32,6 +32,17 @@ steps:
         - ["label"]
         - ["request","query_url"]
 
+  - id: home_sections
+    operation: load_home
+    expect:
+      items_path: ["sections"]
+      min_count: 4
+      min_valid_count: 4
+      required_non_empty:
+        - ["key"]
+        - ["label"]
+        - ["entries"]
+
   - id: category
     operation: get_category
     inputs:

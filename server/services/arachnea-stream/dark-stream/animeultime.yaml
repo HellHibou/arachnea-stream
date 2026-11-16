@@ -422,6 +422,11 @@ queries:
     scraper_type: html
     base_url: "{base_url}"
     query_url: "{base_url}/search-0-1+{search_terms}"
+    request_url_actions:
+      # This source rejects percent-encoded spaces in its search path.
+      - type: replace_text
+        search: "%20"
+        replace: "+"
     media_types: *media_types_default
     row_selector: "html"
     entries:
@@ -550,11 +555,12 @@ queries:
         entries:
           - name: link
             type: string
+            # The new player exposes the series ID, but its XML playlist remains available.
             actions:
               - type: get_response_body
               - type: regex_find_all
-                pattern: "'file'\\s*:\\s*'(/playlist-[^']+\\.xml)'"
-                format: "{base_url}{1}"
+                pattern: "(?:'file'\\s*:\\s*'/playlist-|data-frmt=\")([0-9]+)(?:\\.xml'|\")"
+                format: "{base_url}/playlist-{1}.xml"
     post_process:
       - type: fetch_regex_items_from_items
         source: playlists
@@ -570,7 +576,7 @@ queries:
             capture_group: 1
             actions:
               - type: regex_find_all
-                pattern: '(?:^|\s)(\d+)\s*'
+                pattern: '^.*?(?:^|\s)(\d+)\s*'
                 format: "{1}"
           - name: release-date
             type: string

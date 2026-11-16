@@ -198,6 +198,113 @@ queries:
               - type: format_text
                 argument: "{base_url}/categories/?cat=5"
 
+      - name: sections
+        type: object[]
+        selector: "section.tv-trends-section"
+        select: all
+        entries:
+          - name: key
+            type: string
+            actions:
+              - type: format_text
+                argument: "rail:top-trends"
+          - name: label
+            type: string
+            select: first
+            selector: "h2"
+            actions:
+              - type: get_text
+          - name: entries
+            type: object[]
+            selector: "a.tv-trend-card"
+            select: all
+            entries:
+              - name: title
+                type: string
+                select: first
+                selector: "img"
+                actions:
+                  - type: get_attribut
+                    argument: alt
+              - name: link
+                type: string
+                actions: *actions_get_href_resolve
+              - name: web-link
+                type: string
+                actions: *actions_get_href_resolve
+              - name: img/poster > link
+                type: string
+                select: first
+                selector: "img"
+                actions: *actions_get_src_resolve
+              - name: media-type
+                type: string[]
+                actions:
+                  - type: format_text
+                    argument: "video/show/other"
+
+      - name: sections
+        type: object[]
+        selector: "section.tv-category-show-section"
+        select: all
+        entries:
+          - name: key
+            type: string
+            select: first
+            selector: "a.tv-category-show-section__cta"
+            actions:
+              - type: get_attribut
+                argument: href
+              - type: regex_find_all
+                pattern: '/categories/([^/]+)/?$'
+                format: "rail:category-{1}"
+          - name: label
+            type: string
+            select: first
+            selector: "h2"
+            actions:
+              - type: get_text
+          - name: entries
+            type: object[]
+            selector: "article.tv-category-show-card[data-video-id][data-show-id]"
+            select: all
+            entries:
+              - name: title
+                type: string
+                actions:
+                  - type: get_attribut
+                    argument: data-title
+              - name: link
+                type: string
+                actions:
+                  - type: get_attribut
+                    argument: data-show-id
+                  - type: format_text
+                    argument: "{base_url}/emissions/?e={}"
+              - name: web-link
+                type: string
+                actions:
+                  - type: get_attribut
+                    argument: data-show-id
+                  - type: format_text
+                    argument: "{base_url}/emissions/?e={}"
+              - name: description
+                type: string
+                actions:
+                  - type: get_attribut
+                    argument: data-description
+              - name: img/landscape > link
+                type: string
+                actions:
+                  - type: get_attribut
+                    argument: data-image
+                  - type: resolve_url
+              - name: media-type
+                type: string[]
+                actions:
+                  - type: format_text
+                    argument: "video/show/other"
+
 
   # --------------------------------------------------------------------------
   # Category — list the shows of a category

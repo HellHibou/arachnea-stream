@@ -32,11 +32,26 @@ steps:
         - ["label"]
         - ["link"]
 
+  - id: home_categories
+    operation: load_home
+    expect:
+      items_path: ["categories"]
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["key"]
+        - ["label"]
+        - ["image"]
+        - ["request", "query_url"]
+
   - id: category
     operation: get_category
     inputs:
-      # Info page discovered through the home CATEGORY_LIST widget.
-      query_url: "https://bff-service.rtbf.be/auvio/v1.23/pages/categorie/info-1"
+      query_url:
+        from_step: home_categories
+        items_path: ["categories"]
+        select: first_valid
+        value_path: ["request", "query_url"]
     expect:
       items_path: ["sections"]
       min_count: 1

@@ -60,7 +60,7 @@ steps:
   - id: search
     operation: search
     inputs:
-      query: "naruto"
+      query: "Kamen Rider"
     expect:
       items_path: ["entries"]
       min_count: 1
@@ -83,8 +83,13 @@ steps:
             select: first_valid
             value_path: ["link"]
     expect:
-      items_path: []
+      items_path: ["seasons", "episodes"]
       min_count: 1
       min_valid_count: 1
       required_non_empty:
         - ["title"]
+        - ["link"]
+        - ["release-date"]
+        - ["duration"]
+        - ["img/preview", "link"]
+        - ["players"]

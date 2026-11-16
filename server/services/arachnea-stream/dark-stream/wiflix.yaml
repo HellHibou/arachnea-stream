@@ -11,7 +11,7 @@ http:
 
 parameters:
   - name: base_url
-    value: https://flemmix.studio
+    value: https://flemmix.run
     description: "Base URL — update on domain change"
     label: Base URL
     editor:

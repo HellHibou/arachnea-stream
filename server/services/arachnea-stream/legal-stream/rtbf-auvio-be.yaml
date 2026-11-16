@@ -309,6 +309,48 @@ queries:
         actions:
           - type: format_text
             argument: "{home_url}"
+    sub_queries:
+        - scraper_type: json
+          context_pointer: /widgets/*
+          filters:
+            /type:
+              - CATEGORY_LIST
+          request_pointer: /contentPath
+          row_pointer: /data
+          entries:
+            - name: categories
+              type: object[]
+              pointer: /content/*
+              select: all
+              entries:
+                - name: key
+                  type: string
+                  select: first
+                  pointer: /label
+                  actions:
+                    - type: map
+                      default: "{}"
+                      argument:
+                        "Séries": series
+                        Films: films
+                        Sport: sport
+                        Info: info
+                        Kids: kids
+                        Documentaires: documentaires
+                - name: label
+                  type: string
+                  select: first
+                  pointer: /label
+                - name: image
+                  type: string
+                  select: first
+                  pointer: /illustration/m
+                - name: request > query_url
+                  type: string
+                  select: first
+                  pointer: /path
+                  actions: *actions_format_rtbf_pages
+
 
   # ---------------------------------------------------------------
   # Banners listing

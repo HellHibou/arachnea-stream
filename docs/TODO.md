@@ -3,23 +3,16 @@
 Ce fichier suit les tâches DNS, HTTP et proxy prévues qui restent pertinentes pour l'espace de travail serveur. Il doit être mis à jour lorsque des tâches sont ajoutées, terminées, déplacées vers un outil de suivi ou rendues obsolètes par des décisions de conception ultérieures.
 
 ## Streaming
-- rtbf-auvio: Manque les catégoriesln24: Manque sections dans home
-- animeultime: get_entry ne retourna plus d'épisode car le format des données sources a changé.
-- wiflix: load_home ne charger plus rien
-- 
-
 - Ajouter des vues dédiées aux contenus `audio/*` et `images/*` ; leur routage vers `get_entry` reste temporaire : [migration media-type](dev-tracking/media-type-routing-migration-analysis.md).
 - Identités YAML des rails : clés standardisées `rail:<provider-id>` ajoutées pour Arte, TF1, France TV et RMC BFM Play ; clé fixe du rail LN24. Trouver une identité persistante pour les rails featured TeleMB et recommandations Canal Zoom/Télésambre sans descripteur ; les UIDs de slider changent entre requêtes et sont exclus. Ne pas utiliser de position ni de titre normalisé comme fausse clé stable.
 - Utiliser obscura pour contourner Cloudflare (navigateur rust avec résolution cloudflare interne).
 
 ## Front
-
 - Si on affiche le dernier épisode chargé de la liste et que 'Charger plus' est dispo, il faut charger plus de données. Si le signet est actif, il faut charger plus si l'épisode courant n'a pas été chargé dans la liste.
 - Ajouter le support de diffusion ChromeCast et AirPlay.
 - Facultatif (frontend) : cesser d'envoyer `arachneaEtag` / `enableEtag` dans `front/src/services/rustify.ts` — l'en-tête `If-None-Match` suffit depuis la migration du contexte contrôleur (`docs/dev-tracking/request-context-query-parameters-analysis.md`).
 
 ## Server/DNS
-
 - Affiner les modes DNSSEC afin que `report_only`, `opportunistic` et `strict` aient des comportements distincts, au lieu d'envoyer tous les modes non `off` dans le même chemin de validation Hickory.
 - Implémenter un transport ODoH effectif derrière la fonctionnalité `odoh`.
 - Améliorer le résolveur récursif interne avec des reprises par autorité, un DNSSEC strict de bout en bout, la minimisation QNAME et des contrôles de politique bailiwick plus complets.

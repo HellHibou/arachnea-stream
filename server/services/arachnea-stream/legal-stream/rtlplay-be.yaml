@@ -27,9 +27,9 @@ constants:
     value: https://lfvp-api.dpgmedia.net/RTL_PLAY
     description: RTL Play LFVP API root used by the Android application.
   - name: api_version_major # RTL Play Android application major version
-    value: "25"
+    value: "28"
   - name: api_version_minor # RTL Play Android application minor version
-    value: "260415"
+    value: "261013"
   - name: api_version_build # RTL Play Android application build version
     value: "30644"
   - name: search_limit

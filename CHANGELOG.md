@@ -488,6 +488,16 @@ All notable changes to the server workspace are recorded here.
 
 #### Fixed
 
+- Updated the RTLplay client major version from `25` to `28`, used by the resolver and scraper `x-app-version` header and Android user-agent.
+
+- Anime Ultime entry pages now discover the still-supported XML playlist from the new player's `data-frmt` identifier, restoring episodes with titles, dates, durations, thumbnails and HD/SD links while retaining legacy playlist discovery. Episode-number extraction now keeps the first number so titles containing an episode range serialize correctly. The existing source check now requires playable episodes.
+
+- Anime Ultime search now encodes spaces as `+` in its search path, avoiding upstream HTTP 403 responses for multiword queries. The existing search check uses a multiword title.
+
+- LN24 home now includes the Top tendances, Émissions, Séries and LN24+ rails with stable keys, titles, artwork and show links. The existing home check now requires populated sections.
+
+- RTBF Auvio home now fetches its official CATEGORY_LIST widget and exposes categories with labels, artwork and navigation requests. Existing source checks validate home categories and use their links for category navigation.
+
 - Completed text-provider selection using exact offline body plans and live shared budgets, preserving the selected local limits during execution and retaining quota usage when administrator limits reload.
 
 - Fawesome players now expose `web-link` from the API result’s `web_url` field, prefixed with the public Fawesome base URL instead of the legacy iFood URL.
