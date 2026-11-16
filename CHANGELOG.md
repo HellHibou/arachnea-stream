@@ -730,6 +730,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Fixed
 
+- Documented `FetchRegexItemsFromItems.response_entries` to resolve its missing-documentation warning.
+
 - Exposed offline root POST body measurement on loaded collections and sources, reusing execution parameter, URL and body resolvers without returning payloads or credentials.
 
 - Administration updates now ignore HTTP port, network mode and entrypoint root fields pinned by command-line options, preserving their existing persisted values while allowing other settings to be saved.
@@ -912,6 +914,8 @@ All notable changes to the server workspace are recorded here.
 #### Fixed
 
 - Localized the subtitle menu's off and settings entries and raised subtitles above visible video controls.
+
+- Reject `vbscript:` URLs in desktop subtitle translation requests.
 
 - Preserved the automatic subtitle translation callback when destroying a Video.js player instance. The renderer's immediate element watcher calls cleanup before its first player creation; clearing the callback there disconnected automatic generation on startup and subsequent recreations while leaving manual translation available.
 

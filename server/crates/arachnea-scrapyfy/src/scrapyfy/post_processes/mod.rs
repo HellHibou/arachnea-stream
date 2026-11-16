@@ -270,6 +270,8 @@ pub enum ScraperPostProcess {
         /// and copied onto every item extracted by `pattern` from that response.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         response_pattern: Option<String>,
+        /// Fields extracted by `response_pattern` and copied onto every item
+        /// extracted from the same response.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         response_entries: Vec<ScraperRegexItemEntry>,
         /// Fields to copy from source items to extracted items.

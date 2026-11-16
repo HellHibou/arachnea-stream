@@ -169,7 +169,7 @@ export function resolveSubtitleTranslationUrl(link: string): string {
     return url.href
   }
 
-  if (isDesktopApp() && !['blob:', 'data:', 'file:', 'javascript:'].includes(url.protocol)) {
+  if (isDesktopApp() && !['blob:', 'data:', 'file:', 'javascript:', 'vbscript:'].includes(url.protocol)) {
     return url.href
   }
 
