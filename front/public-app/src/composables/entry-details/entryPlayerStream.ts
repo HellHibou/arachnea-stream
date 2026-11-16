@@ -1,10 +1,10 @@
 import { computed, shallowRef, watch, type Ref } from 'vue'
 import { t } from '@/i18n'
-import { resolveBackendStreamMediaSource, resolveIframeMediaSource, resolvePlayerMediaSource, type ResolvedPlayerMediaSource } from '@/services/players'
+import { resolveBackendStreamMediaSource, resolveIframeMediaSource, type ResolvedPlayerMediaSource } from '@/services/players'
 import { getPlayers, getStream, normalizePlayersResponse } from '@/services/rustify'
 import type { EntryPlayer, EntryResolvedPlayerStream } from '@/types/entry'
 import type { UseEntryVideoPlayerOptions } from './entryPlayerTypes'
-import { attachStoryboardToVideoSource, resolvePlayerStoryboard, resolvePlayerChapters, resolvePlayerSubtitles } from './entryPlayerMedia'
+import { attachStoryboardToVideoSource, resolvePlayerStoryboard, resolvePlayerSubtitles } from './entryPlayerMedia'
 
 interface EntryPlayerStreamOptions extends Pick<UseEntryVideoPlayerOptions, 'details' | 'selectedPlayableItem'> {
   selectedPlayer: Readonly<Ref<EntryPlayer | null>>
@@ -20,11 +20,7 @@ export function createEntryPlayerStream(options: EntryPlayerStreamOptions) {
   /** The resolved media source for the current player, after backend resolution. */
   const resolvedMediaSource = shallowRef<ResolvedPlayerMediaSource | null>(null)
 
-  /** Resolved video response retained to try its alternative URLs after a media error. */
   const resolvedStreamResponse = shallowRef<EntryResolvedPlayerStream | null>(null)
-
-  /** Active URL index within the current resolved stream response. */
-  const activeResolvedStreamIndex = shallowRef(0)
 
   /** Whether the media player is currently resolving a stream. */
   const isMediaPlayerLoading = shallowRef(false)
@@ -106,21 +102,7 @@ export function createEntryPlayerStream(options: EntryPlayerStreamOptions) {
    * @returns The resolved direct media source or null.
    */
   const directMediaSource = computed<ResolvedPlayerMediaSource | null>(() =>
-    selectedPlayer.value?.directLink
-      ? attachStoryboardToVideoSource(
-        resolvePlayerMediaSource(selectedPlayer.value.directLink),
-        resolvePlayerStoryboard(selectedPlayer.value),
-        resolvePlayerChapters(selectedPlayer.value),
-        resolvePlayerSubtitles(selectedPlayer.value),
-      )
-      : shouldResolvePlayer.value
-        ? null
-        : attachStoryboardToVideoSource(
-          resolvePlayerMediaSource(null),
-          resolvePlayerStoryboard(selectedPlayer.value),
-          resolvePlayerChapters(selectedPlayer.value),
-          resolvePlayerSubtitles(selectedPlayer.value),
-        ),
+    selectedPlayer.value ? resolveBackendStreamMediaSource(selectedPlayer.value) : null,
   )
 
   /**
@@ -144,7 +126,7 @@ export function createEntryPlayerStream(options: EntryPlayerStreamOptions) {
    */
   const mediaOpenUrl = computed(() =>
     selectedPlayer.value?.webLink ??
-    selectedPlayer.value?.directLink ??
+    selectedPlayer.value?.streams[0]?.url ??
     null
   )
 
@@ -154,45 +136,16 @@ export function createEntryPlayerStream(options: EntryPlayerStreamOptions) {
    * @returns True when a direct link, iframe embed, or resolver is available.
    */
   const hasMediaCandidate = computed(() =>
-    selectedPlayer.value?.directLink
+    selectedPlayer.value?.streams.length
       ? true
       : shouldResolvePlayer.value
         ? Boolean(selectedPlayer.value?.resolver)
         : Boolean(directMediaSource.value || selectedPlayer.value?.resolver),
   )
 
-  /** Tries the next URL returned by the current resolver after a Video.js source failure. */
+  /** Displays final exhaustion errors after the renderer has tried every variant. */
   function handleMediaSourceError(): void {
-    const stream = resolvedStreamResponse.value
-    if (!stream) {
-      mediaPlayerErrorMessage.value = t('entry.videoUnavailable')
-      return
-    }
-
-    const nextIndex = activeResolvedStreamIndex.value + 1
-    const nextUrl = stream.streamUrl[nextIndex]
-    if (!nextUrl) {
-      mediaPlayerErrorMessage.value = t('entry.videoUnavailable')
-      return
-    }
-
-    activeResolvedStreamIndex.value = nextIndex
-    resolvedMediaSource.value = attachStoryboardToVideoSource(
-      resolveBackendStreamMediaSource({
-        streamUrl: nextUrl,
-        manifestType: stream.manifestType,
-        licenseUrl: stream.licenseUrl,
-        licenseHeaders: stream.licenseHeaders,
-        storyboardVttUrl: stream.storyboardVttUrl,
-        chapters: stream.chapters,
-        subtitles: stream.subtitles,
-      }),
-      stream.storyboard ?? resolvePlayerStoryboard(selectedPlayer.value),
-      stream.chapters ?? null,
-      stream.subtitles.length > 0
-        ? stream.subtitles
-        : resolvePlayerSubtitles(selectedPlayer.value),
-    )
+    mediaPlayerErrorMessage.value = t('entry.videoUnavailable')
   }
 
   /** Invalidates active stream resolution and clears entry-scoped media state. */
@@ -213,7 +166,6 @@ export function createEntryPlayerStream(options: EntryPlayerStreamOptions) {
 
         resolvedMediaSource.value = null
         resolvedStreamResponse.value = null
-        activeResolvedStreamIndex.value = 0
         mediaPlayerErrorMessage.value = null
         isMediaPlayerLoading.value = false
 
@@ -241,15 +193,7 @@ export function createEntryPlayerStream(options: EntryPlayerStreamOptions) {
               ? resolveIframeMediaSource(resolvedStream.embedLink)
               : (() => {
                 resolvedStreamResponse.value = resolvedStream
-                return resolveBackendStreamMediaSource({
-                  streamUrl: resolvedStream.streamUrl[0] ?? null,
-                  manifestType: resolvedStream.manifestType,
-                  licenseUrl: resolvedStream.licenseUrl,
-                  licenseHeaders: resolvedStream.licenseHeaders,
-                  storyboardVttUrl: resolvedStream.storyboardVttUrl,
-                  chapters: resolvedStream.chapters,
-                  subtitles: resolvedStream.subtitles,
-                })
+                return resolveBackendStreamMediaSource(resolvedStream)
               })()
 
           if (!nextMediaSource) {

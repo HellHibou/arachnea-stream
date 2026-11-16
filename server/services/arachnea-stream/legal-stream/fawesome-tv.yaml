@@ -292,7 +292,12 @@ shared:
       type: string
       pointer: /drm
       select: first
-    - name: direct-link
+    - name: streams > type
+      type: string
+      actions:
+        - type: format_text
+          argument: hls
+    - name: streams > url
       type: string
       pointer: /video_hls_url
       select: first
@@ -1253,7 +1258,7 @@ queries:
         pattern: "^scraper-query$"
         keep_matching: true
         remove:
-          - direct-link
+          - stream
           - _drm
       - type: filter_fields
         source: players
@@ -1267,7 +1272,7 @@ queries:
           - _drm
       - type: filter_items
         source: players
-        field: direct-link
+        field: streams > url
         pattern: "comingsoon"
         keep_matching: false
       - type: filter_items
@@ -1279,7 +1284,9 @@ queries:
         fields:
           - _catalog_url
           - _token
-
+      - type: zip_fields
+        source: "** > streams"
+        values_field: url
   - name: get_season
     scraper_type: json
     base_url: "{api_base}"
@@ -1417,7 +1424,9 @@ queries:
           - _token
           - total_pages
           - page_size
-
+      - type: zip_fields
+        source: "** > streams"
+        values_field: url
   - name: get_recommendations
     scraper_type: json
     base_url: "{api_base}"
@@ -1563,7 +1572,7 @@ queries:
         pattern: "^scraper-query$"
         keep_matching: true
         remove:
-          - direct-link
+          - stream
           - _drm
       - type: filter_fields
         source: players
@@ -1577,7 +1586,7 @@ queries:
           - _drm
       - type: filter_items
         source: players
-        field: direct-link
+        field: streams > url
         pattern: "comingsoon"
         keep_matching: false
       - type: filter_items
@@ -1589,7 +1598,9 @@ queries:
         fields:
           - _catalog_url
           - _token
-
+      - type: zip_fields
+        source: "** > streams"
+        values_field: url
   - name: resolve_stream
     scraper_type: json
     base_url: "{api_base}"
@@ -1597,7 +1608,7 @@ queries:
     request_headers: *fawesome_origin_headers
     row_pointer: /
     entries:
-      - name: stream_url
+      - name: streams > url
         type: string[]
         select: first
         actions:
@@ -1610,36 +1621,36 @@ queries:
             argument:
               "": null
   
-      - name: manifest_type
+      - name: streams > type
         type: string
         select: first
         actions:
           - type: format_text
-            argument: "mpd"
-      - name: license_url
+            argument: "dash"
+      - name: streams > license_url
         type: string
         select: first
         actions:
           - type: format_text
             argument: "{api_base}/drmService.php?platform_id={platform_id}&{common_query}&apiEnv=production&drm_type=widevine&drm-type=widevine"
-      - name: license_headers > token
+      - name: streams > license_headers > token
         type: string
         pointer: /securityToken
         select: first
-      - name: license_headers > Cookie
+      - name: streams > license_headers > Cookie
         type: string
         pointer: /securityToken
         select: first
         actions:
           - type: format_text
             argument: "_token={}"
-      - name: license_headers > Referer
+      - name: streams > license_headers > Referer
         type: string
         select: first
         actions:
           - type: format_text
             argument: "{public_base}/"
-      - name: license_headers > Origin
+      - name: streams > license_headers > Origin
         type: string
         select: first
         actions:
@@ -1654,3 +1665,7 @@ queries:
           - type: regex_find_all
             pattern: "comingsoon"
             format: "This title is not yet available."
+    post_process:
+      - type: zip_fields
+        source: "** > streams"
+        values_field: url

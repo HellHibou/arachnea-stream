@@ -904,15 +904,15 @@ queries:
     query_url: "{query_url}"
     row_pointer: /
     entries:
-      - name: stream_url
+      - name: streams > url
         type: string[]
         pointer: /source
         select: all
-      - name: manifest_type
+      - name: streams > type
         type: string
         actions:
           - type: format_text
-            argument: "m3u8"
+            argument: "hls"
       - name: storyboard_vtt_url
         type: string
         pointer: /thumbnails
@@ -924,4 +924,7 @@ queries:
                 replacement: '{proxy_inherited}/$1'
                 content_types:
                   - text/vtt
-            
+    post_process:
+      - type: zip_fields
+        source: "** > streams"
+        values_field: url

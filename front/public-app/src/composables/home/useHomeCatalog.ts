@@ -17,6 +17,7 @@ import {
 } from '@/services/entryBookmarks'
 import { useStorage, type HomePreferences } from '@/services/storage'
 import {
+  type ResolvedPlayerMediaSource,
   resolveBackendStreamMediaSource,
   resolveBackgroundMediaSource,
   resolveIframeMediaSource,
@@ -196,7 +197,7 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
    * Resolved background video URLs by banner id for banners whose trailer
    * requires asynchronous player resolution through `get_stream`.
    */
-  const bannerBackgroundVideoUrls = shallowRef<Record<string, string>>({})
+  const bannerBackgroundVideoSources = shallowRef<Record<string, ResolvedPlayerMediaSource>>({})
   /** Banner ids whose background video resolution failed or returned nothing. */
   const failedBannerBackgroundVideoIds = new Set<string>()
   /** Request counter guarding against stale asynchronous banner resolutions. */
@@ -216,31 +217,33 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
     return {
       id: `${banner.id}-background`,
       label: banner.title ?? banner.id,
-      directLink: null,
+      streams: [],
+      imageTitleLink: null,
+      storyboardVttUrl: null,
+      storyboard: null,
+      chapters: null,
+      subtitles: [],
       webLink: null,
       name: null,
       lang: null,
       resolver: banner.player,
-      storyboard: null,
-      chapters: null,
-      subtitles: [],
     }
   }
 
   /**
-   * Resolves the playable video URL of one banner.
+   * Resolves the complete playable source of one banner.
    *
    * Direct video URLs are used as-is while player-based banners call
    * `get_stream` on the backend, mirroring the hero banner behavior.
    *
    * @param banner Banner to resolve.
-   * @returns Playable URL usable by the decorative background renderer, or null.
+   * @returns Complete source usable by the decorative background renderer, or null.
    */
-  async function resolveBannerBackgroundVideoUrl(banner: HomeBanner): Promise<string | null> {
+  async function resolveBannerBackgroundVideoSource(banner: HomeBanner): Promise<ResolvedPlayerMediaSource | null> {
     const directSource = resolveBackgroundMediaSource(banner.videoUrl)
 
     if (directSource) {
-      return directSource.src
+      return directSource
     }
 
     const player = createBannerPlayer(banner)
@@ -258,17 +261,9 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
     const source =
       'embedLink' in response
         ? resolveIframeMediaSource(response.embedLink)
-        : resolveBackendStreamMediaSource({
-            streamUrl: response.streamUrl[0] ?? null,
-            manifestType: response.manifestType,
-            licenseUrl: response.licenseUrl,
-            licenseHeaders: response.licenseHeaders,
-            storyboardVttUrl: response.storyboardVttUrl,
-            chapters: response.chapters,
-            subtitles: response.subtitles,
-          })
+        : resolveBackendStreamMediaSource(response)
 
-    return source?.src ?? null
+    return source
   }
 
   /**
@@ -285,7 +280,7 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
       parameters.useTrailerAsBackground.value
     ) {
       const knownIds = new Set([
-        ...Object.keys(bannerBackgroundVideoUrls.value),
+        ...Object.keys(bannerBackgroundVideoSources.value),
         ...failedBannerBackgroundVideoIds,
       ])
       let availableCount = 0
@@ -296,7 +291,7 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
           continue
         }
 
-        if (banner.videoUrl || bannerBackgroundVideoUrls.value[banner.id]) {
+        if (banner.videoUrl || bannerBackgroundVideoSources.value[banner.id]) {
           availableCount += 1
           continue
         }
@@ -314,16 +309,16 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
       const banner = pendingBanner
 
       try {
-        const url = await resolveBannerBackgroundVideoUrl(banner)
+        const source = await resolveBannerBackgroundVideoSource(banner)
 
         if (requestId !== bannerVideoResolutionId) {
           return
         }
 
-        if (url) {
-          bannerBackgroundVideoUrls.value = {
-            ...bannerBackgroundVideoUrls.value,
-            [banner.id]: url,
+        if (source) {
+          bannerBackgroundVideoSources.value = {
+            ...bannerBackgroundVideoSources.value,
+            [banner.id]: source,
           }
         } else {
           failedBannerBackgroundVideoIds.add(banner.id)
@@ -351,7 +346,7 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
   /**
    * Collects banner trailer video candidates in display order.
    *
-   * Player-resolved trailers come from {@link bannerBackgroundVideoUrls}.
+   * Player-resolved trailers come from {@link bannerBackgroundVideoSources}.
    * Each candidate keeps its paired banner image so the background layer can
    * fall back to it when the video is blocked by the security mode.
    *
@@ -359,19 +354,20 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
    * {@link BACKGROUND_MEDIA_VIDEO_ITEMS_LIMIT} entries.
    */
   function toBannerVideoBackgroundItems(): BackgroundMediaCandidate[] {
-    const resolvedUrls = bannerBackgroundVideoUrls.value
+    const resolvedSources = bannerBackgroundVideoSources.value
     const items: BackgroundMediaCandidate[] = []
     const uniqueVideoUrls = new Set<string>()
 
     for (const banner of currentCatalog.value.banners.entries) {
-      const videoUrl = banner.videoUrl?.trim() || resolvedUrls[banner.id]?.trim() || null
+      const videoSource = resolvedSources[banner.id] ?? null
+      const videoUrl = banner.videoUrl?.trim() || videoSource?.src || null
 
       if (!videoUrl || uniqueVideoUrls.has(videoUrl)) {
         continue
       }
 
       uniqueVideoUrls.add(videoUrl)
-      items.push({ imageUrl: banner.imageUrl?.trim() || null, videoUrl })
+      items.push({ imageUrl: banner.imageUrl?.trim() || null, videoUrl, videoSource })
 
       if (items.length >= BACKGROUND_MEDIA_VIDEO_ITEMS_LIMIT) {
         break

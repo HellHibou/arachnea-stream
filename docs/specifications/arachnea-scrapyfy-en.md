@@ -1683,6 +1683,26 @@ unchanged. `remove_source: true` removes the source even if no section is produc
   remove_source: true
 ```
 
+### `zip_fields`
+
+Materializes aligned child values as an explicit object array. `source` is a
+`>`-separated path, traversing explicit parent arrays; `**` recursively visits
+all descendant containers. `values_field` names the primary scalar child whose
+value count defines the output length. Blank primary values are skipped.
+Singleton siblings are broadcast; longer siblings use the same index, with a
+missing value left empty rather than repeated. Nested maps are projected the
+same way, and array scalar types become their scalar element types. Explicit
+source items are materialized individually and concatenated in their original
+order. Missing paths are ignored. Static queries do not run post-processors;
+use a structured `value` directly for static collections.
+
+```yaml
+post_process:
+  - type: zip_fields
+    source: "** > streams"
+    values_field: url
+```
+
 ### `apply_actions_to_field`
 
 Applies a normal action pipeline to all scalar values from one root field and writes the result to another root field.

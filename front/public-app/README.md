@@ -1,6 +1,22 @@
 # front
 
-This template should help get you started developing with Vue 3 in Vite.
+The public application uses Vue 3, TypeScript, Vite and Video.js.
+
+Video players consume the structured `streams[]` backend contract without
+legacy payload adapters. Shared metadata is read from the same parent as
+`streams`; the former `stream` wrapper is unsupported. A source has no ID and
+carries its URL, canonical format, optional `quality` and language, and its
+own DRM context. The renderer owns
+variant selection, preferring HLS, DASH, MP4, then other supported files. Language
+and fixed-quality menus live in the player alongside adaptive manifest controls.
+Fatal errors try remaining variants before emitting one final error; active loads
+have a 20-second watchdog. Shared storyboard, chapters, subtitles and compatible
+playback position survive source switches. This applies to episodes, live,
+trailers and resolved banner/background videos. Independent providers stay separate.
+
+Deploy this frontend with the matching server/YAML contract. Run `npm run type-check`
+and `npm run build-only` to validate changes. Browser playback still requires manual
+qualification of the providers, media engines and DRM environments in use.
 
 ## Recommended IDE Setup
 
@@ -349,6 +365,11 @@ order. Its static `get_live` emits the existing live resolver without a catalogu
 request. Search/recommendation media anchors and saved custom-home formats remain
 compatible. Actual authorized playback still depends on the provider.
 
+
+Chapter metadata is filtered when loading stream data: only finite time ranges
+with an end strictly after their start are retained. Placeholder intro/outro
+entries with both timecodes at zero are discarded, so they cannot create an
+empty chapter selection menu. Valid chapters starting at zero are retained.
 
 Subtitle translation choices use the same English-name/native-name label before
 and after generation, for example `French - Français (Automatic translation)`.

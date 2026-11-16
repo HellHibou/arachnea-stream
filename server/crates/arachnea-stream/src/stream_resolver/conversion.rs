@@ -11,7 +11,7 @@ use super::*;
 /// * `source_url` - Source page URL used as the default `Referer` header.
 ///
 /// # Errors
-/// Returns an error when the entry has no non-empty `stream_url`.
+/// Returns an error when the structured stream has no usable sources.
 ///
 /// # Returns
 /// The resolved stream with metadata and optional playback extras.
@@ -19,54 +19,48 @@ pub(super) fn convert_resolver_entry_to_stream(
     entry: &HashMap<String, ScraperDataNode>,
     source_url: &str,
 ) -> Result<ResolvedPlayerStream> {
-    let stream_url = extract_string_list(entry, "stream_url")
-        .or_else(|| extract_string_list(entry, "stream-url"))
-        .filter(|list| !list.is_empty());
-
-    if stream_url.is_none() {
-        tracing::debug!(target: "arachnea_stream::stream_resolver",
-            source_url = %source_url,
-            keys = ?entry.keys().collect::<Vec<_>>(),
-            "Failed to extract stream_url from resolver response"
-        );
-        for (key, node) in entry {
-            tracing::debug!(target: "arachnea_stream::stream_resolver",
-                key = %key,
-                value_count = node.values.len(),
-                first_value = ?node.values.first(),
-                children_keys = ?node.children.keys().collect::<Vec<_>>(),
-                "Available resolver entry field"
-            );
-        }
-    }
-
-    let stream_url = stream_url.context("Missing or empty `stream_url` in resolver response")?;
-
-    let manifest_type = extract_first_string(entry, "manifest_type")
-        .or_else(|| extract_first_string(entry, "manifest-type"));
-
-    let stream_headers = extract_string_map(entry, "stream_headers");
-
-    let mut result = ResolvedPlayerStream {
-        title: extract_first_string(entry, "title"),
-        image_title: extract_image_title(entry),
-        stream_url,
-        manifest_type,
-        stream_headers,
-        license_url: extract_first_string(entry, "license_url"),
-        license_headers: extract_string_map(entry, "license_headers"),
+    let sources = entry
+        .get("streams")
+        .context("Missing `streams` in resolver response")?
+        .to_json_value()
+        .map_err(anyhow::Error::msg)?;
+    let sources = sources.as_array().context("`streams` must be an array")?;
+    let mut stream = crate::services::player_resolver::PlayerStream {
+        streams: sources
+            .iter()
+            .filter_map(|value| {
+                serde_json::from_value::<crate::services::player_resolver::ResolvedStreamSource>(
+                    value.clone(),
+                )
+                .ok()
+            })
+            .filter(|source| {
+                !source.url.trim().is_empty()
+                    && matches!(
+                        source.source_type.as_str(),
+                        "hls" | "dash" | "mp4" | "webm" | "ogg"
+                    )
+            })
+            .collect(),
         storyboard_vtt_url: extract_first_string(entry, "storyboard_vtt_url"),
         storyboard: extract_storyboard(entry),
         chapters: extract_chapters(entry),
         subtitles: extract_subtitles(entry),
     };
-
-    // Ensure stream_headers includes at least Referer = source_url when not specified
-    if !result.stream_headers.contains_key("Referer") {
-        result
-            .stream_headers
-            .insert("Referer".to_string(), source_url.to_string());
+    if stream.streams.is_empty() {
+        bail!("Missing usable `streams` in resolver response");
     }
+    for source in &mut stream.streams {
+        source
+            .stream_headers
+            .entry("Referer".to_string())
+            .or_insert_with(|| source_url.to_string());
+    }
+    let result = ResolvedPlayerStream {
+        title: extract_first_string(entry, "title"),
+        image_title: extract_image_title(entry),
+        stream,
+    };
 
     Ok(result)
 }
@@ -91,27 +85,6 @@ pub(super) fn extract_image_title(
     }
 
     Some(ResolvedPlayerImageTitle { link })
-}
-
-/// Extracts an ordered list of strings from a scraper data entry field.
-/// Uses the `values` vector which contains all scalar values for a node.
-///
-/// # Arguments
-/// * `entry` - Resolver response fields.
-/// * `key` - Field name to read.
-///
-/// # Returns
-/// The trimmed non-empty values, or `None` when none are present.
-pub(super) fn extract_string_list(
-    entry: &HashMap<String, ScraperDataNode>,
-    key: &str,
-) -> Option<Vec<String>> {
-    let values = entry.get(key)?.trimmed_values();
-    if values.is_empty() {
-        None
-    } else {
-        Some(values)
-    }
 }
 
 /// Extracts the first string value from a scraper data entry field.
@@ -142,25 +115,6 @@ pub(super) fn extract_first_string(
 /// The normalized error message, or `None`.
 pub(super) fn extract_error_message(entry: &HashMap<String, ScraperDataNode>) -> Option<String> {
     extract_first_string(entry, "error_message")
-}
-
-/// Extracts a string-to-string map from a scraper data entry field.
-/// Iterates over child nodes of the named field.
-///
-/// # Arguments
-/// * `entry` - Resolver response fields.
-/// * `key` - Field name containing the map.
-///
-/// # Returns
-/// The non-empty trimmed child values keyed by child name.
-pub(super) fn extract_string_map(
-    entry: &HashMap<String, ScraperDataNode>,
-    key: &str,
-) -> HashMap<String, String> {
-    entry
-        .get(key)
-        .map(ScraperDataNode::trimmed_child_values)
-        .unwrap_or_default()
 }
 
 /// Extracts an optional `SpriteThumbnail` from a scraper data entry field.

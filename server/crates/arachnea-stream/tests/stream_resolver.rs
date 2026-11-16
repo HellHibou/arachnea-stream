@@ -34,9 +34,12 @@ queries:
   - name: resolve_stream
     scraper_type: static
     entries:
-      - name: stream_url
-        type: string
-        value: "https://cdn.test/first.m3u8"
+      - name: streams
+        type: object[]
+        value:
+          - url: "https://cdn.test/first.m3u8"
+            type: hls
+            quality: HD
 "#;
 
     let second_valid = r#"
@@ -51,9 +54,12 @@ queries:
   - name: resolve_stream
     scraper_type: static
     entries:
-      - name: stream_url
-        type: string
-        value: "https://cdn.test/second.m3u8"
+      - name: streams
+        type: object[]
+        value:
+          - url: "https://cdn.test/second.m3u8"
+            type: hls
+            quality: SD
 "#;
 
     let (agregator, temp_dir) = setup_resolver_sources(&[
@@ -69,7 +75,19 @@ queries:
 
     match result {
         ResolvedStream::Stream(stream) => {
-            assert_eq!(stream.stream_url, vec!["https://cdn.test/first.m3u8"]);
+            assert_eq!(
+                stream
+                    .stream
+                    .streams
+                    .iter()
+                    .map(|source| source.url.as_str())
+                    .collect::<Vec<_>>(),
+                vec!["https://cdn.test/first.m3u8"]
+            );
+            assert_eq!(stream.stream.streams[0].quality.as_deref(), Some("HD"));
+            let public_value = serde_json::to_value(&stream).expect("stream should serialize");
+            assert_eq!(public_value["streams"][0]["quality"], "HD");
+            assert!(public_value["streams"][0].get("label").is_none());
         }
         ResolvedStream::EmbedLink { .. } => panic!("expected first valid stream"),
     }
@@ -79,7 +97,7 @@ queries:
 
 #[test]
 fn html_fallback_fetches_once_detects_service_and_reuses_input_html() {
-    let html_body = r#"<html><body>DETECTME stream=https://cdn.test/fallback.m3u8</body></html>"#;
+    let html_body = r#"<html><body>DETECTME stream=https://cdn.test/fallback.m3u8 stream=https://cdn.test/fallback.mp4</body></html>"#;
     let (url, request_count) = serve_html_once(html_body);
 
     let html_resolver = r#"
@@ -107,14 +125,14 @@ queries:
     input_html: "{html}"
     row_selector: "html"
     entries:
-      - name: stream_url
+      - name: streams > url
         type: string
         actions:
           - type: get_response_body
           - type: regex_find_all
-            pattern: 'stream=(https://cdn\.test/fallback\.m3u8)'
+            pattern: 'stream=(https://cdn\.test/fallback\.(?:m3u8|mp4))'
             format: "{1}"
-      - name: stream_headers
+      - name: streams > stream_headers
         type: object
         select: first
         entries:
@@ -123,11 +141,21 @@ queries:
             actions:
               - type: format_text
                 argument: "https://embed.test/source"
-      - name: manifest_type
-        type: string
+      - name: streams > type
+        type: string[]
         actions:
-          - type: format_text
-            argument: "hls"
+          - type: get_response_body
+          - type: regex_find_all
+            pattern: 'stream=https://cdn\.test/fallback\.(m3u8|mp4)'
+            format: "{1}"
+          - type: map
+            argument:
+              m3u8: hls
+              mp4: mp4
+    post_process:
+      - type: zip_fields
+        source: "** > streams"
+        values_field: url
 "#;
 
     let (agregator, temp_dir) = setup_resolver_sources(&[("html", html_resolver)]);
@@ -145,19 +173,29 @@ queries:
 
     match result {
         ResolvedStream::Stream(stream) => {
-            assert_eq!(stream.manifest_type.as_deref(), Some("hls"));
-            assert_eq!(stream.stream_url.len(), 1);
-            assert!(stream.stream_url[0].starts_with("/api/proxy/opts_"));
-            assert!(stream.stream_url[0].contains("/https://cdn.test/fallback.m3u8"));
-            let opts = decode_proxy_opts(&stream.stream_url[0]);
+            assert_eq!(stream.stream.streams[0].source_type.as_str(), "hls");
+            assert_eq!(stream.stream.streams.len(), 2);
+            assert_eq!(stream.stream.streams[1].source_type, "mp4");
+            assert!(stream.stream.streams[1].url.contains("fallback.mp4"));
+            assert!(stream.stream.streams[0].url.starts_with("/api/proxy/opts_"));
+            assert!(stream.stream.streams[0]
+                .url
+                .contains("/https://cdn.test/fallback.m3u8"));
+            let opts = decode_proxy_opts(&stream.stream.streams[0].url);
             assert_eq!(
                 opts["headers"],
-                serde_json::json!([["Referer", format!("{url}/")]])
+                serde_json::json!([["Referer", "https://embed.test/source"]])
             );
             let public_json = serde_json::to_string(&stream).expect("stream should serialize");
             assert!(!public_json.contains(html_body));
             assert!(!public_json.contains("DETECTME"));
             assert!(!public_json.contains("stream_headers"));
+            let public_value: serde_json::Value = serde_json::from_str(&public_json).unwrap();
+            assert!(public_value.get("stream_url").is_none());
+            assert!(public_value.get("stream").is_none());
+            assert!(public_value.get("sources").is_none());
+            assert_eq!(public_value["streams"].as_array().unwrap().len(), 2);
+            assert!(public_value["streams"][0].get("id").is_none());
             assert!(!public_json.contains("Referer"));
         }
         ResolvedStream::EmbedLink { .. } => panic!("expected HTML fallback stream"),
@@ -197,7 +235,12 @@ queries:
     query_url: "{url}"
     row_selector: "html"
     entries:
-      - name: stream_url
+      - name: streams > type
+        type: string
+        actions:
+          - type: format_text
+            argument: hls
+      - name: streams > url
         type: string
         actions:
           - type: get_response_body
@@ -238,6 +281,9 @@ queries:
       - type: remove_fields
         fields:
           - _subtitle_tracks_source
+      - type: zip_fields
+        source: "** > streams"
+        values_field: url
 "#;
 
     let (agregator, temp_dir) = setup_resolver_sources(&[("subtitles", resolver_yaml)]);
@@ -251,13 +297,13 @@ queries:
 
     match result {
         ResolvedStream::Stream(stream) => {
-            assert_eq!(stream.subtitles.len(), 2);
-            assert_eq!(stream.subtitles[0].lang.as_deref(), Some("eng"));
-            assert_eq!(stream.subtitles[0].label.as_deref(), Some("English"));
-            assert_eq!(stream.subtitles[1].lang.as_deref(), Some("fre"));
-            assert_eq!(stream.subtitles[1].label.as_deref(), Some("French"));
+            assert_eq!(stream.stream.subtitles.len(), 2);
+            assert_eq!(stream.stream.subtitles[0].lang.as_deref(), Some("eng"));
+            assert_eq!(stream.stream.subtitles[0].label.as_deref(), Some("English"));
+            assert_eq!(stream.stream.subtitles[1].lang.as_deref(), Some("fre"));
+            assert_eq!(stream.stream.subtitles[1].label.as_deref(), Some("French"));
 
-            for (subtitle, upstream_url) in stream.subtitles.iter().zip([
+            for (subtitle, upstream_url) in stream.stream.subtitles.iter().zip([
                 "https://cdn.test/subtitles/en.vtt",
                 "https://cdn.test/subtitles/fr.vtt",
             ]) {
@@ -272,7 +318,10 @@ queries:
             }
 
             let public_json = serde_json::to_string(&stream).expect("stream should serialize");
-            assert!(public_json.contains("subtitles"));
+            let public_value: serde_json::Value = serde_json::from_str(&public_json).unwrap();
+            assert_eq!(public_value["subtitles"].as_array().unwrap().len(), 2);
+            assert_eq!(public_value["streams"].as_array().unwrap().len(), 1);
+            assert!(public_value.get("stream").is_none());
             assert!(!public_json.contains("storyboards/sprite.vtt"));
             assert!(!public_json.contains("_subtitle_tracks_source"));
         }
@@ -351,14 +400,14 @@ queries:
     input_html: "{html}"
     row_selector: "html"
     entries:
-      - name: stream_url
+      - name: streams > url
         type: string
         actions:
           - type: get_response_body
           - type: regex_find_all
             pattern: 'stream=(https://cdn\.test/fallback\.m3u8)'
             format: "{1}"
-      - name: stream_headers
+      - name: streams > stream_headers
         type: object
         select: first
         entries:
@@ -367,11 +416,15 @@ queries:
             actions:
               - type: format_text
                 argument: "https://embed.test/source"
-      - name: manifest_type
+      - name: streams > type
         type: string
         actions:
           - type: format_text
             argument: "hls"
+    post_process:
+      - type: zip_fields
+        source: "** > streams"
+        values_field: url
 "#;
 
     let (agregator, temp_dir) = setup_resolver_sources(&[("html", html_resolver)]);
@@ -382,8 +435,16 @@ queries:
 
     match result {
         ResolvedStream::Stream(stream) => {
-            assert_eq!(stream.manifest_type.as_deref(), Some("hls"));
-            assert_eq!(stream.stream_url, vec!["https://cdn.test/fallback.m3u8"]);
+            assert_eq!(stream.stream.streams[0].source_type.as_str(), "hls");
+            assert_eq!(
+                stream
+                    .stream
+                    .streams
+                    .iter()
+                    .map(|source| source.url.as_str())
+                    .collect::<Vec<_>>(),
+                vec!["https://cdn.test/fallback.m3u8"]
+            );
         }
         ResolvedStream::EmbedLink { .. } => panic!("expected stream after JS redirect"),
     }

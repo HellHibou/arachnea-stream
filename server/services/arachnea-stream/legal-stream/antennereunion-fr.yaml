@@ -1064,11 +1064,11 @@ queries:
     request_headers: *request_headers_json
     row_pointer: /result
     entries:
-      - name: stream_url
+      - name: streams > url
         type: string[]
         pointer: /url
         select: all
-      - name: manifest_type
+      - name: streams > type
         type: string
         pointer: /url
         select: first
@@ -1076,7 +1076,14 @@ queries:
           - type: regex_find_all
             pattern: '\.(mpd|m3u8)(?:[?#]|$)'
             format: '{1}'
-
+          - type: map
+            argument:
+              mpd: dash
+              m3u8: hls
+    post_process:
+      - type: zip_fields
+        source: "** > streams"
+        values_field: url
   - name: get_season
     scraper_type: json
     request_method: post

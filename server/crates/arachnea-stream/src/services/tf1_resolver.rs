@@ -17,8 +17,9 @@ use arachnea_core::persistence::CredentialsStore;
 use arachnea_scrapyfy::{ArachneaHttpError, HttpClient, ScraperAgregator, ScraperHttpConfig};
 
 use crate::services::player_resolver::{
-    normalize_stream_kind, Chapter, PlayerResolverEndpoints, PlayerStreamRequest,
+    normalize_stream_kind, Chapter, PlayerResolverEndpoints, PlayerStream, PlayerStreamRequest,
     PlayerStreamResolver, ProxiedStreamResponse, ResolvedPlayerImageTitle, ResolvedPlayerStream,
+    ResolvedStreamSource,
 };
 
 use crate::PLAYER_ERROR_BODY_PREVIEW_LENGTH;
@@ -551,22 +552,28 @@ async fn build_resolved_player_stream(
     let chapters = extract_chapters(media_info);
 
     Ok(ResolvedPlayerStream {
-        stream_url: vec![proxied_url_with_countries_and_policy(
-            &manifest_url,
-            endpoints.http_proxy_public_path.as_deref(),
-            &[], // proxy_countries, // No proxies fro now but keep proxy_countries commented and use it if we want to proxy the manifest in the future
-            None,
-            &[],
-            &[],
-            &[],
-        )],
-        manifest_type: Some(manifest_type),
-        license_url: Some(proxy_url),
-        license_headers: HashMap::new(),
+        stream: PlayerStream {
+            streams: vec![ResolvedStreamSource {
+                url: proxied_url_with_countries_and_policy(
+                    &manifest_url,
+                    endpoints.http_proxy_public_path.as_deref(),
+                    &[], // proxy_countries, // No proxies fro now but keep proxy_countries commented and use it if we want to proxy the manifest in the future
+                    None,
+                    &[],
+                    &[],
+                    &[],
+                ),
+                source_type: manifest_type,
+                license_url: Some(proxy_url),
+                license_headers: HashMap::new(),
+                ..Default::default()
+            }],
+            storyboard_vtt_url,
+            chapters,
+            ..Default::default()
+        },
         title,
         image_title,
-        storyboard_vtt_url,
-        chapters,
         ..Default::default()
     })
 }
@@ -704,13 +711,13 @@ fn extract_license_headers(delivery: &Value) -> HashMap<String, String> {
 /// * `url` - Manifest URL.
 ///
 /// # Returns
-/// `m3u8` for URLs containing that extension, `mpd` otherwise.
+/// `hls` for URLs containing `.m3u8`, `dash` otherwise.
 fn manifest_type_from_url(url: &str) -> String {
     if url.trim().to_ascii_lowercase().contains(".m3u8") {
-        return "m3u8".to_string();
+        return "hls".to_string();
     }
 
-    "mpd".to_string()
+    "dash".to_string()
 }
 
 /// Reads a non-empty string or integer from a nested JSON path.

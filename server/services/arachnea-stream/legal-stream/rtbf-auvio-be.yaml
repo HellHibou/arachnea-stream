@@ -1199,13 +1199,22 @@ queries:
             - HLS
         target: players
         entries:
-          - name: direct-link
+          - name: streams > type
+            type: string
+            actions:
+              - type: format_text
+                argument: hls
+          - name: streams > url
             type: string
             select: first
             pointer: /mediaLocator
             actions:
               - type: resolve_url
                 proxy: true
+    post_process:
+      - type: zip_fields
+        source: "** > streams"
+        values_field: url
 
   # ---------------------------------------------------------------
   # Season

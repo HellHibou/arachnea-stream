@@ -11,8 +11,8 @@ use arachnea_core::persistence::CredentialsStore;
 use arachnea_scrapyfy::{HttpClient, ScraperAgregator};
 
 use crate::services::player_resolver::{
-    PlayerResolverEndpoints, PlayerStreamRequest, PlayerStreamResolver, ProxiedStreamResponse,
-    ResolvedPlayerStream,
+    PlayerResolverEndpoints, PlayerStream, PlayerStreamRequest, PlayerStreamResolver,
+    ProxiedStreamResponse, ResolvedPlayerStream, ResolvedStreamSource,
 };
 
 /// Stable source identifier for RTBF Auvio routing and credentials.
@@ -155,14 +155,20 @@ async fn resolve_redbee_stream(
     });
 
     Ok(ResolvedPlayerStream {
-        stream_url: vec![proxied_redbee_media_url(
-            &selected_format.media_locator,
-            endpoints.http_proxy_public_path.as_deref(),
-        )],
-        manifest_type: Some(selected_format.manifest_type),
-        license_url,
-        license_headers: HashMap::new(),
-        storyboard_vtt_url,
+        stream: PlayerStream {
+            streams: vec![ResolvedStreamSource {
+                url: proxied_redbee_media_url(
+                    &selected_format.media_locator,
+                    endpoints.http_proxy_public_path.as_deref(),
+                ),
+                source_type: selected_format.manifest_type,
+                license_url,
+                license_headers: HashMap::new(),
+                ..Default::default()
+            }],
+            storyboard_vtt_url,
+            ..Default::default()
+        },
         ..Default::default()
     })
 }
@@ -489,18 +495,18 @@ fn select_best_format(entitlement: &Value) -> Option<SelectedRedbeeFormat> {
 
     formats
         .iter()
-        .find_map(|format| selected_format(format, "DASH", "mpd", true))
+        .find_map(|format| selected_format(format, "DASH", "dash", true))
         .or_else(|| {
             formats
                 .iter()
-                .find_map(|format| selected_format(format, "HLS", "m3u8", false))
+                .find_map(|format| selected_format(format, "HLS", "hls", false))
         })
         .or_else(|| {
             formats.iter().find_map(|format| {
                 let format_name = format.get("format")?.as_str()?.trim();
                 let manifest_type = match format_name {
-                    "DASH" => "mpd",
-                    "HLS" => "m3u8",
+                    "DASH" => "dash",
+                    "HLS" => "hls",
                     _ => return None,
                 };
                 selected_format(format, format_name, manifest_type, false)

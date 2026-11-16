@@ -163,7 +163,7 @@ queries:
           - type: base64_decode
       - type: apply_actions_to_field
         source: decoded_config
-        target: stream_url
+        target: streams > url
         output_type: string[]
         actions:
           - type: json_extract_text
@@ -178,9 +178,12 @@ queries:
                 content_types:
                   - application/vnd.apple.mpegurl
       - type: apply_actions_to_field
-        source: stream_url
-        target: manifest_type
+        source: streams > url
+        target: streams > type
         output_type: string
         actions:
           - type: format_text
             argument: hls
+      - type: zip_fields
+        source: "** > streams"
+        values_field: url

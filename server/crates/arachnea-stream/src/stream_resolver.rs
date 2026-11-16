@@ -205,7 +205,7 @@ impl<'a> StreamResolver<'a> {
     ///
     /// Returns `ResolveAttemptResult::Stream` on success,
     /// `ResolveAttemptResult::NoStream` when the service does not have a
-    /// `resolve_stream` query or its response contains neither a `stream_url`
+    /// `resolve_stream` query or its response contains neither `streams`
     /// nor an `error_message`, and `ResolveAttemptResult::TerminalError` when the
     /// hoster reported an explicit business error in `error_message`. Returns
     /// `Err` when the query execution itself fails (network, timeout, DNS, or
@@ -257,7 +257,7 @@ impl<'a> StreamResolver<'a> {
         };
 
         // A non-empty normalized `error_message` is terminal: it stops the
-        // search before any `stream_url` conversion and is never treated as a
+        // search before any `streams` conversion and is never treated as a
         // technical failure to skip.
         if let Some(error_message) = extract_error_message(&entry) {
             return Ok(ResolveAttemptResult::TerminalError(error_message));
@@ -265,7 +265,10 @@ impl<'a> StreamResolver<'a> {
 
         let mut stream = match convert_resolver_entry_to_stream(&entry, url) {
             Ok(stream) => stream,
-            Err(_) => return Ok(ResolveAttemptResult::NoStream),
+            Err(error) => {
+                tracing::debug!(service_name, %error, "Resolver returned no usable structured stream");
+                return Ok(ResolveAttemptResult::NoStream);
+            }
         };
 
         proxy_resolved_stream(
@@ -428,9 +431,10 @@ pub(crate) async fn resolve_scraper_query_stream(
     let mut stream = convert_resolver_entry_to_stream(&entry, target)
         .with_context(|| format!("Scraper-query source `{source}` returned an invalid stream."))?;
     if stream
-        .stream_url
+        .stream
+        .streams
         .iter()
-        .any(|url| !url.starts_with("http://") && !url.starts_with("https://"))
+        .any(|source| !source.url.starts_with("http://") && !source.url.starts_with("https://"))
     {
         bail!("Scraper-query source `{source}` returned a non-HTTP(S) stream URL.");
     }
@@ -529,25 +533,21 @@ fn proxy_resolved_stream(
     } else {
         Vec::new()
     };
-    let headers: Vec<(&str, &str)> = stream
-        .stream_headers
-        .iter()
-        .map(|(key, value)| (key.as_str(), value.as_str()))
-        .collect();
-    stream.stream_url = stream
-        .stream_url
-        .iter()
-        .map(|url| {
-            proxied_url_with_countries_and_insecure_tls(
-                url,
-                Some(proxy_path),
-                proxy_countries,
-                &actions,
-                &headers,
-                is_insecure_tls_host(url, insecure_tls_hosts),
-            )
-        })
-        .collect();
+    for source in &mut stream.stream.streams {
+        let headers: Vec<(&str, &str)> = source
+            .stream_headers
+            .iter()
+            .map(|(key, value)| (key.as_str(), value.as_str()))
+            .collect();
+        source.url = proxied_url_with_countries_and_insecure_tls(
+            &source.url,
+            Some(proxy_path),
+            proxy_countries,
+            &actions,
+            &headers,
+            is_insecure_tls_host(&source.url, insecure_tls_hosts),
+        );
+    }
 }
 
 /// Content types treated as HLS manifests by the proxy URL rewrite action.

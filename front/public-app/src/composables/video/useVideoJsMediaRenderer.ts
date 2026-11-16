@@ -38,12 +38,15 @@ import {
   restorePersistedTrackPreferences,
 } from './video-js-media-renderer/state'
 import type { UseVideoJsMediaRendererOptions, VideoJsPlayer } from './video-js-media-renderer/types'
-import { areSubtitlesEqual, syncSubtitleTrackActiveState } from './video-js-media-renderer/subtitles'
+import { syncSubtitleTrackActiveState } from './video-js-media-renderer/subtitles'
 import { syncVideoElementAttributes, installPosterImageErrorHandler } from './video-js-media-renderer/playerAttributes'
 import { syncEpisodeAutoplayControl } from './video-js-media-renderer/autoplayMenu'
 import { createQualityController } from './video-js-media-renderer/qualityController'
 import { createStoryboardController } from './video-js-media-renderer/storyboardController'
 import { createSourceController } from './video-js-media-renderer/sourceController'
+import { createVariantController } from './video-js-media-renderer/variantController'
+import { installVariantMenus } from './video-js-media-renderer/variantMenus'
+import { installVariantFailureHandling } from './video-js-media-renderer/variantFailures'
 import { createPlayerUiState } from './video-js-media-renderer/playerUiState'
 import type { VideoJsTrackSelectionConfig } from './video-js-media-renderer/trackPreferences'
 import { useSubtitleTranslationController } from './useSubtitleTranslationController'
@@ -67,6 +70,13 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
   const { props, emit, hostElement, videoElement } = options
   /** Current active Video.js player instance. */
   const activePlayer = shallowRef<VideoJsPlayer | null>(null)
+  const variants = createVariantController(() => props.source, () => ({
+    lang: props.initialPlayerState?.audioTrack?.language ?? null,
+    quality: props.initialPlayerState?.quality ?? null,
+  }))
+  const activeSource = variants.source
+  let resumeAfterVariantFailure = false
+  let variantMenus: ReturnType<typeof installVariantMenus> | null = null
   const ui = createPlayerUiState(options)
   const storage = useStorage()
   const trackParameters = storage.getParameters()
@@ -87,13 +97,13 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
 
   const quality = createQualityController({
     getPlayer: () => activePlayer.value,
-    getSourceUrl: () => props.source.src,
+    getSourceUrl: () => activeSource.value.src,
     onStateChange: emitCurrentPlayerState,
     getTrackSelectionConfig,
   })
   const storyboard = createStoryboardController({
     getPlayer: () => activePlayer.value,
-    getSource: () => props.source,
+    getSource: () => activeSource.value,
     hasControls: () => props.controls ?? false,
   })
   let refreshSubtitleTranslationMenu: (() => void) | null = null
@@ -141,7 +151,7 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
   })
   const subtitleTranslation = useSubtitleTranslationController({
     getPlayer: () => activePlayer.value,
-    getSource: () => props.source,
+    getSource: () => activeSource.value,
     getTrackSelectionConfig,
     getSubtitleLanguagePriority: () =>
       trackParameters['videoPlayer.subtitleLanguagePriority'].value,
@@ -183,9 +193,23 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
       return
     }
 
-    const playerState = quality.captureState(player)
+    const playerState = captureVariantState(player)
     subtitleTranslation.handlePlayerState(playerState)
     emit('update:player-state', playerState)
+  }
+
+  /**
+   * Captures engine state while retaining manual file-variant preferences across episodes.
+   * @param player Engine whose volume, tracks and timeline preferences are captured.
+   */
+  function captureVariantState(player: VideoJsPlayer) {
+    const state = quality.captureState(player)
+    const preference = variants.preferences()
+    if (preference.quality && variants.variants.value.some((variant) => variant.quality === preference.quality)) state.quality = preference.quality
+    if (preference.lang && variants.variants.value.some((variant) => variant.lang === preference.lang) && (player.audioTracks?.()?.length ?? 0) < 2) {
+      state.audioTrack = { id: null, language: preference.lang, label: null, kind: 'audio', origin: 'manual' }
+    }
+    return state
   }
 
   /**
@@ -264,6 +288,8 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
   function destroyCurrentPlayer() {
     const player = activePlayer.value
     if (player) emitCurrentPlayerState(player)
+    variantMenus?.dispose()
+    variantMenus = null
     disposeSubtitleTranslationMenu?.()
     disposeSubtitleTranslationMenu = null
     refreshSubtitleTranslationMenu = null
@@ -309,11 +335,10 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
     activePlayer.value = player
     installStableFullscreenBridge(player, () => hostElement.value)
 
-    player.on('error', () => {
-      console.error('[Video.js] Playback error:', player.error())
+    installVariantFailureHandling(player, variants, () => {
       emit('source-error')
       ui.complete()
-    })
+    }, (resume) => { resumeAfterVariantFailure = resume })
 
     player.ready(() => {
       if (activePlayer.value !== player) {
@@ -333,6 +358,10 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
           defaultResolution: 'none',
           useResolutionLabels: true,
         })
+      }
+      if (props.controls) {
+        variantMenus = installVariantMenus(player, variants)
+        variantMenus.refresh()
       }
       if (props.controls && typeof player.hotkeys === 'function') {
         player.hotkeys({
@@ -519,7 +548,7 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
       player.on('play', ui.hidePoster)
       player.on('playing', () => {
         ui.hidePoster()
-        emitPlaybackStarted(getPlaybackEventSourceUrl(player, props.source.src))
+        emitPlaybackStarted(getPlaybackEventSourceUrl(player, activeSource.value.src))
       })
 
       player.on('ended', () => {
@@ -536,7 +565,7 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
       })
 
       void sources
-        .applySource(player, props.source, { playerState: props.initialPlayerState ?? null })
+        .applySource(player, activeSource.value, { playerState: props.initialPlayerState ?? null })
         .finally(() => {
           if (activePlayer.value === player) {
             syncSubtitleTrackActiveState(player)
@@ -552,39 +581,51 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
       if (!element) {
         return
       }
-      createPlayer(element, props.source)
+      createPlayer(element, activeSource.value)
     },
     { immediate: true },
   )
 
   watch(
-    () => props.source,
+    () => activeSource.value,
     (nextSource, previousSource) => {
       if (
         !activePlayer.value ||
         !previousSource ||
-        (previousSource.src === nextSource.src && areSubtitlesEqual(previousSource.subtitles, nextSource.subtitles))
+        previousSource === nextSource
       ) {
         return
       }
       const player = activePlayer.value
-      const playerState = quality.captureState(player)
+      if (nextSource.sources && nextSource.sources === previousSource.sources) {
+        sources.replaceVariantSource(player, nextSource, resumeAfterVariantFailure)
+        resumeAfterVariantFailure = false
+        return
+      }
+      const playerState = captureVariantState(player)
       subtitleTranslation.resetForSource()
       emit('update:player-state', playerState)
 
       const currentTime = player.currentTime()
-      const pendingTime = props.preservePlaybackOnSourceSwitch &&
+      const preservePlayback = props.preservePlaybackOnSourceSwitch
+      const pendingTime = preservePlayback &&
         typeof currentTime === 'number' && Number.isFinite(currentTime) && currentTime > 0
         ? currentTime
         : null
-      const pendingAutoplay = props.preservePlaybackOnSourceSwitch &&
-        typeof player.paused === 'function' && !player.paused()
+      const pendingAutoplay = preservePlayback &&
+        (resumeAfterVariantFailure || (typeof player.paused === 'function' && !player.paused()))
+      resumeAfterVariantFailure = false
 
       void sources.applySource(player, nextSource, {
         playerState, switchTime: pendingTime, switchAutoplay: pendingAutoplay,
       })
     },
   )
+
+  watch(variants.revision, () => {
+    variantMenus?.refresh()
+    if (activePlayer.value) emitCurrentPlayerState(activePlayer.value)
+  }, { flush: 'post' })
 
   watch(
     [

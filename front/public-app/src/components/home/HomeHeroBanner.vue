@@ -123,14 +123,16 @@ function createBannerPlayer(banner: HomeBanner): EntryPlayer | null {
   return {
     id: `${banner.id}-banner`,
     label: banner.title ?? banner.id,
-    directLink: null,
+    streams: [],
+    imageTitleLink: null,
+    storyboardVttUrl: null,
+    storyboard: null,
+    chapters: null,
+    subtitles: [],
     webLink: null,
     name: null,
     lang: null,
     resolver: banner.player,
-    storyboard: null,
-    chapters: null,
-    subtitles: [],
   }
 }
 
@@ -162,15 +164,7 @@ watch(activeBanner, async (banner) => {
       ? null
       : 'embedLink' in response
         ? resolveIframeMediaSource(response.embedLink)
-        : resolveBackendStreamMediaSource({
-            streamUrl: response.streamUrl[0] ?? null,
-            manifestType: response.manifestType,
-            licenseUrl: response.licenseUrl,
-            licenseHeaders: response.licenseHeaders,
-            storyboardVttUrl: response.storyboardVttUrl,
-            chapters: response.chapters,
-            subtitles: response.subtitles,
-          })
+        : resolveBackendStreamMediaSource(response)
   } catch (error) {
     if (requestId === bannerStreamRequestId) {
       resolvedBannerMediaSource.value = null

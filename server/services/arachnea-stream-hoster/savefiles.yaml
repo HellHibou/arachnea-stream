@@ -56,7 +56,7 @@ queries:
             argument: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
     row_selector: "html"
     entries:
-      - name: stream_url
+      - name: streams > url
         type: string[]
         actions:
           - type: get_response_body
@@ -74,7 +74,7 @@ queries:
                 replacement: '{proxy_inherited}/$1'
                 content_types:
                   - application/vnd.apple.mpegurl
-      - name: stream_headers
+      - name: streams > stream_headers
         type: object
         select: first
         entries:
@@ -83,7 +83,7 @@ queries:
             actions:
               - type: format_text
                 argument: "{url}"
-      - name: manifest_type
+      - name: streams > type
         type: string
         actions:
           - type: format_text
@@ -114,3 +114,7 @@ queries:
                 replacement: '{proxy_inherited}/$1'
                 content_types:
                   - text/vtt
+    post_process:
+      - type: zip_fields
+        source: "** > streams"
+        values_field: url

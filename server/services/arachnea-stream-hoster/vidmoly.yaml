@@ -40,7 +40,7 @@ queries:
           - type: format_text
             argument: "{url}"
     entries:
-      - name: stream_url
+      - name: streams > url
         type: string[]
         actions:
           - type: get_response_body
@@ -62,7 +62,7 @@ queries:
                 replacement: '{proxy_inherited}/$1'
                 content_types:
                   - application/vnd.apple.mpegurl
-      - name: stream_headers
+      - name: streams > stream_headers
         type: object
         select: first
         entries:
@@ -76,7 +76,7 @@ queries:
              actions:
                - type: format_text
                  argument: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:154.0) Gecko/20100101 Firefox/154.0"
-      - name: manifest_type
+      - name: streams > type
         type: string
         actions:
           - type: format_text
@@ -106,3 +106,7 @@ queries:
             format: "{1}"
           - type: resolve_url
             proxy: true
+    post_process:
+      - type: zip_fields
+        source: "** > streams"
+        values_field: url

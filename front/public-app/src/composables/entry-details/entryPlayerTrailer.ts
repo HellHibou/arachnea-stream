@@ -86,14 +86,16 @@ export function createEntryPlayerTrailer(options: EntryPlayerTrailerOptions) {
         const trailerPlayer: EntryPlayer = {
           id: `trailer:${resolver.kind}:${resolver.targetId}`,
           label: t('entry.trailer'),
-          directLink: null,
+          streams: [],
+          imageTitleLink: null,
+          storyboardVttUrl: null,
+          storyboard: null,
+          chapters: null,
+          subtitles: [],
           webLink: null,
           name: null,
           lang: null,
           resolver,
-          storyboard: null,
-          chapters: null,
-          subtitles: [],
         }
 
         try {
@@ -103,15 +105,7 @@ export function createEntryPlayerTrailer(options: EntryPlayerTrailerOptions) {
           }
           resolvedTrailerMediaSource.value = 'embedLink' in resolvedStream
             ? resolveIframeMediaSource(resolvedStream.embedLink)
-            : resolveBackendStreamMediaSource({
-              streamUrl: resolvedStream.streamUrl[0] ?? null,
-              manifestType: resolvedStream.manifestType,
-              licenseUrl: resolvedStream.licenseUrl,
-              licenseHeaders: resolvedStream.licenseHeaders,
-              storyboardVttUrl: resolvedStream.storyboardVttUrl,
-              chapters: resolvedStream.chapters,
-              subtitles: resolvedStream.subtitles,
-            })
+            : resolveBackendStreamMediaSource(resolvedStream)
         } catch {
           if (resolutionId === activeTrailerResolutionId) {
             resolvedTrailerMediaSource.value = null

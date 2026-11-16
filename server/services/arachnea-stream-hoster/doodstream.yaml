@@ -42,7 +42,7 @@ queries:
       # token, and expiry timestamp to form the actual media URL. `exec_js`
       # exposes strings only through `document.write`, so extract that channel
       # before proxying the generated media URL.
-      - name: stream_url
+      - name: streams > url
         type: string
         actions:
           - type: get_response_body
@@ -59,7 +59,7 @@ queries:
                   - type: format_text
                     argument: "{url}"
             entries:
-              - name: stream_url
+              - name: url
                 type: string
                 actions:
                   - type: get_response_body
@@ -101,7 +101,7 @@ queries:
                   - type: regex_find_all
                     pattern: "\\$\\('#enc_pp'\\)\\.html\\('([^']+)'\\)"
                     format: "{1}"
-      - name: manifest_type
+      - name: streams > type
         type: string
         actions:
           - type: format_text
@@ -121,3 +121,7 @@ queries:
             argument: content
           - type: resolve_url
             proxy: true
+    post_process:
+      - type: zip_fields
+        source: "** > streams"
+        values_field: url

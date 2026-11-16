@@ -3,6 +3,10 @@
 Ce fichier suit les tâches DNS, HTTP et proxy prévues qui restent pertinentes pour l'espace de travail serveur. Il doit être mis à jour lorsque des tâches sont ajoutées, terminées, déplacées vers un outil de suivi ou rendues obsolètes par des décisions de conception ultérieures.
 
 ## Streaming
+- Ajouter téléchargement de vidéo si la source est au format mp4
+- Ajout prise d'un sceershoot de la vidéo
+- Ajouter gestion du volume: Normalisation  + boost du volume
+- Ajouter gestion HDR
 - Ajouter des vues dédiées aux contenus `audio/*` et `images/*` ; leur routage vers `get_entry` reste temporaire : [migration media-type](dev-tracking/media-type-routing-migration-analysis.md).
 - Identités YAML des rails : clés standardisées `rail:<provider-id>` ajoutées pour Arte, TF1, France TV et RMC BFM Play ; clé fixe du rail LN24. Trouver une identité persistante pour les rails featured TeleMB et recommandations Canal Zoom/Télésambre sans descripteur ; les UIDs de slider changent entre requêtes et sont exclus. Ne pas utiliser de position ni de titre normalisé comme fausse clé stable.
 - Utiliser obscura pour contourner Cloudflare (navigateur rust avec résolution cloudflare interne).

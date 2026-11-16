@@ -29,7 +29,7 @@ static DRM_TODAY_TOKEN_CACHE: OnceLock<Mutex<HashMap<String, CachedDrmTodayLicen
     OnceLock::new();
 
 /// A single chapter entry within a resolved player stream.
-#[derive(Serialize)]
+#[derive(Serialize, serde::Deserialize)]
 pub(crate) struct Chapter {
     /// Start time of the chapter in seconds.
     pub start: f64,
@@ -45,7 +45,7 @@ pub(crate) struct Chapter {
 }
 
 /// Sprite thumbnail metadata for video storyboards.
-#[derive(Serialize)]
+#[derive(Serialize, serde::Deserialize)]
 pub(crate) struct SpriteThumbnail {
     /// The URL to the sprite thumbnail image.
     pub url: String,
@@ -71,14 +71,14 @@ pub(crate) struct SpriteThumbnail {
 }
 
 /// Link metadata for one resolved player image.
-#[derive(Serialize)]
+#[derive(Serialize, serde::Deserialize)]
 pub(crate) struct ResolvedPlayerImageTitle {
     /// URL of the image resource.
     pub link: String,
 }
 
 /// External subtitle track exposed by a resolved player stream.
-#[derive(Serialize)]
+#[derive(Serialize, serde::Deserialize)]
 pub(crate) struct ResolvedPlayerSubtitle {
     /// Language code declared by the source.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -102,21 +102,16 @@ pub(crate) struct ResolvedPlayerStream {
     /// Optional title image metadata extracted from the player page.
     #[serde(rename = "image/title", skip_serializing_if = "Option::is_none")]
     pub image_title: Option<ResolvedPlayerImageTitle>,
-    /// Ordered list of alternative stream manifest URLs (primary first).
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub stream_url: Vec<String>,
-    /// Manifest type consumed by the frontend player, such as `mpd` or `m3u8`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub manifest_type: Option<String>,
-    /// Headers embedded in generated proxy stream URLs.
-    #[serde(skip_serializing)]
-    pub stream_headers: HashMap<String, String>,
-    /// Same-origin license proxy URL for protected streams.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub license_url: Option<String>,
-    /// Extra headers sent by the frontend player when requesting the license.
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub license_headers: HashMap<String, String>,
+    /// Video alternatives and shared metadata serialized at the response root.
+    #[serde(flatten)]
+    pub stream: PlayerStream,
+}
+
+/// Interchangeable video sources sharing one content timeline.
+#[derive(Default, Serialize, serde::Deserialize)]
+pub(crate) struct PlayerStream {
+    /// Ordered technical alternatives; sources have no public identifier.
+    pub streams: Vec<ResolvedStreamSource>,
     /// Optional WebVTT URL used for storyboard preview thumbnails.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub storyboard_vtt_url: Option<String>,
@@ -129,6 +124,31 @@ pub(crate) struct ResolvedPlayerStream {
     /// Optional external subtitle tracks associated with the resolved stream.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub subtitles: Vec<ResolvedPlayerSubtitle>,
+}
+
+/// One independently loadable video variant, including its transport and DRM context.
+#[derive(Default, Serialize, serde::Deserialize)]
+pub(crate) struct ResolvedStreamSource {
+    /// Browser-consumable video URL or manifest URL.
+    pub url: String,
+    /// Canonical content type: hls, dash, mp4, webm or ogg.
+    #[serde(rename = "type")]
+    pub source_type: String,
+    /// Optional quality supplied by the source, such as SD, HD or 1080p.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quality: Option<String>,
+    /// Optional language of this variant.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lang: Option<String>,
+    /// Headers embedded in this source's proxy URL; never exposed to clients.
+    #[serde(default, skip_serializing)]
+    pub stream_headers: HashMap<String, String>,
+    /// Same-origin DRM license URL for this variant only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub license_url: Option<String>,
+    /// Headers required by this variant's license endpoint.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub license_headers: HashMap<String, String>,
 }
 
 /// Binary response returned by a resolver-owned stream proxy.

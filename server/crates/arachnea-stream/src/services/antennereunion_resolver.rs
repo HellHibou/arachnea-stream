@@ -13,8 +13,8 @@ use arachnea_core::persistence::CredentialsStore;
 use arachnea_scrapyfy::{HttpClient, ScraperAgregator};
 
 use crate::services::player_resolver::{
-    PlayerResolverEndpoints, PlayerStreamRequest, PlayerStreamResolver, ProxiedStreamResponse,
-    ResolvedPlayerStream,
+    PlayerResolverEndpoints, PlayerStream, PlayerStreamRequest, PlayerStreamResolver,
+    ProxiedStreamResponse, ResolvedPlayerStream, ResolvedStreamSource,
 };
 
 use crate::PLAYER_DEFAULT_USER_AGENT as USER_AGENT;
@@ -178,16 +178,22 @@ async fn resolve_vod_stream(
         .map(|license| save_license(endpoints, &license));
 
     Ok(ResolvedPlayerStream {
-        stream_url: vec![proxied_url_with_countries(
-            &stream_url,
-            endpoints.http_proxy_public_path.as_deref(),
-            &[],
-            &[],
-            &[],
-        )],
-        manifest_type: Some(manifest_type(&stream_url).to_string()),
-        license_url,
-        license_headers: HashMap::new(),
+        stream: PlayerStream {
+            streams: vec![ResolvedStreamSource {
+                url: proxied_url_with_countries(
+                    &stream_url,
+                    endpoints.http_proxy_public_path.as_deref(),
+                    &[],
+                    &[],
+                    &[],
+                ),
+                source_type: manifest_type(&stream_url).to_string(),
+                license_url,
+                license_headers: HashMap::new(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        },
         ..Default::default()
     })
 }
@@ -905,14 +911,14 @@ fn stable_device_id(login: &str) -> String {
 /// * `stream_url` - Stream manifest URL.
 ///
 /// # Returns
-/// `mpd` for URLs whose path ends in `.mpd`, otherwise `m3u8`.
+/// `dash` for URLs whose path ends in `.mpd`, otherwise `hls`.
 fn manifest_type(stream_url: &str) -> &'static str {
     Url::parse(stream_url)
         .ok()
         .map(|url| url.path().to_ascii_lowercase())
         .filter(|path| path.ends_with(".mpd"))
-        .map(|_| "mpd")
-        .unwrap_or("m3u8")
+        .map(|_| "dash")
+        .unwrap_or("hls")
 }
 
 /// Reads a non-empty string from a nested JSON path.

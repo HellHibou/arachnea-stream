@@ -114,30 +114,35 @@ export interface ResolvedPlayerSubtitle {
   autoTranslate?: boolean
 }
 
-/**
- * Resolved media stream returned by the backend `get_stream` command.
- *
- * This is one branch of the exclusive union `GetStreamResponse`:
- * either a direct media payload with `streamUrl[]` or an iframe fallback with `embedLink`.
- */
-export interface EntryResolvedPlayerStream {
-  /** Ordered list of alternative stream URLs (primary first). */
-  streamUrl: string[]
-  /** The type of the manifest (e.g., 'dash', 'hls'). */
-  manifestType: string
-  /** Optional title image URL returned by the selected player resolver. */
-  imageTitleLink: string | null
-  /** The URL to the DRM license server, or null for unprotected streams. */
+/** One independently loadable video variant. Sources deliberately have no identifier. */
+export interface EntryStreamSource {
+  /** Video or manifest URL. */
+  url: string
+  /** Canonical format, independent of the URL extension. */
+  type: 'mp4' | 'hls' | 'dash' | 'webm' | 'ogg'
+  /** Optional quality, such as HD, SD or 1080p. */
+  quality: string | null
+  /** Optional language of this variant. */
+  lang: string | null
+  /** DRM license endpoint for this variant only. */
   licenseUrl: string | null
-  /** Headers to include when requesting the license. */
+  /** Headers required by this variant's license endpoint. */
   licenseHeaders: Record<string, string>
-  /** Optional WebVTT URL used for storyboard preview thumbnails. */
+}
+
+/** Video alternatives and metadata sharing one content timeline. */
+export interface EntryResolvedPlayerStream {
+  /** Ordered technical alternatives; empty for a deferred player. */
+  streams: EntryStreamSource[]
+  /** Optional title image returned by a resolver. */
+  imageTitleLink: string | null
+  /** Optional storyboard WebVTT URL shared by all variants. */
   storyboardVttUrl: string | null
-  /** Optional sprite storyboard metadata. */
+  /** Sprite preview metadata shared by all variants. */
   storyboard: EntryPlayerStoryboard | null
-  /** Optional ordered list of chapters extracted from the player metadata. */
+  /** Chapters shared by all variants. */
   chapters: EntryPlayerChapter[] | null
-  /** Subtitle tracks available for the resolved media stream. */
+  /** External subtitles shared by all variants. */
   subtitles: ResolvedPlayerSubtitle[]
 }
 
@@ -154,8 +159,7 @@ export interface EntryEmbedFallback {
 /**
  * Union type returned by the `get_stream` backend command.
  *
- * - When `streamUrl[]` is present, the frontend uses the native video player with the first
- *   URL as primary and subsequent URLs as fallbacks on playback failure.
+ * - A structured video stream supplies variants selected inside the native player.
  * - When `embedLink` is present (exclusive), the frontend renders an iframe.
  * - The two branches are mutually exclusive.
  */
@@ -164,13 +168,11 @@ export type GetStreamResponse = EntryResolvedPlayerStream | EntryEmbedFallback
 /**
  * Normalized embedded player entry consumed by the featured media detail component.
  */
-export interface EntryPlayer {
+export interface EntryPlayer extends EntryResolvedPlayerStream {
   /** The unique identifier for the player. */
   id: string
   /** The display label for the player. */
   label: string
-  /** The direct URL to the media. */
-  directLink: string | null
   /** The public web URL opened externally when the direct link is not suitable. */
   webLink: string | null
   /** The name of the player. */
@@ -179,12 +181,7 @@ export interface EntryPlayer {
   lang: string | null
   /** The resolver configuration for this player. */
   resolver: EntryPlayerResolver | null
-  /** The storyboard configuration for this player. */
-  storyboard: EntryPlayerStoryboard | null
-  /** Optional ordered list of chapters extracted from the player metadata. */
-  chapters: EntryPlayerChapter[] | null
-  /** Subtitle tracks carried by the player descriptor. */
-  subtitles: ResolvedPlayerSubtitle[]
+
 }
 
 /**

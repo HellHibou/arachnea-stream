@@ -22,8 +22,8 @@ use arachnea_scrapyfy::{ScraperAgregator, ScraperHttpConfig};
 
 use crate::services::player_resolver::{
     normalize_stream_kind, proxy_drm_today_license_request, save_drm_today_license_proxy_url,
-    PlayerResolverEndpoints, PlayerStreamRequest, PlayerStreamResolver, ProxiedStreamResponse,
-    ResolvedPlayerStream,
+    PlayerResolverEndpoints, PlayerStream, PlayerStreamRequest, PlayerStreamResolver,
+    ProxiedStreamResponse, ResolvedPlayerStream, ResolvedStreamSource,
 };
 
 /// M6/6play login endpoint.
@@ -224,18 +224,24 @@ async fn resolve_replay_stream(
     let stream_actions = stream_headers();
 
     Ok(ResolvedPlayerStream {
-        stream_url: vec![proxied_url_with_countries(
-            &manifest_url,
-            endpoints.http_proxy_public_path.as_deref(),
-            proxy_countries,
-            &stream_actions,
-            &[],
-        )],
-        manifest_type: Some("mpd".to_string()),
-        license_url: Some(license_url),
-        license_headers: HashMap::new(),
-        storyboard,
-        chapters,
+        stream: PlayerStream {
+            streams: vec![ResolvedStreamSource {
+                url: proxied_url_with_countries(
+                    &manifest_url,
+                    endpoints.http_proxy_public_path.as_deref(),
+                    proxy_countries,
+                    &stream_actions,
+                    &[],
+                ),
+                source_type: "dash".to_string(),
+                license_url: Some(license_url),
+                license_headers: HashMap::new(),
+                ..Default::default()
+            }],
+            storyboard,
+            chapters,
+            ..Default::default()
+        },
         ..Default::default()
     })
 }
@@ -356,16 +362,22 @@ async fn resolve_live_stream(
     let stream_actions = stream_headers();
 
     Ok(ResolvedPlayerStream {
-        stream_url: vec![proxied_url_with_countries(
-            &manifest_url,
-            endpoints.http_proxy_public_path.as_deref(),
-            proxy_countries,
-            &stream_actions,
-            &[],
-        )],
-        manifest_type: Some("mpd".to_string()),
-        license_url: Some(license_url),
-        license_headers: HashMap::new(),
+        stream: PlayerStream {
+            streams: vec![ResolvedStreamSource {
+                url: proxied_url_with_countries(
+                    &manifest_url,
+                    endpoints.http_proxy_public_path.as_deref(),
+                    proxy_countries,
+                    &stream_actions,
+                    &[],
+                ),
+                source_type: "dash".to_string(),
+                license_url: Some(license_url),
+                license_headers: HashMap::new(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        },
         ..Default::default()
     })
 }

@@ -859,19 +859,22 @@ playback options.
 |---|---|---|
 | `name` | `string` | Player name |
 | `lang` | `string` | Audio language |
-| `direct-link` | `string` | Direct, immediately playable media link |
+| `streams` | `object[]` | Direct video alternatives; shared metadata stays on the player; see below |
 | `resolver` | `string` | Globally unique resolver identifier (flat form, e.g. `stream-resolver`, `m6play-video`) |
 | `target` | `string` | Resolver target (URL or identifier, flat form) |
 | `resolver > kind` | `string` | Resolver type (legacy object form, e.g. `tf1-video`, `m6play-video`) |
 | `resolver > target_id` | `string` | Resolver target identifier (legacy object form) |
 | `resolver > stream > kind` | `string` | Stream type (legacy, e.g. `tf1-license-proxy`, `widevine-license-proxy`) |
-| `subtitles` | `object[]` | Optional ordered external WebVTT subtitle tracks carried by the player |
+| `subtitles` | `object[]` | Shared external WebVTT subtitle tracks |
 
-A player is either a `direct-link` or a `{ resolver, target }` descriptor resolved by the backend.
-The `resolver` and `target` fields can use the flat form above or the legacy object form
-(`resolver > kind`, `resolver > target_id`). A player may also carry `subtitles` using the same
-track shape as resolved streams; the frontend uses those tracks when `get_stream` returns no
-subtitles and for direct-link players.
+A player supplies either `streams` for direct video or a `{ resolver, target }`
+descriptor resolved by the backend. Distinct providers remain separate players;
+interchangeable formats, quality labels and languages belong to `streams`.
+Shared `storyboard_vtt_url`, `storyboard`, `chapters` and `subtitles` are siblings
+of `streams` on the player, or at the root of `get_stream` / `resolve_stream` responses.
+The video schema has no backward compatibility: the former `stream` wrapper,
+`direct-link`, `stream_url` and `manifest_type` are no longer read or produced.
+Deploy server and frontend together.
 
 For `m6play-video` and `m6play-live`, optional Gigya API-key preparation has a
 five-second total budget for the login page and JavaScript bundle, then uses the
@@ -953,20 +956,39 @@ The `get_stream` backend command receives `{ resolver, target }` and returns an 
 
 | Field | Type | Description |
 |---|---|---|
-| `stream_url` | `string[]` | Media stream URLs (first is preferred) |
-| `manifest_type` | `string` | Manifest type (`mpd`, `m3u8`, `mp4`, etc.) |
-| `title` | `string` | Optional title extracted by the resolver |
-| `image/title > link` | `string` | Optional title image; serialized as JSON `{ "image/title": { "link": "…" } }` |
-| `license_url` | `string` | Optional DRM license proxy URL |
-| `license_headers` | `object` | HTTP headers for the DRM license request |
-| `storyboard_vtt_url` | `string` | Optional storyboard thumbnail WebVTT URL; preferred over `storyboard` |
-| `storyboard` | `object` | Optional sprite storyboard metadata |
-| `subtitles` | `object[]` | Optional ordered external WebVTT subtitle tracks |
-| `embed-link` | `string` | Iframe fallback URL, exclusive with `stream_url`; fallback also includes `web-link` with the original URL |
+| `streams` | `object[]` | Nonempty alternatives without an `id` |
+| `streams > url` | `string` | Media or manifest URL |
+| `streams > type` | `string` | `hls`, `dash`, `mp4`, `webm`, `ogg` |
+| `streams > quality` | `string` | Optional quality label (HD, SD, 1080p) |
+| `streams > lang` | `string` | Optional language; absent means unknown |
+| `streams > license_url` | `string` | DRM license endpoint for this variant only |
+| `streams > license_headers` | `object` | DRM request headers for this variant only |
+| `storyboard_vtt_url` | `string` | Shared thumbnail WebVTT URL |
+| `storyboard` | `object` | Shared sprite metadata |
+| `chapters` | `object[]` | Shared timeline chapters |
+| `subtitles` | `object[]` | Shared external WebVTT tracks |
+| `title`, `image/title > link` | `string` | Optional player title/image metadata |
+| `embed-link` | `string` | Iframe fallback, exclusive with `streams` |
 
-`stream_url` and `embed-link` are mutually exclusive: the former creates a native video player,
-while the latter creates an iframe. Resolver `stream_headers` are not part of the public response:
-they are embedded in the generated proxy stream URLs.
+Variant quality uses `quality` (for example SD, HD or 1080p). The former variant
+field `label` is unsupported; subtitle and player display labels are separate.
+
+`streams` and `embed-link` are mutually exclusive. Each source has its own format
+and DRM context; transport headers remain internal to proxy URLs. A source has no
+identifier: the frontend uses its index only within the current playback generation.
+
+The client prefers HLS, then DASH, then MP4 (other supported files follow), while
+manual language/quality choices take precedence. Fixed qualities and languages are
+selected inside the player; active adaptive-manifest controls remain available.
+AnimeUltime groups HD/SD in one player, Odysee groups HLS/MP4 in one player.
+Fatal video failures try unfailed variants of the same language/quality first,
+then other qualities, unknown language and other languages. No automatic switch to
+another provider. Only collection exhaustion emits the final source error. Active
+loads have a 20-second watchdog; pause, autoplay rejection and auxiliary-resource
+failures do not count as fatal video errors. Source transitions preserve compatible
+playback state, common metadata and the live seekable window.
+
+The following metadata fields are siblings of `streams`.
 
 When a resolver declares `storyboard_vtt_url` with the `resolve_url` action, `proxy: true`, and a
 `proxy_replace_all` rule, `get_stream` returns a proxy URL. The proxy then rewrites each WebVTT cue
@@ -1145,7 +1167,7 @@ reception window before starting its ordinary body-transfer timeout; it still
 returns the complete manifest. Callback priority, content rejections and the
 overall proxy-search budget remain unchanged. This routing also applies when
 resolving the final manifest URL.
-The `stream_url` returned by `get_stream` keeps the local HTTP proxy wrapper but
+Each `streams[].url` returned by `get_stream` keeps the local HTTP proxy wrapper but
 does not carry proxy countries or geo-proxy rejection statuses, so playback no
 longer uses a geolocated proxy. The territory list is retained for the storyboard
 and deferred Widevine license request, without a local retry or direct fallback.

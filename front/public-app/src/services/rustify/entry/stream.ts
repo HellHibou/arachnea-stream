@@ -1,5 +1,6 @@
 import type {
   EntryPlayer,
+  EntryStreamSource,
   EntryPlayerChapter,
   EntryPlayerStoryboard,
   EntryResolvedPlayerStream,
@@ -45,36 +46,29 @@ export async function getStream(
 }
 
 /**
- * Normalizes one backend player resolution payload into the frontend stream model.
- *
- * `stream_url` is now a string array; a plain string is wrapped into a single‑element array.
- *
- * @param payload Raw backend payload returned by `get_stream`.
- * @returns Normalized stream payload, or `null` when the backend returned nothing usable.
+ * Reads the structured stream contract shared by direct players and resolved players.
+ * @param payload Player or resolution response containing streams and shared metadata.
+ * @returns A normalized collection, or null when no valid source remains.
  */
-function normalizeResolvedPlayerStream(payload: unknown): EntryResolvedPlayerStream | null {
-  if (!isJsonRecord(payload)) {
-    return null
+export function normalizePlayerStream(payload: unknown): EntryResolvedPlayerStream | null {
+  if (!isJsonRecord(payload) || !Array.isArray(payload.streams)) return null
+  const streams: EntryStreamSource[] = []
+  for (const item of payload.streams) {
+    if (!isJsonRecord(item)) continue
+    const url = firstNonEmptyString([item.url])
+    const type = item.type
+    if (!url || !['hls', 'dash', 'mp4', 'webm', 'ogg'].includes(type as string)) continue
+    streams.push({
+      url, type: type as EntryStreamSource['type'],
+      quality: firstNonEmptyString([item.quality]), lang: firstNonEmptyString([item.lang])?.toLocaleLowerCase() ?? null,
+      licenseUrl: firstNonEmptyString([item.license_url]),
+      licenseHeaders: readStringMap(item.license_headers),
+    })
   }
-
-  const streamUrlRaw = payload.stream_url
-  const streamUrl: string[] = Array.isArray(streamUrlRaw)
-    ? streamUrlRaw.filter((url: unknown): url is string => typeof url === 'string' && url.trim().length > 0)
-    : (typeof streamUrlRaw === 'string' && streamUrlRaw.trim().length > 0
-        ? [streamUrlRaw.trim()]
-        : [])
-
-  if (streamUrl.length === 0 || !payload.manifest_type) {
-    return null
-  }
-
+  if (streams.length === 0) return null
   return {
-    streamUrl,
-    manifestType: payload.manifest_type as string,
-    imageTitleLink: firstNonEmptyString([readPath(payload, 'image/title', 'link')]),
-    licenseUrl: payload.license_url as string ?? null,
-    licenseHeaders: readStringMap(payload.license_headers ?? payload.licenseHeaders),
-    storyboardVttUrl:payload.storyboard_vtt_url as string ?? null,
+    streams, imageTitleLink: firstNonEmptyString([readPath(payload, 'image/title', 'link')]),
+    storyboardVttUrl: firstNonEmptyString([payload.storyboard_vtt_url]),
     storyboard: normalizeRustifyStoryboard(payload.storyboard),
     chapters: normalizeRustifyChapters(payload.chapters),
     subtitles: normalizeResolvedPlayerSubtitles(payload.subtitles),
@@ -122,7 +116,7 @@ export function normalizeResolvedPlayerSubtitles(value: unknown): ResolvedPlayer
 }
 
 /**
- * Normalizes the optional chapters array returned by the backend.
+ * Normalizes backend chapters, discarding non-finite or empty time ranges.
  *
  * @param value Backend chapters array.
  * @returns Normalized chapters array, or `null` when absent or empty.
@@ -147,6 +141,9 @@ export function normalizeRustifyChapters(value: unknown): EntryPlayerChapter[] |
     if (
       typeof start !== 'number' ||
       typeof end !== 'number' ||
+      !Number.isFinite(start) ||
+      !Number.isFinite(end) ||
+      end <= start ||
       typeof chapterType !== 'string'
     ) {
       continue
@@ -195,7 +192,7 @@ function normalizeRustifyStoryboard(value: unknown): EntryPlayerStoryboard | nul
 /**
  * Normalizes one `get_stream` backend response into the frontend union type.
  *
- * The response can be either a resolved stream payload (`stream_url[]`, manifest type, etc.)
+ * The response can be either a structured stream payload (`streams[]` and metadata)
  * or an iframe fallback (`embed-link`). The two branches are mutually exclusive.
  *
  * @param payload Raw backend payload returned by `get_stream`.
@@ -206,18 +203,7 @@ function normalizeGetStreamResponse(payload: unknown): GetStreamResponse | null 
     return null
   }
 
-  // Prefer embed-link fallback when stream_url is absent
-  const embedLink = firstNonEmptyString([payload['embed-link'], payload.embedLink])
-  const streamUrl = payload.stream_url ?? payload.streamUrl
-
-  if (embedLink && !streamUrl) {
-    return { embedLink }
-  }
-
-  const resolvedStream = normalizeResolvedPlayerStream(payload)
-  if (resolvedStream) {
-    return resolvedStream
-  }
-
-  return null
+  const embedLink = firstNonEmptyString([payload['embed-link']])
+  if (embedLink) return 'streams' in payload ? null : { embedLink }
+  return normalizePlayerStream(payload)
 }

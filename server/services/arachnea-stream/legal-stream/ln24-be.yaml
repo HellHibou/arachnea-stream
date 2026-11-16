@@ -434,35 +434,53 @@ queries:
             type: string
             actions:
               - type: format_text
-                argument: "HD"
-          - name: direct-link
-            type: string
-            select: first
-            selector: "section.emission-featured iframe"
-            actions:
-              - type: get_attribut
-                argument: src
-              - type: regex_find_all
-                pattern: 'media720=([^&]+)'
-                format: "{1}"
-      - name: players
-        type: object[]
-        entries:
-          - name: name
-            type: string
-            actions:
-              - type: format_text
-                argument: "SD"
-          - name: direct-link
-            type: string
-            select: first
-            selector: "section.emission-featured iframe"
-            actions:
-              - type: get_attribut
-                argument: src
-              - type: regex_find_all
-                pattern: 'media480=([^&]+)'
-                format: "{1}"
+                argument: "LN24"
+          - name: streams
+            type: object[]
+            entries:
+              - name: quality
+                type: string
+                actions:
+                  - type: format_text
+                    argument: "HD"
+              - name: type
+                type: string
+                actions:
+                  - type: format_text
+                    argument: mp4
+              - name: url
+                type: string
+                select: first
+                selector: "section.emission-featured iframe"
+                actions:
+                  - type: get_attribut
+                    argument: src
+                  - type: regex_find_all
+                    pattern: 'media720=([^&]+)'
+                    format: "{1}"
+          - name: streams
+            type: object[]
+            entries:
+              - name: quality
+                type: string
+                actions:
+                  - type: format_text
+                    argument: "SD"
+              - name: type
+                type: string
+                actions:
+                  - type: format_text
+                    argument: mp4
+              - name: url
+                type: string
+                select: first
+                selector: "section.emission-featured iframe"
+                actions:
+                  - type: get_attribut
+                    argument: src
+                  - type: regex_find_all
+                    pattern: 'media480=([^&]+)'
+                    format: "{1}"
       - name: seasons
         type: object[]
         entries:
@@ -504,31 +522,49 @@ queries:
                     type: string
                     actions:
                       - type: format_text
-                        argument: "HD"
-                  - name: direct-link
-                    type: string
-                    actions:
-                      - type: get_attribut
-                        argument: data-player-url
-                      - type: regex_find_all
-                        pattern: 'media720=([^&]+)'
-                        format: "{1}"
-              - name: players
-                type: object[]
-                entries:
-                  - name: name
-                    type: string
-                    actions:
-                      - type: format_text
-                        argument: "SD"
-                  - name: direct-link
-                    type: string
-                    actions:
-                      - type: get_attribut
-                        argument: data-player-url
-                      - type: regex_find_all
-                        pattern: 'media480=([^&]+)'
-                        format: "{1}"
+                        argument: "LN24"
+                  - name: streams
+                    type: object[]
+                    entries:
+                      - name: quality
+                        type: string
+                        actions:
+                          - type: format_text
+                            argument: "HD"
+                      - name: type
+                        type: string
+                        actions:
+                          - type: format_text
+                            argument: mp4
+                      - name: url
+                        type: string
+                        actions:
+                          - type: get_attribut
+                            argument: data-player-url
+                          - type: regex_find_all
+                            pattern: 'media720=([^&]+)'
+                            format: "{1}"
+                  - name: streams
+                    type: object[]
+                    entries:
+                      - name: quality
+                        type: string
+                        actions:
+                          - type: format_text
+                            argument: "SD"
+                      - name: type
+                        type: string
+                        actions:
+                          - type: format_text
+                            argument: mp4
+                      - name: url
+                        type: string
+                        actions:
+                          - type: get_attribut
+                            argument: data-player-url
+                          - type: regex_find_all
+                            pattern: 'media480=([^&]+)'
+                            format: "{1}"
 
       # Related cards link to show pages even when their video stream is blocked.
       # Keep the rail separate from the show's episode list.
@@ -582,7 +618,10 @@ queries:
                 actions:
                   - type: format_text
                     argument: "video/news"
-
+    post_process:
+      - type: zip_fields
+        source: "** > streams"
+        values_field: url
 
   # --------------------------------------------------------------------------
   # List live channels
@@ -692,7 +731,12 @@ queries:
             actions:
               - type: format_text
                 argument: "LN24"
-          - name: direct-link
+          - name: streams > type
+            type: string
+            actions:
+              - type: format_text
+                argument: mp4
+          - name: streams > url
             type: string
             select: first
             selector: "video > source"
@@ -700,3 +744,7 @@ queries:
               - type: get_attribut
                 argument: src
               - type: resolve_url
+    post_process:
+      - type: zip_fields
+        source: "** > streams"
+        values_field: url

@@ -81,7 +81,7 @@ queries:
           - type: regex_find_all
             pattern: '>\s*([^<>]*File is no longer available[^<>]*?)\s*<'
             format: "{1}"
-      - name: stream_url
+      - name: streams > url
         type: string[]
         actions:
           - type: get_response_body
@@ -119,7 +119,7 @@ queries:
                 replacement: '$1{proxy_inherited}/{base_url}{path_base}$2$3'
                 content_types:
                   - application/vnd.apple.mpegurl
-      - name: manifest_type
+      - name: streams > type
         type: string
         actions:
           - type: format_text
@@ -165,3 +165,7 @@ queries:
             actions:
               - type: format_text
                 argument: "4"
+    post_process:
+      - type: zip_fields
+        source: "** > streams"
+        values_field: url

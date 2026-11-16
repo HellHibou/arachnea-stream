@@ -1,4 +1,4 @@
-import type { ResolvedPlayerSubtitle } from '@/types/entry'
+import type { ResolvedPlayerSubtitle, EntryResolvedPlayerStream } from '@/types/entry'
 
 /**
  * Resolved media source for iframe-based player rendering.
@@ -46,12 +46,32 @@ export interface ResolvedVideoChapter {
   type: string
 }
 
+/** Technical variant selected inside the video renderer. */
+export interface ResolvedVideoVariant {
+  /** Browser-consumable URL. */
+  src: string
+  /** MIME type sent to Video.js. */
+  mimeType: string | null
+  /** Playback transport. */
+  transport: 'file' | 'hls' | 'dash'
+  /** DRM endpoint for this variant only. */
+  licenseUrl: string | null
+  /** DRM request headers for this variant only. */
+  licenseHeaders: Record<string, string>
+  /** Optional quality, such as SD, HD or 1080p. */
+  quality: string | null
+  /** Optional video language. */
+  lang: string | null
+}
+
 /**
  * Resolved media source for native video player rendering.
  */
 export interface ResolvedVideoMediaSource {
   /** The renderer type for this source. */
   renderer: 'video'
+  /** Alternatives sharing this source's metadata and timeline. */
+  sources?: ResolvedVideoVariant[]
   /** The URL to the video source or manifest. */
   src: string
   /** The MIME type of the video source. */
@@ -92,26 +112,6 @@ interface ResolvedNativeVideoAsset {
   mimeType: string | null
   /** The transport protocol used for the video. */
   transport: ResolvedVideoMediaSource['transport']
-}
-
-/**
- * Backend stream data required to build a playable media source.
- */
-export interface BackendStreamMediaSourceOptions {
-  /** Resolved stream URL returned by the backend. */
-  streamUrl: string | null
-  /** Stream manifest type returned by the backend. */
-  manifestType: string | null
-  /** Optional DRM license URL returned by the backend. */
-  licenseUrl?: string | null
-  /** Optional DRM license headers returned by the backend. */
-  licenseHeaders?: Record<string, string>
-  /** Optional storyboard WebVTT URL returned by the backend. */
-  storyboardVttUrl?: string | null
-  /** Optional chapters extracted from the player metadata. */
-  chapters?: ResolvedVideoChapter[] | null
-  /** Optional subtitle tracks extracted from the player metadata. */
-  subtitles?: ResolvedPlayerSubtitle[]
 }
 
 /**
@@ -429,82 +429,32 @@ export function resolvePlayerMediaSource(value: string | null): ResolvedPlayerMe
 /**
  * Resolves one backend-provided manifest payload into the renderer used by the embedded player.
  *
- * @param options Backend stream data returned by the resolver.
+ * @param stream Backend playback data returned by the resolver or direct player.
  * @returns Resolved player source describing whether to render DASH or a native video asset.
  */
-export function resolveBackendStreamMediaSource(
-  {
-    streamUrl,
-    manifestType,
-    licenseUrl = null,
-    licenseHeaders = {},
-    storyboardVttUrl = null,
-    chapters = null,
-    subtitles = [],
-  }: BackendStreamMediaSourceOptions,
-): ResolvedPlayerMediaSource | null {
-  const normalizedManifestType = manifestType?.trim().toLocaleLowerCase() ?? null
-  const normalizedStreamUrl = resolveAbsoluteUrl(streamUrl)
-
-  if (!normalizedStreamUrl) {
-    return null
+export function resolveBackendStreamMediaSource(stream: EntryResolvedPlayerStream): ResolvedVideoMediaSource | null {
+  const sources = stream.streams.flatMap((variant): ResolvedVideoVariant[] => {
+    const src = resolveAbsoluteUrl(variant.url)
+    if (!src) return []
+    return [{
+      src,
+      mimeType: variant.type === 'hls' ? HLS_MIME_TYPE : variant.type === 'dash' ? DASH_MIME_TYPE : `video/${variant.type}`,
+      transport: variant.type === 'hls' ? 'hls' : variant.type === 'dash' ? 'dash' : 'file',
+      quality: variant.quality, lang: variant.lang,
+      licenseUrl: resolveAbsoluteUrl(variant.licenseUrl), licenseHeaders: variant.licenseHeaders,
+    }]
+  })
+  const first = sources[0]
+  if (!first) return null
+  return {
+    renderer: 'video', ...first, sources,
+    storyboard: stream.storyboard, storyboardVttUrl: resolveAbsoluteUrl(stream.storyboardVttUrl),
+    chapters: stream.chapters,
+    subtitles: stream.subtitles.flatMap((subtitle) => {
+      const link = resolveAbsoluteUrl(subtitle.link)
+      return link ? [{ ...subtitle, link }] : []
+    }),
   }
-
-  if (normalizedManifestType === 'mpd' || normalizedManifestType === 'dash') {
-    return {
-      renderer: 'video',
-      src: normalizedStreamUrl,
-      mimeType: DASH_MIME_TYPE,
-      transport: 'dash',
-      licenseUrl: resolveAbsoluteUrl(licenseUrl),
-      licenseHeaders,
-      storyboard: null,
-      chapters,
-      storyboardVttUrl: resolveAbsoluteUrl(storyboardVttUrl),
-      subtitles: subtitles.flatMap((subtitle) => {
-        const link = resolveAbsoluteUrl(subtitle.link)
-        return link ? [{ ...subtitle, link }] : []
-      }),
-    }
-  }
-
-  if (normalizedManifestType === 'm3u8' || normalizedManifestType === 'hls') {
-    return {
-      renderer: 'video',
-      src: normalizedStreamUrl,
-      mimeType: HLS_MIME_TYPE,
-      transport: 'hls',
-      licenseUrl: null,
-      licenseHeaders: {},
-      storyboard: null,
-      chapters,
-      storyboardVttUrl: resolveAbsoluteUrl(storyboardVttUrl),
-      subtitles: subtitles.flatMap((subtitle) => {
-        const link = resolveAbsoluteUrl(subtitle.link)
-        return link ? [{ ...subtitle, link }] : []
-      }),
-    }
-  }
-
-  if (normalizedManifestType === 'mp4') {
-    return {
-      renderer: 'video',
-      src: normalizedStreamUrl,
-      mimeType: 'video/mp4',
-      transport: 'file',
-      licenseUrl: null,
-      licenseHeaders: {},
-      storyboard: null,
-      chapters,
-      storyboardVttUrl: resolveAbsoluteUrl(storyboardVttUrl),
-      subtitles: subtitles.flatMap((subtitle) => {
-        const link = resolveAbsoluteUrl(subtitle.link)
-        return link ? [{ ...subtitle, link }] : []
-      }),
-    }
-  }
-
-  return resolvePlayerMediaSource(streamUrl)
 }
 
 /**

@@ -915,7 +915,7 @@ export function installSeekOnClick(player: VideoJsPlayer, options: InstallSeekOn
 }
 
 /**
- * Keeps the playback rate badge in sync with the player.
+ * Keeps the playback rate badge in sync and preserves menu button focus handling.
  *
  * The player class is present only while a rate other than normal speed is
  * active, so the control bar can show the current rate next to the speedometer
@@ -938,6 +938,10 @@ export function installPlaybackRateBadge(player: VideoJsPlayer) {
     )
 
     if (rateLabel) {
+      // Video.js checks the wrapper's first child to keep the menu open on button focus.
+      if (rateLabel.parentElement?.firstChild === rateLabel) {
+        rateLabel.parentElement.append(rateLabel)
+      }
       rateLabel.textContent = String(playbackRate) + 'x'
     }
 

@@ -26,6 +26,7 @@ mod regex_helpers;
 mod set_nested_fields;
 mod sort_items;
 mod types;
+mod zip_fields;
 
 // Re-export the shared building blocks so the rest of the crate keeps
 // importing them from `crate::scrapyfy::post_processes` without having to
@@ -120,6 +121,14 @@ pub(super) fn apply_action_with_response(
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ScraperPostProcess {
+    /// Zips aligned child values into explicit objects, traversing parent arrays.
+    ZipFields {
+        /// Path of the group to materialize as an object array.
+        source: String,
+        /// Child whose value count determines the number of objects.
+        values_field: String,
+    },
+
     /// Projects a JSON array of directional relations into a template object.
     ProjectJsonRelations {
         /// Output field containing the generated object.
@@ -454,6 +463,17 @@ impl ScraperPostProcess {
     /// regex, empty field name, invalid math expression, etc.).
     pub fn validate(&self, owner: &str) -> Result<()> {
         match self {
+            ScraperPostProcess::ZipFields {
+                source,
+                values_field,
+            } => {
+                anyhow::ensure!(
+                    !source.trim().is_empty() && !values_field.trim().is_empty(),
+                    "{owner} zip_fields requires non-empty source and values_field"
+                );
+                Ok(())
+            }
+
             ScraperPostProcess::ProjectJsonRelations {
                 target,
                 pointer,
@@ -601,6 +621,14 @@ impl ScraperPostProcess {
         context: &ScraperPostProcessContext<'_>,
     ) -> Result<()> {
         match self {
+            ScraperPostProcess::ZipFields {
+                source,
+                values_field,
+            } => {
+                zip_fields::apply(root, &node_helpers::split_path(source), values_field);
+                Ok(())
+            }
+
             ScraperPostProcess::ProjectJsonRelations {
                 target,
                 pointer,

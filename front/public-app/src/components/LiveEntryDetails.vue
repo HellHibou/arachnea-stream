@@ -12,11 +12,10 @@ import {
 import {
   resolveBackendStreamMediaSource,
   resolveIframeMediaSource,
-  resolvePlayerMediaSource,
   type ResolvedPlayerMediaSource,
 } from '@/services/players'
 import { useI18n } from '@/i18n'
-import type { EntryDetails as EntryDetailsModel, EntryPlayableItem, EntryPlayer, EntryResolvedPlayerStream } from '@/types/entry'
+import type { EntryDetails as EntryDetailsModel, EntryPlayableItem, EntryPlayer } from '@/types/entry'
 import type { LiveSelectionTarget, MediaItem, ThumbnailImageFit } from '@/types/media'
 import { MSG_LIVE_TV, MSG_LIVE, MSG_LIVE_PLAYING } from '@/i18n/index.ts';
 import { resolveImageUrl } from '@/composables/media/useFailedImageUrls'
@@ -110,10 +109,6 @@ const isLiveSelectionLoading = shallowRef(false)
 const liveSelectionErrorMessage = shallowRef<string | null>(null)
 /** Resolved media source for the selected live player. */
 const resolvedLiveMediaSource = shallowRef<ResolvedPlayerMediaSource | null>(null)
-/** Resolved stream response retained to try alternative media URLs. */
-const resolvedLiveStream = shallowRef<EntryResolvedPlayerStream | null>(null)
-/** Active URL index within the resolved live stream. */
-const activeResolvedLiveStreamIndex = shallowRef(0)
 /** Open URL for the selected live media. */
 const resolvedLiveMediaOpenUrl = shallowRef<string | null>(null)
 /** Whether live media resolution is currently loading. */
@@ -301,9 +296,7 @@ async function resolveSelectedLiveMedia(player: EntryPlayer | null) {
   const requestId = ++latestMediaResolutionRequestId
 
   resolvedLiveMediaSource.value = null
-  resolvedLiveStream.value = null
-  activeResolvedLiveStreamIndex.value = 0
-  resolvedLiveMediaOpenUrl.value = player?.directLink ?? player?.webLink ?? null
+  resolvedLiveMediaOpenUrl.value = player?.streams[0]?.url ?? player?.webLink ?? null
   resolvedLiveMediaErrorMessage.value = null
 
   if (!selectedLiveItem.value?.source || !player) {
@@ -313,32 +306,20 @@ async function resolveSelectedLiveMedia(player: EntryPlayer | null) {
   isResolvedLiveMediaLoading.value = true
 
   try {
-    let nextResolvedStream: EntryResolvedPlayerStream | null = null
     const nextMediaSource = player.resolver
       ? await getStream(player).then((resolvedStream) =>
           !resolvedStream
             ? null
             : 'embedLink' in resolvedStream
               ? resolveIframeMediaSource(resolvedStream.embedLink)
-              : (() => {
-                  nextResolvedStream = resolvedStream
-                  return resolveBackendStreamMediaSource({
-                    streamUrl: resolvedStream.streamUrl[0] ?? null,
-                    manifestType: resolvedStream.manifestType,
-                    licenseUrl: resolvedStream.licenseUrl,
-                    licenseHeaders: resolvedStream.licenseHeaders,
-                    storyboardVttUrl: resolvedStream.storyboardVttUrl,
-                    subtitles: resolvedStream.subtitles,
-                  })
-                })(),
+              : resolveBackendStreamMediaSource(resolvedStream),
         )
-      : resolvePlayerMediaSource(player.directLink)
+      : resolveBackendStreamMediaSource(player)
 
     if (requestId !== latestMediaResolutionRequestId) {
       return
     }
 
-    resolvedLiveStream.value = nextResolvedStream
     if (!nextMediaSource) {
       resolvedLiveMediaErrorMessage.value = t('entry.videoUnavailable')
       return
@@ -359,25 +340,9 @@ async function resolveSelectedLiveMedia(player: EntryPlayer | null) {
   }
 }
 
-/** Tries the next resolved live URL after a Video.js source error. */
+/** Displays the final failure after the renderer exhausts the selected player's variants. */
 function handleLiveMediaSourceError() {
-  const stream = resolvedLiveStream.value
-  const nextIndex = activeResolvedLiveStreamIndex.value + 1
-  const nextUrl = stream?.streamUrl[nextIndex]
-  if (!stream || !nextUrl) {
-    resolvedLiveMediaErrorMessage.value = t('entry.videoUnavailable')
-    return
-  }
-
-  activeResolvedLiveStreamIndex.value = nextIndex
-  resolvedLiveMediaSource.value = resolveBackendStreamMediaSource({
-    streamUrl: nextUrl,
-    manifestType: stream.manifestType,
-    licenseUrl: stream.licenseUrl,
-    licenseHeaders: stream.licenseHeaders,
-    storyboardVttUrl: stream.storyboardVttUrl,
-    subtitles: stream.subtitles,
-  })
+  resolvedLiveMediaErrorMessage.value = t('entry.videoUnavailable')
 }
 
 /**
@@ -536,7 +501,6 @@ watch(() => JSON.stringify([props.initialSource, props.initialChannel]), () => {
   isLiveSelectionLoading.value = false
   isResolvedLiveMediaLoading.value = false
   resolvedLiveMediaSource.value = null
-  resolvedLiveStream.value = null
   resolvedLiveMediaOpenUrl.value = null
   liveSelectionErrorMessage.value = null
   resolvedLiveMediaErrorMessage.value = null

@@ -886,21 +886,22 @@ décrire les options de lecture.
 |---|---|---|
 | `name` | `string` | Nom du lecteur |
 | `lang` | `string` | Langue de la piste |
-| `direct-link` | `string` | Lien direct (média immédiatement lisible) |
+| `streams` | `object[]` | Flux directs ; métadonnées communes au niveau du lecteur ; voir ci-dessous |
 | `resolver` | `string` | Identifiant global du résolveur (format plat, ex: `stream-resolver`, `m6play-video`) |
 | `target` | `string` | Cible pour le résolveur (URL ou identifiant) |
 | `resolver > kind` | `string` | Type de résolveur (format objet legacy, ex: `tf1-video`, `m6play-video`) |
 | `resolver > target_id` | `string` | Identifiant cible pour le résolveur (format objet legacy) |
 | `resolver > stream > kind` | `string` | Type de flux (legacy, ex: `tf1-license-proxy`, `widevine-license-proxy`) |
-| `subtitles` | `object[]` | Pistes externes de sous-titres WebVTT ordonnées portées par le lecteur (optionnel) |
+| `subtitles` | `object[]` | Pistes externes WebVTT communes aux flux |
 
-Un joueur est soit un `direct-link` (média direct), soit un descripteur
-`{ resolver, target }` (résolution par le backend). Les deux champs `resolver`
-et `target` peuvent être déclarés en format plat (champs racine) ou en format
-objet legacy (`resolver > kind`, `resolver > target_id`). Un lecteur peut aussi
-porter `subtitles` avec la même forme que les pistes des flux résolus ; le
-frontend utilise ces pistes lorsque `get_stream` n'en renvoie aucune et pour les
-lecteurs `direct-link`.
+Un player fournit un tableau `streams` directement lisible ou un descripteur
+`{ resolver, target }` à résoudre côté backend. Les hébergeurs distincts restent des
+players séparés ; formats, qualités et langues interchangeables appartiennent à
+`streams`. Les champs communs `storyboard_vtt_url`, `storyboard`, `chapters` et `subtitles`
+sont voisins de `streams` sur le lecteur, ou à la racine des réponses `get_stream`
+et `resolve_stream`. Aucune rétrocompatibilité du schéma vidéo : l’ancien objet
+`stream`, `direct-link`, `stream_url` et `manifest_type` ne sont plus lus ni produits. Déployer serveur et
+frontend ensemble.
 
 Pour `m6play-video` et `m6play-live`, la préparation optionnelle de la clé d'API
 Gigya dispose de cinq secondes au total pour la page de connexion et le bundle
@@ -967,23 +968,40 @@ une réponse de type union exclusive :
 
 | Champ | Type | Description |
 |---|---|---|
-| `stream_url` | `string[]` | URLs de flux média (première = préférée) |
-| `manifest_type` | `string` | Type de manifeste (`mpd`, `m3u8`, etc.) |
-| `title` | `string` | Titre optionnel extrait par le résolveur |
-| `image/title > link` | `string` | Image de titre optionnelle, sérialisée en JSON sous `{ "image/title": { "link": "…" } }` |
-| `license_url` | `string` | URL du proxy de licence DRM (optionnel) |
-| `license_headers` | `object` | En-têtes HTTP pour la requête de licence |
-| `storyboard_vtt_url` | `string` | URL du WebVTT de miniatures du storyboard (optionnel, préféré à `storyboard`) |
-| `storyboard` | `object` | Métadonnées du sprite storyboard (optionnel) |
-| `subtitles` | `object[]` | Pistes externes de sous-titres WebVTT ordonnées (optionnel) |
-| `embed-link` | `string` | URL de repli iframe (exclusif de `stream_url`) |
+| `streams` | `object[]` | Alternatives non vides, sans `id` |
+| `streams > url` | `string` | URL du média ou du manifeste |
+| `streams > type` | `string` | `hls`, `dash`, `mp4`, `webm`, `ogg` |
+| `streams > quality` | `string` | Label de qualité facultatif (HD, SD, 1080p) |
+| `streams > lang` | `string` | Langue facultative ; absente = inconnue |
+| `streams > license_url` | `string` | Licence DRM de cette variante uniquement |
+| `streams > license_headers` | `object` | En-têtes de licence propres à cette variante |
+| `storyboard_vtt_url` | `string` | URL WebVTT des miniatures communes |
+| `storyboard` | `object` | Métadonnées du sprite commun |
+| `chapters` | `object[]` | Chapitres de la chronologie commune |
+| `subtitles` | `object[]` | Pistes WebVTT externes communes |
+| `title`, `image/title > link` | `string` | Titre/image facultatifs du player |
+| `embed-link` | `string` | Repli iframe, exclusif de `streams` |
 
-Les champs `stream_url` et `embed-link` sont mutuellement exclusifs :
-- `stream_url` produit un lecteur vidéo natif
-- `embed-link` produit une iframe
+La qualité des variantes utilise `quality` (SD, HD ou 1080p, par exemple).
+L’ancien champ de variante `label` n’est plus accepté ; les libellés des
+sous-titres et des lecteurs sont des champs distincts.
 
-Les `stream_headers` du résolveur ne font pas partie de la réponse publique : ils sont intégrés
-aux URLs de flux proxy générées.
+`streams` et `embed-link` sont exclusifs. Chaque source porte son format et son
+contexte DRM ; les en-têtes de transport restent intégrés aux URL proxy. Aucun
+identifiant dans les sources : leur index est interne à la génération de lecture.
+
+Le frontend préfère HLS, puis DASH, puis MP4 (autres fichiers pris en charge ensuite),
+après application des choix manuels de langue/qualité. Les qualités fixes et langues
+se sélectionnent dans le lecteur ; les contrôles du manifeste adaptatif actif restent
+accessibles. AnimeUltime regroupe HD/SD, Odysee regroupe HLS/MP4 dans un seul player.
+Une erreur vidéo fatale essaie les variantes restantes de même langue/qualité,
+puis les autres qualités, la langue inconnue et les autres langues. Aucun changement
+automatique d'hébergeur. L'erreur finale n'est émise qu'après épuisement des flux.
+Un chargement actif dispose d'un délai de 20 secondes ; pause, refus d'autoplay et
+échec des ressources auxiliaires ne sont pas des erreurs vidéo fatales. Une bascule
+conserve l'état de lecture compatible, les métadonnées communes et la fenêtre live.
+
+Les champs de métadonnées ci-dessous sont au même niveau que `streams`.
 
 Lorsqu'un résolveur déclare `storyboard_vtt_url` avec l'action `resolve_url`, `proxy: true` et une
 règle `proxy_replace_all`, `get_stream` retourne une URL proxy. Le proxy réécrit alors chaque cue
@@ -1173,7 +1191,7 @@ Rquest conserve la fenêtre bornée de réception auparavant accordée à l’in
 avant de démarrer son délai habituel de transfert ; le manifeste doit toujours
 être reçu intégralement. La priorité du callback, les refus de contenu et le
 budget global de recherche restent inchangés. Ce routage s’applique aussi à la
-résolution de l’URL finale du manifeste. Le champ `stream_url` retourné par
+résolution de l’URL finale du manifeste. Chaque URL `streams[].url` retournée par
 `get_stream` conserve le proxy HTTP local, mais ne transmet ni pays proxy ni
 statuts de rejet géoproxy :
 la lecture ne passe donc plus par un proxy géolocalisé. La liste de territoires

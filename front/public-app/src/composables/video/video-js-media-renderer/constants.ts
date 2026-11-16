@@ -1,3 +1,6 @@
+/** CSS class suppressing initial playback overlays during an in-place variant switch. */
+export const VARIANT_SWITCHING_CLASS = 'arachnea-variant-switching'
+
 /** Offset in seconds applied to live playback timer. */
 export const TIMER_OFFSET_LIVE = 10
 

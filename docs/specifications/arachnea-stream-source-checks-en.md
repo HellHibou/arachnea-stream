@@ -410,7 +410,7 @@ there are no runner retries, loops or automatic pagination.
 | `get_live` | Required `query_url`, passed as the facade's channel identifier or URL | One object containing `players` | `ClientCache` |
 | `get_banners` | Required `query_url` | One object containing `banners` | `ClientCache` |
 | `get_recommendations` | Required `query_url`; optional positive integer `page`, default `1` | One object containing `entries` | `FullCache` |
-| `resolve_stream` | Required HTTP(S) `query_url` | One normalized stream object containing `stream_url` | `NoCache` |
+| `resolve_stream` | Required HTTP(S) `query_url` | One normalized stream object containing `streams` | `NoCache` |
 | `get_episode` | Required `query_url` | Individual legacy episode query objects, usually containing `players` | `ClientCache` |
 
 `page` must be a literal integer, not a string or a dynamic reference. Do not put

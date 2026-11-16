@@ -1,12 +1,10 @@
-import type { EntryPlayer, EntryPlayerResolver, EntryPlayerStoryboard } from '@/types/entry'
-import type { Collection } from '@/types/media'
+import type { EntryPlayer, EntryPlayerResolver } from '@/types/entry'
 
 import { call_api } from '../apiClient'
 import { buildPlayerLabel } from '../primitives/formatting'
 import {
   buildMediaId,
   firstNonEmptyString,
-  firstNumber,
   isJsonRecord,
   normalizeProxyCountries,
   readBooleanFlag,
@@ -14,11 +12,9 @@ import {
   readRecordList,
   resolveAssetUrl,
   resolveEntryUrl,
-  toNonNegativeInteger,
-  toPositiveInteger,
 } from '../primitives/readers'
 import type { JsonRecord } from '../types'
-import { normalizeResolvedPlayerSubtitles, normalizeRustifyChapters } from './stream'
+import { normalizePlayerStream } from './stream'
 
 /**
  * Executes the backend players endpoint and returns the raw players payload.
@@ -79,7 +75,7 @@ export function normalizePlayersResponse(payload: unknown, source: string): Entr
  * @param entry Raw backend player entry.
  * @param index Stable fallback index used to build a unique player id.
  * @param source Source name used to resolve embed URLs.
- * @returns Normalized player, or `null` when no usable embed URL exists.
+ * @returns Normalized player, or null when no usable video or resolver is available.
  */
 function normalizeEntryPlayer(
   entry: JsonRecord,
@@ -87,10 +83,15 @@ function normalizeEntryPlayer(
   source: string,
 ): EntryPlayer | null {
   const embedLink = resolveEntryUrl(firstNonEmptyString([entry['embed-link']]), source)
-  const directLink = resolveEntryUrl(
-    firstNonEmptyString([entry['direct-link'], entry.directLink]),
-    source,
-  )
+  const stream = normalizePlayerStream(entry)
+  if (stream) {
+    if (stream.storyboard) stream.storyboard.url = resolveAssetUrl(stream.storyboard.url, source) ?? stream.storyboard.url
+    stream.storyboardVttUrl = resolveAssetUrl(stream.storyboardVttUrl, source)
+    stream.streams = stream.streams.flatMap((variant) => {
+      const url = resolveEntryUrl(variant.url, source)
+      return url ? [{ ...variant, url }] : []
+    })
+  }
   const webLink = resolveEntryUrl(
     firstNonEmptyString([entry['web-link'], entry.webLink]),
     source,
@@ -101,40 +102,14 @@ function normalizeEntryPlayer(
   const name = firstNonEmptyString([entry.name])
   const lang = firstNonEmptyString([entry.lang])
   const label = buildPlayerLabel(name, lang, index)
-  const storyboard = normalizeEntryPlayerStoryboard(entry, source)
-  const chapters = normalizeRustifyChapters(entry.chapters ?? entry['chapters'])
-  const subtitles = normalizeResolvedPlayerSubtitles(entry.subtitles ?? entry['subtitles'])
-
-  if (!embedLink && !directLink && !resolver) {
-    return null
-  }
-
-  if (!embedLink && !directLink) {
-    return {
-      id: buildMediaId(index, resolver?.targetId ?? null, label, source),
-      label,
-      directLink: null,
-      webLink,
-      name,
-      lang,
-      resolver,
-      storyboard,
-      chapters,
-      subtitles,
-    }
-  }
- 
+  if (!embedLink && !stream?.streams.length && !resolver) return null
   return {
-    id: buildMediaId(index, directLink ?? embedLink, label, source),
-    label,
-    directLink,
-    webLink,
-    name,
-    lang,
-    resolver,
-    storyboard,
-    chapters,
-    subtitles,
+    id: buildMediaId(index, stream?.streams[0]?.url ?? resolver?.targetId ?? embedLink, label, source),
+    label, webLink, name, lang, resolver,
+    ...(stream ?? {
+      streams: [], imageTitleLink: null, storyboardVttUrl: null,
+      storyboard: null, chapters: null, subtitles: [],
+    }),
   }
 }
 
@@ -220,51 +195,4 @@ function normalizeEntryPlayerResolver(entry: JsonRecord): EntryPlayerResolver | 
 export function normalizeEntryTrailerResolver(entry: JsonRecord): EntryPlayerResolver | null {
   const trailer = readRecordList(entry.trailer)[0] ?? null
   return trailer ? normalizeEntryPlayerResolver(trailer) : null
-}
-
-/**
- * Converts backend storyboard metadata into a Video.js sprite thumbnail configuration.
- *
- * @param entry Raw backend player entry.
- * @param source Source name used to resolve storyboard assets.
- * @returns Normalized storyboard configuration, or `null` when incomplete.
- */
-function normalizeEntryPlayerStoryboard(
-  entry: JsonRecord,
-  source: string,
-): EntryPlayerStoryboard | null {
-  const url = resolveAssetUrl(
-    firstNonEmptyString([
-      readPath(entry, 'storyboard', 'link'),
-      readPath(entry, 'storyboard', 'url'),
-    ]),
-    source,
-  )
-  const width = toPositiveInteger(firstNumber(readPath(entry, 'storyboard', 'width')))
-  const height = toPositiveInteger(firstNumber(readPath(entry, 'storyboard', 'height')))
-  const columns = toPositiveInteger(firstNumber(readPath(entry, 'storyboard', 'columns')))
-  const rows = toPositiveInteger(firstNumber(readPath(entry, 'storyboard', 'rows'))) ?? 1
-  const firstPageIndex = toNonNegativeInteger(firstNumber(readPath(entry, 'storyboard', 'first_page_index'))) ?? 0
-  const indexPadding = toNonNegativeInteger(firstNumber(readPath(entry, 'storyboard', 'index_padding'))) ?? 0
-  const configuredInterval = firstNumber(readPath(entry, 'storyboard', 'interval'))
-
-  if (!url || !columns) {
-    return null
-  }
-
-  const interval =
-    configuredInterval !== null && Number.isFinite(configuredInterval) && configuredInterval > 0
-      ? configuredInterval
-      : null
-
-  return {
-    url,
-    width: width ?? undefined,
-    height: height ?? undefined,
-    columns,
-    rows,
-    firstPageIndex,
-    indexPadding,
-    interval: interval !== null && Number.isFinite(interval) && interval > 0 ? interval : null,
-  }
 }

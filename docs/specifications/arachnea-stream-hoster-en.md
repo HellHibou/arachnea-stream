@@ -41,7 +41,7 @@ The equivalent legacy object form uses `resolver > kind: stream-resolver` and
 |---|---|---|---|
 | `can_resolve_url` | `static` | `url`, `origine` | Nonblank scalar `resolver` when the URL matches |
 | `can_resolve_html` | `static` or `html` | `url`, `origine`, `html` | Nonblank scalar `resolver` when the document matches |
-| `resolve_stream` | `html`, `json` or `text` | `url`, `origine`; `html` only in the HTML fallback phase | One row with `stream_url`, or a terminal `error_message` |
+| `resolve_stream` | `html`, `json` or `text` | `url`, `origine`; `html` only in the HTML fallback phase | One row with `streams`, or a terminal `error_message` |
 
 `url` is the original target for direct recognition/extraction and the final
 URL after redirects for HTML recognition/extraction. `origine` is deliberately
@@ -84,7 +84,7 @@ Do not claim every HTML page with a generic `<video>` tag.
    errors; they do not produce this fallback.
 
 A nonblank `error_message` on the first extraction row takes precedence over
-`stream_url` in both phases and stops resolution. Use it for a confirmed business
+`streams` in both phases and stops resolution. Use it for a confirmed business
 failure such as a removed video. A blank or absent message has no terminal effect.
 Do not emit a permanent error message merely because an optional selector failed.
 
@@ -95,21 +95,25 @@ and proxies the result. Use the exact underscore spellings shown.
 
 | Field | YAML output type | Required / meaning |
 |---|---|---|
-| `stream_url` | `string[]` | Required for success; ordered absolute media URLs, first preferred; trimmed blank values are removed |
-| `manifest_type` | `string` | Optional; e.g. `m3u8`, `mpd`, `mp4` |
-| `error_message` | `string` | Optional terminal business error; overrides a stream |
-| `stream_headers` | `object` | Optional map of upstream header names to nonblank string values |
-| `title` | `string` | Optional title |
-| `image/title > link` | `string` | Optional title image URL |
-| `license_url` | `string` | Optional license endpoint for an already supported DRM flow |
-| `license_headers` | `object` | Optional string-valued DRM request headers |
-| `storyboard_vtt_url` | `string` | Optional browser-readable thumbnail WebVTT URL |
-| `storyboard` | `object` | Optional sprite metadata, below |
-| `subtitles` | `object[]` | Optional ordered external WebVTT tracks, below |
+| `streams` | `object[]` | Required nonempty variants; no source IDs |
+| `streams > url` | `string` | Required absolute media URL |
+| `streams > type` | `string` | Required canonical format: hls, dash, mp4, webm or ogg |
+| `streams > quality`, `streams > lang` | `string` | Optional quality label and language |
+| `streams > stream_headers` | `object` | Internal per-variant upstream headers |
+| `streams > license_url`, `streams > license_headers` | `string`, `object` | Optional per-variant DRM endpoint and headers |
+| `storyboard_vtt_url`, `storyboard` | `string`, `object` | Shared preview metadata |
+| `chapters`, `subtitles` | `object[]` | Shared chapters and external subtitle tracks |
+| `title`, `image/title > link` | `string` | Optional player title/image |
+| `error_message` | `string` | Optional terminal business error, overriding a stream |
 
-`stream-url` and `manifest-type` are accepted compatibility aliases; new YAML
-should use `stream_url` and `manifest_type`. Only declaring `embed-link` does not
-produce an extracted stream. `chapters` is not populated by this YAML converter.
+Variant quality uses `quality` (for example SD, HD or 1080p). The former variant
+field `label` is unsupported; subtitle and player display labels are separate.
+
+Only this structured contract is accepted. No former `stream` wrapper, `stream_url`, `manifest_type`,
+`stream-url` or `manifest-type` compatibility aliases. `embed-link` alone does not
+produce an extracted video stream. Invalid variants are skipped; at least one
+usable variant is required. Shared chapters and subtitles are read at the same level as `streams`.
+Use `zip_fields` to materialize aligned extraction fields before conversion.
 
 Use `resolve_url` to turn relative extraction results into absolute URLs. Stream
 headers are internal: they are embedded in proxy requests and omitted from public
@@ -187,14 +191,14 @@ queries:
           - type: format_text
             argument: "{url}"
     entries:
-      - name: stream_url
+      - name: streams > url
         type: string[]
         selector: "video source[src]"
         actions:
           - type: get_attribut
             argument: src
           - type: resolve_url
-      - name: manifest_type
+      - name: streams > type
         type: string
         select: first
         actions:
@@ -206,12 +210,16 @@ queries:
         selector: title
         actions:
           - type: get_text
-      - name: stream_headers > Referer
+      - name: streams > stream_headers > Referer
         type: string
         select: first
         actions:
           - type: format_text
             argument: "{url}"
+    post_process:
+      - type: zip_fields
+        source: "streams"
+        values_field: url
 ```
 
 ## 6. Add content recognition without another embed fetch
@@ -262,7 +270,7 @@ copy a provider URL, identifier or selector without checking the target response
 2. Register the hoster and check activation and priority.
 3. Use specific recognition; exercise a nonmatching URL/document as well.
 4. For content recognition, reuse HTML explicitly and handle final redirected URLs.
-5. Extract a single result row, including all candidate media URLs in `stream_url`.
+5. Extract a single result row, including all candidate media URLs in `streams`.
 6. Keep embed request headers and media request headers separate. Validate access
    to the manifest, its segments, subtitles and sprite resources where applicable.
 7. Check a removed video produces a meaningful error without hiding ordinary

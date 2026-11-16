@@ -55,7 +55,7 @@ queries:
           - type: format_text
             argument: "1"
     entries:
-      - name: stream_url
+      - name: streams > url
         type: string[]
         actions:
           # Primary: packed player page (Dean Edwards Packer), then `file: "...".m3u8`.
@@ -91,7 +91,7 @@ queries:
                   - audio/x-mpegurl
       # Fallback: unpacked page with `file: "...".m3u8` (unpack_packer drops the
       # whole text when the page is not a Dean Edwards Packer block).
-      - name: stream_url
+      - name: streams > url
         type: string[]
         actions:
           - type: get_response_body
@@ -120,7 +120,7 @@ queries:
                   - audio/mpegurl
                   - audio/x-mpegurl
       # Fallback: JSON-like `sources: [{file: "..."}]` player declaration.
-      - name: stream_url
+      - name: streams > url
         type: string[]
         actions:
           - type: get_response_body
@@ -149,7 +149,7 @@ queries:
                   - audio/mpegurl
                   - audio/x-mpegurl
       # Fallback: `hls2` / `hls3` / `hls4` keys used by some player variants.
-      - name: stream_url
+      - name: streams > url
         type: string[]
         actions:
           - type: get_response_body
@@ -177,7 +177,7 @@ queries:
                   - application/x-mpegurl
                   - audio/mpegurl
                   - audio/x-mpegurl
-      - name: manifest_type
+      - name: streams > type
         type: string
         actions:
           - type: format_text
@@ -219,3 +219,7 @@ queries:
           - type: regex_find_all
             pattern: '<title>([^<]*)</title>'
             format: "{1}"
+    post_process:
+      - type: zip_fields
+        source: "** > streams"
+        values_field: url

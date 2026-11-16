@@ -11,8 +11,8 @@ use arachnea_core::persistence::CredentialsStore;
 use arachnea_scrapyfy::{HttpClient, ScraperAgregator, ScraperHttpConfig};
 
 use crate::services::player_resolver::{
-    PlayerResolverEndpoints, PlayerStreamRequest, PlayerStreamResolver, ProxiedStreamResponse,
-    ResolvedPlayerStream,
+    PlayerResolverEndpoints, PlayerStream, PlayerStreamRequest, PlayerStreamResolver,
+    ProxiedStreamResponse, ResolvedPlayerStream, ResolvedStreamSource,
 };
 
 use crate::PLAYER_DEFAULT_USER_AGENT as TV5MONDEPLUS_USER_AGENT;
@@ -149,15 +149,21 @@ async fn resolve_tv5mondeplus_stream(
         });
 
     Ok(ResolvedPlayerStream {
-        stream_url: vec![proxied_media_url(
-            &selected_format.media_locator,
-            endpoints.http_proxy_public_path.as_deref(),
-            effective_proxy_countries,
-        )],
-        manifest_type: Some(selected_format.manifest_type),
-        license_url,
-        license_headers: HashMap::new(),
-        storyboard_vtt_url,
+        stream: PlayerStream {
+            streams: vec![ResolvedStreamSource {
+                url: proxied_media_url(
+                    &selected_format.media_locator,
+                    endpoints.http_proxy_public_path.as_deref(),
+                    effective_proxy_countries,
+                ),
+                source_type: selected_format.manifest_type,
+                license_url,
+                license_headers: HashMap::new(),
+                ..Default::default()
+            }],
+            storyboard_vtt_url,
+            ..Default::default()
+        },
         ..Default::default()
     })
 }
@@ -313,11 +319,11 @@ fn select_best_format(entitlement: &Value) -> Option<SelectedTv5mondeplusFormat>
 
     formats
         .iter()
-        .find_map(|format| selected_format(format, "DASH", "mpd"))
+        .find_map(|format| selected_format(format, "DASH", "dash"))
         .or_else(|| {
             formats
                 .iter()
-                .find_map(|format| selected_format(format, "HLS", "m3u8"))
+                .find_map(|format| selected_format(format, "HLS", "hls"))
         })
 }
 

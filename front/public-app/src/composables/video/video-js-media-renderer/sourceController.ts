@@ -25,12 +25,13 @@ import { applyTextTrackSelection } from './trackPreferences'
 import type { VideoJsTrackSelectionConfig } from './trackPreferences'
 import { disableControlBarMenuHoverBehavior } from './quality'
 import { installSeekOnClick } from './controls'
+import { VARIANT_SWITCHING_CLASS } from './constants'
 
 interface SourceControllerOptions {
   props: VideoJsMediaRendererProps
   getPlayer: () => VideoJsPlayer | null
   configurePlayer: (player: VideoJsPlayer) => void
-  quality: Pick<QualityController, 'retain' | 'sync' | 'install' | 'reset'>
+  quality: Pick<QualityController, 'retain' | 'sync' | 'install' | 'reset' | 'captureState'>
   storyboard: Pick<StoryboardController, 'configure' | 'syncInterval' | 'reset'>
   ui: Pick<PlayerUiState, 'startSource' | 'metadataLoaded' | 'complete'>
   getTrackSelectionConfig?: () => VideoJsTrackSelectionConfig | null | undefined
@@ -60,6 +61,7 @@ export function createSourceController(options: SourceControllerOptions) {
     onTrackPreferencesApplied,
   } = options
   let loadId = 0
+  let currentSpriteThumbnailOptions: Record<string, unknown> = {}
   let pendingSourceRestoreCleanup: (() => void) | null = null
   let pendingTrackRestoreCleanup: (() => void) | null = null
   let remoteSubtitleTracks: VideoJsRemoteTextTrackHandle[] = []
@@ -76,6 +78,7 @@ export function createSourceController(options: SourceControllerOptions) {
   /** Invalidates pending loads and releases all source-owned resources. */
   function reset() {
     ++loadId
+    currentSpriteThumbnailOptions = {}
     clearSourceListeners()
     pendingTrackRestoreCleanup?.()
     pendingTrackRestoreCleanup = null
@@ -209,6 +212,7 @@ export function createSourceController(options: SourceControllerOptions) {
     const isCurrent = () => operationId === loadId && getPlayer() === player
     const { playerState, switchTime, switchAutoplay } = transition
     quality.retain(playerState)
+    player.error(null)
     ui.startSource(switchAutoplay)
 
     const resolved = await resolveSpriteThumbnailOptions(source)
@@ -216,6 +220,7 @@ export function createSourceController(options: SourceControllerOptions) {
     const trackSelectionConfig = getTrackSelectionConfig?.() ?? undefined
     storyboard.configure(resolved)
     const spriteThumbnailOptions = resolved.options
+    currentSpriteThumbnailOptions = spriteThumbnailOptions
     trackOwner = player
 
     let playbackRestored = false
@@ -246,7 +251,11 @@ export function createSourceController(options: SourceControllerOptions) {
         return
       }
 
-      player.currentTime(safePlaybackTime)
+      const ranges = player.seekable()
+      const restoredTime = !Number.isFinite(duration) && ranges && ranges.length > 0
+        ? Math.max(ranges.start(0), Math.min(safePlaybackTime, ranges.end(ranges.length - 1)))
+        : safePlaybackTime
+      player.currentTime(restoredTime)
       playbackRestored = true
     }
 
@@ -354,8 +363,86 @@ export function createSourceController(options: SourceControllerOptions) {
     quality.install(player, source)
   }
 
+  /**
+   * Replaces a variant of the same video without running player initialization.
+   * Shared storyboard and remote tracks remain mounted; only source-owned quality hooks change.
+   * @param player Current Video.js instance.
+   * @param source Alternative source sharing the current content and timeline.
+   * @param resumePlayback Playback intent retained before a failed source stopped playing.
+   */
+  function replaceVariantSource(player: VideoJsPlayer, source: ResolvedVideoMediaSource, resumePlayback = false): void {
+    const operationId = ++loadId
+    clearSourceListeners()
+    pendingTrackRestoreCleanup?.()
+    pendingTrackRestoreCleanup = null
+    const isCurrent = () => operationId === loadId && getPlayer() === player
+    const position = player.currentTime() ?? 0
+    const shouldResume = resumePlayback || !player.paused()
+    const state = quality.captureState(player)
+    quality.reset()
+    quality.retain(state)
+    player.error(null)
+    let positionRestored = false
+    let playbackRequested = false
+    player.addClass(VARIANT_SWITCHING_CLASS)
+
+    /** Keeps initial playback overlays suppressed until the replacement is actually playing. */
+    const finishSwitch = () => {
+      if (isCurrent()) player.removeClass(VARIANT_SWITCHING_CLASS)
+    }
+    /** Releases suppression after a paused video's replacement frame and seek are ready. */
+    const finishPausedSwitch = () => {
+      if (!shouldResume && player.readyState() >= 2 && !player.seeking()) finishSwitch()
+    }
+
+    /** Restores the shared timeline and track choices after the source becomes usable. */
+    const restore = () => {
+      if (!isCurrent()) return
+      if (!positionRestored && position > 0) {
+        const duration = player.duration()
+        const ranges = player.seekable()
+        const time = typeof duration === 'number' && Number.isFinite(duration) && duration > 0
+          ? Math.min(position, Math.max(duration - 2, 0))
+          : ranges && ranges.length > 0
+            ? Math.max(ranges.start(0), Math.min(position, ranges.end(ranges.length - 1)))
+            : position
+        player.currentTime(time)
+        positionRestored = true
+      }
+      player.playbackRate(state.playbackRate)
+      restorePersistedTrackPreferences(player, state, getTrackSelectionConfig?.() ?? undefined)
+      storyboard.syncInterval(player, source)
+      quality.sync(player, source)
+      if (player.readyState() >= 3) {
+        ui.complete()
+        if (shouldResume && !playbackRequested) {
+          playbackRequested = true
+          const playPromise = player.play()
+          if (playPromise) void playPromise.catch(finishSwitch)
+        }
+      }
+      finishPausedSwitch()
+    }
+    player.on('loadedmetadata', restore)
+    player.on('canplay', restore)
+    player.on('playing', finishSwitch)
+    player.on('error', finishSwitch)
+    player.on(['loadeddata', 'seeked'], finishPausedSwitch)
+    pendingSourceRestoreCleanup = () => {
+      player.off('loadedmetadata', restore)
+      player.off('canplay', restore)
+      player.off('playing', finishSwitch)
+      player.off('error', finishSwitch)
+      player.off(['loadeddata', 'seeked'], finishPausedSwitch)
+      player.removeClass(VARIANT_SWITCHING_CLASS)
+    }
+    player.src(buildPlayerSource(source, currentSpriteThumbnailOptions))
+    quality.install(player, source)
+  }
+
   return {
     applySource,
+    replaceVariantSource,
     reset,
     applyTranslatedSubtitle,
     clearTranslatedSubtitle,

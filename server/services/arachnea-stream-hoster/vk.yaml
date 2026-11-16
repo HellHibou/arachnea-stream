@@ -68,7 +68,7 @@ queries:
             default: "{}"
             argument:
               "Видеофайл не найден.": "Video file not found"
-      - name: stream_url
+      - name: streams > url
         type: string[]
         actions:
           - type: get_response_body
@@ -91,7 +91,7 @@ queries:
                 replacement: '$1{proxy_inherited}/{base_url}/$2$3'
                 content_types:
                   - application/dash+xml
-      - name: stream_headers
+      - name: streams > stream_headers
         type: object
         select: first
         entries:
@@ -100,11 +100,11 @@ queries:
             actions:
               - type: format_text
                 argument: "{url}"
-      - name: manifest_type
+      - name: streams > type
         type: string
         actions:
           - type: format_text
-            argument: "mpd"
+            argument: "dash"
       - name: title
         type: string
         actions:
@@ -198,3 +198,7 @@ queries:
           - type: remove_fields
             fields:
               - count_per_image
+    post_process:
+      - type: zip_fields
+        source: "** > streams"
+        values_field: url

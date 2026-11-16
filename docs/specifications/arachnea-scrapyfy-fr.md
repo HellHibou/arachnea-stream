@@ -1720,6 +1720,27 @@ section n'est produite.
   remove_source: true
 ```
 
+### `zip_fields`
+
+Matérialise des champs alignés en un tableau explicite d'objets. `source` est un
+chemin séparé par `>` traversant aussi les tableaux parents ; `**` visite
+récursivement les conteneurs descendants. `values_field` nomme le champ scalaire
+primaire dont le nombre de valeurs définit la taille de sortie. Les valeurs
+primaires vides sont ignorées. Un champ frère à valeur unique est répété ; les
+champs plus longs utilisent le même index, sans répéter une valeur manquante.
+Les dictionnaires imbriqués suivent la même projection ; les types scalaires de
+tableau deviennent leur type élément. Les items explicites sont matérialisés
+individuellement et concaténés dans l'ordre initial. Un chemin absent est ignoré.
+Les requêtes statiques n'exécutent pas les post-traitements : utiliser directement
+une `value` structurée pour leurs collections.
+
+```yaml
+post_process:
+  - type: zip_fields
+    source: "** > streams"
+    values_field: url
+```
+
 ### `apply_actions_to_field`
 
 Applique une pipeline normale d'actions aux valeurs scalaires d'un champ racine et écrit le résultat dans un autre champ racine.

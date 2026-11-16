@@ -39,7 +39,7 @@ queries:
           - type: format_text
             argument: "{url}"
     entries:
-      - name: stream_url
+      - name: streams > url
         type: string[]
         actions:
           - type: get_response_body
@@ -54,7 +54,7 @@ queries:
             proxy_follow_redirects: true
             proxy_headers:
               Referer: "{url}"
-      - name: stream_headers
+      - name: streams > stream_headers
         type: object
         select: first
         entries:
@@ -63,7 +63,7 @@ queries:
             actions:
               - type: format_text
                 argument: "{url}"
-      - name: manifest_type
+      - name: streams > type
         type: string
         actions:
           - type: format_text
@@ -128,3 +128,7 @@ queries:
             actions:
               - type: format_text
                 argument: "5"
+    post_process:
+      - type: zip_fields
+        source: "** > streams"
+        values_field: url

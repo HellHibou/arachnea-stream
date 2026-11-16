@@ -19,8 +19,8 @@ use arachnea_scrapyfy::{
 
 use crate::services::player_resolver::{
     normalize_stream_kind, proxy_drm_today_license_request, save_drm_today_license_proxy_url,
-    Chapter, PlayerResolverEndpoints, PlayerStreamRequest, PlayerStreamResolver,
-    ProxiedStreamResponse, ResolvedPlayerStream,
+    Chapter, PlayerResolverEndpoints, PlayerStream, PlayerStreamRequest, PlayerStreamResolver,
+    ProxiedStreamResponse, ResolvedPlayerStream, ResolvedStreamSource,
 };
 
 /// Stable source identifier for RTLplay routing and credentials.
@@ -325,12 +325,18 @@ fn build_resolved_player_stream(
     });
 
     Ok(ResolvedPlayerStream {
-        stream_url: vec![resolved.manifest_url],
-        manifest_type: Some("mpd".to_string()),
-        license_url,
-        storyboard_vtt_url: resolved.storyboard_vtt_url,
-        license_headers: HashMap::new(),
-        chapters: Some(resolved.chapters),
+        stream: PlayerStream {
+            streams: vec![ResolvedStreamSource {
+                url: resolved.manifest_url,
+                source_type: "dash".to_string(),
+                license_url,
+                license_headers: HashMap::new(),
+                ..Default::default()
+            }],
+            storyboard_vtt_url: resolved.storyboard_vtt_url,
+            chapters: Some(resolved.chapters),
+            ..Default::default()
+        },
         ..Default::default()
     })
 }

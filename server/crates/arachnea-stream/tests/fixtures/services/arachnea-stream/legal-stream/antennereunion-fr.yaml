@@ -175,4 +175,4 @@ steps:
       min_count: 1
       min_valid_count: 1
       required_non_empty:
-        - ["stream_url"]
+        - ["streams"]

@@ -65,7 +65,7 @@ queries:
   # The unpacked setup declares its sources in a `links` object
   # (`{"hls1": …, "hls2": …, "hls3": …, "hls4": …}`) and picks one with
   # `sources: [{ file: links.hls4 || links.hls3 || links.hls2, type: "hls" }]`.
-  # The three same-named `stream_url` entries mirror that page preference: the
+  # The three same-named `streams > url` entries mirror that page preference: the
   # same-origin `/stream/<…>/master.m3u8` link first (hls4), then the absolute
   # CDN links that carry a viewer-bound signed token (hls3, then hls2).
   # Same-named entries append their values in declaration order, so clients keep
@@ -82,7 +82,7 @@ queries:
         replacement: 'https://audinifer.com$1'
     row_selector: "html"
     entries:
-      - name: stream_url
+      - name: streams > url
         type: string[]
         actions:
           - type: get_response_body
@@ -100,7 +100,7 @@ queries:
                 replacement: '{proxy_inherited}/$1'
                 content_types:
                   - application/vnd.apple.mpegurl
-      - name: stream_url
+      - name: streams > url
         type: string[]
         actions:
           - type: get_response_body
@@ -118,7 +118,7 @@ queries:
                 replacement: '{proxy_inherited}/$1'
                 content_types:
                   - application/vnd.apple.mpegurl
-      - name: stream_url
+      - name: streams > url
         type: string[]
         actions:
           - type: get_response_body
@@ -136,7 +136,7 @@ queries:
                 replacement: '{proxy_inherited}/$1'
                 content_types:
                   - application/vnd.apple.mpegurl
-      - name: stream_headers
+      - name: streams > stream_headers
         type: object
         select: first
         entries:
@@ -145,7 +145,7 @@ queries:
             actions:
               - type: format_text
                 argument: "{url}"
-      - name: manifest_type
+      - name: streams > type
         type: string
         actions:
           - type: format_text
@@ -183,3 +183,7 @@ queries:
                 content_types:
                   - text/vtt
                   - application/vnd.apple.mpegurl
+    post_process:
+      - type: zip_fields
+        source: "** > streams"
+        values_field: url

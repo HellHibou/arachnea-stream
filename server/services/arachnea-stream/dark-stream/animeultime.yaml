@@ -600,18 +600,39 @@ queries:
             type: string
             actions:
               - type: format_text
+                argument: "AnimeUltime"
+          - name: players > streams > quality
+            type: string
+            actions:
+              - type: format_text
                 argument: "HD"
-          - name: players > direct-link
+          - name: players > streams > type
+            type: string
+            actions:
+              - type: format_text
+                argument: mp4
+          - name: players > streams > url
             type: string
             capture_group: 8
-          - name: players > name
+          - name: players > streams > quality
             type: string
             actions:
               - type: format_text
                 argument: "SD"
-          - name: players > direct-link
+          - name: players > streams > type
+            type: string
+            actions:
+              - type: format_text
+                argument: mp4
+          - name: players > streams > url
             type: string
             capture_group: 7
       - type: derive_pagination
         remove_fields:
           - playlists
+      - type: zip_fields
+        source: "** > streams"
+        values_field: url
+      - type: zip_fields
+        source: "seasons > episodes > players"
+        values_field: name

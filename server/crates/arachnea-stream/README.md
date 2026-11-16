@@ -8,10 +8,21 @@ The SQLite source table still shares the services database connection with the
 parameter table; database/table names, schemas and encryption keys are unchanged.
 Proxy and Cloudflare table assembly remains in Stream.
 
-Resolver conversion uses `ScraperDataNode` readers for trimmed scalar/list/map
-values and raw child lookup with first-item fallback. Stream retains field
-selection, aliases, missing-value handling and all video-specific conversion,
-including URLs/headers, DRM, subtitles, storyboard validation and Referer insertion.
+Video players and `get_stream` use `streams[]`: each source contains
+`url`, a canonical `type` (`hls`, `dash`, `mp4`, `webm`, `ogg`), optional
+`quality` (SD, HD, 1080p) and `lang`, and its own DRM context. Sources have no IDs. Storyboard,
+chapters and subtitles are siblings of `streams` on the player or resolution
+response. All checked-in YAML and Rust producers use this contract; old
+direct-link/URL-array payloads and the former `stream` wrapper are unsupported.
+Deploy the public frontend and server together. YAML changes already invalidate
+affected server response caches through their YAML hash.
+
+Scraper shaping stays in YAML and generic post-processors. `zip_fields` converts
+aligned fields into explicit source objects, including nested episode/player
+containers. Static queries declare the array value directly. Resolver conversion
+validates sources, filters invalid auxiliary tracks and inserts Referer only
+when the individual source has not declared one. Proxy rewriting preserves each
+source's transport headers and routing context without exposing those headers.
 
 ## Resolver HTML fallback
 

@@ -339,6 +339,9 @@
     "seasonCountPlural": "{count} saisons"
   },
   "player": {
+    "streamQuality": "Qualité",
+    "streamLanguage": "Langue",
+    "streamAutomatic": "Automatique",
     "subtitles": {
       "off": "Désactivés",
       "settings": "Paramètres",

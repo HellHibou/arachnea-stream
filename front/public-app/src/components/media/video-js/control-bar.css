@@ -362,7 +362,9 @@
   white-space: nowrap;
 }
 
-.videojs-media-host :deep(.arachnea-videojs-theme.arachnea-custom-playback-rate .vjs-playback-rate .vjs-playback-rate-value) {
+.videojs-media-host :deep(.arachnea-videojs-theme.arachnea-custom-playback-rate .vjs-playback-rate .vjs-playback-rate-value),
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-variant-quality-value) {
+  position: absolute;
   top: 0.1rem;
   right: 0;
   left: auto;
@@ -381,6 +383,13 @@
   letter-spacing: 0.02em;
   text-align: center;
   white-space: nowrap;
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-variant-quality-value) {
+  top: calc(0.1rem + 5px);
+  right: 3px;
+  font-size: 0.5rem;
+  pointer-events: none;
 }
 
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-prev-video-control),
@@ -515,6 +524,8 @@
   flex: 0 0 auto;
 }
 
+.videojs-media-host :deep(.arachnea-variant-switching .vjs-big-play-button),
+.videojs-media-host :deep(.arachnea-variant-switching .vjs-poster),
 .videojs-media-host[data-vjs-initial-loading="true"] :deep(.vjs-big-play-button),
 .videojs-media-host :deep(.video-js.vjs-waiting .vjs-big-play-button),
 .videojs-media-host :deep(.video-js.vjs-seeking .vjs-big-play-button) {

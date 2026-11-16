@@ -432,7 +432,12 @@ shared:
         actions:
           - type: format_text
             argument: "Télésambre"
-      - name: direct-link
+      - name: streams > type
+        type: string
+        actions:
+          - type: format_text
+            argument: hls
+      - name: streams > url
         type: string
         select: first
         selector: "div.freecaster-player"
@@ -445,7 +450,7 @@ shared:
           - scraper_type: json
             row_pointer: "/video/src"
             entries:
-              - name: direct-link
+              - name: url
                 type: string
                 select: first
                 pointer: "/*[type=application/x-mpegurl]/src"
@@ -993,6 +998,10 @@ queries:
             select: all
             entries: *entries_program_card
       - *entry_players_freecaster
+    post_process:
+      - type: zip_fields
+        source: "** > streams"
+        values_field: url
 
   # --------------------------------------------------------------------------
   # Get players -- the frontend calls this with the `link` of a `get_season`
@@ -1008,6 +1017,10 @@ queries:
     row_selector: "html"
     entries:
       - *entry_players_freecaster
+    post_process:
+      - type: zip_fields
+        source: "** > streams"
+        values_field: url
 
   # --------------------------------------------------------------------------
   # Season -- episodes of a programme page, paginated with the same zero-based
@@ -1145,7 +1158,12 @@ queries:
             actions:
               - type: format_text
                 argument: "Télésambre"
-          - name: direct-link
+          - name: streams > type
+            type: string
+            actions:
+              - type: format_text
+                argument: hls
+          - name: streams > url
             type: string
             actions:
               - type: get_response_body
@@ -1156,7 +1174,11 @@ queries:
               - scraper_type: json
                 row_pointer: "/video/src"
                 entries:
-                  - name: direct-link
+                  - name: url
                     type: string
                     select: first
                     pointer: "/*[type=application/x-mpegurl]/src"
+    post_process:
+      - type: zip_fields
+        source: "** > streams"
+        values_field: url

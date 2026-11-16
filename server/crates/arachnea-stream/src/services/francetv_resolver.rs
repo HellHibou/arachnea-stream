@@ -17,8 +17,8 @@ use arachnea_scrapyfy::{
 };
 
 use crate::services::player_resolver::{
-    Chapter, PlayerResolverEndpoints, PlayerStreamRequest, PlayerStreamResolver,
-    ProxiedStreamResponse, ResolvedPlayerStream,
+    Chapter, PlayerResolverEndpoints, PlayerStream, PlayerStreamRequest, PlayerStreamResolver,
+    ProxiedStreamResponse, ResolvedPlayerStream, ResolvedStreamSource,
 };
 
 use crate::PLAYER_DEFAULT_USER_AGENT as USER_AGENT;
@@ -219,11 +219,17 @@ async fn resolve_francetv_stream(
 
     if !drm_enabled {
         return Ok(ResolvedPlayerStream {
-            stream_url: vec![stream_url_proxy],
-            manifest_type: Some(manifest_type),
-            license_url: None,
-            license_headers: HashMap::new(),
-            chapters,
+            stream: PlayerStream {
+                streams: vec![ResolvedStreamSource {
+                    url: stream_url_proxy,
+                    source_type: manifest_type,
+                    license_url: None,
+                    license_headers: HashMap::new(),
+                    ..Default::default()
+                }],
+                chapters,
+                ..Default::default()
+            },
             ..Default::default()
         });
     }
@@ -243,11 +249,17 @@ async fn resolve_francetv_stream(
     );
 
     Ok(ResolvedPlayerStream {
-        stream_url: vec![stream_url_proxy],
-        manifest_type: Some(manifest_type),
-        license_url: Some(license_url),
-        license_headers: HashMap::new(),
-        chapters,
+        stream: PlayerStream {
+            streams: vec![ResolvedStreamSource {
+                url: stream_url_proxy,
+                source_type: manifest_type,
+                license_url: Some(license_url),
+                license_headers: HashMap::new(),
+                ..Default::default()
+            }],
+            chapters,
+            ..Default::default()
+        },
         ..Default::default()
     })
 }
@@ -503,15 +515,15 @@ fn token_url_from_video(video: &Value, prefer_drm: bool) -> String {
 /// * `url` - Signed manifest URL.
 ///
 /// # Returns
-/// `m3u8` when either value identifies HLS, otherwise `mpd`.
+/// `hls` when either value identifies HLS, otherwise `dash`.
 fn manifest_type_from_format_or_url(format: &str, url: &str) -> String {
     let format = format.to_ascii_lowercase();
     let url = url.to_ascii_lowercase();
     if format.contains("hls") || url.contains(".m3u8") {
-        return "m3u8".to_string();
+        return "hls".to_string();
     }
 
-    "mpd".to_string()
+    "dash".to_string()
 }
 
 /// Returns a non-empty service parameter value by case-insensitive name.

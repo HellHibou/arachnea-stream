@@ -454,7 +454,7 @@ boucle, ni pagination automatique dans l'exécuteur.
 | `get_live` | `query_url` requis, transmis comme identifiant ou URL de canal à la façade | Un objet contenant `players` | `ClientCache` |
 | `get_banners` | `query_url` requis | Un objet contenant `banners` | `ClientCache` |
 | `get_recommendations` | `query_url` requis ; `page` entier positif optionnel, `1` par défaut | Un objet contenant `entries` | `FullCache` |
-| `resolve_stream` | `query_url` HTTP(S) requis | Un objet de flux normalisé contenant `stream_url` | `NoCache` |
+| `resolve_stream` | `query_url` HTTP(S) requis | Un objet de flux normalisé contenant `streams` | `NoCache` |
 | `get_episode` | `query_url` requis | Objets individuels de la requête historique d'épisode, généralement avec `players` | `ClientCache` |
 
 `page` doit être un entier littéral, pas une chaîne ni une référence dynamique. Ne

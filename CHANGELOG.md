@@ -464,6 +464,10 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Renamed the stream variant field `label` to `quality` in source YAML and Rust serialization/deserialization, without a compatibility alias.
+
+- Player payloads now expose `streams[]` directly, with shared storyboards, chapters and subtitles alongside it. All source/hoster YAML, resolver output and source-check fixtures use this format; the former `stream.sources` contract is unsupported. Deploy the server and public frontend together.
+
 - Removed Stream’s translation compatibility modules (`subtitles`, `translation_catalog`, `translation_port`), unused translation accessors and duplicated subtitle constants. Stream now imports directly from Translation. Removed the unused alternate text-selection helper and Stream-named port alias from Translation. Rust consumers must use the owning Translation APIs.
 
 - Removed the unused `StreamScraper::translate_subtitle` method and its dedicated module, together with Stream's unused orchestration compatibility exports. Application translation remains routed through `translation/translate_url` and the `arachnea-translation` handler.
@@ -485,6 +489,8 @@ All notable changes to the server workspace are recorded here.
 - Delegated source-default synchronization and IP-country refresh collection to Scrapyfy, and ordered country normalization to Core. Stream retains CLI/configuration choices and contextual strict-validation errors; existing IP-country CLI limitations remain deferred.
 
 - Coflix (`dark-stream/coflix.yaml`): home categories and `get_category` scraped the retired JSON `wp-json/apiflix/v1/options` endpoints and returned no cards. They now scrape the HTML catalogue pages (`/movies/`, `/series/`, `/animes/`), parse the entry cards from the page markup, derive `media-type` from the category URL, and paginate through `derive_pagination`, restoring category browsing.
+- Migrated all affected video YAML and Rust resolvers to the single `stream.sources[]` contract without source IDs or legacy video payload adapters. Each variant owns its format, optional quality/language and DRM/HTTP context; storyboard, chapters and subtitles are shared. AnimeUltime and LN24 group fixed qualities in one player, and Odysee groups HLS/MP4. Existing resolver fixtures and source-check contracts follow the new shape.
+
 
 #### Fixed
 
@@ -678,6 +684,8 @@ All notable changes to the server workspace are recorded here.
 - The `merge_items_by_field` post-processor merges sibling items sharing the same scalar field value into a single item. It is meant for markups that repeat one logical row once per variant (for example one episode block per language) and only differ by the nodes listed in `merge_fields`: scalar values are appended once, child nodes are merged recursively, nested item lists are concatenated, items without the key are kept unchanged, and the group keeps its extraction order so it normally runs after `sort_items`.
 - HTML row selectors are now templates resolved with the runtime parameters when rows are extracted, and the engine exposes `{url_fragment}`: the part after `#` in the resolved `query_url`, never sent to the server. A caller-supplied link such as `page.html#ep3` can therefore scope a query to a client-side tab or block that has no URL of its own. Selectors must stay parseable as written (`div[class~="{url_fragment}vs"]`) because the configuration is still validated at load time; unresolved placeholders simply match nothing.
 - Added `error_on_statuses` to `ScraperHttpConfig`. Configured provider statuses are turned into `ArachneaHttpError::HttpStatus` with the status code and a parsed `Retry-After` value, so translation services can classify rejected requests without parsing provider error bodies.
+- Added generic `zip_fields` post-processing to materialize aligned scalar fields as explicit object arrays, including nested parent collections and recursive paths, with singleton broadcasting and preservation of materialized nested arrays. Documented the schema in both specifications.
+
 
 #### Changed
 
@@ -885,6 +893,14 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Stream variants now use `quality` throughout normalization, quality menus, variant fallback and player preferences; the former variant `label` field is no longer read.
+
+- Direct and resolved players now consume `streams[]` and shared metadata at the parent level across entries, episodes, live playback, trailers and banner videos, without an adapter for the former `stream.sources` format.
+
+- Shifted the fixed-quality badge 5px down and 3px left.
+
+- Reduced the fixed-quality button badge font size from 0.62rem to 0.5rem.
+
 - Subtitle settings and playback now share a retryable translation catalog; generation controls follow compatible WebVTT targets while preserving stored authorizations. Reload the frontend after service configuration changes.
 
 - The subtitle translation progress message now displays the target language flag, English name and native name, and follows the skip button's height as player controls appear or disappear.
@@ -910,8 +926,24 @@ All notable changes to the server workspace are recorded here.
 - Split `useVideoJsMediaRenderer` (1 921 lines) into wave-1 modules extracted from the composable: `video-js-media-renderer/storyboard.ts` (storyboard VTT parsing and sprite options), `subtitles.ts` (remote text track management), `playerAttributes.ts` (video element attributes and poster error handler), `autoplayMenu.ts` (episode autoplay and chapter autoskip menu). State dependencies (`props`, `emit`, `activePlayer`, `remoteSubtitleTracks`, `hostElement`, `spriteThumbnailsPlugin`, `storyboardPreviewSize`, `storyboardVttCues`) are passed as individual parameters. The composable shrinks to 1 210 lines while preserving its public signature and all internal behavior.
 - Split `useVideoJsMediaRenderer` further (wave 2): `video-js-media-renderer/sourceApplication.ts` (`applySourceToPlayer`, `buildPlayerSource`) and `video-js-media-renderer/playerLifecycle.ts` (`destroyActivePlayer`, `markVideoInitialLoadStart`, `markVideoInitialLoadComplete`). All mutable state is passed as individual parameters and returned in results. The composable shrinks to 938 lines (−51 %), well below the 1 000-line threshold. Public signature `useVideoJsMediaRenderer(options)` is unchanged and all internal behavior is preserved.
 - Merged the "Track selection" parameters section into the "Player" section: audio language profiles (label "Audio language") now follow automatic ad skipping, subtitle mode per profile became a switch ("Subtitles" / Enabled-Disabled), profiles can be added or removed (the first profile cannot be removed), "Allow audio description" was renamed to "Use audio description if available", and a subtitle language manager was added below it. The `settings.playerTracks` section and its `ParameterLanguagePriority` UI were removed from the parameters panel.
+- Video.js now owns grouped stream selection across episodes, live, trailers and resolved banner/background videos: client priority HLS → DASH → MP4, integrated fixed-quality/language controls alongside manifest choices, per-variant DRM, bounded fallback and one final error after exhaustion. Switching variants preserves compatible playback state and shared metadata; active loads have a 20-second watchdog. The public frontend requires the matching structured backend contract.
+
 
 #### Fixed
+
+- Suppressed the initial poster and big Play button during in-place quality switches until playback resumes, preventing Video.js loadstart from briefly flashing the initial playback screen. Paused switches release suppression once their replacement frame/seek is ready; failures and cleanup release it as well.
+
+- Fixed the playback-speed menu reopening immediately on a second button click by keeping the button before its badge in the DOM, as expected by Video.js focus handling.
+
+- Filter invalid chapter time ranges when loading stream metadata, including placeholder intro/outro entries with start and end at zero, preventing an empty chapter selection button.
+
+- Moved the selected-quality badge to the top right. Changes between variants of the same video now replace the Video.js source directly, retaining position and playback intent without reapplying player configuration or resetting shared storyboard, subtitle tracks and translation state.
+
+- Fixed the disappearing fixed-quality icon: native control lookup now uses the Video.js component directly, preventing copied quality classes from making the replacement button hide itself.
+
+- The fixed-quality control now copies the native quality button's icon and button classes, and displays the active quality in a top-left badge sharing the playback-speed badge styling.
+
+- Fixed-quality stream selection now uses the standard quality control's styling, popup alignment and control-bar position. Native adaptive options remain separate internally, and the replacement follows native control recreation on source changes.
 
 - Localized the subtitle menu's off and settings entries and raised subtitles above visible video controls.
 
@@ -1034,6 +1066,9 @@ All notable changes to the server workspace are recorded here.
 ### <u>Other</u>
 
 #### Added
+
+- Documented the proposed player stream alternatives contract, explicit AnimeUltime/Odysee grouping, integrated language/quality controls, format priority and bounded fallback shared by video, live and trailers. Implementation awaits approval; tracked in `docs/dev-tracking/player-stream-alternatives-analysis.md` and `docs/TODO.md`.
+- Updated the player stream alternatives analysis to require sources without IDs and a complete YAML/resolver migration with no backward compatibility, including affected consumers, fixtures and response caches.
 
 - Document translation refactor analysis in `docs/dev-tracking/translation-document-refactor-analysis.md`, covering MIME-based document dispatch, Rust features, reusable route registration, REST/Tauri API migration, live LibreTranslate language metadata and frontend capability filtering. The proposal is approved and the retained decisions are recorded; implementation has not started.
 

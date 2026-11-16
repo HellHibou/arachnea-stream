@@ -44,7 +44,7 @@ et `resolver > target_id: <URL du lecteur>`. La cible doit utiliser HTTP(S).
 |---|---|---|---|
 | `can_resolve_url` | `static` | `url`, `origine` | Scalaire `resolver` non vide si l'URL correspond |
 | `can_resolve_html` | `static` ou `html` | `url`, `origine`, `html` | Scalaire `resolver` non vide si le document correspond |
-| `resolve_stream` | `html`, `json` ou `text` | `url`, `origine` ; `html` seulement pendant le repli HTML | Une ligne contenant `stream_url` ou un `error_message` terminal |
+| `resolve_stream` | `html`, `json` ou `text` | `url`, `origine` ; `html` seulement pendant le repli HTML | Une ligne contenant `streams` ou un `error_message` terminal |
 
 `url` est la cible originale pour la reconnaissance et l'extraction directes,
 puis l'URL finale après redirections pour la reconnaissance et l'extraction HTML.
@@ -92,7 +92,7 @@ Ne pas reconnaître toute page HTML contenant une balise générique `<video>`.
    de redirections ou transport) retournent des erreurs, pas ce repli.
 
 Un `error_message` non vide sur la première ligne d'extraction est prioritaire
-sur `stream_url` dans les deux phases et arrête la résolution. L'utiliser pour
+sur `streams` dans les deux phases et arrête la résolution. L'utiliser pour
 une erreur métier confirmée, telle qu'une vidéo supprimée. Une valeur vide ou
 absente n'a pas d'effet terminal. Ne pas produire une erreur permanente parce
 qu'un sélecteur facultatif n'a rien trouvé.
@@ -105,22 +105,27 @@ les noms avec soulignements indiqués.
 
 | Champ | Type de sortie YAML | Obligatoire / signification |
 |---|---|---|
-| `stream_url` | `string[]` | Obligatoire pour réussir ; URL absolues ordonnées, première préférée ; espaces périphériques et valeurs vides retirés |
-| `manifest_type` | `string` | Facultatif ; par exemple `m3u8`, `mpd`, `mp4` |
+| `streams` | `object[]` | Variantes non vides obligatoires ; aucun identifiant |
+| `streams > url` | `string` | URL média absolue obligatoire |
+| `streams > type` | `string` | Format canonique obligatoire : hls, dash, mp4, webm ou ogg |
+| `streams > quality`, `streams > lang` | `string` | Qualité et langue facultatives |
+| `streams > stream_headers` | `object` | En-têtes amont internes propres à la variante |
+| `streams > license_url`, `streams > license_headers` | `string`, `object` | Licence et en-têtes DRM facultatifs propres à la variante |
+| `storyboard_vtt_url`, `storyboard` | `string`, `object` | Métadonnées communes des miniatures |
+| `chapters`, `subtitles` | `object[]` | Chapitres et sous-titres externes communs |
+| `title`, `image/title > link` | `string` | Titre/image facultatifs du player |
 | `error_message` | `string` | Erreur métier terminale facultative, prioritaire sur le flux |
-| `stream_headers` | `object` | Dictionnaire facultatif d'en-têtes amont avec valeurs de type chaîne non vide |
-| `title` | `string` | Titre facultatif |
-| `image/title > link` | `string` | URL facultative de l'image du titre |
-| `license_url` | `string` | Point d'entrée facultatif de licence pour un parcours DRM déjà pris en charge |
-| `license_headers` | `object` | En-têtes facultatifs de requête DRM, valeurs de type chaîne |
-| `storyboard_vtt_url` | `string` | URL WebVTT facultative de miniatures lisible par le navigateur |
-| `storyboard` | `object` | Métadonnées facultatives de sprite, ci-dessous |
-| `subtitles` | `object[]` | Pistes WebVTT externes ordonnées facultatives, ci-dessous |
 
-`stream-url` et `manifest-type` sont des alias de compatibilité ; préférer
-`stream_url` et `manifest_type` dans les nouveaux YAML. Déclarer seulement
-`embed-link` ne produit pas de flux extrait. Ce convertisseur YAML ne remplit
-pas `chapters`.
+La qualité des variantes utilise `quality` (SD, HD ou 1080p, par exemple).
+L’ancien champ de variante `label` n’est plus accepté ; les libellés des
+sous-titres et des lecteurs sont des champs distincts.
+
+Seul le contrat structuré est accepté. Aucun alias de compatibilité `stream_url`,
+`manifest_type`, `stream-url` ou `manifest-type`. `embed-link` seul ne produit pas
+un flux vidéo extrait. Les variantes invalides sont ignorées ; il faut au moins
+une variante utilisable. Chapitres et sous-titres communs sont lus au même niveau que `streams`. L’ancien
+objet `stream` n’est plus accepté.
+Utiliser `zip_fields` pour matérialiser les champs alignés avant conversion.
 
 Utiliser `resolve_url` pour rendre les résultats relatifs absolus. Les en-têtes
 média sont internes : ils sont intégrés aux requêtes proxy et omis du JSON public.
@@ -202,14 +207,14 @@ queries:
           - type: format_text
             argument: "{url}"
     entries:
-      - name: stream_url
+      - name: streams > url
         type: string[]
         selector: "video source[src]"
         actions:
           - type: get_attribut
             argument: src
           - type: resolve_url
-      - name: manifest_type
+      - name: streams > type
         type: string
         select: first
         actions:
@@ -221,12 +226,16 @@ queries:
         selector: title
         actions:
           - type: get_text
-      - name: stream_headers > Referer
+      - name: streams > stream_headers > Referer
         type: string
         select: first
         actions:
           - type: format_text
             argument: "{url}"
+    post_process:
+      - type: zip_fields
+        source: "streams"
+        values_field: url
 ```
 
 ## 6. Ajouter la reconnaissance du contenu sans autre récupération du lecteur
@@ -278,7 +287,7 @@ une URL, un identifiant ou un sélecteur sans vérifier la réponse de la cible.
 3. Reconnaître précisément ; vérifier aussi une URL et un document sans correspondance.
 4. Pour la reconnaissance du contenu, réutiliser explicitement le HTML et tenir
    compte de l'URL finale après redirections.
-5. Extraire une ligne unique avec toutes les URL média candidates dans `stream_url`.
+5. Extraire une ligne unique avec toutes les URL média candidates dans `streams`.
 6. Séparer les en-têtes de page et de média. Vérifier l'accès au manifeste, aux
    segments, sous-titres et sprites selon les cas.
 7. Vérifier qu'une vidéo supprimée produit une erreur utile sans transformer

@@ -438,28 +438,38 @@ queries:
             type: string
             actions:
               - type: format_text
-                argument: "Odysee (HLS)"
-          - name: direct-link
-            type: string
-            actions:
-              - type: build_url
-                base: "https://player.odycdn.com/v6/streams/{claim_id}/{sd_hash}/master.m3u8"
-                fields:
-                  claim_id: /claim_id
-                  sd_hash: /value/source/sd_hash
-      - name: players
-        type: object[]
-        pointer: /result/items/*
-        select: all
-        entries:
-          - name: name
-            type: string
-            actions:
-              - type: format_text
-                argument: "Odysee (MP4)"
-          - name: direct-link
-            type: string
-            pointer: /name
-            actions:
-              - type: format_text
-                argument: "{base_url}/$/rss/media/{}/{query_url}/stream.mp4"
+                argument: "Odysee"
+          - name: streams
+            type: object[]
+            entries:
+              - name: type
+                type: string
+                actions:
+                  - type: format_text
+                    argument: hls
+              - name: url
+                type: string
+                actions:
+                  - type: build_url
+                    base: "https://player.odycdn.com/v6/streams/{claim_id}/{sd_hash}/master.m3u8"
+                    fields:
+                      claim_id: /claim_id
+                      sd_hash: /value/source/sd_hash
+          - name: streams
+            type: object[]
+            entries:
+              - name: type
+                type: string
+                actions:
+                  - type: format_text
+                    argument: mp4
+              - name: url
+                type: string
+                pointer: /name
+                actions:
+                  - type: format_text
+                    argument: "{base_url}/$/rss/media/{}/{query_url}/stream.mp4"
+    post_process:
+      - type: zip_fields
+        source: "** > streams"
+        values_field: url

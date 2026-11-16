@@ -12,8 +12,8 @@ use super::payload::{
 };
 use super::{playback_headers, SERVICE_ID};
 use crate::services::player_resolver::{
-    normalize_stream_kind, save_drm_today_license_proxy_url, PlayerResolverEndpoints,
-    ResolvedPlayerStream,
+    normalize_stream_kind, save_drm_today_license_proxy_url, PlayerResolverEndpoints, PlayerStream,
+    ResolvedPlayerStream, ResolvedStreamSource,
 };
 
 /// Authenticated playback parts shared by replay and live.
@@ -64,17 +64,23 @@ pub(super) fn resolved_stream(
         )
     });
     Ok(ResolvedPlayerStream {
-        stream_url: vec![proxied_url_with_countries(
-            &manifest_url,
-            endpoints.http_proxy_public_path.as_deref(),
-            proxy_countries,
-            &[],
-            &[],
-        )],
-        manifest_type: Some(manifest_type),
-        license_url,
-        license_headers: HashMap::new(),
-        storyboard_vtt_url,
+        stream: PlayerStream {
+            streams: vec![ResolvedStreamSource {
+                url: proxied_url_with_countries(
+                    &manifest_url,
+                    endpoints.http_proxy_public_path.as_deref(),
+                    proxy_countries,
+                    &[],
+                    &[],
+                ),
+                source_type: manifest_type,
+                license_url,
+                license_headers: HashMap::new(),
+                ..Default::default()
+            }],
+            storyboard_vtt_url,
+            ..Default::default()
+        },
         ..Default::default()
     })
 }
@@ -311,7 +317,7 @@ async fn manifest_requires_drm(
         Ok(text) => text,
         Err(_) => return true,
     };
-    if manifest_type == "m3u8" {
+    if manifest_type == "hls" {
         text.contains("EXT-X-KEY")
     } else {
         text.contains("ContentProtection")
@@ -324,11 +330,11 @@ async fn manifest_requires_drm(
 /// * `url` - Manifest URL.
 ///
 /// # Returns
-/// `m3u8` for URLs containing that extension, `mpd` otherwise.
+/// `hls` for URLs containing `.m3u8`, `dash` otherwise.
 fn manifest_type_from_url(url: &str) -> String {
     if url.to_ascii_lowercase().contains(".m3u8") {
-        return "m3u8".to_string();
+        return "hls".to_string();
     }
 
-    "mpd".to_string()
+    "dash".to_string()
 }
