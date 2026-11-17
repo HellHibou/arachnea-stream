@@ -106,16 +106,18 @@ branche `main`, ni d’un tag seul sans SHA de révision vérifié.
 
 ### État de la révision épinglée et attente upstream
 
-La dépendance active est le commit Git
-`eec047a188cc75b7a1a257397ad84493ee59c091` (2026-09-12), utilisé par
-`obscura-browser` et `obscura-net`. Les versions `0.1.0` visibles dans le
-lockfile sont les métadonnées des crates internes du workspace Obscura, et ne
-correspondent pas à une release publique.
+La dépendance initialement épinglée était le commit Git
+`eec047a188cc75b7a1a257397ad84493ee59c091` (2026-09-12). Elle a été remplacée
+le 2026-11-17 par `0d9a2f764ffdb097269da048002c593865e83a9e` (voir la mise à
+jour 2026-11-17 ci-dessous), utilisée par `obscura-browser` et `obscura-net`.
+Les versions `0.1.0` visibles dans le lockfile sont les métadonnées des crates
+internes du workspace Obscura, et ne correspondent pas à une release publique.
 
-La dernière release upstream est `v0.2.2` (`a1e09de`, 2026-09-05). Le commit
-épinglé par Arachnea est **49 commits après** cette release. Mettre la
-dépendance sur la dernière release serait donc un recul. Cette révision inclut
-des améliorations iframe, DOM, CORS et `postMessage`, mais ne corrige pas le
+Lors du pin initial, la dernière release upstream était `v0.2.2` (`a1e09de`,
+2026-09-05) et le commit épinglé était **49 commits après** cette release :
+revenir à cette release aurait été un recul. La dernière release est désormais
+`v0.2.7` (`0ecc417`), antérieure au pin actuel. Les révisions épinglées incluent
+des améliorations iframe, DOM, CORS et `postMessage`, mais ne corrigent pas le
 parcours Turnstile observé sur Papadustream.
 
 L'issue upstream [#844](https://github.com/h4ckf0r0day/obscura/issues/844)
@@ -136,6 +138,40 @@ le cycle de vie de la session Arachnea comme causes de l'échec. Les erreurs du
 module de beacon Cloudflare et les `Broken pipe` du loopback sont des
 sous-ressources annulées ou non essentielles observées avant le crash ; elles
 ne précèdent pas l'exception bloquante de Turnstile.
+
+> Mise à jour (2026-11-17) : la dépendance est épinglée sur
+> `0d9a2f764ffdb097269da048002c593865e83a9e` (HEAD `main`, 612 commits après
+> l'ancien pin ; V8 150 / `deno_core` 0.412). Le lockfile local (non commité,
+> `.gitignore`) a nécessité `cargo update -p compression-codecs` pour satisfaire
+> la nouvelle contrainte `compression-codecs ^0.4.46` d'`obscura-net`.
+>
+> Résultat du PoC après mise à jour : les erreurs DOM observées précédemment
+> (`TypeError` sur `addEventListener` de `null`, `NotSupportedError` sur
+> `attachShadow`) ont disparu — la révision amont contient notamment la
+> correction de la sonde `relList.supports("preload")` évoquée dans l'issue #844,
+> les realms des iframes enfants avec `postMessage` fiable (#600), le
+> `structuredClone` binaire (#389) et plusieurs correctifs shadow DOM. Le widget
+> Turnstile est donc désormais créé. Il échoue cependant toujours avec les codes
+> `300030` / `300031` (« Turnstile Widget seem to have crashed ») : le watchdog
+> de `api.js` constate que l'iframe du challenge ne répond plus. La cause restante
+> est une lacune du moteur, pas de l'adaptateur Rust : `getContext('webgl')`
+> renvoie toujours `null` sur `main`, et le backend EGL opt-in
+> ([PR #1507](https://github.com/h4ckf0r0day/obscura/pull/1507), liée à #844)
+> est encore en brouillon et non fusionné. L'issue #844 reste ouverte.
+>
+> Aucune correction n'était nécessaire dans le code Rust d'intégration : toutes
+> les API internes utilisées (`BrowserContext::with_full_options`, `Page`,
+> `CookieJar`/`CookieInfo`, `RequestInfo`/`Response`, intercepteurs) sont
+> inchangées. Vérifications locales (macOS) : `cargo check --workspace
+> --all-targets`, `cargo check -p arachnea-http` avec `obscura`,
+> `obscura,arachnea-proxy` et `chaser-cf,obscura`, puis 12 tests
+> `engine::obscura` verts. La boucle de clearance capture désormais dans la page
+> les messages du watchdog Turnstile (`console.*`, aucun hook Rust n'étant
+> exposé par Obscura) et échoue immédiatement avec un libellé fixe non secret
+> (`widget-crashed`, `widget-hung`, `challenge-error-3000xx`), sur le solveur
+> éphémère comme sur la session de page, au lieu d'attendre les 180 s complètes.
+> Décision inchangée : attendre le correctif amont, sans fork Arachnea ni
+> fallback Chaser-CF.
 
 ### Features nécessaires
 
@@ -885,7 +921,8 @@ fragiles sur des sites tiers.
 
 1. Quelle révision Git Obscura validée doit être épinglée après le premier build
    reproductible ? *(Phase 1 : épinglage initial
-   `eec047a188cc75b7a1a257397ad84493ee59c091`, à confirmer après le PoC.)*
+   `eec047a188cc75b7a1a257397ad84493ee59c091` ; remplacé le 2026-11-17 par
+   `0d9a2f764ffdb097269da048002c593865e83a9e`, à confirmer après le PoC.)*
 2. L’interception `Fulfill(Response)` couvre-t-elle réellement toutes les
    requêtes nécessaires tout en préservant les gates Cloudflare/Turnstile ?
 3. Si non, l’équipe accepte-t-elle de maintenir un fork minimal du transport

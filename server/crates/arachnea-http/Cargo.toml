@@ -37,8 +37,8 @@ ghostwire = { workspace = true, optional = true }
 # `cosmic-text` vendors are not applied to git dependencies, so `obscura-render`
 # fails to compile against the crates.io releases (tracked as a follow-up in
 # the Obscura integration plan).
-obscura-browser = { git = "https://github.com/h4ckf0r0day/obscura", rev = "eec047a188cc75b7a1a257397ad84493ee59c091", default-features = false, features = ["stealth"], optional = true }
-obscura-net = { git = "https://github.com/h4ckf0r0day/obscura", rev = "eec047a188cc75b7a1a257397ad84493ee59c091", default-features = false, optional = true }
+obscura-browser = { git = "https://github.com/h4ckf0r0day/obscura", rev = "0d9a2f764ffdb097269da048002c593865e83a9e", default-features = false, features = ["stealth"], optional = true }
+obscura-net = { git = "https://github.com/h4ckf0r0day/obscura", rev = "0d9a2f764ffdb097269da048002c593865e83a9e", default-features = false, optional = true }
 encoding_rs = "0.8"
 http.workspace = true
 httpdate.workspace = true

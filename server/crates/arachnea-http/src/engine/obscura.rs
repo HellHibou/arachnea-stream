@@ -81,7 +81,7 @@ pub const ENGINE_NAME: &str = "obscura";
 /// Kept manually in sync with the `rev` entry of the dependency so runtime
 /// logs can report the exact embedded browser revision. The pin is re-checked
 /// after the Phase 2 PoC, as required by the integration plan.
-pub const OBSCURA_PINNED_REVISION: &str = "eec047a188cc75b7a1a257397ad84493ee59c091";
+pub const OBSCURA_PINNED_REVISION: &str = "0d9a2f764ffdb097269da048002c593865e83a9e";
 
 /// Dedicated timeout for the Obscura Cloudflare clearance protocol, kept
 /// independent from the HTTP request timeout because an embedded browser solve
@@ -179,6 +179,49 @@ const TURNSTILE_CLEAR_JS: &str = r#"(function () {
     fields.forEach(function (field) { field.value = ''; });
     return true;
 })()"#;
+
+/// Installs an in-page capture for Cloudflare Turnstile failure messages.
+///
+/// Obscura forwards page console output to tracing but exposes no Rust-side
+/// console callback, so the widget watchdog's own messages are wrapped here.
+/// Only a fixed, non-secret label is retained in a page global; the original
+/// console call still runs and no message text ever crosses into Rust.
+const TURNSTILE_FAILURE_CAPTURE_JS: &str = r#"(function () {
+    if (globalThis.__arachneaObscuraTurnstileHooked) return true;
+    globalThis.__arachneaObscuraTurnstileHooked = true;
+    globalThis.__arachneaObscuraTurnstileFailure = null;
+    var record = function (text) {
+        if (globalThis.__arachneaObscuraTurnstileFailure || !text) return;
+        if (text.indexOf('Turnstile Widget seem to have crashed') >= 0) {
+            globalThis.__arachneaObscuraTurnstileFailure = 'widget-crashed';
+        } else if (text.indexOf('Turnstile Widget seem to have hung') >= 0) {
+            globalThis.__arachneaObscuraTurnstileFailure = 'widget-hung';
+        } else if (text.indexOf('TurnstileError') >= 0 || text.indexOf('[Cloudflare Turnstile] Error') >= 0) {
+            var match = /30\d{4}/.exec(text);
+            globalThis.__arachneaObscuraTurnstileFailure = match ? 'challenge-error-' + match[0] : 'challenge-error';
+        }
+    };
+    ['log', 'info', 'warn', 'error'].forEach(function (level) {
+        var original = console[level];
+        if (typeof original !== 'function') return;
+        console[level] = function () {
+            try {
+                var parts = [];
+                for (var i = 0; i < arguments.length; i++) {
+                    var value = arguments[i];
+                    parts.push(value instanceof Error ? (value.message || String(value)) : String(value));
+                }
+                record(parts.join(' '));
+            } catch (error) {}
+            return original.apply(console, arguments);
+        };
+    });
+    return true;
+})()"#;
+
+/// Reads the non-secret Turnstile failure label captured in the page.
+const TURNSTILE_FAILURE_PROBE_JS: &str =
+    r#"(function () { return globalThis.__arachneaObscuraTurnstileFailure || null; })()"#;
 
 /// Serializable outcome of one in-page `fetch` turn, produced by
 /// [`in_page_fetch_script`] as a JSON string on the session page.
@@ -1364,7 +1407,8 @@ impl ObscuraPageWorker {
                     "obscura: challenge detected after page action click, solving"
                 );
                 self.solve_injected_challenge(&mut deadline, &mut last_attempt)
-                    .await;
+                    .await
+                    .map_err(|err| ArachneaHttpError::PageInteractionFailed(err.to_string()))?;
             }
             let found = self.page.evaluate(&wait_js).as_bool().unwrap_or(false);
             if found {
@@ -1392,15 +1436,31 @@ impl ObscuraPageWorker {
 
     /// Bounded clearance wait for a challenge injected after a click.
     ///
-    /// Runs on the same retained page; only `cf_clearance` appearance or the
-    /// bounded deadline ends the wait, and Turnstile widgets are clicked at
-    /// the bounded protocol rate.
+    /// Runs on the same retained page; `cf_clearance` appearance, a captured
+    /// Turnstile watchdog failure or the bounded deadline ends the wait, and
+    /// Turnstile widgets are clicked at the bounded protocol rate.
+    ///
+    /// # Errors
+    ///
+    /// Returns `ObscuraFailure` with a fixed non-secret label when the in-page
+    /// Turnstile capture reports that the widget hung or crashed.
     async fn solve_injected_challenge(
         &mut self,
         deadline: &mut Instant,
         last_attempt: &mut Instant,
-    ) {
+    ) -> Result<(), ArachneaHttpError> {
+        ObscuraEngine::install_turnstile_failure_capture(&mut self.page);
         while !ObscuraEngine::has_clearance_cookie(&self.jar) && Instant::now() < *deadline {
+            if let Some(label) = ObscuraEngine::turnstile_failure_label(&mut self.page) {
+                debug!(
+                    engine = ENGINE_NAME,
+                    failure = %label,
+                    "obscura Turnstile widget failed after the page action click"
+                );
+                return Err(ArachneaHttpError::ObscuraFailure(format!(
+                    "Cloudflare Turnstile widget failed ({label}) after the page action click"
+                )));
+            }
             if last_attempt.elapsed().as_millis() as u64 >= OBSCURA_CLEARANCE_ATTEMPT_INTERVAL_MS {
                 ObscuraEngine::try_click_turnstile(&mut self.page);
                 *last_attempt = Instant::now();
@@ -1408,6 +1468,7 @@ impl ObscuraPageWorker {
             self.page.settle(OBSCURA_CLEARANCE_POLL_MS).await;
             tokio::time::sleep(Duration::from_millis(200)).await;
         }
+        Ok(())
     }
 
     /// Detects generic Cloudflare challenge markers on the retained page.
@@ -2016,8 +2077,10 @@ impl ObscuraEngine {
     /// challenge JavaScript run, then the retained page's event loop is driven
     /// in `settle` slices (sleeping alone never advances the embedded
     /// runtime). Known same-origin Turnstile widgets are clicked at a bounded
-    /// rate; cross-origin frames are never opened from here. On timeout the
-    /// error carries only non-secret challenge signal labels.
+    /// rate; cross-origin frames are never opened from here. A Turnstile
+    /// watchdog failure is detected in-page and fails early with a fixed label
+    /// instead of waiting out the full clearance timeout. On timeout the error
+    /// carries only non-secret challenge signal labels.
     ///
     /// Must only run on the dedicated blocking thread (see
     /// [`run_blocking_solve`]): `page` is `!Send`.
@@ -2028,12 +2091,24 @@ impl ObscuraEngine {
         origin: &str,
     ) -> Result<(), ArachneaHttpError> {
         let started = Instant::now();
+        Self::install_turnstile_failure_capture(page);
         page.settle(OBSCURA_CLEARANCE_PASSIVE_WAIT_MS).await;
         let mut last_attempt = started - Duration::from_secs(60);
         loop {
             if Self::has_clearance_cookie(jar) {
                 page.settle(OBSCURA_CLEARANCE_SETTLE_MS).await;
                 return Ok(());
+            }
+            if let Some(label) = Self::turnstile_failure_label(page) {
+                debug!(
+                    engine = ENGINE_NAME,
+                    origin,
+                    failure = %label,
+                    "obscura Turnstile widget failed before clearance was issued"
+                );
+                return Err(ArachneaHttpError::ObscuraFailure(format!(
+                    "Cloudflare Turnstile widget failed ({label}) for {origin} before cf_clearance was issued"
+                )));
             }
             if started.elapsed() >= config.clearance_timeout {
                 let signals = Self::sample_challenge_signals(page);
@@ -2193,6 +2268,22 @@ impl ObscuraEngine {
                 return;
             }
         }
+    }
+
+    /// Installs the in-page Turnstile failure capture after navigation.
+    fn install_turnstile_failure_capture(page: &mut ObscuraPage) {
+        let _ = page.evaluate(TURNSTILE_FAILURE_CAPTURE_JS);
+    }
+
+    /// Returns the fixed Turnstile failure label captured in the page, if any.
+    ///
+    /// The label is one of a few literals (widget crash/hang or an error code)
+    /// and never carries console text, URLs or tokens.
+    fn turnstile_failure_label(page: &mut ObscuraPage) -> Option<String> {
+        page.evaluate(TURNSTILE_FAILURE_PROBE_JS)
+            .as_str()
+            .filter(|label| !label.is_empty())
+            .map(str::to_string)
     }
 
     /// Reads the current page HTML through the embedded content API (the
