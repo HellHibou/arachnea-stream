@@ -71,8 +71,14 @@
 }
 
 .videojs-media-host :deep(.vjs-skip-chapter-button-icon) {
-  font-size: 18px;
-  line-height: 1;
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  background-image: url("@/assets/icons/skip-forward.svg");
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 18px;
+  vertical-align: middle;
 }
 
 .videojs-media-host :deep(.vjs-skip-intro-button--visible),
@@ -120,8 +126,13 @@
 }
 
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-chapter-menu-icon) {
-  font-size: 1.45rem;
-  line-height: 1;
+  display: block;
+  width: 1.8rem;
+  height: 1.8rem;
+  background-image: url("@/assets/icons/chapters.svg");
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 1.8rem;
 }
 
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-chapter-menu .vjs-menu .vjs-menu-content) {

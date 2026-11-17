@@ -897,6 +897,10 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Reordered the public player control bar: the audio language button now appears before the subtitles button, the playback speed control sits between the subtitles and fullscreen controls, and the picture-in-picture button sits just left of the fullscreen button.
+
+- The public player's built-in Video.js control labels are now localized in English and French: audio track, subtitles, fullscreen/exit fullscreen, mute/unmute, play and pause.
+
 - Entry/episode server selectors now sort native candidates before iframe embeds and automatically advance on resolution or final video errors. New episodes start at the first sorted server; language changes prefer the current server's name before trying the remaining candidates. Fallback stays within the selected server language, stops after exhaustion, and ignores stale episode loads.
 
 - Each public `get_entry` load now starts playback from the configured audio/subtitle profiles. Manual track choices remain preferred across episodes within that entry and are discarded when another entry is loaded. Removed the settings button for reapplying track preferences and its explanatory text.
@@ -938,6 +942,12 @@ All notable changes to the server workspace are recorded here.
 
 
 #### Fixed
+
+- All player icons now render inside Document Picture-in-Picture windows. The chapter button, skip-chapter button and subtitle menu action icons were Material Design Icons font glyphs; since the PiP document cannot load the webfont, they displayed raw codepoints (e.g. `F027B`). They now use inlined SVG assets, like the other player control icons.
+
+- The public player control bar now keeps its custom layout inside Document Picture-in-Picture windows (notably Firefox). Video.js moves the player element out of `.videojs-media-host`, which made every scoped player style stop matching in the PiP document and left Video.js's default flexible progress control creating large gaps. The PiP window body now inherits the host's scoped-style anchor on `enterpictureinpicture`, so the existing ordering, sizing and menu styles apply again.
+
+- The public player now uses a pure black background in fullscreen. A non-16/9 video (e.g. 21/9) is letterboxed inside the fullscreen host, and the player's bluish gradient background remained visible in the uncovered bars as a colored halo. The underlying `<video>` element now always has a black background, while the fullscreen host and the Video.js wrapper override the gradient with black only in fullscreen, leaving the normal player appearance unchanged.
 
 - Player selection no longer treats an unresolved `embed-link` as a confirmed iframe. When a default candidate resolves to an iframe, other unresolved candidates in the same language are tried before displaying it, allowing native streams discovered through embed links to take priority.
 

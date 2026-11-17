@@ -327,17 +327,17 @@
 }
 
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-subs-caps-button) {
-  order: 45;
-  flex: 0 0 auto;
-}
-
-.videojs-media-host :deep(.arachnea-videojs-theme .vjs-audio-button) {
   order: 46;
   flex: 0 0 auto;
 }
 
-.videojs-media-host :deep(.arachnea-videojs-theme .vjs-playback-rate.vjs-menu-button-popup) {
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-audio-button) {
   order: 45;
+  flex: 0 0 auto;
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-playback-rate.vjs-menu-button-popup) {
+  order: 47;
   position: relative;
   flex: 0 0 auto;
   display: flex;
@@ -520,7 +520,7 @@
 }
 
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-picture-in-picture-control) {
-  order: 60;
+  order: 55;
   flex: 0 0 auto;
 }
 

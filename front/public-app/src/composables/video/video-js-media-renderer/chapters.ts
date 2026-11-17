@@ -18,8 +18,6 @@ const CHAPTER_OVERLAY_FLOATING_CLASS = 'vjs-chapter-overlay--floating'
 const SKIP_CHAPTER_BUTTON_CLASS_PREFIX = 'vjs-skip-'
 /** CSS class applied to the skip chapter button label. */
 const SKIP_CHAPTER_BUTTON_LABEL_CLASS = 'vjs-skip-chapter-button-label'
-/** Material Design icon shown after the skip chapter button label. */
-const SKIP_CHAPTER_BUTTON_ICON = 'mdi mdi-skip-forward'
 /** CSS class applied to the skip chapter button icon. */
 const SKIP_CHAPTER_BUTTON_ICON_CLASS = 'vjs-skip-chapter-button-icon'
 /** CSS class suffix added to a skip chapter button while the player control bar is hidden. */
@@ -449,7 +447,7 @@ export function installSkipChapterButton(
   buttonLabel.className = SKIP_CHAPTER_BUTTON_LABEL_CLASS
   buttonLabel.textContent = t(SKIP_CHAPTER_LABEL_KEYS[chapterType])
   const buttonIcon = document.createElement('span')
-  buttonIcon.className = `${SKIP_CHAPTER_BUTTON_ICON_CLASS} ${SKIP_CHAPTER_BUTTON_ICON}`
+  buttonIcon.className = SKIP_CHAPTER_BUTTON_ICON_CLASS
   buttonIcon.setAttribute('aria-hidden', 'true')
   button.append(buttonLabel, buttonIcon)
   button.addEventListener('click', () => {

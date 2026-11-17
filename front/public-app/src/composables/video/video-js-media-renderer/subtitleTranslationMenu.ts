@@ -17,6 +17,9 @@ export interface SubtitleTranslationMenuSource {
   requestManual: (language: string) => void | Promise<void>
 }
 
+/** Icons available for non-language subtitle menu entries. */
+type SubtitleMenuIcon = 'settings' | 'off' | 'delay'
+
 /** Minimal Video.js menu item handle used by the installer. */
 interface SubtitleTranslationMenuItem {
   /** Text track represented by a native menu item. */
@@ -139,9 +142,9 @@ export function installSubtitleTranslationMenu(
     for (const item of items) {
       const element = item.el?.()
       const icon = element?.classList.contains('vjs-texttrack-settings')
-        ? 'mdi-cog'
+        ? 'settings'
         : OffTextTrackMenuItem && item instanceof OffTextTrackMenuItem
-          ? 'mdi-eye-off-outline'
+          ? 'off'
           : null
       addSubtitleMenuIcon(item, item.track?.language, icon)
     }
@@ -237,7 +240,7 @@ function createSubtitleOffsetItem(
   element.addEventListener('focus', () => input.focus())
   label.appendChild(input)
   text.appendChild(label)
-  addSubtitleMenuIcon(item, undefined, 'mdi-timer-outline')
+  addSubtitleMenuIcon(item, undefined, 'delay')
   return item
 }
 
@@ -245,12 +248,12 @@ function createSubtitleOffsetItem(
  * Adds a decorative icon slot to a subtitle menu item.
  * @param item Menu item to decorate.
  * @param language Language code for a track or translation target.
- * @param icon Material Design icon class for non-language actions.
+ * @param icon Semantic icon for non-language actions.
  */
 function addSubtitleMenuIcon(
   item: SubtitleTranslationMenuItem,
   language?: string,
-  icon: string | null = null,
+  icon: SubtitleMenuIcon | null = null,
 ) {
   const element = item.el?.()
   const label = element?.querySelector('.vjs-menu-item-text')
@@ -260,7 +263,7 @@ function addSubtitleMenuIcon(
   slot.className = 'vjs-subtitle-menu-icon'
   slot.setAttribute('aria-hidden', 'true')
   if (icon) {
-    slot.classList.add('mdi', icon)
+    slot.classList.add(`vjs-subtitle-menu-icon--${icon}`)
   } else {
     slot.textContent = getLanguageFlag(getBaseLanguageCode(normalizeLanguageCode(language))) ?? ''
   }

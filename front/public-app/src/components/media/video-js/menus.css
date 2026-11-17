@@ -105,13 +105,28 @@
   overflow-wrap: anywhere;
 }
 
-.videojs-media-host :deep(.arachnea-videojs-theme .vjs-subs-caps-button .vjs-subtitle-menu-icon),
-.videojs-media-host :deep(.arachnea-videojs-theme .vjs-audio-button .vjs-subtitle-menu-icon) {
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-subtitle-menu-icon) {
   display: inline-block;
   flex: 0 0 1.5em;
   width: 1.5em;
+  height: 1.5em;
   margin-right: 0.4em;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 1.1em;
   text-align: center;
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-subtitle-menu-icon--settings) {
+  background-image: url("@/assets/icons/settings.svg");
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-subtitle-menu-icon--off) {
+  background-image: url("@/assets/icons/eye-off.svg");
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-subtitle-menu-icon--delay) {
+  background-image: url("@/assets/icons/timer.svg");
 }
 
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-subtitle-offset-item label) {

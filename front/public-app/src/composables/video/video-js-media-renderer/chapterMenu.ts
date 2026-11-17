@@ -183,7 +183,7 @@ export function installChapterMenuButton(
   button.setAttribute('aria-expanded', 'false')
 
   const icon = document.createElement('span')
-  icon.className = 'vjs-chapter-menu-icon mdi mdi-format-list-numbered'
+  icon.className = 'vjs-chapter-menu-icon'
   icon.setAttribute('aria-hidden', 'true')
   button.append(icon)
 

@@ -340,6 +340,16 @@
     "streamQuality": "Quality",
     "streamLanguage": "Language",
     "streamAutomatic": "Automatic",
+    "controls": {
+      "audioTrack": "Audio track",
+      "subtitles": "Subtitles",
+      "fullscreen": "Fullscreen",
+      "exitFullscreen": "Exit fullscreen",
+      "mute": "Mute",
+      "unmute": "Unmute",
+      "play": "Play",
+      "pause": "Pause"
+    },
     "subtitles": {
       "off": "Subtitles off",
       "settings": "Subtitles settings",

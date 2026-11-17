@@ -18,6 +18,16 @@
   height: 100vh;
   aspect-ratio: auto;
   border-radius: 0;
+  background: #000;
+}
+
+/* The PiP window body carries the host's scoped styles while the player is moved out. */
+body.vjs-pip-window.videojs-media-host {
+  width: 100%;
+  height: 100%;
+  aspect-ratio: auto;
+  border-radius: 0;
+  overflow: visible;
 }
 
 .videojs-media-overlay {
@@ -72,6 +82,19 @@
   background:
     radial-gradient(circle at top, rgb(70 163 255 / 0.14), transparent 45%),
     linear-gradient(180deg, rgb(8 12 18 / 0.12), rgb(8 12 18 / 0.4));
+}
+
+.videojs-media-host :deep(video) {
+  background: #000;
+}
+
+/* Non-16/9 video is letterboxed in fullscreen, so the uncovered bars must be black. */
+.videojs-media-host:fullscreen :deep(.video-js) {
+  background: #000;
+}
+
+.videojs-media-host:fullscreen :deep(.arachnea-videojs-theme) {
+  background: #000;
 }
 
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-poster) {

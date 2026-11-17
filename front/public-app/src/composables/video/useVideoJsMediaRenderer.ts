@@ -31,6 +31,7 @@ import { installDashPeriodChapters, isDashSource } from './video-js-media-render
 import {
   isDurationAvailable, isLiveStream, syncDurationAvailabilityState, updateLiveProgressBar,
 } from './video-js-media-renderer/live'
+import { installPictureInPictureStyles } from './video-js-media-renderer/pictureInPicture'
 import { disableControlBarMenuHoverBehavior } from './video-js-media-renderer/quality'
 import {
   getPlaybackEventSourceUrl,
@@ -117,8 +118,15 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
       t('player.subtitles.off'), t('player.subtitles.settings'),
       t('player.subtitles.offset'), t('player.subtitles.offsetHint'),
       t('player.playbackRate.label'),
+      t('player.controls.audioTrack'), t('player.controls.subtitles'),
+      t('player.controls.fullscreen'), t('player.controls.exitFullscreen'),
+      t('player.controls.mute'), t('player.controls.unmute'),
+      t('player.controls.play'), t('player.controls.pause'),
     ],
-    ([off, settings, , , playbackRateLabel]) => {
+    ([
+      off, settings, , , playbackRateLabel,
+      audioTrack, subtitles, fullscreen, exitFullscreen, mute, unmute, play, pause,
+    ]) => {
       videojs.addLanguage('arachnea', {
         'captions and subtitles off': off,
         'subtitles off': off,
@@ -126,6 +134,14 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
         'subtitles settings': settings,
         'captions settings': settings,
         'Playback Rate': playbackRateLabel,
+        'Audio Track': audioTrack,
+        'Subtitles': subtitles,
+        'Fullscreen': fullscreen,
+        'Exit Fullscreen': exitFullscreen,
+        'Mute': mute,
+        'Unmute': unmute,
+        'Play': play,
+        'Pause': pause,
       })
       refreshSubtitleTranslationMenu?.()
     },
@@ -334,6 +350,7 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
 
     activePlayer.value = player
     installStableFullscreenBridge(player, () => hostElement.value)
+    installPictureInPictureStyles(player, () => hostElement.value)
 
     installVariantFailureHandling(player, variants, () => {
       emit('source-error')
