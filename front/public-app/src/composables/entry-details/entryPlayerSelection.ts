@@ -27,26 +27,20 @@ function formatPlayerLanguageLabel(player: EntryPlayer): string {
 }
 
 /**
- * Returns a stable preference key for one player across item changes.
- *
- * @param player Player rendered by the current built-in player context.
- * @returns Stable player key used to restore the last selected player when available.
+ * Orders native streams, unresolved candidates and confirmed iframes in that order.
+ * @param players Players available for one language.
+ * @param playerRenderers Renderer kinds discovered during stream resolution.
+ * @returns Sorted copy of the candidates.
  */
-function getPlayerPreferenceKey(player: EntryPlayer): string {
-  return player.name?.trim().toLocaleLowerCase() || player.label.trim().toLocaleLowerCase()
-}
-
-/**
- * Returns embedded players in backend order.
- *
- * The backend order is used as the default priority when several external
- * iframe players are available for the same playable item or entry.
- *
- * @param players Players rendered by the current built-in player context.
- * @returns New array preserving backend order.
- */
-function sortEntryPlayers(players: EntryPlayer[]): EntryPlayer[] {
-  return [...players]
+function sortEntryPlayers(players: EntryPlayer[], playerRenderers: ReadonlyMap<string, 'video' | 'iframe'>): EntryPlayer[] {
+  /** @param player Candidate whose known renderer takes precedence over its discovery hint. */
+  const rank = (player: EntryPlayer): number => {
+    const renderer = playerRenderers.get(player.id)
+    if (renderer === 'iframe') return 3
+    if (renderer === 'video' || player.streams.length > 0) return 0
+    return player.isEmbed ? 2 : 1
+  }
+  return [...players].sort((left, right) => rank(left) - rank(right))
 }
 
 /**
@@ -103,8 +97,12 @@ export function createEntryPlayerSelection(options: EntryPlayerSelectionOptions)
   /** The preferred language key persisted across playable item changes. */
   const preferredLanguageKey = shallowRef<string | null>(null)
 
-  /** The preferred player key persisted across playable item changes. */
-  const preferredPlayerKey = shallowRef<string | null>(null)
+  /** Iframe classifications are retained only for the current entry. */
+  const playerRenderers = shallowRef<ReadonlyMap<string, 'video' | 'iframe'>>(new Map())
+  const failedPlayerIds = new Set<string>()
+  let languagePlayerName: string | null = null
+  let prioritizedPlayerId: string | null = null
+  let explicitPlayerId: string | null = null
 
   /**
    * Exposes the embedded players returned by the backend entry payload.
@@ -115,13 +113,14 @@ export function createEntryPlayerSelection(options: EntryPlayerSelectionOptions)
 
   /**
    * Exposes the players that should drive the built-in player.
-   * Uses playable item players if available, otherwise falls back to entry players.
+   * Keeps deferred episode lists empty until loaded, otherwise falls back to entry players.
    *
    * @returns Array of players relevant to the current playable context.
    */
   const activePlayers = computed<EntryPlayer[]>(() => {
-    const selectedItemPlayers = options.selectedPlayableItem.value?.players.entries ?? []
-    return selectedItemPlayers.length > 0 ? selectedItemPlayers : availablePlayers.value
+    const item = options.selectedPlayableItem.value
+    if (item && (item.players.entries.length > 0 || item.players.link)) return item.players.entries
+    return availablePlayers.value
   })
 
   /**
@@ -137,6 +136,9 @@ export function createEntryPlayerSelection(options: EntryPlayerSelectionOptions)
         : selectedLanguageKey.value
     },
     set(value) {
+      if (value !== activeLanguageKey.value) {
+        languagePlayerName = selectedPlayer.value?.name?.trim().toLowerCase() ?? null
+      }
       if (options.selectedPlayableItem.value?.players.entries.length) {
         selectedPlayableLanguageKey.value = value
         return
@@ -203,12 +205,13 @@ export function createEntryPlayerSelection(options: EntryPlayerSelectionOptions)
    */
   const filteredPlayers = computed<EntryPlayer[]>(() => {
     if (availableLanguages.value.length < 2) {
-      return sortEntryPlayers(activePlayers.value)
+      return sortEntryPlayers(activePlayers.value, playerRenderers.value)
     }
 
     const currentLanguageKey = resolvedLanguageKey.value
     return sortEntryPlayers(
       activePlayers.value.filter((player) => getPlayerLanguageKey(player) === currentLanguageKey),
+      playerRenderers.value,
     )
   })
 
@@ -274,32 +277,62 @@ export function createEntryPlayerSelection(options: EntryPlayerSelectionOptions)
     preferredLanguageKey.value = resolvedLanguageKey.value
   }
 
-  /**
-   * Stores the currently selected player as the preferred player for the next playable video.
-   */
+  /** Pins an explicit server selection so its errors do not trigger server fallback. */
   function rememberCurrentPlayer(): void {
-    if (!selectedPlayer.value) {
-      return
-    }
-
-    preferredPlayerKey.value = getPlayerPreferenceKey(selectedPlayer.value)
+    failedPlayerIds.clear()
+    prioritizedPlayerId = selectedPlayer.value?.id ?? null
+    explicitPlayerId = prioritizedPlayerId
   }
 
-  /** Clears entry and item selections while retaining cross-item preferences. */
+  /**
+   * Advances after one failed server, trying every remaining server at most once.
+   * @returns Whether a remaining server was selected; explicit server choices never advance.
+   */
+  function selectNextPlayer(): boolean {
+    const current = selectedPlayer.value
+    if (!current || current.id === explicitPlayerId) return false
+    prioritizedPlayerId = null
+    failedPlayerIds.add(current.id)
+    const next = filteredPlayers.value.find((player) => !failedPlayerIds.has(player.id))
+    if (!next) return false
+    activePlayerId.value = next.id
+    return true
+  }
+
+  /**
+   * Defers an iframe until native and unresolved candidates have been tried.
+   * @param player Player whose renderer was resolved.
+   * @param renderer Renderer returned by the stream resolver.
+   * @returns Whether this source should be displayed immediately.
+   */
+  function acceptResolvedPlayer(player: EntryPlayer, renderer: 'video' | 'iframe'): boolean {
+    playerRenderers.value = new Map([...playerRenderers.value, [player.id, renderer]])
+    if (renderer !== 'iframe' || player.id === prioritizedPlayerId) return true
+    const next = filteredPlayers.value.find((candidate) => !failedPlayerIds.has(candidate.id))
+    if (!next || next.id === player.id) return true
+    activePlayerId.value = next.id
+    return false
+  }
+
+  /** Clears entry and item language choices before loading another entry. */
   function resetForEntryLoad() {
+    preferredLanguageKey.value = null
+    languagePlayerName = null
+    prioritizedPlayerId = null
+    explicitPlayerId = null
+    failedPlayerIds.clear()
+    playerRenderers.value = new Map()
     selectedLanguageKey.value = null
     selectedPlayerId.value = null
     clearSelectedPlayablePlayerState()
   }
 
-  /** Applies the remembered language to a freshly loaded entry. */
+  /** Starts a freshly loaded entry without a previous entry's language choice. */
   function applyLoadedEntryDefaults() {
-    selectedLanguageKey.value = preferredLanguageKey.value
-    selectedPlayerId.value = null
-    clearSelectedPlayablePlayerState()
+    resetForEntryLoad()
   }
 
-  /** Installs language and player reconciliation in their original setup order. */
+  /** Reconciles language and player choices after episode defaults are initialized. */
   function observeSelectors() {
     watch(availableLanguages, (languages) => {
       if (languages.length === 0) {
@@ -321,62 +354,44 @@ export function createEntryPlayerSelection(options: EntryPlayerSelectionOptions)
 
       activeLanguageKey.value = languages[0]?.key ?? null
     }, { immediate: true })
-    watch(filteredPlayers, (players) => {
-      if (players.length === 0) {
-        activePlayerId.value = null
-        return
-      }
-
-      if (players.some((player) => player.id === activePlayerId.value)) {
-        return
-      }
-
-      const preferredPlayer = preferredPlayerKey.value
-        ? players.find((player) => getPlayerPreferenceKey(player) === preferredPlayerKey.value)
-        : null
-
-      activePlayerId.value = preferredPlayer?.id ?? players[0]?.id ?? null
-    }, { immediate: true })
+    watch(
+      [activePlayers, resolvedLanguageKey],
+      () => {
+        failedPlayerIds.clear()
+        explicitPlayerId = null
+        const players = filteredPlayers.value
+        const preferred = languagePlayerName
+          ? players.find((player) => player.name?.trim().toLowerCase() === languagePlayerName)
+          : null
+        languagePlayerName = null
+        prioritizedPlayerId = preferred?.id ?? null
+        activePlayerId.value = preferred?.id ?? players[0]?.id ?? null
+      },
+      { immediate: true },
+    )
   }
 
-  /** Installs item-specific selection restoration after the stream observers. */
+  /** Restores the language across episodes while starting at the first sorted server. */
   function observePlayableItem() {
     watch(
       () => options.selectedPlayableItem.value?.id ?? null,
       (nextPlayableItemId, previousPlayableItemId) => {
-        if (!nextPlayableItemId) {
-          clearSelectedPlayablePlayerState()
-          return
-        }
-
-        if (previousPlayableItemId !== nextPlayableItemId) {
-          const selectedItemPlayers = options.selectedPlayableItem.value?.players.entries ?? []
-          const nextLanguageOptions = buildEntryPlayerLanguageOptions(selectedItemPlayers)
-          const preferredPlayerInAnyLanguage = preferredPlayerKey.value
-            ? selectedItemPlayers.find(
-              (player) => getPlayerPreferenceKey(player) === preferredPlayerKey.value,
-            )
-            : null
-          const nextLanguageKey =
-            preferredLanguageKey.value &&
-              nextLanguageOptions.some((language) => language.key === preferredLanguageKey.value)
-              ? preferredLanguageKey.value
-              : (preferredPlayerInAnyLanguage
-                ? getPlayerLanguageKey(preferredPlayerInAnyLanguage)
-                : nextLanguageOptions[0]?.key ?? null)
-          const playersInSelectedLanguage = selectedItemPlayers.filter(
-            (player) => getPlayerLanguageKey(player) === nextLanguageKey,
-          )
-          const preferredPlayer = preferredPlayerKey.value
-            ? playersInSelectedLanguage.find(
-              (player) => getPlayerPreferenceKey(player) === preferredPlayerKey.value,
-            )
-            : null
-
-          selectedPlayableLanguageKey.value = nextLanguageKey
-          selectedPlayablePlayerId.value = preferredPlayer?.id ?? playersInSelectedLanguage[0]?.id ?? null
-          options.activateMedia()
-        }
+        clearSelectedPlayablePlayerState()
+        languagePlayerName = null
+        prioritizedPlayerId = null
+        explicitPlayerId = null
+        failedPlayerIds.clear()
+        if (!nextPlayableItemId || nextPlayableItemId === previousPlayableItemId) return
+        const players = options.selectedPlayableItem.value?.players.entries ?? []
+        const languages = buildEntryPlayerLanguageOptions(players)
+        selectedPlayableLanguageKey.value = languages.some((language) => language.key === preferredLanguageKey.value)
+          ? preferredLanguageKey.value
+          : languages[0]?.key ?? null
+        selectedPlayablePlayerId.value = sortEntryPlayers(
+          players.filter((player) => getPlayerLanguageKey(player) === selectedPlayableLanguageKey.value),
+          playerRenderers.value,
+        )[0]?.id ?? null
+        options.activateMedia()
       },
     )
   }
@@ -385,6 +400,6 @@ export function createEntryPlayerSelection(options: EntryPlayerSelectionOptions)
     activeLanguageKey, activePlayerId, availableLanguages, filteredPlayers, selectedPlayer,
     selectedPlayableTitle, showLanguageSelector, showPlayerSelector, showPlayerControls, activePlayers,
     rememberCurrentLanguage, rememberCurrentPlayer, resetForEntryLoad, applyLoadedEntryDefaults,
-    observeSelectors, observePlayableItem,
+    observeSelectors, observePlayableItem, selectNextPlayer, acceptResolvedPlayer,
   }
 }

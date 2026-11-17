@@ -56,6 +56,13 @@ queries:
             argument: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
     row_selector: "html"
     entries:
+      - name: error_message
+        type: string
+        actions:
+          - type: get_response_body
+          - type: regex_find_all
+            pattern: '>\s*([^<>]*File is no longer available[^<>]*?)\s*<'
+            format: "{1}"
       - name: streams > url
         type: string[]
         actions:

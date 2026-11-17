@@ -1,7 +1,7 @@
 id: lulustream
 title: LuluStream
 description:
-  en: "Resolver for luluvdo.com, lulustream.com"
+  en: "Resolver for luluvdo.com, lulustream.com, lplaygo.com"
 http:
   mode: auto
 
@@ -21,11 +21,11 @@ queries:
         type: string
         value: "{html}"
         actions:
-          # A live LuluStream page carries the title marker; a mirror whose file
-          # expired or was deleted serves the shared XFileSharing error page,
+          # Live pages carry the LuluStream marker in <title> or document.title;
+          # expired or deleted files serve the shared XFileSharing error page,
           # which has no title and no player, so its message is the only marker.
           - type: regex_find_all
-            pattern: '(?i)<title>[^<]*\s-\s*LuluStream</title>|File is no longer available as it expired or has been deleted'
+            pattern: '(?i)<title>[^<]*\s-\s*LuluStream</title>|document\.title\s*=\s*["''][^"''\r\n]*\bLuluStream\b[^"''\r\n]*["'']|File is no longer available as it expired or has been deleted'
             format: "{service_id}"
 
 

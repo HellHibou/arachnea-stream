@@ -982,8 +982,23 @@ manual language/quality choices take precedence. Fixed qualities and languages a
 selected inside the player; active adaptive-manifest controls remain available.
 AnimeUltime groups HD/SD in one player, Odysee groups HLS/MP4 in one player.
 Fatal video failures try unfailed variants of the same language/quality first,
-then other qualities, unknown language and other languages. No automatic switch to
-another provider. Only collection exhaustion emits the final source error. Active
+then other qualities, unknown language and other languages. Only variant collection
+exhaustion emits a source error to the parent. For entry/episode playback, the parent
+then tries remaining servers in the selected server language, with native players before
+iframe embeds and stable backend ordering within each group. Entry/episode loads start
+at the first server; language changes prefer a server with the current server's name,
+then traverse the remaining candidates in sorted order. Failed servers
+are skipped until a new episode, language or explicit server selection. Only server
+exhaustion displays the final error. Resolver failures follow the same server fallback.
+An explicit server selection disables server fallback: that server's resolution or final
+video error is displayed immediately. Changing the episode, entry or language restores
+automatic server fallback; retaining a server by name is not an explicit server selection.
+Embed links are initial classification hints, since they can resolve to native streams.
+Known native streams precede unresolved candidates, which precede confirmed iframes;
+backend order is preserved within each priority group. A newly discovered iframe is
+deferred behind unfailed native and unresolved candidates, including other embed links, unless the user
+explicitly chose that server or it was retained by name on a language change. Cross-origin
+iframe content errors may not be detectable; iframe security policies remain in force. Active
 loads have a 20-second watchdog; pause, autoplay rejection and auxiliary-resource
 failures do not count as fatal video errors. Source transitions preserve compatible
 playback state, common metadata and the live seekable window.
@@ -1017,19 +1032,23 @@ playback engines. Tracks may be enabled automatically by the configured track se
 (audio language, subtitles according to language priority, audio description as a last resort);
 otherwise, no track is enabled by default.
 
-Matching manual audio and subtitle choices take precedence over profiles. A manual choice matches
-the same non-DASH-generated identifier or the same normalized language, kind and label; an
-unavailable choice falls back to the configured profile without replacing the saved manual
-preference. Explicitly disabling subtitles is a global manual choice. Preferences retain their
-`manual` or `profile` origin in storage; legacy preferences without an origin remain manual,
-while a fresh installation has no manual override. Background players do not apply profiles.
+Each `get_entry` load starts the public player with the configured audio/subtitle profiles,
+ignoring durable manual track choices from earlier entries. Manual choices made after loading
+remain preferred across episode, season and source changes within that entry. Opening another
+entry, reopening the same entry or reloading its details reapplies the configured profiles.
+Other persisted player settings, including volume and quality, remain available.
 
-Editing track profiles, subtitle language priority or audio-description permission clears the
-saved manual audio/subtitle choices and immediately reapplies the updated settings to mounted
-user-controlled players. The settings action **Apply these preferences** performs the same reset
-without changing the configured profiles. Manual choices subsequently made in the player keep
-precedence until the next settings edit or explicit reset. This reset also updates retained state
-when the media surface is temporarily unmounted.
+Within an entry, a manual choice matches the same non-DASH-generated identifier or the same
+normalized language, kind and label; an unavailable choice falls back to the configured profile
+without replacing the retained manual preference. Explicitly disabling subtitles applies across
+that entry's episodes. Preferences retain their `manual` or `profile` origin in storage; standalone
+controlled players can still restore durable choices, including legacy preferences without an
+origin. Background players do not apply profiles.
+
+Editing track profiles, subtitle language priority, translation authorizations or audio-description
+permission clears saved manual audio/subtitle choices and immediately reapplies the updated
+settings to mounted user-controlled players. This reset also updates retained state when the media
+surface is temporarily unmounted. There is no separate action to reapply preferences.
 
 Both two-letter ISO 639-1 and three-letter ISO 639-2 terminology/bibliographic codes are matched
 through the shared catalog (`fr`/`fra`/`fre`, `en`/`eng`, `de`/`deu`/`ger`), including regional

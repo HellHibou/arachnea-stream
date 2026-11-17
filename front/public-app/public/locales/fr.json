@@ -246,8 +246,6 @@
     "confirmation": "Confirmation",
     "safe": "Sécurisé",
     "playerTracks": {
-      "applyProfiles": "Appliquer ces préférences",
-      "applyProfilesHint": "Remplace les choix audio et sous-titres faits dans le lecteur.",
       "audio": "Langue audio",
       "subtitles": "Sous-titres",
       "subtitlesDisabled": "Désactivés",

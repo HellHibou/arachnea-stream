@@ -995,8 +995,24 @@ après application des choix manuels de langue/qualité. Les qualités fixes et 
 se sélectionnent dans le lecteur ; les contrôles du manifeste adaptatif actif restent
 accessibles. AnimeUltime regroupe HD/SD, Odysee regroupe HLS/MP4 dans un seul player.
 Une erreur vidéo fatale essaie les variantes restantes de même langue/qualité,
-puis les autres qualités, la langue inconnue et les autres langues. Aucun changement
-automatique d'hébergeur. L'erreur finale n'est émise qu'après épuisement des flux.
+puis les autres qualités, la langue inconnue et les autres langues. Une erreur de source
+n'est émise au parent qu'après épuisement des variantes. Pour une fiche ou un épisode,
+le parent essaie ensuite les serveurs restants dans la langue sélectionnée, avec les lecteurs
+natifs avant les iframes et l'ordre backend conservé dans chaque groupe. Le chargement d'une
+fiche ou d'un épisode démarre au premier serveur ; un changement de langue privilégie le
+serveur portant le même nom que le serveur courant, puis parcourt les candidats restants
+dans l'ordre trié. Les serveurs en échec sont ignorés jusqu'au
+changement d'épisode, de langue ou de sélection explicite du serveur. Seul l'épuisement
+des serveurs affiche l'erreur finale. Les erreurs de résolution suivent ce même repli.
+La sélection explicite d'un serveur désactive ce repli : son erreur de résolution ou son
+erreur vidéo finale s'affiche directement. Changer d'épisode, de fiche ou de langue réactive
+le repli automatique ; conserver un serveur par son nom n'est pas une sélection explicite.
+Les liens embed sont des indices initiaux : ils peuvent se résoudre en flux vidéo natifs.
+Les flux natifs connus précèdent les candidats à résoudre, qui précèdent les iframes
+confirmées ; chaque groupe conserve l'ordre backend. Une iframe découverte à la résolution
+attend les candidats natifs et à résoudre restants, y compris les autres liens embed, sauf si ce serveur
+a été choisi explicitement ou conservé par nom lors d'un changement de langue. Les erreurs
+internes aux iframes externes peuvent être indétectables ; les règles de sécurité restent actives.
 Un chargement actif dispose d'un délai de 20 secondes ; pause, refus d'autoplay et
 échec des ressources auxiliaires ne sont pas des erreurs vidéo fatales. Une bascule
 conserve l'état de lecture compatible, les métadonnées communes et la fenêtre live.
@@ -1032,22 +1048,25 @@ gérées par leurs moteurs de lecture respectifs. Les pistes peuvent être activ
 par les profils de sélection de piste configurés (langue audio, sous-titres selon la priorité de
 langues, audiodescription en dernier recours) ; sinon, aucune piste n'est activée par défaut.
 
-Les choix manuels audio et sous-titres qui correspondent à une piste sont prioritaires sur les
-profils. La correspondance repose sur un même identifiant non généré par DASH ou sur une même
-langue normalisée, un même type et un même libellé. Un choix indisponible laisse le profil
-s'appliquer sans remplacer la préférence manuelle enregistrée. La désactivation manuelle des
-sous-titres est globale. Les préférences conservent leur origine `manual` ou `profile` en
-stockage ; les anciennes préférences sans origine restent manuelles, tandis qu'une installation
-neuve ne possède pas de choix manuel prioritaire. Les lecteurs d'arrière-plan n'appliquent pas
-les profils.
+Chaque chargement `get_entry` initialise le lecteur public avec les profils audio/sous-titres
+configurés, sans reprendre les choix manuels durables des fiches précédentes. Les choix manuels
+faits ensuite restent prioritaires entre les épisodes, saisons et sources de cette même fiche.
+Ouvrir une autre fiche, rouvrir la même fiche ou recharger ses détails réapplique les profils
+configurés. Les autres réglages persistants, dont le volume et la qualité, restent disponibles.
 
-Modifier les profils de pistes, la priorité des langues de sous-titres ou l'autorisation de
-l'audiodescription efface les choix audio/sous-titres manuels enregistrés et réapplique immédiatement
-les nouveaux paramètres aux lecteurs contrôlés montés. Le bouton **Appliquer ces préférences**
-effectue la même réinitialisation sans modifier les profils configurés. Les choix manuels faits
-ensuite dans le lecteur restent prioritaires jusqu'à la prochaine modification des paramètres ou
-réinitialisation explicite. L'état conservé lorsque la surface média est temporairement démontée
-est également actualisé.
+Dans une fiche, la correspondance d'un choix manuel repose sur un même identifiant non généré
+par DASH ou sur une même langue normalisée, un même type et un même libellé. Un choix indisponible
+laisse le profil s'appliquer sans remplacer la préférence manuelle conservée. La désactivation
+manuelle des sous-titres s'applique aux épisodes de cette fiche. Les préférences conservent leur
+origine `manual` ou `profile` en stockage ; les lecteurs contrôlés autonomes peuvent toujours
+reprendre les choix durables, y compris les anciennes préférences sans origine. Les lecteurs
+d'arrière-plan n'appliquent pas les profils.
+
+Modifier les profils de pistes, la priorité des langues de sous-titres, les autorisations de
+traduction ou l'autorisation de l'audiodescription efface les choix audio/sous-titres manuels
+enregistrés et réapplique immédiatement les nouveaux paramètres aux lecteurs contrôlés montés.
+L'état conservé lorsque la surface média est temporairement démontée est également actualisé.
+Il n'y a plus d'action distincte pour réappliquer les préférences.
 
 Les codes ISO 639-1 à deux lettres et ISO 639-2 terminologiques/bibliographiques à trois lettres
 sont comparés via le catalogue partagé (`fr`/`fra`/`fre`, `en`/`eng`, `de`/`deu`/`ger`), y compris

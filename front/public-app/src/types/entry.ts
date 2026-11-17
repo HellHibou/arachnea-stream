@@ -169,6 +169,8 @@ export type GetStreamResponse = EntryResolvedPlayerStream | EntryEmbedFallback
  * Normalized embedded player entry consumed by the featured media detail component.
  */
 export interface EntryPlayer extends EntryResolvedPlayerStream {
+  /** Whether the backend supplied an embed link instead of native stream variants. */
+  isEmbed?: boolean
   /** The unique identifier for the player. */
   id: string
   /** The display label for the player. */

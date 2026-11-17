@@ -336,11 +336,6 @@ function handleSubtitleTranslationByLanguageUpdate(value: Record<string, boolean
   parameters['videoPlayer.subtitleTranslationByLanguage'].value = value
 }
 
-/** Reapplies configured profiles after clearing choices made in the player menus. */
-function handleApplyTrackProfiles(): void {
-  useStorage().resetVideoPlayerTrackPreferences()
-}
-
 /** Opens the dedicated administration window in the desktop application. */
 function handleOpenAdministration(): void {
   void openAdministrationWindow()
@@ -603,16 +598,6 @@ function handleOpenAdministration(): void {
             @update:model-value="handleSubtitleLanguagesUpdate"
             @update:translation-by-language="handleSubtitleTranslationByLanguageUpdate"
           />
-        </ParametersPanel>
-
-        <ParametersPanel :title="t('settings.playerTracks.applyProfilesHint')">
-          <button
-            type="button"
-            class="parameters__action-button"
-            @click="handleApplyTrackProfiles"
-          >
-            {{ t('settings.playerTracks.applyProfiles') }}
-          </button>
         </ParametersPanel>
       </div>
     </ParametersSection>

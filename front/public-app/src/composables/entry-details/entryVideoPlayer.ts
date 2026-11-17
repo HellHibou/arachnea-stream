@@ -27,10 +27,12 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
   } = selection
   const streams = createEntryPlayerStream({
     details: options.details, selectedPlayableItem: options.selectedPlayableItem, selectedPlayer,
+    selectNextPlayer: selection.selectNextPlayer,
+    acceptResolvedPlayer: selection.acceptResolvedPlayer,
   })
   const {
     mediaSource, mediaOpenUrl, hasMediaCandidate, resolvedPlayerPosterUrl,
-    isMediaPlayerLoading, mediaPlayerErrorMessage, loadDeferredPlayers, handleMediaSourceError,
+    isMediaPlayerLoading, mediaPlayerErrorMessage, loadDeferredPlayers, handleMediaSourceError: handleStreamSourceError,
   } = streams
   const trailers = createEntryPlayerTrailer({
     details: options.details, securityMode: options.securityMode,
@@ -109,6 +111,11 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
     activeVideoMode.value = 'trailer'
   }
 
+  /** Advances servers only for errors from the primary media surface. */
+  function handleMediaSourceError(): void {
+    if (activeVideoMode.value === 'media') handleStreamSourceError()
+  }
+
   /**
    * Forces the built-in player back to media mode after an explicit selection.
    */
@@ -145,10 +152,11 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
 
     applyLoadedEntryDefaults(nextDetails)
   }, { immediate: true })
+  // Initialize episode choices before selector reconciliation and stream resolution.
+  selection.observePlayableItem()
   selection.observeSelectors()
   trailers.observe()
   streams.observe()
-  selection.observePlayableItem()
   watch(activeLanguageKey, (nextLanguageKey, previousLanguageKey) => {
     if (
       previousLanguageKey !== undefined &&

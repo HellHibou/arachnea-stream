@@ -22,7 +22,52 @@ queries:
     base_url: "{url}"
     query_url: "{url}"
     row_selector: "html"
+    # Vidzy serves a looping placeholder playlist for the previous desktop User-Agent.
+    request_headers:
+      - name: User-Agent
+        actions:
+          - type: format_text
+            argument: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/157.0.0.0 Safari/537.36"
     entries:
+      # Vidzy permits the first segments without gk, then rejects later ones.
+      - name: _vidzy_gate
+        type: string
+        actions:
+          - type: format_text
+            # Replay the text measurements and context accepted by the current gate.
+            argument: "https://v6.vidzy.cc/gate.php?v=p1&cw=159.56&cw2=170.34&wg=1&cx=1&dpr=1&sw=800&hw=12&ft=TOP"
+        sub_queries:
+          - scraper_type: json
+            row_pointer: "/"
+            request_headers:
+              - name: Referer
+                actions:
+                  - type: format_text
+                    argument: "{url}"
+              - name: Origin
+                actions:
+                  - type: format_text
+                    argument: "{origine}"
+              - name: User-Agent
+                actions:
+                  - type: format_text
+                    argument: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/157.0.0.0 Safari/537.36"
+            entries:
+              - name: _vidzy_gate
+                type: string
+                pointer: /gk
+                actions:
+                  - type: extract_variables
+                    pattern: '^([A-Za-z0-9_.-]+)$'
+                    name: "@vidzy_gk"
+                    value: "{1}"
+      - name: streams > url
+        type: string[]
+        actions:
+          - type: get_response_body
+          - type: regex_find_all
+            pattern: 'sources:\s*\[\s*\{\s*src:\s*["''](https?://[^"'']+\.m3u8[^"'']*)["'']'
+            format: "{1}"
       - name: streams > url
         type: string[]
         actions:
@@ -47,21 +92,6 @@ queries:
           - type: regex_find_all
             pattern: '^document_write=(.+)$'
             format: "{1}"
-          - type: resolve_url
-            proxy: true
-            proxy_headers:
-              Referer: "{url}"
-              Origin: "{request_origin}"
-              User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
-            proxy_replace_all:
-              - pattern: '(?m)^(https?://[^\r\n]+)'
-                replacement: '{proxy_inherited}/$1'
-                content_types:
-                  - application/vnd.apple.mpegurl
-              - pattern: '(?m)^([^#/\r\n][^\r\n]*)$'
-                replacement: '{proxy_inherited}/{base_url}{path_base}$1'
-                content_types:
-                  - application/vnd.apple.mpegurl
       - name: streams > stream_headers
         type: object
         select: first
@@ -80,7 +110,7 @@ queries:
             type: string
             actions:
               - type: format_text
-                argument: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
+                argument: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/157.0.0.0 Safari/537.36"
       - name: streams > type
         type: string
         actions:
@@ -107,6 +137,44 @@ queries:
         actions:
           - type: get_response_body
     post_process:
+      # Run after the gate sub-query; the CDN propagates gk to its child URLs.
+      - type: apply_actions_to_field
+        source: "streams > url"
+        target: "streams > url"
+        output_type: string[]
+        actions:
+          - type: regex_replace_all
+            pattern: '^(https?://[^?]+)$'
+            replacement: '$1?'
+          - type: format_text
+            argument: "{}&gk={@vidzy_gk}"
+          - type: replace_variables
+          - type: regex_find_all
+            pattern: '^(https?://[^\s{}]+[?&]gk=[A-Za-z0-9_.-]+)$'
+            format: "{1}"
+          - type: resolve_url
+            proxy: true
+            proxy_headers:
+              Referer: "{url}"
+              Origin: "{request_origin}"
+              User-Agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/157.0.0.0 Safari/537.36"
+            proxy_replace_all:
+              - pattern: '(?m)(^|URI=")(/[^/"\r\n][^"\r\n]*)'
+                replacement: '${1}{proxy_inherited}/{base_url}$2'
+                content_types:
+                  - application/vnd.apple.mpegurl
+              - pattern: '(?m)(^|URI=")//([^"\r\n]+)'
+                replacement: '${1}{proxy_inherited}/https://$2'
+                content_types:
+                  - application/vnd.apple.mpegurl
+              - pattern: '(?m)(^|URI=")(https?://[^"\r\n]+)'
+                replacement: '${1}{proxy_inherited}/$2'
+                content_types:
+                  - application/vnd.apple.mpegurl
+              - pattern: '(?m)(^|URI=")([^#/"\r\n][^"\r\n]*)'
+                replacement: '${1}{proxy_inherited}/{base_url}{path_base}$2'
+                content_types:
+                  - application/vnd.apple.mpegurl
       - type: extract_regex_items
         source: _subtitle_tracks_source
         target: subtitles
@@ -130,7 +198,7 @@ queries:
                 proxy_headers:
                   Referer: "{url}"
                   Origin: "{request_origin}"
-                  User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
+                  User-Agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/157.0.0.0 Safari/537.36"
       - type: filter_items
         source: subtitles
         field: kind
@@ -138,6 +206,7 @@ queries:
       - type: remove_fields
         fields:
           - _subtitle_tracks_source
+          - _vidzy_gate
       - type: zip_fields
         source: "** > streams"
         values_field: url

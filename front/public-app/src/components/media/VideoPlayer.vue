@@ -151,6 +151,7 @@ const {
       :referrerpolicy="activeIframeReferrerPolicy ?? undefined"
       :aria-hidden="activeIframeAriaHidden || undefined"
       :tabindex="activeIframeTabIndex ?? undefined"
+      @error="emit('source-error')"
     />
 
     <div

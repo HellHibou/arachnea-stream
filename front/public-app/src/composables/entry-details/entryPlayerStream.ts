@@ -1,4 +1,4 @@
-import { computed, shallowRef, watch, type Ref } from 'vue'
+import { computed, onScopeDispose, shallowRef, watch, type Ref } from 'vue'
 import { t } from '@/i18n'
 import { resolveBackendStreamMediaSource, resolveIframeMediaSource, type ResolvedPlayerMediaSource } from '@/services/players'
 import { getPlayers, getStream, normalizePlayersResponse } from '@/services/rustify'
@@ -8,6 +8,8 @@ import { attachStoryboardToVideoSource, resolvePlayerStoryboard, resolvePlayerSu
 
 interface EntryPlayerStreamOptions extends Pick<UseEntryVideoPlayerOptions, 'details' | 'selectedPlayableItem'> {
   selectedPlayer: Readonly<Ref<EntryPlayer | null>>
+  selectNextPlayer: () => boolean
+  acceptResolvedPlayer: (player: EntryPlayer, renderer: 'video' | 'iframe') => boolean
 }
 
 /**
@@ -30,6 +32,7 @@ export function createEntryPlayerStream(options: EntryPlayerStreamOptions) {
 
   /** Request identifier counter for player resolution requests to ignore stale responses. */
   let activeResolutionId = 0
+  let activeStreamPlayer: EntryPlayer | null = null
 
   /**
    * Exposes the backend source currently driving the active entry details view.
@@ -46,6 +49,13 @@ export function createEntryPlayerStream(options: EntryPlayerStreamOptions) {
   const resolvedPlayerPosterUrl = computed(() => resolvedStreamResponse.value?.imageTitleLink ?? null)
 
   const pendingPlayerLoads = new Map<string, Promise<EntryPlayer[]>>()
+  let disposed = false
+  onScopeDispose(() => {
+    disposed = true
+    activeResolutionId += 1
+    activeStreamPlayer = null
+    pendingPlayerLoads.clear()
+  })
 
   /** Loads player descriptors once per source/link while sharing resolution loading state. */
   async function loadDeferredPlayers(): Promise<void> {
@@ -56,6 +66,7 @@ export function createEntryPlayerStream(options: EntryPlayerStreamOptions) {
       return
     }
 
+    let activeCollection = collection
     const key = collection.source + "|" + collection.link
     let request = pendingPlayerLoads.get(key)
 
@@ -71,6 +82,7 @@ export function createEntryPlayerStream(options: EntryPlayerStreamOptions) {
 
     try {
       const entries = await request
+      if (disposed || (options.selectedPlayableItem.value?.players ?? options.details.value?.players) !== collection) return
       const players = { ...collection, entries, link: undefined }
 
       if (item) {
@@ -78,11 +90,16 @@ export function createEntryPlayerStream(options: EntryPlayerStreamOptions) {
       } else if (options.details.value) {
         options.details.value = { ...options.details.value, players }
       }
+      activeCollection = options.selectedPlayableItem.value?.players ?? options.details.value?.players ?? players
     } catch (error) {
-      mediaPlayerErrorMessage.value = t('entry.playerResolutionFailed')
+      if (!disposed && (options.selectedPlayableItem.value?.players ?? options.details.value?.players) === activeCollection) {
+        mediaPlayerErrorMessage.value = t('entry.playerResolutionFailed')
+      }
     } finally {
       pendingPlayerLoads.delete(key)
-      isMediaPlayerLoading.value = false
+      if (!disposed && (options.selectedPlayableItem.value?.players ?? options.details.value?.players) === activeCollection) {
+        isMediaPlayerLoading.value = false
+      }
     }
   }
 
@@ -143,14 +160,25 @@ export function createEntryPlayerStream(options: EntryPlayerStreamOptions) {
         : Boolean(directMediaSource.value || selectedPlayer.value?.resolver),
   )
 
-  /** Displays final exhaustion errors after the renderer has tried every variant. */
+  /** Advances to another server once the current renderer has exhausted its variants. */
   function handleMediaSourceError(): void {
-    mediaPlayerErrorMessage.value = t('entry.videoUnavailable')
+    if (isMediaPlayerLoading.value || activeStreamPlayer !== selectedPlayer.value) return
+    failCurrentPlayer(t('entry.videoUnavailable'))
+  }
+
+  /**
+   * Tries the next server, exposing an error only when all candidates are exhausted.
+   * @param message Final error to display if no server remains.
+   */
+  function failCurrentPlayer(message: string): void {
+    if (options.selectNextPlayer()) return
+    mediaPlayerErrorMessage.value = message
   }
 
   /** Invalidates active stream resolution and clears entry-scoped media state. */
   function resetForEntryLoad() {
     activeResolutionId += 1
+    activeStreamPlayer = null
     resolvedMediaSource.value = null
     isMediaPlayerLoading.value = false
     mediaPlayerErrorMessage.value = null
@@ -158,9 +186,13 @@ export function createEntryPlayerStream(options: EntryPlayerStreamOptions) {
 
   /** Installs the source/player resolver watcher after trailer observation. */
   function observe() {
+    // Invalidate pending resolutions before batched selection observers run.
+    watch([currentSource, selectedPlayer, () => options.selectedPlayableItem.value?.id ?? null], () => {
+      activeResolutionId += 1
+    }, { flush: 'sync' })
     watch(
-      [currentSource, () => selectedPlayer.value?.id ?? null],
-      async ([source, nextSelectedPlayerId]) => {
+      [currentSource, selectedPlayer, () => options.selectedPlayableItem.value?.id ?? null],
+      async ([source, currentPlayer]) => {
         activeResolutionId += 1
         const resolutionId = activeResolutionId
 
@@ -168,13 +200,16 @@ export function createEntryPlayerStream(options: EntryPlayerStreamOptions) {
         resolvedStreamResponse.value = null
         mediaPlayerErrorMessage.value = null
         isMediaPlayerLoading.value = false
+        activeStreamPlayer = currentPlayer
 
-        if (!nextSelectedPlayerId || !shouldResolvePlayer.value) {
+        if (!currentPlayer) return
+        if (!shouldResolvePlayer.value) {
+          if (!directMediaSource.value) failCurrentPlayer(t('entry.videoUnavailable'))
           return
         }
 
-        const currentPlayer = selectedPlayer.value
-        if (!source || !currentPlayer?.resolver) {
+        if (!source || !currentPlayer.resolver) {
+          failCurrentPlayer(t('entry.videoUnavailable'))
           return
         }
 
@@ -197,9 +232,11 @@ export function createEntryPlayerStream(options: EntryPlayerStreamOptions) {
               })()
 
           if (!nextMediaSource) {
-            mediaPlayerErrorMessage.value = t('entry.videoUnavailable')
+            failCurrentPlayer(t('entry.videoUnavailable'))
             return
           }
+
+          if (!options.acceptResolvedPlayer(currentPlayer, nextMediaSource.renderer)) return
 
           // Prefer storyboard from the resolved stream (returned by resolver),
           // fall back to the player-carried storyboard for backward compatibility.
@@ -223,10 +260,7 @@ export function createEntryPlayerStream(options: EntryPlayerStreamOptions) {
             return
           }
 
-          mediaPlayerErrorMessage.value =
-            error instanceof Error
-              ? error.message
-              : t('errors.livePlayer')
+          failCurrentPlayer(error instanceof Error ? error.message : t('errors.livePlayer'))
         } finally {
           if (resolutionId === activeResolutionId) {
             isMediaPlayerLoading.value = false

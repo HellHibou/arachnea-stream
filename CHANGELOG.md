@@ -496,6 +496,10 @@ All notable changes to the server workspace are recorded here.
 
 - Updated the RTLplay client major version from `25` to `28`, used by the resolver and scraper `x-app-version` header and Android user-agent.
 
+- LuluStream HTML recognition now accepts the JavaScript `document.title` marker used by `lplaygo.com` pages whose initial title is `Loading...`. Deleted or expired files retain their explicit terminal error message.
+
+- SaveFiles now reports the expired or deleted file message from its `POST /dl` player response as a terminal hoster error, including when the hoster responds with HTTP 200, instead of falling back to an unusable iframe.
+
 - Anime Ultime entry pages now discover the still-supported XML playlist from the new player's `data-frmt` identifier, restoring episodes with titles, dates, durations, thumbnails and HD/SD links while retaining legacy playlist discovery. Episode-number extraction now keeps the first number so titles containing an episode range serialize correctly. The existing source check now requires playable episodes.
 
 - Anime Ultime search now encodes spaces as `+` in its search path, avoiding upstream HTTP 403 responses for multiword queries. The existing search check uses a multiword title.
@@ -893,6 +897,10 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Entry/episode server selectors now sort native candidates before iframe embeds and automatically advance on resolution or final video errors. New episodes start at the first sorted server; language changes prefer the current server's name before trying the remaining candidates. Fallback stays within the selected server language, stops after exhaustion, and ignores stale episode loads.
+
+- Each public `get_entry` load now starts playback from the configured audio/subtitle profiles. Manual track choices remain preferred across episodes within that entry and are discarded when another entry is loaded. Removed the settings button for reapplying track preferences and its explanatory text.
+
 - Stream variants now use `quality` throughout normalization, quality menus, variant fallback and player preferences; the former variant `label` field is no longer read.
 
 - Direct and resolved players now consume `streams[]` and shared metadata at the parent level across entries, episodes, live playback, trailers and banner videos, without an adapter for the former `stream.sources` format.
@@ -930,6 +938,10 @@ All notable changes to the server workspace are recorded here.
 
 
 #### Fixed
+
+- Player selection no longer treats an unresolved `embed-link` as a confirmed iframe. When a default candidate resolves to an iframe, other unresolved candidates in the same language are tried before displaying it, allowing native streams discovered through embed links to take priority.
+
+- Episode changes now initialize sorted player selection and clear the previous explicit server choice before starting stream resolution, preventing the initial prioritized request from being invalidated by a later episode reset.
 
 - Suppressed the initial poster and big Play button during in-place quality switches until playback resumes, preventing Video.js loadstart from briefly flashing the initial playback screen. Paused switches release suppression once their replacement frame/seek is ready; failures and cleanup release it as well.
 
@@ -1241,7 +1253,13 @@ All notable changes to the server workspace are recorded here.
 #### Added
 
 - English and French standalone YAML authoring guides for hoster recognition, direct/HTML resolution order, explicit inline HTML reuse, stream and auxiliary metadata, proxy headers, terminal errors and iframe fallback.
+- A Vidzy resolution analysis records controlled gate/header comparisons, a configuration-only proxy proof of concept retrieving video/audio segment prefixes, and remaining playback and cold-context validation requirements.
 
 #### Fixed
 
+- VK now resolves current `video_ext.php` embeds through the page-provided anonymous token and a YAML-only `video.getEmbed` JSON sub-query, restoring DASH streams, titles, first-frame images and timeline sprites while preserving legacy extraction and proxy rules. HTML fallback recognizes the current VK embed scripts and reuses the fetched document; temporary API URLs are removed from the output.
+
+- The Vidzy resolver now also extracts plain HLS URLs from `sources: [{src: "..."}]`, retaining the existing encrypted-payload decoder and the same proxy headers and playlist rewriting for both formats.
+- Vidzy now uses the observed compatible HeadlessChrome User-Agent consistently for embed requests, HLS proxy requests, returned stream headers and subtitles. Both stream extraction paths proxy standalone playlist links and quoted `URI` attributes, including relative, origin-relative, scheme-relative and absolute links, so audio and I-frame renditions retain the inherited proxy options.
+- Vidzy now obtains `gk` through a JSON gate sub-query before proxying either stream format. Adding the token to the master URL lets the CDN propagate it to video/audio playlists and segments, fixing delayed HTTP 403 failures after the first playable segments. Missing gate tokens no longer produce an apparently usable stream URL.
 - The Uqload resolver (`uqload.yaml`) now accepts any `uqload.<2-3 letter TLD>` mirror (case-insensitive) instead of a hardcoded whitelist, so `uqload.cx` and any future `uqload.*` domain are resolved without YAML changes. `resolve_stream` also gained three fallback extraction patterns for unpacked player pages — `file: "...".m3u8` (without requiring a leading scheme), `sources: [{file: "..."}]`, and `hls2`/`hls3`/`hls4: "..."` — in addition to the existing Dean Edwards Packer + `file: "...".m3u8` path. `unpack_packer` drops the entire page text when the embed is not a Packer block, so mirrors serving non-packed pages previously yielded no stream URL at all.

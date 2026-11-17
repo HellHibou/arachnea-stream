@@ -246,8 +246,6 @@
     "confirmation": "Confirmation",
     "safe": "Safe",
     "playerTracks": {
-      "applyProfiles": "Apply these preferences",
-      "applyProfilesHint": "Replaces audio and subtitle choices made in the player.",
       "audio": "Audio language",
       "subtitles": "Subtitles",
       "subtitlesDisabled": "Disabled",

@@ -106,6 +106,7 @@ function normalizeEntryPlayer(
   return {
     id: buildMediaId(index, stream?.streams[0]?.url ?? resolver?.targetId ?? embedLink, label, source),
     label, webLink, name, lang, resolver,
+    isEmbed: Boolean(embedLink && !stream?.streams.length),
     ...(stream ?? {
       streams: [], imageTitleLink: null, storyboardVttUrl: null,
       storyboard: null, chapters: null, subtitles: [],

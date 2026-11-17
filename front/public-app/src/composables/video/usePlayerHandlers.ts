@@ -34,7 +34,7 @@ export function usePlayerHandlers(props: VideoPlayerProps, emit: VideoPlayerEmit
   /** Persisted video player state from storage. */
   const persistedVideoPlayerState = ref<VideoJsPlayerState | null>(
     shouldUseStoredPlayerPreferences.value
-      ? createInitialVideoPlayerState(storage.getVideoPlayerPreferences())
+      ? createInitialVideoPlayerState(storage.getVideoPlayerPreferences(), !isEntryDetailsMode.value)
       : null,
   )
 
@@ -230,21 +230,30 @@ export function usePlayerHandlers(props: VideoPlayerProps, emit: VideoPlayerEmit
 }
 
 /**
- * Builds the initial Video.js state restored from durable player preferences.
+ * Builds initial player state, applying configured track profiles for a new entry.
  *
  * @param preferences Player preferences persisted in local storage.
+ * @param restoreStoredTracks Whether durable track choices apply to this surface.
  * @returns Player state shape expected by the Video.js renderer.
  */
 function createInitialVideoPlayerState(
   preferences: VideoPlayerPreferences,
+  restoreStoredTracks: boolean,
 ): VideoJsPlayerState {
   return {
     volume: preferences.volume,
     muted: preferences.muted,
     playbackRate: 1,
     quality: preferences.quality,
-    audioTrack: preferences.audioTrack,
-    textTrack: preferences.textTrack,
+    audioTrack: restoreStoredTracks ? preferences.audioTrack : null,
+    textTrack: restoreStoredTracks ? preferences.textTrack : {
+      id: null,
+      language: null,
+      label: null,
+      kind: null,
+      mode: 'disabled',
+      origin: 'profile',
+    },
     textTrackSettings: preferences.textTrackSettings,
     isFullscreen: false,
     showsRemainingTime: false,

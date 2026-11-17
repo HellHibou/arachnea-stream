@@ -4,6 +4,9 @@ description:
   en: "Resolver for vk.com video pages and embeds (video_ext.php)"
 http:
   mode: auto
+constants:
+  - name: html
+    value: ""
 
 # ############################################################################
 # Queries
@@ -25,8 +28,7 @@ queries:
             format: "{service_id}"
 
   # --------------------------------------------------------------------------
-  # can_resolve_html — identifies VK's standalone embed error page after an
-  # embed URL redirects to video_ext.php.
+  # can_resolve_html — identifies legacy errors and the current VK embed.
   # --------------------------------------------------------------------------
   - name: can_resolve_html
     scraper_type: static
@@ -36,7 +38,7 @@ queries:
         value: "{html}"
         actions:
           - type: regex_find_all
-            pattern: '(?is)<div\s+id=["'']video_ext_msg["'']>'
+            pattern: '(?is)^.*(?:<div\s+id=["'']video_ext_msg["'']>|<script[^>]+src=["'']https://st\.vk\.com/dist/projects/vkvideo-embed/)'
             format: "{service_id}"
 
 
@@ -47,6 +49,7 @@ queries:
     scraper_type: html
     base_url: "{url}"
     query_url: "{url}"
+    input_html: "{html}"
     row_selector: "html"
     request_headers:
       - name: "Referer"
@@ -81,7 +84,8 @@ queries:
           - type: replace_text
             search: '\/'
             replace: '/'
-          - type: resolve_url
+          - &vk_stream_proxy
+            type: resolve_url
             proxy: true
             proxy_headers:
               Referer: "{url}"
@@ -138,7 +142,8 @@ queries:
               - type: replace_text
                 search: '\/'
                 replace: '/'
-              - type: resolve_url
+              - &vk_storyboard_proxy
+                type: resolve_url
                 proxy: true
                 proxy_headers:
                   Referer: "{url}"
@@ -160,11 +165,6 @@ queries:
               - type: regex_find_all
                 pattern: '"timeline_thumbs":\{[^}]*"frame_height":(\d+)'
                 format: "{1}"
-          - name: columns
-            type: number
-            actions:
-              - type: format_text
-                argument: "3"
           - name: count_per_image
             type: number
             actions:
@@ -191,14 +191,131 @@ queries:
               - type: regex_find_all
                 pattern: '"timeline_thumbs":\{[^}]*"frequency":(\d+)'
                 format: "{1}"
-        post_build:
-          - type: math_formula
-            target: rows
-            expression: "{count_per_image} / {columns}"
-          - type: remove_fields
-            fields:
-              - count_per_image
+      # Current embeds load media through video.getEmbed using a page-local anonymous token.
+      - name: _vk_api_url
+        type: string
+        actions:
+          - type: get_request_url
+          - type: extract_variables
+            pattern: '^https?://'
+            name: "@vk_hash_query"
+            value: ""
+            on_duplicate: replace
+          - type: extract_variables
+            pattern: '[?&]oid=(-?\d+)'
+            name: "@vk_owner_id"
+            value: "{1}"
+          - type: extract_variables
+            pattern: '[?&]id=(\d+)'
+            name: "@vk_video_id"
+            value: "{1}"
+          - type: extract_variables
+            pattern: '[?&]hash=([A-Za-z0-9_-]+)'
+            name: "@vk_hash_query"
+            value: "&hash={1}"
+            on_duplicate: replace
+          - type: get_response_body
+          - type: regex_find_all
+            pattern: 'webToken\s*:\s*\{\s*"access_token"\s*:\s*"([A-Za-z0-9_.-]+)"'
+            format: "{1}"
+          - type: format_text
+            argument: "https://api.vk.com/method/video.getEmbed?v=5.289&owner_id={@vk_owner_id}&video_id={@vk_video_id}{@vk_hash_query}&access_token={}"
+          - type: replace_variables
+          - type: regex_find_all
+            pattern: '^https://api\.vk\.com/method/video\.getEmbed\?v=5\.289&owner_id=-?\d+&video_id=\d+(?:&hash=[A-Za-z0-9_-]+)?&access_token=[A-Za-z0-9_.-]+$'
+            format: "{0}"
+        sub_queries:
+          - scraper_type: json
+            target: parent
+            row_pointer: /response
+            request_headers:
+              - name: Referer
+                actions:
+                  - type: format_text
+                    argument: "{url}"
+              - name: Origin
+                actions:
+                  - type: format_text
+                    argument: "{origine}"
+            entries:
+              - name: error_message
+                type: string
+                pointer: /error_message
+              - name: streams > url
+                type: string[]
+                pointer: /video/files/dash_sep
+                actions:
+                  - *vk_stream_proxy
+              - name: title
+                type: string
+                pointer: /video/title
+              - name: image/title > link
+                type: string
+                select: first
+                pointer: /video/first_frame/0/url
+                actions:
+                  - type: resolve_url
+              - name: storyboard
+                type: object
+                select: first
+                pointer: /video/timeline_thumbs
+                entries:
+                  - name: url
+                    type: string
+                    select: first
+                    pointer: /links/0
+                    actions:
+                      - *vk_storyboard_proxy
+                      - type: replace_text
+                        search: 'uidx=0'
+                        replace: 'uidx={index}'
+                  - name: width
+                    type: number
+                    pointer: /frame_width
+                  - name: height
+                    type: number
+                    pointer: /frame_height
+                  - name: columns
+                    type: number
+                    pointer: /count_per_row
+                  - name: count_per_image
+                    type: number
+                    pointer: /count_per_image
+                  - name: first_page_index
+                    type: number
+                    actions:
+                      - type: format_text
+                        argument: "0"
+                  - name: interval
+                    type: number
+                    pointer: /frequency
     post_process:
+      # Legacy extraction creates an empty object on current embeds.
+      - type: filter_items
+        source: storyboard
+        field: url
+        pattern: '.+'
+      - type: merge_items_by_field
+        source: storyboard
+        field: first_page_index
+      - type: compute_items_field
+        source: storyboard
+        target: rows
+        expression: "{count_per_image} / {columns}"
+        variables:
+          count_per_image:
+            scope: current
+          columns:
+            scope: current
+      - type: filter_fields
+        source: storyboard
+        field: url
+        pattern: '.+'
+        remove:
+          - count_per_image
+      - type: remove_fields
+        fields:
+          - _vk_api_url
       - type: zip_fields
         source: "** > streams"
         values_field: url

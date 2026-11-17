@@ -34,6 +34,14 @@ each JavaScript hop, and the size check occurs after the body is materialized.
 Resolver recognition, hoster errors, stream conversion and final iframe fallback
 remain in Stream. Literal redirect recognition is not enabled for other queries.
 
+LuluStream mirrors, including `lplaygo.com`, are recognized from the LuluStream
+marker in either `<title>` or a literal `document.title` assignment. Expired or
+deleted file pages are recognized by their error text and return the terminal
+message `File is no longer available as it expired or has been deleted.`.
+
+SaveFiles extracts the same terminal error message from its `POST /dl` player
+response for expired or deleted files, including responses with HTTP status 200.
+
 ## Shared source defaults and IP-country CLI
 
 Stream selects manifests and synchronization timing, then delegates missing

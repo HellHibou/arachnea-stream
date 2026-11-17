@@ -14,6 +14,29 @@ have a 20-second watchdog. Shared storyboard, chapters, subtitles and compatible
 playback position survive source switches. This applies to episodes, live,
 trailers and resolved banner/background videos. Independent providers stay separate.
 
+For entry and episode server selectors, native candidates precede iframe embeds,
+with backend order preserved within each group. Embed links provide an initial hint;
+resolver results refine the ordering. An `embed-link` can resolve to native video and
+never confirms an iframe by itself. Known native streams come first, unresolved candidates
+next and confirmed iframes last. A newly discovered iframe waits until remaining native
+and unresolved candidates have been tried, including other `embed-link` candidates,
+except when explicitly selected or retained by name
+after a language change. Each entry/episode starts at the first sorted server in the
+selected language. Changing language first tries the current server's name when present.
+Resolution failures or exhaustion of a server's video variants advance through remaining
+servers in sorted order after the preferred initial attempt. Each failed server
+is skipped until the episode, language or explicit server selection changes. Only server
+exhaustion displays the final error; server fallback never changes the selected language.
+Explicitly selecting a server disables server fallback for that selection: resolution or
+final video errors are displayed immediately. Changing the episode, entry or language
+restores automatic server fallback, including when the same server name is retained.
+Episode defaults and the reset of an explicit server selection are applied before stream
+resolution, so each new episode starts with its first sorted candidate.
+Deferred episode lists and stale resolver responses cannot restore another episode's
+players. Iframe fallback can only react to browser-reported errors; failures inside a
+cross-origin embedded player may be invisible to the application. Iframe security and
+confirmation policies still apply.
+
 Deploy this frontend with the matching server/YAML contract. Run `npm run type-check`
 and `npm run build-only` to validate changes. Browser playback still requires manual
 qualification of the providers, media engines and DRM environments in use.
@@ -389,7 +412,12 @@ at zero for a new player and is never persisted in preferences or playback state
 Automatic subtitle translation requires the retained track profile to use
 `auto` subtitles and the target language to be authorized in the ordered subtitle
 favorites. Enabling a language alone does not override a `disabled` profile or a
-manual subtitle choice. Reapplying track preferences clears those manual choices.
+manual subtitle choice. Each `get_entry` load applies the configured audio/subtitle
+profiles instead of durable manual track choices. Manual choices made in the player
+remain preferred across episodes and seasons within that entry; opening or reloading
+an entry starts from the configured profiles again. Editing track settings also clears
+manual choices and immediately applies the updated settings. There is no separate
+button to reapply preferences.
 An existing higher-priority subtitle also takes precedence over translating a
 lower-priority favorite. A supported external subtitle source and an enabled,
 configured translation service are required. The player and subtitle settings share
