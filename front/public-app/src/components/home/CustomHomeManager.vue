@@ -8,6 +8,8 @@ import { createCategoryReference, createSectionReference } from '@/services/cust
 import { loadHomeSourceDiscovery } from '@/services/rustify'
 import { useI18n } from '@/i18n'
 import { useStorage } from '@/services/storage'
+import { profileDefaultHomeId, saveDefaultHome } from '@/services/profileDefaultHome'
+import { reportPersonalDataFailure } from '@/services/personalDataStatus'
 import type { CustomHomeAddIntent, CustomHomeDefinition } from '@/types/customHome'
 import { applyQuickAddSelections, resolveQuickAddSelections } from '@/services/customHomeQuickAdd'
 import { createUuid } from '@/utils'
@@ -24,7 +26,7 @@ const props = withDefaults(defineProps<{ intent?: CustomHomeAddIntent | null; so
 const emit = defineEmits<{ 'update:open': [open: boolean]; saved: [definition: CustomHomeDefinition] }>()
 const { t } = useI18n()
 const editingEnabled = useStorage().getHomePreferences().showSectionEditingButtons
-const defaultHomeId = useStorage().getParameters().defaultHomeId
+const defaultHomeId = profileDefaultHomeId
 const router = useRouter()
 const route = useRoute()
 const manager = useCustomHomeManager()
@@ -171,7 +173,7 @@ async function fromSource(): Promise<void> {
                   <td><input class="custom-home-manager__checkbox" type="checkbox" :checked="defaultHomeId === home.id"
                     :disabled="manager.busy.value || seeding" :aria-label="`${t('customHome.isDefault')}: ${home.name}`"
                     :title="t('customHome.setDefault')"
-                    @change="defaultHomeId = ($event.target as HTMLInputElement).checked ? home.id : null"></td>
+                    @change="saveDefaultHome(($event.target as HTMLInputElement).checked ? home.id : null).catch(reportPersonalDataFailure)"></td>
                   <td>{{ home.name }}</td>
                   <td><div class="custom-home-manager__tools">
                     <button class="custom-home-manager__icon" type="button" :disabled="manager.busy.value"

@@ -14,7 +14,6 @@ import { t } from '@/i18n'
 import { markImageUrlFailed } from '@/composables/media/useFailedImageUrls'
 import {
   PLAYBACK_RATES,
-  PLAYBACK_SAVE_STEP_SECONDS,
   REMAINING_TIME_CLASS,
 } from './video-js-media-renderer/constants'
 import {
@@ -233,10 +232,11 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
    *
    * @param value Playback position in seconds, or `null` when the stored progress should be cleared.
    * @param duration Total media duration in seconds, or `null` when unavailable.
+   * @param immediate Whether pause/end should flush pending profile progress.
    */
-  function emitPlaybackProgress(value: number | null, duration: number | null = null) {
+  function emitPlaybackProgress(value: number | null, duration: number | null = null, immediate = false) {
     const sanitizedPlaybackTime =
-      typeof value === 'number' && Number.isFinite(value) && value > 0
+      typeof value === 'number' && Number.isFinite(value) && value >= 0
         ? value
         : null
     const sanitizedDuration =
@@ -244,7 +244,7 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
         ? duration
         : null
 
-    emit('update:playback-progress', sanitizedPlaybackTime, sanitizedDuration)
+    emit('update:playback-progress', sanitizedPlaybackTime, sanitizedDuration, immediate)
   }
   /**
    * Notifies the parent controller that playback has effectively started.
@@ -434,7 +434,6 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
         }
       }
       /** Last playback step that was saved to persist progress. */
-      let lastSavedPlaybackStep = -1
 
       quality.attach(player)
 
@@ -532,18 +531,12 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
         if (isLiveStream(player)) {
           updateLiveProgressBar(player)
         }
-        const playbackStep = Math.floor(currentTime / PLAYBACK_SAVE_STEP_SECONDS)
-
-        if (playbackStep === lastSavedPlaybackStep) {
-          return
-        }
-        lastSavedPlaybackStep = playbackStep
         emitPlaybackProgress(currentTime, player.duration() ?? null)
       })
 
       player.on('pause', () => {
         const currentTime = player.currentTime()
-        emitPlaybackProgress(typeof currentTime === 'number' ? currentTime : null, player.duration() ?? null)
+        emitPlaybackProgress(typeof currentTime === 'number' ? currentTime : null, player.duration() ?? null, true)
       })
 
       player.on('volumechange', () => {
@@ -569,8 +562,7 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
       })
 
       player.on('ended', () => {
-        lastSavedPlaybackStep = -1
-        emitPlaybackProgress(null)
+        emitPlaybackProgress(player.currentTime() ?? player.duration() ?? null, player.duration() ?? null, true)
         emitPlaybackEnded()
       })
 

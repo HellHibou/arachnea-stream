@@ -1,4 +1,4 @@
-// Service for managing localStorage operations
+// Profile-backed personal collections and device/legacy preference state.
 import { computed, ref, watch } from 'vue'
 import type {
   MediaCardCollectionMode,
@@ -11,18 +11,19 @@ import type {
 import { defineStore } from 'pinia'
 import { isSessionContentAllowed, sessionGeneration } from '@/services/sessionEvents'
 import {
-  initHomeSectionsDB,
   getAllSections,
   type HomeSectionRecord,
 } from '@/services/homeSections'
 import {
-  initEntryBookmarksDB,
   getAllBookmarks,
   buildBookmarkKey,
   type EntryBookmarkRecord,
 } from '@/services/entryBookmarks'
 
 import { createEntryBookmarksBridge } from './bookmarks'
+import { profileGeneration } from '@/services/profileContext'
+import { profileDefaultHomeId } from '@/services/profileDefaultHome'
+import { reportPersonalDataFailure } from '@/services/personalDataStatus'
 import {
   DEFAULT_SUBTITLE_LANGUAGES,
   HOME_SHOW_SECTION_EDITING_BUTTONS_KEY,
@@ -133,7 +134,7 @@ function sanitizeParameterValue(
 
 export const useStorage = defineStore('storage', () => {
     let storageInitialized = false
-    window.addEventListener('arachnea-session-context', () => { sectionRecords.value = []; bookmarkRecords.value = [] })
+    window.addEventListener('arachnea-profile-context', () => { sectionRecords.value = []; bookmarkRecords.value = []; void refreshCachedRecords().catch(reportPersonalDataFailure) })
 
     const storedLanguage = sanitizeNullableString(
       getStoreItem(PARAM_PREFIX + LANGUAGE_PARAMETER_KEY, null),
@@ -156,7 +157,7 @@ export const useStorage = defineStore('storage', () => {
         const defaultValue = param.key === SUBTITLE_LANGUAGE_PRIORITY_PARAMETER_KEY
           ? initialSubtitleLanguagePriority
           : param.defaultValue
-        const rawValue = getStoreItem(PARAM_PREFIX + param.key, defaultValue)
+        const rawValue = param.key === 'defaultHomeId' ? null : getStoreItem(PARAM_PREFIX + param.key, defaultValue)
         const value = sanitizeParameterValue(
           param.key,
           rawValue,
@@ -166,6 +167,7 @@ export const useStorage = defineStore('storage', () => {
         )
         ;(parameters as any) [param.key] = ref(value);
         watch((parameters as any) [param.key], (new_val) => {
+            if (param.key === 'defaultHomeId') return
             setStoreItem(
               PARAM_PREFIX + param.key,
               sanitizeParameterValue(
@@ -177,6 +179,8 @@ export const useStorage = defineStore('storage', () => {
             );
         })
     });
+
+    watch(profileDefaultHomeId, (id) => { parameters.defaultHomeId.value = id })
 
     watch(parameters.language, (nextLanguage) => {
       if (hasCustomSubtitleLanguagePriority) {
@@ -212,10 +216,10 @@ export const useStorage = defineStore('storage', () => {
       { deep: true },
     )
 
-    /** Reactive cache of pinned section records, loaded from IndexedDB on init. */
+    /** Reactive cache of pinned section records, loaded from the selected profile on init. */
     const sectionRecords = ref<HomeSectionRecord[]>([])
 
-    /** Reactive cache of entry bookmark records, loaded from IndexedDB on init. */
+    /** Reactive cache of entry bookmark records, loaded from the selected profile on init. */
     const bookmarkRecords = ref<EntryBookmarkRecord[]>([])
 
     /**
@@ -425,7 +429,7 @@ export const useStorage = defineStore('storage', () => {
     )
 
     /**
-     * Reloads the cached section and bookmark records from IndexedDB.
+     * Reloads the selected profile’s section and bookmark records from the server.
      *
      * Used to keep the in-memory cache in sync with writes performed by
      * another tab, typically when the tab becomes visible again.
@@ -433,28 +437,24 @@ export const useStorage = defineStore('storage', () => {
     async function refreshCachedRecords(): Promise<void> {
       if (!isSessionContentAllowed()) return
       const generation = sessionGeneration()
+      const profile = profileGeneration()
       const [sections, bookmarks] = await Promise.all([
         getAllSections(),
         getAllBookmarks(),
       ])
 
-      if (generation !== sessionGeneration()) return
+      if (generation !== sessionGeneration() || profile !== profileGeneration()) return
       sectionRecords.value = sections
-      bookmarkRecords.value = bookmarks
+      bookmarkRecords.value = reconcileBookmarkRecords(bookmarks)
     }
 
     /**
-     * Initializes the IndexedDB stores and loads cached data.
+     * Initializes server-backed personal caches; an unselected profile has empty collections.
      *
      * Must be called once before the store is used, typically from the app bootstrap.
      */
     async function initStorage(): Promise<void> {
       if (storageInitialized) { await refreshCachedRecords(); return }
-      await Promise.all([
-        initHomeSectionsDB(),
-        initEntryBookmarksDB(),
-      ])
-
       await refreshCachedRecords()
       storageInitialized = true
 
@@ -462,11 +462,11 @@ export const useStorage = defineStore('storage', () => {
       // so changes made from another tab are reflected in this one.
       document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') {
-          void refreshCachedRecords()
+          void refreshCachedRecords().catch(reportPersonalDataFailure)
         }
       })
       window.addEventListener('focus', () => {
-        void refreshCachedRecords()
+        void refreshCachedRecords().catch(reportPersonalDataFailure)
       })
     }
 
@@ -478,7 +478,7 @@ export const useStorage = defineStore('storage', () => {
       updateSectionThumbnailImageFit,
     } = createSectionRecordsBridge(sectionRecords)
 
-    const { setEntryBookmark, removeEntryBookmark } = createEntryBookmarksBridge(bookmarkRecords)
+    const { setEntryBookmark, removeEntryBookmark, flushEntryBookmarks, reconcileBookmarkRecords } = createEntryBookmarksBridge(bookmarkRecords)
 
     /**
      * Returns the bookmark currently stored for one entry details page.
@@ -542,6 +542,7 @@ export const useStorage = defineStore('storage', () => {
       getEntryBookmark,
       setEntryBookmark,
       removeEntryBookmark,
+      flushEntryBookmarks,
       entryBookmarks,
       getVideoPlayerPreferences,
       setVideoPlayerPreferences,

@@ -116,9 +116,10 @@ export function usePlayerHandlers(props: VideoPlayerProps, emit: VideoPlayerEmit
    *
    * @param value - Playback position in seconds, or `null` when it should be cleared.
    * @param duration - Total media duration in seconds, or `null` when unavailable.
+   * @param immediate - Flush on pause/end instead of throttling ordinary progress.
    */
-  const handlePlaybackProgressUpdate = (value: number | null, duration: number | null): void => {
-    emit('update:playback-progress', value, duration)
+  const handlePlaybackProgressUpdate = (value: number | null, duration: number | null, immediate = false): void => {
+    emit('update:playback-progress', value, duration, immediate)
   }
 
   /**
@@ -151,13 +152,14 @@ export function usePlayerHandlers(props: VideoPlayerProps, emit: VideoPlayerEmit
    *
    * @param value - Playback position in seconds, or `null` when it should be cleared.
    * @param duration - Total media duration in seconds, or `null` when unavailable.
+   * @param immediate - Flush on pause/end instead of throttling ordinary progress.
    */
-  const handleActiveVideoPlaybackProgressUpdate = (value: number | null, duration: number | null): void => {
+  const handleActiveVideoPlaybackProgressUpdate = (value: number | null, duration: number | null, immediate = false): void => {
     if (!shouldForwardPrimaryVideoEvents.value) {
       return
     }
 
-    handlePlaybackProgressUpdate(value, duration)
+    handlePlaybackProgressUpdate(value, duration, immediate)
   }
 
   /**

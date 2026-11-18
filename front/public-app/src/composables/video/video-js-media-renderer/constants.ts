@@ -10,9 +10,6 @@ export const REMAINING_TIME_CLASS = 'arachnea-show-remaining-time'
 /** CSS class name applied to the player while subtitles or captions are showing. */
 export const SUBTITLES_ACTIVE_CLASS = 'arachnea-subtitles-active'
 
-/** Interval in seconds between playback position saves. */
-export const PLAYBACK_SAVE_STEP_SECONDS = 5
-
 /**
  * Playback rates exposed by the control bar speed menu.
  *

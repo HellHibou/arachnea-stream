@@ -1,53 +1,30 @@
-import { getAllRecordsDB, initDB, loadRecordDB, withDatabaseRetry } from '@/services/indexDB'
 import { createUuid } from '@/utils'
 import { validateCustomHomeDefinition } from '@/services/customHomeValidation'
 import type { CustomHomeDefinition, CustomHomeListResult } from '@/types/customHome'
-import { customHomeSlug } from '@/services/customHomeRoute'
-
-const STORE_NAME = 'custom_homes'
+import { profileCall, profileWrite, hasProfile, type ProfileCollection } from '@/services/profileApi'
+import { requireProfileContext } from '@/services/profileContext'
+import { loadDefaultHome } from '@/services/profileDefaultHome'
 
 export { validateCustomHomeDefinition } from '@/services/customHomeValidation'
-
-/** @returns Additive store connection, preserving bookmarks and section preferences. */
-export async function initCustomHomesDB(): Promise<IDBDatabase> {
-  return initDB(STORE_NAME, 'id', ['navigationOrder'])
+interface HomeRow { home_id: string; revision: number; definition: CustomHomeDefinition }
+let collection: ProfileCollection<HomeRow> = { items: [], revision: 1 }
+const versions = new Map<string, number>()
+/** Remembers confirmed revisions separately from immutable editor snapshots. @param row Server home record. */
+function remember(row: HomeRow): CustomHomeDefinition {
+  const home = validateCustomHomeDefinition(row.definition)
+  versions.set(`${home.id}:${home.updatedAt}`, row.revision)
+  return home
 }
-
-/**
- * Reads valid definitions and reports corrupt/unknown records without deleting them.
- * @returns Homes in navigation order and per-record read issues.
- */
+/** @returns Server homes in navigation order; no browser data is imported. */
 export async function listCustomHomes(): Promise<CustomHomeListResult> {
-  await initCustomHomesDB()
-  const records = await getAllRecordsDB<Record<string, unknown>>(STORE_NAME)
-  const result: CustomHomeListResult = { homes: [], issues: [] }
-  for (const value of records) {
-    try {
-      result.homes.push(validateCustomHomeDefinition(value))
-    } catch (error) {
-      result.issues.push({
-        id: typeof value?.id === 'string' ? value.id : null,
-        message: error instanceof Error ? error.message : String(error),
-      })
-    }
-  }
-  result.homes.sort((left, right) => left.navigationOrder - right.navigationOrder || left.id.localeCompare(right.id))
-  for (const home of result.homes) {
-    const slug = customHomeSlug(home.name)
-    if (!slug || result.homes.some((other) => other.id !== home.id && customHomeSlug(other.name) === slug)) {
-      result.issues.push({ id: home.id, message: `Accueil URL is empty or duplicated; rename this accueil: ${home.name}` })
-    }
-  }
-  return result
+  if (!hasProfile()) return { homes: [], issues: [] }
+  collection = await profileCall<ProfileCollection<HomeRow>>('homes')
+  return { homes: collection.items.map(remember), issues: [] }
 }
-
-/** @param id Stable home id. @returns Validated definition, or undefined if absent. */
+/** @param id Common-profile-local home UUID. @returns Confirmed home or undefined. */
 export async function loadCustomHome(id: string): Promise<CustomHomeDefinition | undefined> {
-  await initCustomHomesDB()
-  const value = await loadRecordDB<Record<string, unknown>>(STORE_NAME, id)
-  return value === undefined ? undefined : validateCustomHomeDefinition(value)
+  return (await listCustomHomes()).homes.find((home) => home.id === id)
 }
-
 /**
  * Creates a detached empty draft without initializing storage or contacting providers.
  * @param name Non-blank display name.
@@ -63,126 +40,41 @@ export function createCustomHomeDraft(name: string, navigationOrder = 0): Custom
   })
 }
 
-/**
- * Commits a validated record with an atomic revision comparison in the same transaction.
- * @param definition Draft to save; no write occurs until the complete transaction commits.
- * @param expectedUpdatedAt Last read timestamp, or null for a new definition.
- * @returns Committed definition with a strictly increasing update timestamp.
- */
-export async function saveCustomHome(
-  definition: CustomHomeDefinition,
-  expectedUpdatedAt: number | null,
-): Promise<CustomHomeDefinition> {
-  const draft = validateCustomHomeDefinition(definition)
-  if (!customHomeSlug(draft.name)) throw new Error('Custom home name must contain letters or numbers')
-  const committed = await mutateCustomHome(draft.id, expectedUpdatedAt, draft)
-  if (!committed) throw new Error(`Custom home ${draft.id} was not saved`)
-  return committed
-}
 
 /**
- * Deletes only the revision the caller read, avoiding silent removal of newer edits.
- * @param id Stable definition id.
- * @param expectedUpdatedAt Last read timestamp.
- * @returns Promise resolved only once deletion commits.
+ * Saves a complete home using the revision corresponding to the caller's snapshot.
+ * @param definition Detached draft; a new draft receives its authoritative server UUID.
+ * @param expectedUpdatedAt Last-read timestamp, or null for create-only.
+ * @returns Confirmed server definition; failures leave the draft untouched.
+ */
+export async function saveCustomHome(definition: CustomHomeDefinition, expectedUpdatedAt: number | null): Promise<CustomHomeDefinition> {
+  const draft = validateCustomHomeDefinition(definition)
+  const revision = expectedUpdatedAt === null ? 0 : versions.get(`${draft.id}:${expectedUpdatedAt}`)
+  if (revision === undefined) throw new Error('Reload this home before saving its changes.')
+  const value = expectedUpdatedAt === null
+    ? { definition: Object.fromEntries(Object.entries(draft).filter(([key]) => key !== 'id')) }
+    : { home_id: draft.id, definition: draft }
+  const row = await profileWrite<HomeRow>('save_home', { expected_revision: revision, value }, `home:${draft.id}`)
+  return remember(row)
+}
+/** Deletes the last-read home revision and refreshes the server-owned default reference.
+ * @param id Stable home UUID. @param expectedUpdatedAt Timestamp of the confirmed snapshot.
  */
 export async function deleteCustomHome(id: string, expectedUpdatedAt: number): Promise<void> {
-  await mutateCustomHome(id, expectedUpdatedAt)
+  const revision = versions.get(`${id}:${expectedUpdatedAt}`)
+  if (revision === undefined) throw new Error('Reload this home before deleting it.')
+  const context = requireProfileContext()
+  await profileWrite('delete_home', { expected_revision: revision, identity: { home_id: id } }, `home:${id}`, context)
+  await loadDefaultHome(context)
 }
-
-/**
- * Commits the complete navigation order atomically, refusing concurrent additions or changes.
- * @param homes Ordered snapshots, each retaining its last-read revision.
- * @returns Promise resolved only after all order changes commit.
+/** Atomically replaces the complete navigation order, rejecting stale snapshots.
+ * @param homes Ordered confirmed home snapshots.
  */
 export async function reorderCustomHomes(homes: CustomHomeDefinition[]): Promise<void> {
-  const snapshots = homes.map(validateCustomHomeDefinition)
-  if (new Set(snapshots.map((home) => home.id)).size !== snapshots.length) {
-    throw new Error('Custom home order contains duplicate ids')
+  if (homes.length !== collection.items.length || homes.some((home) => !collection.items.some((row) => row.home_id === home.id && row.definition.updatedAt === home.updatedAt))) {
+    throw new Error('Homes changed; reload before reordering.')
   }
-  await initCustomHomesDB()
-  return withDatabaseRetry((db) => new Promise<void>((resolve, reject) => {
-    let tx: IDBTransaction
-    try {
-      tx = db.transaction(STORE_NAME, 'readwrite')
-    } catch (error) { reject(error); return }
-    const store = tx.objectStore(STORE_NAME)
-    const request = store.getAll()
-    let failure: unknown
-    request.onsuccess = () => {
-      try {
-        const current = (request.result as unknown[]).map(validateCustomHomeDefinition)
-        if (current.length !== snapshots.length || snapshots.some((snapshot) =>
-          current.find((home) => home.id === snapshot.id)?.updatedAt !== snapshot.updatedAt)) {
-          throw new Error('Custom homes changed in another view; reload before reordering')
-        }
-        snapshots.forEach((snapshot, navigationOrder) => {
-          if (snapshot.navigationOrder !== navigationOrder) store.put({ ...snapshot, navigationOrder,
-            updatedAt: Math.max(Date.now(), snapshot.updatedAt + 1) })
-        })
-      } catch (error) { failure = error; tx.abort() }
-    }
-    tx.oncomplete = () => resolve()
-    tx.onabort = () => reject(failure ?? tx.error ?? new Error('Custom home order transaction aborted'))
-    tx.onerror = () => reject(failure ?? tx.error ?? new Error('Custom home order transaction failed'))
-  }))
+  collection = await profileWrite<ProfileCollection<HomeRow>>('reorder_homes', { expected_revision: collection.revision, ids: homes.map((home) => home.id) }, 'homes:order')
+  collection.items.forEach(remember)
 }
-
-/**
- * Performs a compare-and-write/delete transaction, including across tabs and native views.
- * @param id Primary key.
- * @param expectedUpdatedAt Expected persisted revision; null requires a missing record.
- * @param draft Validated replacement; omitted deletes the record.
- * @returns Committed definition for writes; undefined for deletion.
- */
-async function mutateCustomHome(
-  id: string,
-  expectedUpdatedAt: number | null,
-  draft?: CustomHomeDefinition,
-): Promise<CustomHomeDefinition | undefined> {
-  if (!id.trim() || (expectedUpdatedAt !== null &&
-    (!Number.isSafeInteger(expectedUpdatedAt) || expectedUpdatedAt < 0))) {
-    throw new Error('Custom home mutation requires a valid id and expected revision')
-  }
-  await initCustomHomesDB()
-  return withDatabaseRetry((db) => new Promise<CustomHomeDefinition | undefined>((resolve, reject) => {
-    let tx: IDBTransaction
-    try {
-      tx = db.transaction(STORE_NAME, 'readwrite')
-    } catch (error) { reject(error); return }
-    const store = tx.objectStore(STORE_NAME)
-    const request = store.getAll()
-    let committed: CustomHomeDefinition | undefined
-    let failure: unknown
-    request.onsuccess = () => {
-      try {
-        const records = request.result as Array<Record<string, unknown>>
-        const value = records.find((record) => record.id === id)
-        const current = value === undefined ? undefined : validateCustomHomeDefinition(value)
-        if ((current?.updatedAt ?? null) !== expectedUpdatedAt) {
-          throw new Error(`Custom home ${id} changed in another view; reload before saving or deleting`)
-        }
-        if (draft) {
-          if (records.some((record) => record.id !== id && typeof record.name === 'string' &&
-            customHomeSlug(record.name) === customHomeSlug(draft.name))) {
-            throw new Error(`An accueil with the same name or URL already exists: ${draft.name}`)
-          }
-          committed = validateCustomHomeDefinition({
-            ...draft,
-            createdAt: current?.createdAt ?? draft.createdAt,
-            updatedAt: Math.max(Date.now(), draft.updatedAt, (current?.updatedAt ?? -1) + 1),
-          })
-          store.put(committed)
-        } else {
-          store.delete(id)
-        }
-      } catch (error) {
-        failure = error
-        tx.abort()
-      }
-    }
-    tx.oncomplete = () => resolve(committed)
-    tx.onabort = () => reject(failure ?? tx.error ?? new Error(`Custom home ${id} transaction aborted`))
-    tx.onerror = () => reject(failure ?? tx.error ?? new Error(`Custom home ${id} transaction failed`))
-  }))
-}
+window.addEventListener('arachnea-profile-context', () => { collection = { items: [], revision: 1 }; versions.clear() })

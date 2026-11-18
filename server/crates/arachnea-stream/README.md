@@ -792,7 +792,7 @@ navigation in its rails, includes live and collection rails, and preserves card
 order. Its static `get_live` emits the existing live resolver without a catalogue
 request. Saved custom-home formats remain compatible. Actual authorized playback still depends on the provider.
 
-## Server accounts and profile persistence (steps 2–4)
+## Server accounts and profile persistence (steps 2–5)
 
 `profiles::ProfileStores::open(application_path)` opens `data/profiles.sqlite3` and `data/arachnea-stream-profiles.sqlite3`. Common accounts, session digests, profiles, UI preferences, onboarding and operation receipts belong to the former; streaming preferences, homes, section preferences and bookmarks belong to the latter. Both use Core typed schemas. The common repository generates profile UUIDs and streaming reuses them unchanged. Existing service, Cloudflare and proxy databases remain separate and unchanged; no browser data is imported. `ProfileStores::memory()` uses two isolated in-memory SQLite databases; existing scraper memory constructors remain available.
 
@@ -800,7 +800,7 @@ request. Saved custom-home formats remain compatible. Actual authorized playback
 
 Run only one application writer per data directory. Back up both stores at the same quiescent boundary; after restore, startup recovery checks references and stops on orphaned/incompatible data without silently deleting it. Failed operations retain their intent for retry; a recovery failure stops startup. Do not restore just one profile database independently.
 
-Public accounts/sessions, catalogue/media authorization, profile/preferences APIs, embedded avatars and live administrator profile quota are implemented. Server-backed homes/sections/bookmarks and public profile selection/onboarding/draft forms remain planned. Streaming preferences are validated versioned documents; homes/sections/bookmarks APIs follow in step 5. See the target contract in [English](../../../docs/specifications/arachnea-user-profiles-en.md) or [French](../../../docs/specifications/arachnea-user-profiles-fr.md).
+Public accounts/sessions, catalogue/media authorization, profile/preferences APIs, embedded avatars and live administrator profile quota are implemented. Server-backed homes/sections/bookmarks APIs and frontend adapters are delivered. Public profile selection/onboarding/draft forms remain planned. Streaming preferences and personal documents are validated and versioned. See the target contract in [English](../../../docs/specifications/arachnea-user-profiles-en.md) or [French](../../../docs/specifications/arachnea-user-profiles-fr.md).
 
 
 Accounts are created only in the independent administration UI (`admin/`, Users). Creation/reset accepts an administrator-chosen temporary password (12–128 Unicode scalar values); users must replace it before any content access. Login names normalize to lowercase ASCII and must contain 3–64 letters/digits/dots/underscores/hyphens. Public credentials and sessions are separate from administrator and provider identities. Existing admin policy still permits loopback/desktop-admin access and requires administrator authentication for remote server clients. The login screen links to administration so the first public account can be created without a public session.
@@ -811,7 +811,7 @@ All scraper JSON and binary registrations are protected before callbacks/cache v
 
 Desktop secrets never reach JavaScript or browser storage. Core captures the real invoking webview for IPC/custom-protocol calls; remote documents cannot acquire the native account context and admin IPC requires the admin window. Native persistence uses macOS Keychain, Windows Credential Manager or Linux Secret Service (`secret-tool`, commonly supplied by `libsecret-tools`). An unavailable/locked vault produces an explicit memory-only session notice; no plaintext file fallback. Native events and browser BroadcastChannel invalidate session views; focus/visibility polling revalidates them. Interactive native tab, vault and platform packaging checks remain manual validation work.
 
-Account deletion blocks the account and revokes sessions before coordinated profile cleanup. Pending cleanup can be retried from administration, including after refreshing the user list; completed deletion receipts survive removal. Password plaintext and password-derived request digests never enter durable operation receipts. Existing browser homes/bookmarks/preferences are still local until subsequent migration steps; step 3 adds no import or server profile guide.
+Account deletion blocks the account and revokes sessions before coordinated profile cleanup. Pending cleanup can be retried from administration, including after refreshing the user list; completed deletion receipts survive removal. Password plaintext and password-derived request digests never enter durable operation receipts. Step 3 introduced no import or server profile guide. From step 5, homes/sections/bookmarks no longer use browser persistence; other preferences and the profile-selection UI follow in later steps.
 
 
 Profile API operations (`profiles/list`, `create`, `get`, `update`, `delete`, `initialize_streaming`, `save_preferences`, `complete_onboarding`, `operation`) share authenticated REST/Tauri contracts and revalidate sessions under lifecycle guards. Creation atomically enforces Unicode-normalized account-local names and quota; common profiles have no streaming rows until explicit initialization. Preferences use revisions and mixed saves use durable forward recovery. New profiles never read browser data. Deleting the last profile returns an empty list; the public guide/selection UI follows in step 6.
@@ -819,3 +819,31 @@ Profile API operations (`profiles/list`, `create`, `get`, `update`, `delete`, `i
 The authenticated `profiles/avatars` catalogue and `profiles/avatar/<id>` images use the active controller's API prefix. The manifest and three PNGs under crate-owned `resources/avatars/` are checked and embedded at build time; runtime needs no avatar files. IDs, paths, MIME signatures, missing files and fallback are checked; removed IDs remain persisted and consumers render the catalogue fallback. Recompile to change the catalogue. Keep server locale/theme keys, language aliases/limits and streaming defaults aligned with frontend catalogues.
 
 Admin Settings has a separate **Maximum profiles per account** form (`admin/profile_settings` / `admin/save_profile_settings`). The default is 3. `max_profiles_per_user` is stored in `data/config.json` through Core's additional options, alongside `profile_quota_operations` retry receipts. Updates share the existing admin configuration lock, persist before becoming effective, and do not rebuild the scraper. A failed JSON save preserves the old active quota; lowering below current usage leaves existing profiles usable and blocks further creation. Invalid persisted quotas abort startup. Back up `config.json` alongside the coherent database pair.
+
+
+Step 5 exposes `profiles/homes`, `profiles/sections`, `profiles/bookmarks`, their
+`save_*`/`delete_*` mutations and complete `reorder_homes`/`reorder_sections` operations.
+Every request rechecks the active common owner/session under lifecycle guards;
+mutations require initialized streaming and reject pending coordinated work.
+Documents, revisions and retries retain existing home/content/episode semantics.
+New homes receive server UUIDs/timestamps; deletion clears a matching default home
+inside the same streaming transaction. Record/collection revisions are distinct;
+conflicts require reload, never automatic overwrite or maximum-position merging.
+
+The streaming database adds `stream_profile_collections(profile_id, kind)` and
+`stream_profile_operations(operation_id)`. Collections start at revision 1 and
+retain deleted record versions to prevent stale updates after recreation. Local
+mutations store their normalized body/result receipt together with data and
+collection increments; a lost reply replays exactly once. Both metadata tables
+belong to the profile, participate in startup reference checks and are purged on
+profile/account deletion. Back up the same two physical stores together; no new
+database or migration of technical scraper stores is introduced.
+
+Frontend personal collection services use these REST/Tauri operations and require
+an explicit profile context, activated by the future step 6 selector. Old browser
+collections remain present but inactive, with no import. Progress writes are
+coalesced per bookmark at 10-second intervals plus explicit flushes, with visible
+errors and pending changes only in memory. Step 5 manual checks cover concurrent
+revisions, rollback on receipt failure, default clearing, populated cascades,
+restart/replay and real frontend adapters. Native UI/provider playback remains to
+be checked in the later integration steps.

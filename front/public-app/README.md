@@ -116,9 +116,9 @@ provider home. Direct links, reloads and browser history preserve the selection.
 Unknown/unavailable sources never fall back to the aggregated catalog.
 
 Source homes display their own bookmarks only. Section order and preference
-writes use source-scoped keys in the existing `home_sections` IndexedDB store;
-legacy display styles are read-only fallbacks until a scoped value exists.
-Existing profiles and global bookmarks/preferences are preserved. Deferred
+writes use profile-local, source-scoped keys through the authenticated server API.
+Pinned records preserve their collection mode, orientation and image fit; the
+former IndexedDB section/bookmark stores are no longer active or imported. Deferred
 banner and section pagination updates are guarded against stale catalog loads.
 Navigation includes metadata refresh on errors and the catalog includes retry actions.
 Custom homes and source destinations are available through the permanent sidebar.
@@ -139,14 +139,16 @@ section starts above the viewport, it returns to the page top.
 
 Public accueil URLs use `/home/<title_slug>` (lowercase, accents removed, words
 separated by underscores). Internal UUIDs remain unchanged for preferences and
-default-home selection. Save/rename checks URL uniqueness inside the same IndexedDB
-transaction, including concurrent views. Renaming updates the active route; legacy
+default-home selection. Save/rename checks URL uniqueness inside the same streaming
+SQLite transaction, including concurrent views/devices. Renaming updates the active route; legacy
 `/homes/<UUID>` links redirect to the current title URL. Existing collisions are
 reported for manual renaming, never automatically renamed or deleted.
 
 The home management dialog includes one persisted default landing page selector
 (removed from the general settings): All, an existing
-custom home, or a known service supporting `load_home`. Every navigation to `/`
+custom home belonging to the selected profile. The default reference is saved in
+server streaming preferences with a revision check; deleting that home clears
+the reference atomically. Older local `service:*` defaults are not imported. Every navigation to `/`
 and brand clicks resolve that destination; query/hash values are preserved and
 explicit service/custom/search routes remain untouched. The home manager also
 shows saved homes in a table with a first-column default checkbox and tooltip-labeled
@@ -296,18 +298,15 @@ overrides, `sectionMergeMode` (`none` by default or `title`) and bookmarks.
 Fetched entries, signed playback URLs, cache validators and pagination are not
 part of this schema.
 
-`services/customHomes.ts` creates detached drafts and provides load/list/save/delete
-operations for the additive `custom_homes` store in `arachnea-db`, keyed by `id`
-and indexed by `navigationOrder`. Each operation initializes the store; existing
-bookmarks and section preferences are preserved. Save requires the last read
-`updatedAt` (or `null` for creation), and delete requires the last read timestamp.
-The revision comparison and mutation share a single transaction, and success is
-reported only on commit. A concurrent modification fails rather than overwriting
-another view's changes. Listing returns valid homes and separate issues for
-invalid/unsupported records, which remain untouched in storage. No automatic
-migration to an unknown schema is performed. Storage is local to the origin/profile,
-not synchronized across devices. The custom route reloads definitions on focus and
-when the document becomes visible, with guards against stale reads.
+`services/customHomes.ts` creates detached drafts and provides profile-backed
+load/list/save/delete operations through REST/Tauri. A new home receives its UUID
+and timestamps from the server. Save still accepts the snapshot's last-read
+`updatedAt` (or `null` for creation); the adapter maps that timestamp to the exact
+confirmed server revision. Delete/reorder require confirmed snapshots. Record
+changes and receipts commit atomically; conflicts preserve the editor draft.
+Listing and focus/visibility refreshes read only the selected profile's server
+collection. Old `custom_homes`, `home_sections` and `entry_bookmarks` IndexedDB
+stores are untouched but no longer read or written, and no browser data is imported.
 
 `loadHomeSourceDiscovery(sources)` in `services/rustify.ts` selects only requested
 providers and returns independent, unmerged catalogs with availability flags. An
@@ -448,4 +447,34 @@ replace the assets embedded in an already running server.
 
 `AccountSessionGate` restores the server session before mounting content and starting metadata, allowlist and personal-cache loading. Public login uses a dedicated POST JSON/GET state transport, with HttpOnly cookies in browsers and the native session broker in Tauri. Administrator-created/reset accounts must replace their temporary password before content can render. The login gate exposes the independent administration entry for first-account setup; the navigation menu signs out by revoking the session.
 
-Account changes clear in-memory catalogue validation, metadata, section/bookmark and notification caches; late replies are discarded by generation. BroadcastChannel/native events and focus/visibility/session polling revalidate other tabs. Credential drafts stay in component memory, and neither password nor token is written to localStorage/IndexedDB. An unavailable native OS vault is reported as memory-only persistence. Existing personal preference/home/bookmark storage remains local until later profile migration steps; no local-data import or onboarding profile UI is delivered here.
+Account changes clear in-memory catalogue validation, metadata, section/bookmark and notification caches; late replies are discarded by generation. BroadcastChannel/native events and focus/visibility/session polling revalidate other tabs. Credential drafts stay in component memory, and neither password nor token is written to localStorage/IndexedDB. An unavailable native OS vault is reported as memory-only persistence. Home/section/bookmark services now persist only through the selected profile API. Other legacy personal preference paths remain until steps 7–8; no local import or onboarding profile UI is delivered here.
+
+
+## Profile-backed personal collections (step 5)
+
+`services/profileApi.ts` uses no-store REST requests or the same Tauri commands,
+without the catalogue ETag cache. `services/profileContext.ts` supplies an immutable
+profile/account generation to each request. The step 6 selection flow must call
+`setActiveProfileContext(profileId)` after validating the selected profile and
+initializing streaming. This step deliberately does not select or create a profile:
+unselected lists are empty and personal writes display an error. Account/profile
+changes clear caches, invalidate delayed replies and never route an old queued
+write under a new UUID. Remaining general preferences are still local until the
+later draft/storage steps.
+
+Section changes update reactive snapshots after server confirmation; reorders send
+the full set of section/home IDs with a collection revision. Bookmark snapshots
+update in memory immediately. Their queue coalesces ordinary progress into one
+write per 10 seconds, serializes by entry and waits for the previous revision before
+sending the next. Pause/end/media changes and hidden/unmounted views attempt an
+immediate flush. An uncertain reply retains the immutable request/operation UUID,
+then retries it before sending newer progress. Failures and unconfirmed writes are
+visible; explicit retry never silently overwrites a newer server revision. Reload
+and reapply after a revision conflict. Pending state is memory-only, and abrupt
+closure can lose approximately the last 10 seconds on a healthy connection, more
+during network failures. Profile switching attempts a bounded 5-second flush.
+
+Validated with public type-check/build, CSS lint for the status component, actual
+module runs for queue timing/replay/context and real REST adapter checks against
+isolated databases. Graphical profile selection, provider playback and native
+window/vault checks remain later work; no new test infrastructure is introduced.

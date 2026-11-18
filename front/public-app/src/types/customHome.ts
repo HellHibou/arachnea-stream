@@ -8,7 +8,7 @@ export interface CustomHomeDisplayOptions {
   thumbnailImageFit?: ThumbnailImageFit
 }
 
-/** Versioned, local definition; fetched content and pagination are never persisted. */
+/** Versioned profile-owned definition; fetched content and pagination are never persisted. */
 export interface CustomHomeDefinition {
   schemaVersion: 1
   id: string

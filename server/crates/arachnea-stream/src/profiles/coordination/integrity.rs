@@ -103,6 +103,21 @@ impl Inner {
                         entry.profile_id
                     );
                 }
+                for id in tx
+                    .find(&streaming.collections, &EntityQuery::new())?
+                    .into_iter()
+                    .map(|row| row.profile_id)
+                    .chain(
+                        tx.find(&streaming.mutations, &EntityQuery::new())?
+                            .into_iter()
+                            .map(|row| row.profile_id),
+                    )
+                {
+                    anyhow::ensure!(
+                        initialized.contains(&id),
+                        "orphaned streaming collection/receipt for {id}"
+                    );
+                }
                 for (id, version) in tx
                     .find(&streaming.homes, &EntityQuery::new())?
                     .into_iter()

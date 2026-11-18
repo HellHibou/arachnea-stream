@@ -1,24 +1,14 @@
-import { useStorage } from '@/services/storage'
 import { loadCustomHome } from '@/services/customHomes'
-import { useServiceMetadata } from '@/composables/useServiceMetadata'
+import { loadDefaultHome } from '@/services/profileDefaultHome'
 import type { RouteLocationRaw } from 'vue-router'
 import { customHomeRoute } from '@/services/customHomeRoute'
+import { reportPersonalDataFailure } from '@/services/personalDataStatus'
 
-/** @returns Configured landing route, falling back safely when the saved home is missing or unreadable. */
+/** @returns The selected profile’s default home, or the aggregated landing page. */
 export async function resolveDefaultHomeRoute(): Promise<RouteLocationRaw> {
-  const id = useStorage().getParameters().defaultHomeId.value
-  if (id) {
-    try {
-      const home = await loadCustomHome(id)
-      if (home) return customHomeRoute(home)
-      if (id.startsWith('service:')) {
-        const sourceId = id.slice('service:'.length)
-        const services = await useServiceMetadata().load()
-        if (services.some((service) => service.id === sourceId && service.supportedQueries.includes('load_home'))) {
-          return { name: 'source-home', params: { sourceId } }
-        }
-      }
-    } catch { /* Unavailable local storage must not prevent opening the aggregated home. */ }
-  }
+  try {
+    const id = await loadDefaultHome()
+    if (id) { const home = await loadCustomHome(id); if (home) return customHomeRoute(home) }
+  } catch (error) { reportPersonalDataFailure(error) }
   return { name: 'home' }
 }

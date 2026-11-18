@@ -1,4 +1,5 @@
-import { computed, shallowRef, watch, type Ref } from 'vue'
+import { computed, shallowRef, watch, onBeforeUnmount, type Ref } from 'vue'
+import { profileGeneration } from '@/services/profileContext'
 import type { MediaItem } from '@/types/media'
 import type { EntryBookmark, useStorage } from '@/services/storage'
 import type { entryDetailsData } from './entryDetailsData'
@@ -25,6 +26,7 @@ interface BookmarkSelectionOptions {
  */
 export function useEntryBookmark(options: EntryBookmarkOptions) {
   const { source, entry, storage } = options
+  const generation = profileGeneration()
   /** Latest playback time from the media player. */
   const latestPlaybackTime = shallowRef<number | null>(null)
 
@@ -47,12 +49,12 @@ export function useEntryBookmark(options: EntryBookmarkOptions) {
   const isBookmarked = computed(() => currentEntryBookmark.value !== null)
 
   /**
-   * Exposes the preferred season identifier restored from local storage when available.
+   * Exposes the preferred season identifier restored from the active profile when available.
    */
   const preferredSeasonId = computed(() => currentEntryBookmark.value?.groupId ?? null)
 
   /**
-   * Exposes the preferred episode identifier restored from local storage when available.
+   * Exposes the preferred episode identifier restored from the active profile when available.
    */
   const preferredEpisodeId = computed(() => currentEntryBookmark.value?.selectedItemId ?? null)
 
@@ -60,9 +62,11 @@ export function useEntryBookmark(options: EntryBookmarkOptions) {
    * Stores one bookmark payload for the current entry.
    *
    * @param bookmark Bookmark payload to persist.
+   * @param immediate Whether to bypass the ordinary playback interval.
    */
-  function saveEntryBookmark(bookmark: EntryBookmark) {
-    storage.setEntryBookmark(source.value, entry.value, bookmark)
+  function saveEntryBookmark(bookmark: EntryBookmark, immediate = true) {
+    if (generation !== profileGeneration()) return
+    storage.setEntryBookmark(source.value, entry.value, bookmark, immediate)
   }
 
   /** Clears the progress belonging to the previously selected episode. */
@@ -183,8 +187,9 @@ export function useEntryBookmark(options: EntryBookmarkOptions) {
      * Stores the bookmark using the current selection state and entry details snapshot.
      *
      * @param playbackTime Playback position in seconds to persist for the active entry.
+     * @param immediate Whether pause/end/selection should flush immediately.
      */
-    function saveCurrentBookmark(playbackTime: number | null = latestPlaybackTime.value) {
+    function saveCurrentBookmark(playbackTime: number | null = latestPlaybackTime.value, immediate = true) {
       saveEntryBookmark({
         groupId: selectedSeasonId.value,
         selectedItemId: selectedEpisodeId.value,
@@ -199,13 +204,14 @@ export function useEntryBookmark(options: EntryBookmarkOptions) {
         seasonLabel: selectedSeasonLabel.value ?? null,
         episodeNumber: selectedEpisodeNumber.value,
         isFullyWatched: !hasNextEpisode.value && isCurrentEpisodeAtEnd.value,
-      })
+      }, immediate)
     }
 
     /**
      * Toggles the bookmark for the active entry details page.
      */
     function handleBookmarkToggle() {
+      if (generation !== profileGeneration()) return
       if (isBookmarked.value) {
         storage.removeEntryBookmark(source.value, entry.value)
         return
@@ -220,8 +226,9 @@ export function useEntryBookmark(options: EntryBookmarkOptions) {
      *
      * @param playbackTime Playback position in seconds, or `null` when it should be cleared.
      * @param duration Total media duration in seconds, or `null` when unavailable.
+     * @param immediate Whether this event requires a pause/end flush.
      */
-    function handlePlaybackProgressUpdate(playbackTime: number | null, duration: number | null) {
+    function handlePlaybackProgressUpdate(playbackTime: number | null, duration: number | null, immediate = false) {
       latestPlaybackTime.value = playbackTime
       latestPlaybackDuration.value = duration
 
@@ -229,9 +236,13 @@ export function useEntryBookmark(options: EntryBookmarkOptions) {
         return
       }
 
-      saveCurrentBookmark(playbackTime)
+      saveCurrentBookmark(playbackTime, immediate)
     }
 
+    onBeforeUnmount(() => {
+      if (generation === profileGeneration() && isBookmarked.value) saveCurrentBookmark()
+      void storage.flushEntryBookmarks()
+    })
     return { saveCurrentBookmark, handleBookmarkToggle, handlePlaybackProgressUpdate }
   }
 

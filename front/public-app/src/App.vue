@@ -14,6 +14,7 @@ const sidebarWidth = shallowRef(260)
 import type { HomeCategory } from '@/types/home'
 import Background from './components/Background.vue'
 import MainBar from './components/MainBar.vue'
+import PersonalDataStatus from './components/errors/PersonalDataStatus.vue'
 import ErrorNotificationStack from './components/errors/ErrorNotificationStack.vue'
 import { useSearchFilterOptions } from '@/composables/useSearchFilterOptions'
 import { useErrorNotifications } from '@/composables/useErrorNotifications'
@@ -258,6 +259,7 @@ function handleBackNavigation() {
       </RouterView>
     </main>
 
+    <PersonalDataStatus />
     <ErrorNotificationStack
       :notifications="notifications"
       @dismiss="dismissErrorNotification"

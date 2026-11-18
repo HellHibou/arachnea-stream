@@ -140,13 +140,13 @@ export function sanitizeNullableString(value: unknown): string | null {
 }
 
 /**
- * Returns a sanitized playback time in seconds.
+ * Returns a sanitized non-negative playback time in seconds.
  *
  * @param value Raw storage value to sanitize.
- * @returns Finite positive playback time or `null` when invalid.
+ * @returns Finite non-negative playback time or `null` when invalid.
  */
 export function sanitizeNullablePlaybackTime(value: unknown): number | null {
-    return typeof value === 'number' && Number.isFinite(value) && value > 0
+    return typeof value === 'number' && Number.isFinite(value) && value >= 0
       ? value
       : null;
 }

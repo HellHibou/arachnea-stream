@@ -96,6 +96,11 @@ impl ProfileCoordinator {
         mut payload: Value,
         max_profiles: usize,
     ) -> Result<Value> {
+        if super::streaming_api::is_streaming_command(command) {
+            return self
+                .streaming_request(user_id, token, command.to_owned(), payload)
+                .await;
+        }
         let object = payload
             .as_object_mut()
             .ok_or_else(|| reject("invalid_data", 422, "Invalid profile request."))?;
@@ -105,6 +110,15 @@ impl ProfileCoordinator {
         object.insert("command".into(), json!(command));
         let request: Request = serde_json::from_value(payload)
             .map_err(|_| reject("invalid_data", 422, "Invalid profile request fields."))?;
+        let mutation_id = match &request {
+            Request::Create { operation_id, .. }
+            | Request::Update { operation_id, .. }
+            | Request::Delete { operation_id, .. }
+            | Request::Initialize { operation_id, .. }
+            | Request::Save { operation_id, .. }
+            | Request::Complete { operation_id, .. } => Some(*operation_id),
+            _ => None,
+        };
         self.run(user_id, request.profile_id(), move |inner| {
             inner.stores.common.database.transaction(|tx| {
                 let auth = sessions::validate(&inner.stores.common, tx, &token)?;
@@ -117,6 +131,15 @@ impl ProfileCoordinator {
                 }
                 Ok(())
             })?;
+            if let Some(id) = mutation_id {
+                if inner.stores.streaming.mutation(id)?.is_some() {
+                    return Err(reject(
+                        "operation_id_conflict",
+                        409,
+                        "Operation ID is already in use.",
+                    ));
+                }
+            }
             inner.dispatch(user_id, request, max_profiles)
         })
         .await
@@ -316,6 +339,16 @@ impl Inner {
                 })
             }
             Request::Operation { operation_id } => {
+                if common.operation(operation_id)?.is_none() {
+                    if let Some(op) = self.stores.streaming.mutation(operation_id)? {
+                        common
+                            .database
+                            .transaction(|tx| common.active_profile(tx, user_id, op.profile_id))?;
+                        return Ok(
+                            json!({"operation_id":op.operation_id,"kind":op.kind,"profile_id":op.profile_id,"state":"completed","step":"completed","retryable":false,"result":op.result}),
+                        );
+                    }
+                }
                 let op = common
                     .operation(operation_id)?
                     .filter(|op| op.user_id == user_id && op.profile_id.is_some())
@@ -409,7 +442,10 @@ fn operation_view(op: &Operation) -> Value {
 }
 
 /// Maps known domain rejections without converting arbitrary storage failures to client errors.
-fn api_error(error: anyhow::Error) -> anyhow::Error {
+///
+/// # Arguments
+/// * `error` - Contextual authorization/domain/storage failure.
+pub(super) fn api_error(error: anyhow::Error) -> anyhow::Error {
     for cause in error.chain() {
         let message = cause.to_string();
         let code = if message.starts_with("revision_conflict") {

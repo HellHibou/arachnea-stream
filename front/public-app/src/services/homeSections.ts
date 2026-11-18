@@ -1,92 +1,43 @@
-import { initDB, getAllRecordsDB, loadRecordDB, saveRecordDB, deleteRecordDB } from '@/services/indexDB'
 import type { MediaCardCollectionMode, ThumbnailImageFit, ThumbnailOrientation } from '@/types/media'
+import { requireProfileContext, type ProfileContext } from '@/services/profileContext'
+import { hasProfile, profileCall, profileWrite, type ProfileCollection } from '@/services/profileApi'
 
-/** Name of the IndexedDB object store for home section preferences. */
-const STORE_NAME = 'home_sections'
-/** Primary key field name. */
-const KEY_PATH = 'name'
-/** Indexed fields for sorting. */
-const INDEX_FIELDS = ['order']
-
-/**
- * Record persisted for one pinned home section.
- */
+/** Confirmed profile-local pinned section and display preferences. */
 export type HomeSectionRecord = {
-  /** Primary key (mapped from HomeSection.preferenceKey). */
   name: string
-  /** Display order of the section. */
   order: number
-  /** Collection mode for the section. */
   collectionMode: MediaCardCollectionMode
-  /** Thumbnail orientation for the section. */
   thumbnailOrientation: ThumbnailOrientation
-  /** Thumbnail image fit for the section. */
   thumbnailImageFit: ThumbnailImageFit
+  revision?: number
 }
-
-/**
- * Initializes the `home_sections` object store if it has not been created yet.
- *
- * @returns A promise resolved with the IDBDatabase connection.
- */
-export async function initHomeSectionsDB(): Promise<IDBDatabase> {
-  return initDB(STORE_NAME, KEY_PATH, INDEX_FIELDS)
+interface SectionRow extends Omit<HomeSectionRecord, 'name'> { section_key: string; revision: number }
+let revision = 1
+/** @param row Server section metadata. @returns Existing frontend shape plus confirmed revision. */
+function record(row: SectionRow): HomeSectionRecord { return { name: row.section_key, order: row.order, revision: row.revision, collectionMode: row.collectionMode, thumbnailOrientation: row.thumbnailOrientation, thumbnailImageFit: row.thumbnailImageFit } }
+/** @returns Profile sections from the server, sorted by order. */
+export async function getAllSections(context?: ProfileContext): Promise<HomeSectionRecord[]> {
+  if (!hasProfile()) return []
+  const collection = await profileCall<ProfileCollection<SectionRow>>('sections', {}, false, context ?? requireProfileContext())
+  revision = collection.revision
+  return collection.items.map(record)
 }
-
-/**
- * Returns all pinned section records, sorted by their `order` field.
- *
- * @returns A promise resolved with the array of section records.
- */
-export async function getAllSections(): Promise<HomeSectionRecord[]> {
-  return getAllRecordsDB<HomeSectionRecord>(STORE_NAME, 'order')
+/** @param name Profile-local preference key. @returns Confirmed pinned section, if present. */
+export async function getSection(name: string): Promise<HomeSectionRecord | undefined> { return (await getAllSections()).find((r) => r.name === name) }
+/** Saves a complete section replacement using its last-read revision. @param section Existing record or create-only draft. */
+export async function saveSection(section: HomeSectionRecord, context?: ProfileContext): Promise<HomeSectionRecord> {
+  const { name, revision: expected_revision = 0, ...values } = section
+  const row = await profileWrite<SectionRow>('save_section', { expected_revision, value: { section_key: name, ...values } }, `section:${name}`, context ?? requireProfileContext())
+  return record(row)
 }
-
-/**
- * Loads a single pinned section record by its preference key.
- *
- * @param name - The section preference key (name).
- * @returns A promise resolved with the section record, or `undefined` if not found.
- */
-export async function getSection(name: string): Promise<HomeSectionRecord | undefined> {
-  return loadRecordDB<HomeSectionRecord>(STORE_NAME, name)
+/** Deletes only the confirmed section version. @param name Preference key. @param expected_revision Last-read version. */
+export async function deleteSection(name: string, expected_revision: number, context?: ProfileContext): Promise<void> {
+  await profileWrite('delete_section', { expected_revision, identity: { section_key: name } }, `section:${name}`, context ?? requireProfileContext())
 }
-
-/**
- * Saves (inserts or updates) a pinned section record.
- *
- * @param record - The section record to persist.
- * @returns A promise resolved once the write has completed.
- */
-export async function saveSection(record: HomeSectionRecord): Promise<void> {
-  return saveRecordDB(STORE_NAME, record)
+/** Replaces the complete section order atomically; unknown/missing IDs are rejected. @param orderedNames Full ordered preference-key list. */
+export async function reorderSections(orderedNames: string[], context?: ProfileContext): Promise<HomeSectionRecord[]> {
+  const collection = await profileWrite<ProfileCollection<SectionRow>>('reorder_sections', { expected_revision: revision, ids: orderedNames }, 'sections:order', context ?? requireProfileContext())
+  revision = collection.revision
+  return collection.items.map(record)
 }
-
-/**
- * Deletes a pinned section record by its preference key.
- *
- * @param name - The section preference key to remove.
- * @returns A promise resolved once the deletion has completed.
- */
-export async function deleteSection(name: string): Promise<void> {
-  return deleteRecordDB(STORE_NAME, name)
-}
-
-/**
- * Reorders pinned sections by rewriting the `order` field of each provided name.
- *
- * Sections not in the list are left untouched. The first entry gets `order = 0`,
- * the second `order = 1`, etc.
- *
- * @param orderedNames - Array of section preference keys in the desired order.
- * @returns A promise resolved once all order updates have completed.
- */
-export async function reorderSections(orderedNames: string[]): Promise<void> {
-  const updates = orderedNames.map((name, index) =>
-    saveRecordDB(STORE_NAME, {
-      name,
-      order: index,
-    } as HomeSectionRecord),
-  )
-  await Promise.all(updates)
-}
+window.addEventListener('arachnea-profile-context', () => { revision = 1 })

@@ -250,7 +250,7 @@ export interface VideoPlayerEmits {
   /** Emitted when the current player should be remembered for future use. */
   (evt: 'remember-current-player'): void
   /** Emitted when playback progress updates. */
-  (evt: 'update:playback-progress', value: number | null, duration: number | null): void
+  (evt: 'update:playback-progress', value: number | null, duration: number | null, immediate?: boolean): void
   /** Emitted when the episode autoplay enabled state changes. */
   (evt: 'update:is-episode-autoplay-enabled', value: boolean): void
   /** Emitted when playback starts. */
@@ -292,7 +292,7 @@ export interface VideoPlayerComponentEmits {
   /** Emitted to remember the current player selection. */
   'remember-current-player': []
   /** Emitted when playback progress updates. */
-  'update:playback-progress': [value: number | null, duration: number | null]
+  'update:playback-progress': [value: number | null, duration: number | null, immediate?: boolean]
   /** Emitted when episode autoplay enabled state changes. */
   'update:is-episode-autoplay-enabled': [value: boolean]
   /** Emitted when media playback starts. */

@@ -517,5 +517,11 @@
     },
     "administration": "Administration",
     "adminOpenError": "The administration window could not be opened."
+  },
+  "personalData": {
+    "failed": "Your changes could not be saved. Reload the affected data after a conflict.",
+    "saving": "Saving your changes…",
+    "retry": "Retry pending saves",
+    "dismiss": "Dismiss"
   }
 }

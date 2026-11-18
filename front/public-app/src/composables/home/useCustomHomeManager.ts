@@ -3,6 +3,7 @@ import { createCustomHomeDraft, deleteCustomHome, listCustomHomes, loadCustomHom
 import { moveCustomHomeItem } from '@/services/customHomeDraft'
 import type { CustomHomeDefinition } from '@/types/customHome'
 import { t } from '@/i18n'
+import { ProfileApiError } from '@/services/profileApi'
 
 /** @returns Home snapshots and persistence actions; failures never close or overwrite an editor draft. */
 export function useCustomHomeManager() {
@@ -28,7 +29,10 @@ export function useCustomHomeManager() {
     } catch (error) { if (revision === request) fail(error) }
   }
   /** @param error Storage or conflict failure retained for the user. */
-  function fail(error: unknown): void { errorMessage.value = error instanceof Error ? error.message : String(error) }
+  function fail(error: unknown): void {
+    if (error instanceof ProfileApiError && ['profile_context_changed', 'personal_data_changed'].includes(error.code)) return
+    errorMessage.value = error instanceof Error ? error.message : String(error)
+  }
   /** @param id Explicit destination; omitted creates only a detached draft. @returns Prepared draft or null on failure. */
   async function begin(id?: string): Promise<CustomHomeDefinition | null> {
     if (busy.value) return null
@@ -44,7 +48,7 @@ export function useCustomHomeManager() {
     } catch (error) { fail(error); return null }
     finally { busy.value = false }
   }
-  /** @param value Validated detached editor draft. @returns Committed definition, only after IndexedDB completion. */
+  /** @param value Validated detached editor draft. @returns Committed definition, only after server confirmation. */
   async function save(value: CustomHomeDefinition): Promise<CustomHomeDefinition | null> {
     if (busy.value || value.id !== draft.value?.id) return null
     busy.value = true
@@ -82,9 +86,12 @@ export function useCustomHomeManager() {
   function onFocus(): void { void refresh() }
   /** Refreshes snapshots after returning to a visible tab without replacing a draft. */
   function onVisibility(): void { if (document.visibilityState === 'visible') void refresh() }
+  /** Drops the previous profile’s drafts and invalidates delayed replies. */
+  function onProfile(): void { request++; homes.value = []; draft.value = null; expectedRevision.value = null; errorMessage.value = null; void refresh() }
+  window.addEventListener('arachnea-profile-context', onProfile)
   window.addEventListener('focus', onFocus)
   window.addEventListener('custom-homes-changed', onFocus)
   document.addEventListener('visibilitychange', onVisibility)
-  onScopeDispose(() => { request++; window.removeEventListener('focus', onFocus); window.removeEventListener('custom-homes-changed', onFocus); document.removeEventListener('visibilitychange', onVisibility) })
+  onScopeDispose(() => { request++; window.removeEventListener('arachnea-profile-context', onProfile); window.removeEventListener('focus', onFocus); window.removeEventListener('custom-homes-changed', onFocus); document.removeEventListener('visibilitychange', onVisibility) })
   return { homes, draft, expectedRevision, errorMessage, busy, refresh, begin, save, remove, move, cancel }
 }

@@ -8,6 +8,10 @@ use uuid::Uuid;
 
 /// Streaming table views, privately mutated under the coordinator's guards.
 pub struct StreamingRepository {
+    /// Collection revisions and deleted-record versions.
+    pub(crate) collections: SqliteEntityStore<super::state::Collection>,
+    /// Completed streaming mutations, committed atomically with their records.
+    pub(crate) mutations: SqliteEntityStore<super::state::Mutation>,
     /// Separate service transaction boundary.
     pub(crate) database: SqliteDatabase,
     /// Streaming settings with idempotency markers.
@@ -30,6 +34,8 @@ impl StreamingRepository {
     /// Returns a contextual schema initialization error.
     pub(crate) fn new(database: SqliteDatabase) -> Result<Self> {
         Ok(Self {
+            collections: table(&database, "stream_profile_collections")?,
+            mutations: table(&database, "stream_profile_operations")?,
             settings: table(&database, "stream_profile_settings")?,
             homes: table(&database, "profile_homes")?,
             sections: table(&database, "profile_home_sections")?,
@@ -62,7 +68,9 @@ impl StreamingRepository {
             tx.delete_where(&self.settings, &by_id("profile_id", profile_id))?;
             tx.delete_where(&self.homes, &by_id("profile_id", profile_id))?;
             tx.delete_where(&self.sections, &by_id("profile_id", profile_id))?;
-            tx.delete_where(&self.bookmarks, &by_id("profile_id", profile_id))
+            tx.delete_where(&self.bookmarks, &by_id("profile_id", profile_id))?;
+            tx.delete_where(&self.collections, &by_id("profile_id", profile_id))?;
+            tx.delete_where(&self.mutations, &by_id("profile_id", profile_id))
         })
     }
 }

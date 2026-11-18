@@ -6,6 +6,7 @@ mod integrity;
 /// Validated request shapes and application-owned recovery intents.
 pub mod models;
 mod prepare;
+mod streaming_api;
 
 use super::common::models::CommonPreferences;
 use super::{

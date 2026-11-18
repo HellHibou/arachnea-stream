@@ -175,7 +175,7 @@ pub struct Bookmark {
     pub revision: i64,
     /// Server modification time in epoch milliseconds.
     pub modified_at: i64,
-    /// Typed bookmark payload validated by the future API service.
+    /// Complete bookmark payload validated by the streaming API service.
     pub values: Value,
 }
 

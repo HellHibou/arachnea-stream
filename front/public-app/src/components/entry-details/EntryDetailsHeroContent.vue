@@ -86,7 +86,7 @@ const emit = defineEmits<{
   /** Emitted when the bookmark toggle is clicked. */
   'toggle-bookmark': []
   /** Emitted when playback progress updates. */
-  'update:playback-progress': [value: number | null, duration: number | null]
+  'update:playback-progress': [value: number | null, duration: number | null, immediate?: boolean]
   /** Emitted when autoplay enabled state changes. */
   'update:is-autoplay-enabled': [value: boolean]
   /** Emitted when media playback starts. */
@@ -187,7 +187,7 @@ function handleAutoplayStep(offset: -1 | 1) {
         @remember-current-language="emit('remember-current-language')"
         @update:active-player-id="emit('update:active-player-id', $event)"
         @remember-current-player="emit('remember-current-player')"
-        @update:playback-progress="(value: number | null, duration: number | null) => emit('update:playback-progress', value, duration)"
+        @update:playback-progress="(value: number | null, duration: number | null, immediate?: boolean) => emit('update:playback-progress', value, duration, immediate)"
         @update:is-episode-autoplay-enabled="emit('update:is-autoplay-enabled', $event)"
         @playback-started="emit('playback-started', $event)"
         @playback-ended="emit('playback-ended')"

@@ -379,6 +379,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Implemented user profiles step 5: authenticated profile-local home/section/bookmark CRUD and complete atomic reorders, strict versioned payload validation, server-owned home UUIDs/timestamps, collection revisions and atomic mutation receipts. Deleted-record versions prevent stale writes after recreation; deleting a default home clears its reference in the same streaming transaction. Streaming metadata participates in startup consistency checks and cascading cleanup.
+
 - Implemented user profiles step 4: authenticated REST/Tauri profile CRUD, strict common/streaming preference validation, Unicode name uniqueness, revision/idempotency checks, lazy streaming initialization and cascading deletion. Added a build-validated embedded avatar manifest with three PNGs and controller-prefixed authenticated image/catalogue routes. Profile creation uses the live persisted per-account quota (default 3); failed configuration saves preserve the previous value and lowering the quota retains existing profiles.
 
 - Implemented user profiles step 3: administered public accounts, Argon2id passwords, persistent digest-only sessions with 30-day idle expiry, mandatory temporary-password replacement, atomic reset/revocation, and coordinated account deletion. Content JSON/media/proxy/DRM/translation callbacks now require a valid unrestricted public session before cache checks. REST uses HttpOnly cookies and origin/method validation; native sessions use OS vaults with a visible memory-only fallback.
@@ -881,6 +883,8 @@ All notable changes to the server workspace are recorded here.
 ### <u>front-public</u>
 
 #### Added
+
+- Replaced active IndexedDB persistence for homes, pinned sections and bookmarks with no-store REST/Tauri adapters and an explicit profile-context boundary for the step 6 selector. Added confirmed revision handling, server-owned default homes, 10-second coalesced/serialized playback writes, pause/end/context flushes, stable retries after lost replies and visible pending-write errors. Old browser collections are not imported; profile selection/onboarding and remaining preference drafts follow in later steps.
 
 - Added a session gate, login/mandatory-password forms, independent administration entry and sign-out action. Content boot waits for authentication; account changes invalidate caches and stale responses across browser/native tabs without exposing session tokens to JavaScript storage.
 
