@@ -8,6 +8,7 @@ const session = shallowRef<PublicSession | null>(null)
 const busy = shallowRef(false)
 const errorCode = shallowRef<string | null>(null)
 const restored = shallowRef(false)
+const justLoggedIn = shallowRef(false)
 let requestSequence = 0
 let restorePromise: Promise<void> | null = null
 let channel: BroadcastChannel | null = null
@@ -61,12 +62,20 @@ async function mutate(operation: string, body: object): Promise<void> {
 export function useAccountSession() {
   return {
     session: readonly(session), busy: readonly(busy), errorCode: readonly(errorCode), restored: readonly(restored),
+    justLoggedIn: readonly(justLoggedIn),
+    consumeJustLoggedIn: () => { justLoggedIn.value = false },
     ready: computed(() => Boolean(session.value?.authenticated && !session.value.account?.must_change_password)),
     restore,
     /** Signs in with in-memory form values. @param login Login identifier. @param password Password. */
-    login: (login: string, password: string) => mutate('login', { login, password }),
+    login: async (login: string, password: string) => {
+      await mutate('login', { login, password })
+      justLoggedIn.value = true
+    },
     /** Replaces a temporary password before content access. @param current_password Current secret. @param new_password Replacement secret. */
-    changePassword: (current_password: string, new_password: string) => mutate('change_password', { operation_id: createOperationId(), current_password, new_password }),
+    changePassword: async (current_password: string, new_password: string) => {
+      await mutate('change_password', { operation_id: createOperationId(), current_password, new_password })
+      justLoggedIn.value = true
+    },
     /** Revokes the current session and closes the authenticated context. */
     logout: () => mutate('logout', { operation_id: createOperationId() }),
   }

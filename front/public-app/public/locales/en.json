@@ -505,7 +505,10 @@
     "newPassword": "New password",
     "confirmPassword": "Confirm password",
     "passwordMismatch": "The passwords do not match.",
-    "passwordHint": "Passwords must contain 12–128 characters.",
+    "samePasswordWarning": "The new password is identical to the current password. Continue anyway?",
+    "samePasswordConfirm": "Use the same password",
+    "cancel": "Cancel",
+    "passwordHint": "Passwords must contain 4–128 characters.",
     "savePassword": "Save password",
     "signIn": "Sign in",
     "signOut": "Sign out",
@@ -532,6 +535,11 @@
   "profiles": {
     "loading": "Loading your profiles…",
     "selectTitle": "Choose a profile",
+  "menuLabel": "Profile menu",
+  "manageTitle": "Profile management",
+  "manage": "Manage profiles",
+  "passwordTitle": "Change password",
+  "passwordSaved": "Password updated.",
     "switch": "Switch profile",
     "quota": "{used} of {max} profiles used",
     "quotaReached": "The profile limit has been reached.",
@@ -581,5 +589,15 @@
     "saving": "Saving your changes…",
     "retry": "Retry pending saves",
     "dismiss": "Dismiss"
+  },
+  "passwordStrength": {
+    "label": "Password strength",
+    "levels": {
+      "veryWeak": "Very weak",
+      "weak": "Weak",
+      "fair": "Fair",
+      "good": "Good",
+      "strong": "Strong"
+    }
   }
 }

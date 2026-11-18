@@ -476,6 +476,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Public account passwords now accept 4–128 Unicode scalar values instead of 12–128. Account creation takes an optional `must_change_password` flag (mandatory replacement by default); the new administrator operation `admin/set_user_password_change` toggles it without touching credentials or sessions. Password replacement may reuse the current password, leaving the explicit client warning to the UI.
+
 - Completed user profiles step 9 documentation and host validation: documented first-account/reset/session behavior, embedded avatars, profile quota, personal-data ownership and no-import/offline/conflict limits; added stopped-application backup/restore instructions for the coherent SQLite pair, configuration and remaining sidecars, with startup recovery/reference checks. Rust workspace check/format, 31 Core tests, 14 Stream tests (5 live-provider tests ignored), both frontend type-check/builds and public CSS lint pass on macOS ARM64. Initial sandbox-denied loopback tests pass after authorization. Graphical flows, real-provider playback, native vault/window lifecycle and an operator restore drill remain explicitly tracked; no new tests or test infrastructure were added.
 
 - Renamed the stream variant field `label` to `quality` in source YAML and Rust serialization/deserialization, without a compatibility alias.
@@ -855,6 +857,7 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Replaced the public-user list and creation form with a table: per-account login, a mandatory-password-change checkbox persisted through `set_user_password_change`, reset and delete action columns, and an Add button next to Refresh opening a credentials dialog styled like the service-credentials dialog. The dialog keeps the temporary password in memory, shows a password-strength indicator and defaults the next-sign-in replacement option to checked. The account section is titled "User accounts".
 - Added a separate English/French profile-limit form in Settings, including desktop, with safe-integer validation and stable retry identities. Quota changes apply after persistence without reloading the scraper.
 
 - Added public user listing, account creation, temporary-password reset and confirmed account deletion through the independent administrator API.
@@ -927,6 +930,10 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- The administration entry point (`/admin/`) and the post-login redirect now open User management (`/admin/users`) instead of the first service group.
+- Admin navigation now lists Users first, Settings second, and the service pages afterwards.
+- Public password replacement now accepts 4–128 characters, shows a shared complexity indicator, and warns before reusing the current password; submitting again after the explicit confirmation applies the unchanged password.
+- The public login screen no longer shows the password length hint; it stays on the mandatory password replacement form. The revoked-session notice is no longer repeated inside the login form.
 - Completed profile step 8: removed legacy local personal parameter reads/writes and persistence watchers; reset personal runtime state on profile changes. Quality, manual tracks and subtitle appearance now use revision-checked server preferences with serialized writes, immutable retries and visible failures. Only device volume/mute, navigation and account/server profile resume remain local. Old browser data is ignored without import or deletion; edited track rules clear persisted manual choices.
 
 - Reordered the public player control bar: the audio language button now appears before the subtitles button, the playback speed control sits between the subtitles and fullscreen controls, and the picture-in-picture button sits just left of the fullscreen button.
@@ -970,7 +977,8 @@ All notable changes to the server workspace are recorded here.
 - Split `useVideoJsMediaRenderer` (1 921 lines) into wave-1 modules extracted from the composable: `video-js-media-renderer/storyboard.ts` (storyboard VTT parsing and sprite options), `subtitles.ts` (remote text track management), `playerAttributes.ts` (video element attributes and poster error handler), `autoplayMenu.ts` (episode autoplay and chapter autoskip menu). State dependencies (`props`, `emit`, `activePlayer`, `remoteSubtitleTracks`, `hostElement`, `spriteThumbnailsPlugin`, `storyboardPreviewSize`, `storyboardVttCues`) are passed as individual parameters. The composable shrinks to 1 210 lines while preserving its public signature and all internal behavior.
 - Split `useVideoJsMediaRenderer` further (wave 2): `video-js-media-renderer/sourceApplication.ts` (`applySourceToPlayer`, `buildPlayerSource`) and `video-js-media-renderer/playerLifecycle.ts` (`destroyActivePlayer`, `markVideoInitialLoadStart`, `markVideoInitialLoadComplete`). All mutable state is passed as individual parameters and returned in results. The composable shrinks to 938 lines (−51 %), well below the 1 000-line threshold. Public signature `useVideoJsMediaRenderer(options)` is unchanged and all internal behavior is preserved.
 - Merged the "Track selection" parameters section into the "Player" section: audio language profiles (label "Audio language") now follow automatic ad skipping, subtitle mode per profile became a switch ("Subtitles" / Enabled-Disabled), profiles can be added or removed (the first profile cannot be removed), "Allow audio description" was renamed to "Use audio description if available", and a subtitle language manager was added below it. The `settings.playerTracks` section and its `ParameterLanguagePriority` UI were removed from the parameters panel.
-- Video.js now owns grouped stream selection across episodes, live, trailers and resolved banner/background videos: client priority HLS → DASH → MP4, integrated fixed-quality/language controls alongside manifest choices, per-variant DRM, bounded fallback and one final error after exhaustion. Switching variants preserves compatible playback state and shared metadata; active loads have a 20-second watchdog. The public frontend requires the matching structured backend contract.
+- Video.js now owns grouped stream selection across episodes, live, trailers and resolved banner/background videos: client priority HLS
+- Moved profile selection/switching out of the sidebar: a profile icon button in the toolbar (to the right of the search toggle) opens a menu listing the other profiles plus "Manage profiles" and "Sign out". The "Choose a profile" screen is now "Profile management": it no longer switches profiles or signs out, and adds password change; the duplicate title was removed. → DASH → MP4, integrated fixed-quality/language controls alongside manifest choices, per-variant DRM, bounded fallback and one final error after exhaustion. Switching variants preserves compatible playback state and shared metadata; active loads have a 20-second watchdog. The public frontend requires the matching structured backend contract.
 
 
 #### Fixed

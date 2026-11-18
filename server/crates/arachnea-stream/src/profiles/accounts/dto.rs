@@ -69,6 +69,26 @@ pub(super) struct CreateUser {
     pub login: String,
     /// Administrator-supplied temporary password, never persisted in plaintext.
     pub temporary_password: String,
+    /// Whether the account must replace the temporary password at the next sign-in.
+    #[serde(default = "require_password_change")]
+    pub must_change_password: bool,
+}
+
+/// Administrator change of one account's mandatory password replacement flag.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct SetPasswordChange {
+    /// Stable retry UUID.
+    pub operation_id: Uuid,
+    /// Target account UUID.
+    pub user_id: Uuid,
+    /// Whether the account must replace its password at the next sign-in.
+    pub must_change_password: bool,
+}
+
+/// Keeps omitted creation requests on the historical mandatory replacement rule.
+fn require_password_change() -> bool {
+    true
 }
 
 /// Administrator reset of one account's temporary password.

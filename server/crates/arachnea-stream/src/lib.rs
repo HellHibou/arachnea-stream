@@ -198,8 +198,8 @@ pub const PROFILE_STREAM_SCOPE: &str = "arachnea-stream";
 pub const PUBLIC_LOGIN_MIN_LENGTH: usize = 3;
 /// Public login maximum length in ASCII bytes.
 pub const PUBLIC_LOGIN_MAX_LENGTH: usize = 64;
-/// Public password minimum length in Unicode scalar values.
-pub const PUBLIC_PASSWORD_MIN_LENGTH: usize = 12;
+/// Public password minimum length in Unicode scalar values; the front shows a separate complexity indicator.
+pub const PUBLIC_PASSWORD_MIN_LENGTH: usize = 4;
 /// Public password maximum length in Unicode scalar values.
 pub const PUBLIC_PASSWORD_MAX_LENGTH: usize = 128;
 /// Public session idle expiration, 30 days in milliseconds.

@@ -63,7 +63,7 @@ async function openAdmin(): Promise<void> {
     <p v-if="!accounts.session.value?.persistent" class="session-warning" role="status">{{ t('accounts.memoryOnly') }}</p>
   </template>
   <div v-else-if="accounts.ready.value" class="account-gate">
-    <p role="status">{{ t(startupError ? 'accounts.errors.storage_unavailable' : 'accounts.loading') }}</p>
+    <p v-if="startupError" role="alert">{{ t('accounts.errors.storage_unavailable') }}</p>
     <v-btn v-if="startupError" @click="prepareContent">{{ t('accounts.retry') }}</v-btn>
     <v-btn @click="logout">{{ t('accounts.signOut') }}</v-btn>
   </div>

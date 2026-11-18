@@ -32,19 +32,23 @@ function startCreation(): void {
 </script>
 
 <template>
-  <div v-if="!profiles.initialized.value || profiles.loading.value" class="profile-gate" role="status">
-    {{ t('profiles.loading') }}
-  </div>
+  <div v-if="!profiles.initialized.value || profiles.loading.value" class="profile-gate" role="status" />
   <div v-else-if="!profiles.list.value" class="profile-gate" role="alert">
     <p>{{ t(`profiles.errors.${profiles.errorCode.value ?? 'storage_unavailable'}`) }}</p>
     <v-btn @click="profiles.retry()">{{ t('profiles.retry') }}</v-btn>
   </div>
   <App v-else-if="profiles.activeProfile.value" :key="profiles.activeId.value ?? undefined" />
+  <div v-else-if="profiles.busy.value" class="profile-gate" role="status">
+    {{ t('profiles.loading') }}
+  </div>
   <div v-else-if="creating || needsOnboarding" class="profile-gate">
     <ProfileOnboarding :additional="additionalCreation" />
   </div>
   <div v-else class="profile-gate">
-    <ProfileSwitcher @create="startCreation" />
+    <ProfileSwitcher
+      :select-only="(profiles.list.value?.profiles.filter((profile) => profile.state === 'active').length ?? 0) > 1"
+      @create="startCreation"
+    />
   </div>
 </template>
 

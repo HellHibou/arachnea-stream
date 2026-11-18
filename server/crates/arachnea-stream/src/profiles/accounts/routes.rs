@@ -26,6 +26,7 @@ pub fn register(
         ("admin/create_user", true),
         ("admin/delete_user", true),
         ("admin/reset_user_password", true),
+        ("admin/set_user_password_change", true),
     ] {
         let accounts = accounts.clone();
         let admin = admin.clone();
@@ -90,6 +91,9 @@ async fn dispatch(
             "admin/users" => accounts.users().await?,
             "admin/create_user" => accounts.create_user(parse(input.payload)?).await?,
             "admin/reset_user_password" => accounts.reset_password(parse(input.payload)?).await?,
+            "admin/set_user_password_change" => {
+                accounts.set_password_change(parse(input.payload)?).await?
+            }
             "admin/delete_user" => accounts.delete_user(parse(input.payload)?).await?,
             _ => unreachable!(),
         };

@@ -8,7 +8,7 @@ import { useErrorNotifications } from '@/composables/useErrorNotifications'
 import { useI18n, setLanguage } from '@/i18n'
 import { formatLanguageLabel, isKnownLanguageCode } from '@/services/languages'
 import { loadStoredTheme, persistTheme, findThemePreset } from '@/services/theme'
-import { useAppConfig, defaultServicesPath } from '@/services/appConfig'
+import { useAppConfig } from '@/services/appConfig'
 import type { ThemeMode } from '@/services/theme'
 import type { StatusResponse } from '@/services/adminApi'
 import ErrorNotificationStack from '@/components/errors/ErrorNotificationStack.vue'
@@ -57,7 +57,7 @@ async function checkAuth(): Promise<void> {
     } else if (result.auth_required && !result.authenticated) {
       router.push({ name: 'login' })
     } else if (router.currentRoute.value.name === 'login') {
-      router.push(defaultServicesPath())
+      router.push({ name: 'users' })
     }
   }
   isLoading.value = false
@@ -172,6 +172,8 @@ onMounted(() => {
     <!-- Always visible regardless of the window size. -->
     <v-navigation-drawer v-if="isAuthenticated" permanent>
       <v-list nav>
+        <v-list-item :to="{ name: 'users' }" prepend-icon="mdi-account-group" :title="t('users.title')" />
+        <v-list-item :to="{ name: 'settings' }" prepend-icon="mdi-cog" :title="t('nav.settings')" />
         <v-list-item
           v-for="storeId in serviceStores"
           :key="storeId"
@@ -179,8 +181,6 @@ onMounted(() => {
           prepend-icon="mdi-server"
           :title="serviceStoreTitle(storeId)"
         />
-        <v-list-item :to="{ name: 'users' }" prepend-icon="mdi-account-group" :title="t('users.title')" />
-        <v-list-item :to="{ name: 'settings' }" prepend-icon="mdi-cog" :title="t('nav.settings')" />
       </v-list>
     </v-navigation-drawer>
 

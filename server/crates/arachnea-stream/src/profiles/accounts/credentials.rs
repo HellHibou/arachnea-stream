@@ -39,7 +39,7 @@ pub(super) fn password(value: &str) -> Result<()> {
         return Err(reject(
             "invalid_data",
             422,
-            "Password must contain 12–128 characters.",
+            "Password must contain 4–128 characters.",
         ));
     }
     Ok(())

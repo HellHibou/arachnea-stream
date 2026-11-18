@@ -317,9 +317,16 @@ export function useProfiles(): ProfilesStore {
       if (!current(token, session)) return
       avatars.value = catalogue
       list.value = nextList
-      const last = readLastProfileId(accountId)
-      const restore = last ? nextList.profiles.find((profile) => profile.profile_id === last && profile.state === 'active') : undefined
-      if (restore) await selectInternal(restore.profile_id, session, token, false)
+      const activeProfiles = nextList.profiles.filter((profile) => profile.state === 'active')
+      const askedAuthentication = accounts.justLoggedIn.value
+      accounts.consumeJustLoggedIn?.()
+      // Only show the selector after an explicit login; otherwise keep the last loaded profile.
+      const shouldSelectManually = activeProfiles.length > 1 && askedAuthentication
+      if (!shouldSelectManually) {
+        const last = readLastProfileId(accountId)
+        const restore = last ? nextList.profiles.find((profile) => profile.profile_id === last && profile.state === 'active') : undefined
+        if (restore) await selectInternal(restore.profile_id, session, token, false)
+      }
     } catch (error) {
       if (current(token, session)) await handleError(error)
     } finally {

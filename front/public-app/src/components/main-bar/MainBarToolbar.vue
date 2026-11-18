@@ -9,6 +9,7 @@ import type { SearchFilterOption } from '@/services/rustify'
 import { useI18n } from '@/i18n'
 
 import SearchBar from '../SearchBar.vue'
+import ProfileMenu from '../profiles/ProfileMenu.vue'
 import { APP_TITLE } from '../../constants'
 
 
@@ -160,6 +161,7 @@ const homeHref = computed(() => {
         <v-icon icon="$Search" size="22" aria-hidden="true" />
       </button>
 
+      <ProfileMenu />
 
     </div>
   </div>

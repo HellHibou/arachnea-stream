@@ -9,7 +9,8 @@ const router = createRouter({
     {
       path: '/',
       name: 'home',
-      redirect: '/services',
+      // The administration entry point lands on user management by default.
+      redirect: { name: 'users' },
     },
     {
       path: '/services',

@@ -238,15 +238,22 @@
     "title": "Users",
     "login": "Login",
     "temporaryPassword": "Temporary password",
-    "passwordHint": "Use 12–128 characters. The user must replace this password on their next sign-in.",
+    "passwordHint": "Use 4–128 characters. The complexity indicator helps pick a stronger password.",
+    "mustChangeOption": "The user must change the password at the next sign-in",
+    "mustChangeColumn": "Change required",
+    "resetColumn": "Reset",
+    "deleteColumn": "Delete",
+    "addUser": "Add",
+    "mustChangeFor": "Require {login} to change the password at the next sign-in",
+    "resetFor": "Reset the password of {login}",
+    "deleteFor": "Delete the account {login}",
+    "showPassword": "Show password",
+    "hidePassword": "Hide password",
     "create": "Create account",
-    "list": "Public accounts",
+    "list": "User accounts",
     "reset": "Reset password",
     "delete": "Delete account",
     "deleting": "Deletion in progress",
-    "changeRequired": "Password replacement required",
-    "active": "Active",
-    "empty": "No public accounts yet.",
     "refresh": "Refresh",
     "cancel": "Cancel",
     "deleteConfirmation": "Delete {login}, all its profiles and their data? This action cannot be undone.",
@@ -274,5 +281,15 @@
     "save": "Save profile limit",
     "saved": "Profile limit saved and applied.",
     "retry": "Reload profile limit"
+  },
+  "passwordStrength": {
+    "label": "Password strength",
+    "levels": {
+      "veryWeak": "Very weak",
+      "weak": "Weak",
+      "fair": "Fair",
+      "good": "Good",
+      "strong": "Strong"
+    }
   }
 }

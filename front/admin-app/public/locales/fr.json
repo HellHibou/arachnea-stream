@@ -238,15 +238,22 @@
     "title": "Utilisateurs",
     "login": "Identifiant",
     "temporaryPassword": "Mot de passe temporaire",
-    "passwordHint": "Entre 12 et 128 caractères. L’utilisateur devra remplacer ce mot de passe à sa prochaine connexion.",
+    "passwordHint": "Entre 4 et 128 caractères. L’indicateur de complexité aide à choisir un mot de passe robuste.",
+    "mustChangeOption": "L’utilisateur doit changer son mot de passe à la prochaine connexion",
+    "mustChangeColumn": "Changement requis",
+    "resetColumn": "Réinitialisation",
+    "deleteColumn": "Suppression",
+    "addUser": "Ajouter",
+    "mustChangeFor": "Changer le mot de passe de {login} à la prochaine connexion",
+    "resetFor": "Réinitialiser le mot de passe de {login}",
+    "deleteFor": "Supprimer le compte {login}",
+    "showPassword": "Afficher le mot de passe",
+    "hidePassword": "Masquer le mot de passe",
     "create": "Créer un compte",
-    "list": "Comptes publics",
+    "list": "Comptes utilisateur",
     "reset": "Réinitialiser le mot de passe",
     "delete": "Supprimer le compte",
     "deleting": "Suppression en cours",
-    "changeRequired": "Remplacement du mot de passe requis",
-    "active": "Actif",
-    "empty": "Aucun compte public.",
     "refresh": "Actualiser",
     "cancel": "Annuler",
     "deleteConfirmation": "Supprimer {login}, tous ses profils et leurs données ? Cette action est irréversible.",
@@ -274,5 +281,15 @@
     "save": "Enregistrer le plafond",
     "saved": "Plafond enregistré et appliqué.",
     "retry": "Recharger le plafond"
+  },
+  "passwordStrength": {
+    "label": "Force du mot de passe",
+    "levels": {
+      "veryWeak": "Très faible",
+      "weak": "Faible",
+      "fair": "Moyenne",
+      "good": "Bonne",
+      "strong": "Forte"
+    }
   }
 }

@@ -83,7 +83,10 @@ impl AccountService {
         .await??;
         blocking(self.common.clone(), move |common| {
             common.database.transaction(|tx| {
-                let body = json!({"login":login});
+                let body = json!({
+                    "login": login,
+                    "must_change_password": request.must_change_password,
+                });
                 if let Some(result) =
                     replay(common, tx, request.operation_id, "create_user", &body)?
                 {
@@ -103,7 +106,7 @@ impl AccountService {
                     id: Uuid::new_v4(),
                     normalized_login: login,
                     password_hash: hash,
-                    must_change_password: true,
+                    must_change_password: request.must_change_password,
                     state: AccountState::Active,
                     created_at: now_ms()?,
                     updated_at: now_ms()?,
@@ -237,6 +240,65 @@ impl AccountService {
             })
             .await
             .context("resetting public account password")
+    }
+
+    /// Updates the mandatory password replacement flag without touching credentials.
+    ///
+    /// # Arguments
+    /// * `request` - Administrator-authorized target, requested flag and stable retry UUID.
+    ///
+    /// # Errors
+    /// Returns missing-account, ID-conflict or recoverable storage failures.
+    pub(super) async fn set_password_change(&self, request: SetPasswordChange) -> Result<Value> {
+        self.coordinator
+            .account_task(request.user_id, move |common| {
+                common.database.transaction(|tx| {
+                    let body = json!({
+                        "user_id": request.user_id,
+                        "must_change_password": request.must_change_password,
+                    });
+                    if let Some(result) = replay(
+                        common,
+                        tx,
+                        request.operation_id,
+                        "set_user_password_change",
+                        &body,
+                    )? {
+                        return Ok(result);
+                    }
+                    let mut user = tx
+                        .get(&common.users, &request.user_id.to_string())?
+                        .ok_or_else(|| {
+                            reject("resource_not_found", 404, "Account is inaccessible.")
+                        })?;
+                    if user.state != AccountState::Active {
+                        return Err(reject(
+                            "resource_not_found",
+                            404,
+                            "Account is inaccessible.",
+                        ));
+                    }
+                    user.must_change_password = request.must_change_password;
+                    user.updated_at = now_ms()?;
+                    tx.put(&common.users, &user)?;
+                    let result = json!({
+                        "user_id": user.id,
+                        "must_change_password": user.must_change_password,
+                    });
+                    receipt(
+                        common,
+                        tx,
+                        request.operation_id,
+                        user.id,
+                        "set_user_password_change",
+                        body,
+                        result.clone(),
+                    )?;
+                    Ok(result)
+                })
+            })
+            .await
+            .context("updating public account password change flag")
     }
 }
 

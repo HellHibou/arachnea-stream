@@ -1,5 +1,5 @@
 import { readonly, ref } from 'vue'
-import { fetchPublicUsers, createPublicUser, resetPublicUserPassword, deletePublicUser, AdminApiException, type PublicUser } from '@/services/adminApi'
+import { fetchPublicUsers, createPublicUser, resetPublicUserPassword, setPublicUserPasswordChange, deletePublicUser, AdminApiException, type PublicUser } from '@/services/adminApi'
 
 /** Manages administrator user operations without storing credential drafts. */
 export function useUserManagement() {
@@ -18,10 +18,14 @@ export function useUserManagement() {
   return {
     users: readonly(users), busy: readonly(busy), errorCode: readonly(errorCode),
     load: () => run(async () => {}),
-    /** Creates a restricted account. @param id Retry UUID. @param login Login identifier. @param password Temporary password. */
-    create: (id: string, login: string, password: string) => run(() => createPublicUser(id, login, password)),
+    /** Clears a previous error before opening a fresh form. */
+    clearError: () => { errorCode.value = null },
+    /** Creates a restricted account. @param id Retry UUID. @param login Login identifier. @param password Temporary password. @param mustChange Mandatory replacement at the next sign-in. */
+    create: (id: string, login: string, password: string, mustChange: boolean) => run(() => createPublicUser(id, login, password, mustChange)),
     /** Resets a selected account. @param id Retry UUID. @param user Target account. @param password Temporary password. */
     reset: (id: string, user: string, password: string) => run(() => resetPublicUserPassword(id, user, password)),
+    /** Updates the mandatory password replacement flag. @param id Retry UUID. @param user Target account. @param mustChange New flag value. */
+    setPasswordChange: (id: string, user: string, mustChange: boolean) => run(() => setPublicUserPasswordChange(id, user, mustChange)),
     /** Deletes a confirmed account. @param id Retry UUID. @param user Target account. */
     remove: (id: string, user: string) => run(() => deletePublicUser(id, user)),
   }

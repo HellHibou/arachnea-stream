@@ -505,7 +505,10 @@
     "newPassword": "Nouveau mot de passe",
     "confirmPassword": "Confirmer le mot de passe",
     "passwordMismatch": "Les mots de passe ne correspondent pas.",
-    "passwordHint": "Le mot de passe doit contenir entre 12 et 128 caractères.",
+    "samePasswordWarning": "Le nouveau mot de passe est identique au mot de passe actuel. Continuer quand même ?",
+    "samePasswordConfirm": "Utiliser le même mot de passe",
+    "cancel": "Annuler",
+    "passwordHint": "Le mot de passe doit contenir entre 4 et 128 caractères.",
     "savePassword": "Enregistrer le mot de passe",
     "signIn": "Se connecter",
     "signOut": "Se déconnecter",
@@ -532,6 +535,11 @@
   "profiles": {
     "loading": "Chargement de vos profils…",
     "selectTitle": "Choisir un profil",
+  "menuLabel": "Menu du profil",
+  "manageTitle": "Gestion des profils",
+  "manage": "Gérer les profils",
+  "passwordTitle": "Modifier le mot de passe",
+  "passwordSaved": "Mot de passe mis à jour.",
     "switch": "Changer de profil",
     "quota": "{used} profil(s) sur {max} utilisé(s)",
     "quotaReached": "La limite de profils est atteinte.",
@@ -581,5 +589,15 @@
     "saving": "Enregistrement de vos modifications…",
     "retry": "Réessayer les sauvegardes en attente",
     "dismiss": "Fermer"
+  },
+  "passwordStrength": {
+    "label": "Force du mot de passe",
+    "levels": {
+      "veryWeak": "Très faible",
+      "weak": "Faible",
+      "fair": "Moyenne",
+      "good": "Bonne",
+      "strong": "Forte"
+    }
   }
 }

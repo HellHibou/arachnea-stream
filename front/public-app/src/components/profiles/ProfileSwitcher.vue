@@ -5,7 +5,9 @@ import { injectProfiles } from '@/composables/useProfiles'
 import { useAccountSession } from '@/composables/useAccountSession'
 import type { ProfileView } from '@/services/profileApi'
 import ProfileAvatar from './ProfileAvatar.vue'
+import ProfilePasswordForm from './ProfilePasswordForm.vue'
 
+const props = withDefaults(defineProps<{ manage?: boolean; selectOnly?: boolean }>(), { manage: false, selectOnly: false })
 const emit = defineEmits<{ create: []; selected: [profileId: string] }>()
 const profiles = injectProfiles()
 const accounts = useAccountSession()
@@ -48,13 +50,14 @@ async function signOut(): Promise<void> {
 </script>
 
 <template>
-  <section class="profile-switcher" :aria-label="t('profiles.selectTitle')">
+  <section class="profile-switcher" :class="{ 'profile-switcher--select': props.selectOnly }" :aria-label="props.manage ? t('profiles.manageTitle') : t('profiles.selectTitle')">
     <header class="profile-switcher__header">
       <div>
-        <h1>{{ t('profiles.selectTitle') }}</h1>
-        <p class="profile-switcher__quota">{{ t('profiles.quota', { used: profiles.list.value?.used_slots ?? 0, max: profiles.list.value?.max_profiles_per_user ?? 0 }) }}</p>
+        <h1 v-if="!props.manage">{{ t('profiles.selectTitle') }}</h1>
+        <h1 v-else-if="props.selectOnly">{{ t('profiles.selectTitle') }}</h1>
+        <p v-if="!props.selectOnly" class="profile-switcher__quota">{{ t('profiles.quota', { used: profiles.list.value?.used_slots ?? 0, max: profiles.list.value?.max_profiles_per_user ?? 0 }) }}</p>
       </div>
-      <button class="profile-switcher__create" type="button" :disabled="quotaReached || profiles.busy.value" @click="emit('create')">
+      <button v-if="!props.selectOnly" class="profile-switcher__create" type="button" :disabled="quotaReached || profiles.busy.value" @click="emit('create')">
         {{ t('profiles.createTitle') }}
       </button>
     </header>
@@ -70,10 +73,11 @@ async function signOut(): Promise<void> {
         :class="{ 'profile-switcher__item--active': profile.profile_id === profiles.activeId.value }"
       >
         <ProfileAvatar :avatar-id="profile.avatar_id" :catalogue="profiles.avatars.value" :name="profile.name" :size="40" />
-        <button class="profile-switcher__name" type="button" :disabled="profiles.busy.value" @click="selectProfile(profile.profile_id)">
+        <button v-if="!props.manage" class="profile-switcher__name" type="button" :disabled="profiles.busy.value" @click="selectProfile(profile.profile_id)">
           {{ profile.name }}
         </button>
-        <button class="profile-switcher__delete" type="button" :disabled="profiles.busy.value" :aria-label="t('profiles.deleteProfile', { name: profile.name })" @click="requestDelete(profile)">
+        <span v-else class="profile-switcher__name">{{ profile.name }}</span>
+        <button v-if="!props.selectOnly" class="profile-switcher__delete" type="button" :disabled="profiles.busy.value" :aria-label="t('profiles.deleteProfile', { name: profile.name })" @click="requestDelete(profile)">
           {{ t('profiles.delete') }}
         </button>
       </li>
@@ -91,7 +95,8 @@ async function signOut(): Promise<void> {
       </button>
     </div>
 
-    <button class="profile-switcher__signout" type="button" :disabled="accounts.busy.value" @click="signOut">{{ t('accounts.signOut') }}</button>
+    <button v-if="!props.manage" class="profile-switcher__signout" type="button" :disabled="accounts.busy.value" @click="signOut">{{ t('accounts.signOut') }}</button>
+    <ProfilePasswordForm v-if="props.manage" />
   </section>
 
   <v-dialog v-model="confirmOpen" max-width="420">
@@ -128,6 +133,11 @@ async function signOut(): Promise<void> {
 .profile-switcher__header h1 {
   margin: 0 0 6px;
   font-size: 1.6rem;
+  text-align: center;
+}
+
+.profile-switcher--select .profile-switcher__header {
+  justify-content: center;
 }
 
 .profile-switcher__quota,
@@ -196,7 +206,19 @@ async function signOut(): Promise<void> {
 }
 
 .profile-switcher__signout {
-  justify-self: start;
+  justify-self: center;
+  padding: 0 20px;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--bg-accent-primary);
+  color: var(--text-primary);
+  font-size: 0.98rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.profile-switcher__signout:hover {
+  filter: brightness(1.04);
 }
 
 .profile-switcher__delete {

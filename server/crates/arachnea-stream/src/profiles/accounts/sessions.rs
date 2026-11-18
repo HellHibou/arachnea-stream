@@ -179,13 +179,6 @@ impl AccountService {
                             "Invalid login or password.",
                         ));
                     }
-                    if credentials::verify(&input.new_password, &auth.user.password_hash) {
-                        return Err(reject(
-                            "invalid_data",
-                            422,
-                            "The new password must differ from the current password.",
-                        ));
-                    }
                     auth.user.password_hash = new_hash;
                     auth.user.must_change_password = false;
                     auth.user.updated_at = now_ms()?;
