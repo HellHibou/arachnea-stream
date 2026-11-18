@@ -414,8 +414,8 @@ favorites. Enabling a language alone does not override a `disabled` profile or a
 manual subtitle choice. Each `get_entry` load applies the configured audio/subtitle
 profiles instead of durable manual track choices. Manual choices made in the player
 remain preferred across episodes and seasons within that entry; opening or reloading
-an entry starts from the configured profiles again. Editing track settings also clears
-manual choices and immediately applies the updated settings. There is no separate
+an entry starts from the configured profiles again. Saving edited track settings clears
+manual choices and applies the confirmed server settings. There is no separate
 button to reapply preferences.
 An existing higher-priority subtitle also takes precedence over translating a
 lower-priority favorite. A supported external subtitle source and an enabled,
@@ -447,7 +447,7 @@ replace the assets embedded in an already running server.
 
 `AccountSessionGate` restores the server session before mounting content and starting metadata, allowlist and personal-cache loading. Public login uses a dedicated POST JSON/GET state transport, with HttpOnly cookies in browsers and the native session broker in Tauri. Administrator-created/reset accounts must replace their temporary password before content can render. The login gate exposes the independent administration entry for first-account setup; the navigation menu signs out by revoking the session.
 
-Account changes clear in-memory catalogue validation, metadata, section/bookmark and notification caches; late replies are discarded by generation. BroadcastChannel/native events and focus/visibility/session polling revalidate other tabs. Credential drafts stay in component memory, and neither password nor token is written to localStorage/IndexedDB. An unavailable native OS vault is reported as memory-only persistence. Home/section/bookmark services now persist only through the selected profile API. Other legacy personal preference paths remain until steps 7–8; no local import is performed, and the onboarding/selection UI is delivered by the step 6 gate below.
+Account changes clear in-memory catalogue validation, metadata, section/bookmark and notification caches; late replies are discarded by generation. BroadcastChannel/native events and focus/visibility/session polling revalidate other tabs. Credential drafts stay in component memory, and neither password nor token is written to localStorage/IndexedDB. An unavailable native OS vault is reported as memory-only persistence. Home/section/bookmark services now persist only through the selected profile API. Other legacy personal preference paths remain until step 8; no local import is performed, and the onboarding/selection UI is delivered by the step 6 gate below.
 
 
 ## Profile-backed personal collections (step 5)
@@ -459,8 +459,8 @@ profile/account generation to each request. The step 6 selection flow calls
 initializing streaming. The step 5 adapter deliberately did not select or create a
 profile: unselected lists are empty and personal writes display an error. Account/profile
 changes clear caches, invalidate delayed replies and never route an old queued
-write under a new UUID. Remaining general preferences are still local until the
-later draft/storage steps.
+write under a new UUID. General settings now use server drafts (step 7 below); remaining legacy local
+preference paths are removed in step 8.
 
 Section changes update reactive snapshots after server confirmation; reorders send
 the full set of section/home IDs with a collection revision. Bookmark snapshots
@@ -490,3 +490,16 @@ Initialization lists profiles and the embedded avatar catalogue in parallel. The
 Browser tabs use a per-server `BroadcastChannel`, desktop webviews use the native `arachnea-profiles-changed` event, and focus/visibility revalidate list/revision state without forcing another window's selection. A profile deleted or revoked elsewhere clears the local context. Device keys contain no secret; old local personal preferences are not imported, and new profiles start with automatic language and the `arachnea-blue` theme.
 
 Validated with `npm run type-check`, `npm run build-only` and `npm run lint:css`. No tests or test infrastructure were added. Graphical first-login/interruption/resume, real Tauri windows/vaults and playback with coalesced writes remain manual validation work.
+
+
+Step 6 review fixes: the native mobile drawer closes before opening the profile dialog. Selecting the active profile revalidates it without renewing its generation, preserving mounted bookmark/progress callbacks. Uncertain deletions retain their original operation UUID and expected revision in the session controller's memory; the selector offers explicit retries even when a profile has left the active list. A deletion error invalidates only its target. After a transport error, refreshing the list also excludes an active profile whose deletion has already started. Closing the page/session loses the local request, while accepted server operations remain durable and recover on server restart. No new endpoint or browser storage is introduced. Validation: public type-check/build/CSS lint and targeted scenarios with simulated transport; mobile handler ordering is verified, while the graphical flow remains to be checked.
+
+## Settings drafts (step 7)
+
+The dialog loads current server revisions and edits detached refs. Language and theme reuse the onboarding form. Save sends only changed domains to `profiles/save_preferences` with their expected revisions, preserving fields outside the form. Global preferences change only after the operation completes and an authoritative refresh succeeds. Profile selection and refresh also apply confirmed streaming form preferences, without resetting track preferences when values are unchanged. Partial operations are not applied to runtime state.
+
+Cancel confirms discarding edits when needed and performs no write. Saving or an uncertain outcome disables editing and ordinary dismissal; lost replies and partial operations retain the exact request and UUID for Retry. The UI distinguishes already committed common preferences from a fully confirmed save. Drafts remain in memory; forced closure loses unsent edits. Accepted operations remain durable on the server and resume on restart. The dialog can refresh an operation owned by another window but cannot reconstruct its intent: the originating window must finish it, or the server must recover it on restart.
+
+Conflicts preserve the draft. The user explicitly chooses to load server values or reapply only their changed fields to the latest snapshot, then reviews and saves with the new revisions. No automatic overwrite occurs. Remaining legacy local access and ancillary player preferences belong to step 8.
+
+Validation: public type-check, build, CSS lint and targeted execution of the actual composable with Vue and simulated transport (cancel, double click, mixed revisions, lost replies, partial saves, conflict/reapplication and obsolete replies). No tests added to the repository. Graphical/Tauri flows, restart and a real between-store failure from this dialog still require manual validation. Existing server coordination is unchanged.

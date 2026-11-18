@@ -9,11 +9,9 @@ import {
 import {
   type HomePreferences,
   type Parameters as StorageParameters,
-  useStorage,
 } from '@/services/storage'
 import { type SkipChapterType } from '@/composables/video/video-js-media-renderer/chapters'
 import { useI18n } from '@/i18n'
-import { useTheme } from '@/composables/useTheme'
 import { isDesktopApp, openAdministrationWindow } from '@/services/rustify'
 import { MAX_TRACK_PROFILES } from '@/services/storage/sanitizers'
 
@@ -21,22 +19,18 @@ import ParameterSegmented from './parameters/ParameterSegmented.vue'
 import ParameterSlider from './parameters/ParameterSlider.vue'
 import ParameterSubtitleLanguages from './parameters/ParameterSubtitleLanguages.vue'
 import ParameterSwitch from './parameters/ParameterSwitch.vue'
-import ParameterThemeSelector from './parameters/ParameterThemeSelector.vue'
+import ProfileCommonPreferences from './profiles/ProfileCommonPreferences.vue'
 import ParametersPanel from './parameters/ParametersPanel.vue'
 import ParametersSection from './parameters/ParametersSection.vue'
 
-/** Application parameters from persistent storage. */
-const parameters: StorageParameters = useStorage().getParameters()
-/** Home preferences from persistent storage. */
-const homePreferences: HomePreferences = useStorage().getHomePreferences()
-/** Internationalization utilities and current language options. */
-const { languageOptions, selectedLanguage, setLanguage, t } = useI18n()
-/** Theme management composable for switching color presets. */
-const { currentPreset, presets, setTheme, isVisible } = useTheme()
+/** Detached refs supplied by the settings editor; controls never access shared storage. */
+const { parameters, homePreferences } = defineProps<{
+  parameters: StorageParameters
+  homePreferences: Pick<HomePreferences, 'showSectionEditingButtons'>
+}>()
+const { t } = useI18n()
 /** Unique component identifier for generating element IDs. */
 const componentId = useId()
-/** Unique ID for the language select element. */
-const languageInputId = `${componentId}-language`
 /** Unique ID for the thumbnail orientation switch. */
 const thumbnailOrientationInputId = `${componentId}-thumbnail-orientation`
 /** Unique ID for the thumbnail image fit switch. */
@@ -53,8 +47,6 @@ const backgroundImageFitInputId = `${componentId}-background-image-fit`
 const useTrailerAsBackgroundInputId = `${componentId}-use-trailer-as-background`
 /** Unique ID for the use catalog banners as background switch. */
 const useCatalogBannersAsBackgroundInputId = `${componentId}-use-catalog-banners-as-background`
-/** Unique name for the theme segmented control. */
-const themeInputName = `${componentId}-theme`
 /** Unique ID for the embedded player mode select. */
 const embeddedPlayerModeInputId = `${componentId}-embedded-player-mode`
 /** Skippable chapter types whose autoskip switch stays in the parameters panel; the other types are configured from the player menu. */
@@ -91,16 +83,6 @@ const backgroundImageFitOptions = computed<Array<{ value: 'cover' | 'contain'; l
   { value: 'cover', label: t('settings.cropped') },
   { value: 'contain', label: t('settings.complete') },
 ])
-/** Available theme preset options for the theme selector. */
-const themeOptions = computed<Array<{ value: string; label: string; color: string }>>(() =>
-  presets.map((preset) => ({
-    value: preset.key,
-    label: preset.label,
-    color: `hsl(${preset.h}, ${preset.s}, ${preset.l})`,
-  })),
-)
-/** Current theme key derived from parameters. */
-const selectedTheme = computed<string>(() => parameters.theme.value)
 /** Ordered track profiles applied to a new video source. */
 const trackProfiles = computed(() => parameters['videoPlayer.trackProfiles'].value)
 /** Whether audio-description tracks may be selected as a last resort. */
@@ -119,8 +101,6 @@ const audioLanguageOptions = LANGUAGES.map((language) => ({
 /** Whether the dedicated administration window can be opened from this desktop app. */
 const canOpenAdministration = isDesktopApp()
 
-/** Whether the language selector should be displayed. */
-const isLanguageVisible = computed(() => languageOptions.value.length > 2)
 /** Current search collection mode derived from parameters. */
 const searchCollectionMode = computed<SearchCollectionMode>(() =>
   parameters.collectionMode.value === 'list' ? 'list' : 'grid',
@@ -212,26 +192,7 @@ function handleUseCatalogBannersAsBackgroundUpdate(checked: boolean) {
 }
 
 /**
- * Persists the selected interface language.
- *
- * @param event Change event fired by the language select.
- */
-function handleLanguageUpdate(event: Event) {
-  const target = event.target as HTMLSelectElement
-  void setLanguage(target.value)
-}
-
-/**
- * Switches the active theme preset.
- *
- * @param key Theme preset key selected by the user.
- */
-function handleThemeUpdate(key: string) {
-  setTheme(key)
-}
-
-/**
- * Persists the embedded player mode selected by the user.
+ * Updates the draft for the embedded player mode selected by the user.
  *
  * @param event Change event fired by the embedded player mode select.
  */
@@ -241,7 +202,7 @@ function handleEmbeddedPlayerModeUpdate(event: Event) {
 }
 
 /**
- * Persists the automatic chapter skip preference selected by the switch.
+ * Updates the draft for the automatic chapter skip preference selected by the switch.
  *
  * @param chapterType Skippable chapter type owning the `videoPlayer.autoskip.*` parameter.
  * @param checked Checked state reported by the reusable switch component.
@@ -319,7 +280,7 @@ function handleRemoveAudioProfile(index: number): void {
 }
 
 /**
- * Persists the configured subtitle languages.
+ * Updates the draft for the configured subtitle languages.
  *
  * @param value New ordered language code list.
  */
@@ -328,7 +289,7 @@ function handleSubtitleLanguagesUpdate(value: string[]): void {
 }
 
 /**
- * Persists per-language subtitle translation authorization.
+ * Updates the draft for per-language subtitle translation authorization.
  *
  * @param value Updated authorization map.
  */
@@ -346,34 +307,11 @@ function handleOpenAdministration(): void {
   <section class="parameters" :aria-label="t('settings.ariaLabel')">
     <ParametersSection :title="t('settings.general')">
       <div class="parameters__grid">
-        <ParametersPanel v-if="isLanguageVisible" :title="t('settings.language.panel')">
-          <label class="parameters__select-field" :for="languageInputId">
-            <span class="parameters__select-label">{{ t('settings.language.label') }}</span>
-            <select
-              :id="languageInputId"
-              class="parameters__select"
-              :value="selectedLanguage ?? 'auto'"
-              @change="handleLanguageUpdate"
-            >
-              <option
-                v-for="language in languageOptions"
-                :key="language.code"
-                :value="language.code"
-              >
-                {{ language.label }}
-              </option>
-            </select>
-          </label>
-        </ParametersPanel>
-
-        <ParametersPanel v-if="isVisible" :title="t('settings.colorTheme')">
-          <ParameterThemeSelector
-            :input-name="themeInputName"
-            :model-value="selectedTheme"
-            :options="themeOptions"
-            @update:model-value="handleThemeUpdate"
-          />
-        </ParametersPanel>
+        <ProfileCommonPreferences
+          :language="parameters.language.value" :theme="parameters.theme.value"
+          @update:language="parameters.language.value = $event"
+          @update:theme="parameters.theme.value = $event"
+        />
 
         <ParametersPanel :title="t('settings.thumbnailFormat')">
           <ParameterSegmented

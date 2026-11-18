@@ -251,6 +251,17 @@
       "subtitlesDisabled": "Disabled",
       "subtitlesAuto": "Automatic",
       "original": "Original version"
+    },
+    "draft": {
+      "loading": "Loading current preferences…",
+      "partial": "Interface preferences are confirmed on the server. The complete save is still pending confirmation. Retry to finish; changes will be applied together once confirmed.",
+      "pending": "The save has not been fully confirmed. Retry to finish the same operation before closing.",
+      "discard": "Discard unsaved changes?",
+      "continue": "Continue editing",
+      "discardAction": "Discard changes",
+      "conflict": "Your draft is kept. Load the server values, or reapply your edits to the latest values, review them and save again.",
+      "reload": "Use server values",
+      "reapply": "Reapply my edits"
     }
   },
   "layout": {
@@ -561,7 +572,9 @@
       "unsupported_schema_version": "This profile data version is not supported.",
       "admin_required": "Administrator authorization is required.",
       "origin_rejected": "This request was refused."
-    }
+    },
+    "deletionPending": "Some profile deletions are not fully confirmed. Retry to finish cleaning up their data.",
+    "retryDeletions": "Retry pending deletions"
   },
   "personalData": {
     "failed": "Your changes could not be saved. Reload the affected data after a conflict.",

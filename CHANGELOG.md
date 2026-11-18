@@ -884,6 +884,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Added step 7 settings drafts with explicit Save/Cancel, discard confirmation, shared onboarding language/theme controls, revision-checked changed-domain saves and immutable operation retries after partial or lost responses. Conflicts retain edits for explicit reload or reapplication to the latest values. Only complete confirmed snapshots update common/streaming form preferences and notify other windows; unchanged refreshes preserve track selection, partial saves remain unapplied, and stale dictionary replies cannot replace a newer language. Remaining legacy browser preference paths are deferred to step 8.
+
 - Added the step 6 profile gate before content views: `ProfileSessionGate` restores the last profile per account/server (or shows the reusable onboarding/selector), finishes pending operations and common/streaming onboarding scopes, initializes streaming with server defaults on first service use, and remounts the application shell under the validated profile context. `ProfileOnboarding`, `ProfileForm`, `ProfileAvatar`, `ProfileCommonPreferences`, `ProfileSwitcher` and the navigation switcher dialog cover creation, quota/error states and deletion. Cross-tab/desktop invalidation uses a per-server `BroadcastChannel`, a native Tauri event plus focus/visibility revalidation without force-switching another tab; an inaccessible profile clears the active context. No old local preference is imported: initialization starts with automatic language and the default theme.
 
 - Replaced active IndexedDB persistence for homes, pinned sections and bookmarks with no-store REST/Tauri adapters and an explicit profile-context boundary for the step 6 selector. Added confirmed revision handling, server-owned default homes, 10-second coalesced/serialized playback writes, pause/end/context flushes, stable retries after lost replies and visible pending-write errors. Old browser collections are not imported; the selector/onboarding arrived in step 6 and remaining preference drafts follow in later steps.
@@ -968,6 +970,8 @@ All notable changes to the server workspace are recorded here.
 
 
 #### Fixed
+
+- Fixed step 6 profile switching and deletion recovery: the mobile drawer closes before opening the profile dialog; selecting the active profile preserves its context generation and mounted bookmark callbacks. Pending deletions retain their original operation UUID and expected revision for explicit retries even when the target leaves the list. An inaccessible deletion target no longer clears another active profile, and a partially deleted active profile leaves content immediately after its state is confirmed by the list.
 
 - All player icons now render inside Document Picture-in-Picture windows. The chapter button, skip-chapter button and subtitle menu action icons were Material Design Icons font glyphs; since the PiP document cannot load the webfont, they displayed raw codepoints (e.g. `F027B`). They now use inlined SVG assets, like the other player control icons.
 

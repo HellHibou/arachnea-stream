@@ -59,6 +59,8 @@ const resolvedLanguage = shallowRef(DEFAULT_LANGUAGE)
 const fallbackMessages = shallowRef<TranslationDictionary>({})
 /** Active translation dictionary for the selected language. */
 const activeMessages = shallowRef<TranslationDictionary>({})
+/** Latest dictionary request; older replies must not replace another profile's language. */
+let activeLanguageRequest = 0
 /** Whether translations are currently being loaded. */
 const isLoading = shallowRef(false)
 /** Error message from the last translation loading attempt, or null if successful. */
@@ -234,6 +236,7 @@ async function loadInitialI18n(): Promise<void> {
  * @returns Promise resolved once the language is applied.
  */
 async function applyActiveLanguage(language: string): Promise<void> {
+  const request = ++activeLanguageRequest
   resolvedLanguage.value = language
 
   if (language === defaultLanguage.value) {
@@ -242,8 +245,10 @@ async function applyActiveLanguage(language: string): Promise<void> {
   }
 
   try {
-    activeMessages.value = await loadDictionary(language)
+    const messages = await loadDictionary(language)
+    if (request === activeLanguageRequest) activeMessages.value = messages
   } catch (error) {
+    if (request !== activeLanguageRequest) return
     errorMessage.value = error instanceof Error ? error.message : 'Unable to load translations.'
     activeMessages.value = fallbackMessages.value
     resolvedLanguage.value = defaultLanguage.value

@@ -80,9 +80,16 @@ async function signOut(): Promise<void> {
     </ul>
     <div v-else-if="profiles.pendingOnly.value" class="profile-switcher__pending" role="status">
       <p>{{ t('profiles.preparing') }}</p>
-      <button type="button" :disabled="profiles.loading.value" @click="profiles.retry()">{{ t('profiles.retry') }}</button>
+      <button v-if="!profiles.hasPendingDeletions.value" type="button" :disabled="profiles.loading.value || profiles.busy.value" @click="profiles.retry()">{{ t('profiles.retry') }}</button>
     </div>
     <p v-else class="profile-switcher__notice">{{ t('profiles.noProfiles') }}</p>
+
+    <div v-if="profiles.hasPendingDeletions.value" class="profile-switcher__pending" role="status">
+      <p>{{ t('profiles.deletionPending') }}</p>
+      <button type="button" :disabled="profiles.busy.value || profiles.loading.value" @click="profiles.retryDeletions()">
+        {{ t('profiles.retryDeletions') }}
+      </button>
+    </div>
 
     <button class="profile-switcher__signout" type="button" :disabled="accounts.busy.value" @click="signOut">{{ t('accounts.signOut') }}</button>
   </section>

@@ -1,19 +1,17 @@
 import { computed, inject, onMounted, onScopeDispose, provide, shallowRef, type InjectionKey, type Ref } from 'vue'
 import { useAccountSession } from '@/composables/useAccountSession'
-import { setLanguage } from '@/i18n'
 import { useStorage } from '@/services/storage'
-import { applyTheme, findThemePreset } from '@/services/theme'
+import { applyProfilePreferences } from '@/services/profilePreferences'
 import { isSessionContentAllowed, sessionGeneration } from '@/services/sessionEvents'
 import { createOperationId } from '@/services/operationId'
 import { reportPersonalDataFailure } from '@/services/personalDataStatus'
-import { setActiveProfileContext } from '@/services/profileContext'
+import { requireProfileContext, isCurrentProfile, type ProfileContext, setActiveProfileContext } from '@/services/profileContext'
 import {
   pollProfileOperation,
   profileSessionCall,
   profileSessionWrite,
   ProfileApiError,
   type AvatarCatalogue,
-  type CommonPreferences,
   type OnboardingView,
   type OperationView,
   type ProfileList,
@@ -57,12 +55,15 @@ export interface ProfilesStore {
   initialized: Readonly<Ref<boolean>>
   hasProfiles: Readonly<Ref<boolean>>
   pendingOnly: Readonly<Ref<boolean>>
+  hasPendingDeletions: Readonly<Ref<boolean>>
   initialize: () => Promise<void>
   retry: () => Promise<void>
+  acceptSnapshot: (value: ProfileSnapshot, context: ProfileContext) => Promise<void>
   clearError: () => void
   select: (profileId: string) => Promise<void>
   createProfile: (input: CreateProfileInput) => Promise<CreateProfileResult | null>
   deleteProfile: (profile: ProfileView) => Promise<boolean>
+  retryDeletions: () => Promise<void>
 }
 
 /** Values collected by the common guide. */
@@ -98,6 +99,7 @@ export function useProfiles(): ProfilesStore {
   let disposed = false
   let revalidation = 0
   let pendingCreate: { operationId: string; body: string } | null = null
+  const pendingDeletions = shallowRef(new Map<string, { operationId: string; profile: ProfileView }>())
   const native = (window as unknown as { __TAURI__?: { event?: NativeProfileEvents } }).__TAURI__?.event
 
   const activeProfile = computed<ProfileView | null>(() => {
@@ -106,6 +108,7 @@ export function useProfiles(): ProfilesStore {
   })
   const hasProfiles = computed(() => Boolean(list.value?.profiles.some((profile) => profile.state === 'active')))
   const pendingOnly = computed(() => Boolean(list.value && list.value.used_slots > 0 && !hasProfiles.value))
+  const hasPendingDeletions = computed(() => pendingDeletions.value.size > 0)
 
   /** Checks whether one async selection still owns the session and current lifecycle. @param token Lifecycle token. @param session Captured session generation. */
   function current(token: number, session: number): boolean {
@@ -199,12 +202,17 @@ export function useProfiles(): ProfilesStore {
     return next
   }
 
-  /** Applies confirmed common preferences to i18n and the theme after activation. @param values Server-owned common values. */
-  async function applyCommon(values: CommonPreferences): Promise<void> {
-    const parameters = useStorage().getParameters()
-    if (parameters.language.value !== values.language) await setLanguage(values.language)
-    if (parameters.theme.value !== values.theme) parameters.theme.value = values.theme
-    applyTheme(findThemePreset(values.theme))
+  /** Publishes confirmed preferences and invalidates other views after a save.
+   * @param value Completed server snapshot.
+   * @param context Generation captured by the settings editor.
+   */
+  async function acceptSnapshot(value: ProfileSnapshot, context: ProfileContext): Promise<void> {
+    if (!isCurrentProfile(context) || value.profile.profile_id !== context.profileId) return
+    revalidation += 1
+    await applyProfilePreferences(value, context)
+    if (!isCurrentProfile(context)) return
+    snapshot.value = value
+    broadcast()
   }
 
   /** Clears the active selection locally and on the server context. @param profileId Profile that became inaccessible, or undefined to forget the current resume key. */
@@ -253,7 +261,7 @@ export function useProfiles(): ProfilesStore {
       await setActiveProfileContext(profileId)
       published = true
       if (!current(token, session)) return
-      await applyCommon(next.common.values)
+      await applyProfilePreferences(next, requireProfileContext())
       await useStorage().refreshCachedRecords().catch(reportPersonalDataFailure)
       if (!current(token, session)) return
       activeId.value = profileId
@@ -289,7 +297,7 @@ export function useProfiles(): ProfilesStore {
       const next = await fetchSnapshot(selected.profile_id)
       if (!current(token, session) || request !== revalidation || activeId.value !== selected.profile_id) return
       snapshot.value = next
-      await applyCommon(next.common.values)
+      await applyProfilePreferences(next, requireProfileContext())
     } catch (error) {
       if (current(token, session) && request === revalidation) await handleError(error)
     }
@@ -324,7 +332,8 @@ export function useProfiles(): ProfilesStore {
 
   /** Reloads the account state after an explicit error or interrupted start. */
   async function retry(): Promise<void> {
-    await initialize()
+    if (hasPendingDeletions.value) await retryDeletions()
+    else await initialize()
   }
 
   /** Clears the last visible profile error when opening a fresh guide. */
@@ -334,6 +343,11 @@ export function useProfiles(): ProfilesStore {
 
   /** Selects a profile explicitly from the switcher. @param profileId Selected profile UUID. */
   async function select(profileId: string): Promise<void> {
+    if (busy.value || disposed || !isSessionContentAllowed()) return
+    if (activeProfile.value?.profile_id === profileId) {
+      await revalidate()
+      return
+    }
     const session = sessionGeneration()
     const token = ++lifecycle
     errorCode.value = null
@@ -407,12 +421,18 @@ export function useProfiles(): ProfilesStore {
 
   /** Deletes one owned profile and clears it when active. @param profile Selected profile view with its revision. @returns Whether the server confirmed deletion. */
   async function deleteProfile(profile: ProfileView): Promise<boolean> {
+    if (busy.value || disposed || !isSessionContentAllowed()) return false
     const session = sessionGeneration()
     const token = lifecycle
+    const request = pendingDeletions.value.get(profile.profile_id)
+      ?? { operationId: createOperationId(), profile: { ...profile } }
+    pendingDeletions.value = new Map(pendingDeletions.value).set(profile.profile_id, request)
     busy.value = true
     errorCode.value = null
     try {
-      const operation = await profileSessionWrite<OperationView>('delete', { profile_id: profile.profile_id, expected_revision: profile.revision })
+      const operation = await profileSessionWrite<OperationView>('delete', {
+        profile_id: request.profile.profile_id, expected_revision: request.profile.revision,
+      }, request.operationId)
       if (!current(token, session)) return false
       // The server blocks the identity as soon as the deletion is accepted.
       if (activeId.value === profile.profile_id) {
@@ -420,6 +440,7 @@ export function useProfiles(): ProfilesStore {
         snapshot.value = null
         await setActiveProfileContext(null)
       }
+      if (!current(token, session)) return false
       if (userId.value && readLastProfileId(userId.value) === profile.profile_id) forgetLastProfileId(userId.value)
       let settleError: unknown = null
       try {
@@ -429,18 +450,50 @@ export function useProfiles(): ProfilesStore {
       }
       if (!current(token, session)) return false
       list.value = await fetchList()
+      if (!current(token, session)) return false
       broadcast()
       if (settleError) {
-        await handleError(settleError)
+        await handleError(settleError, profile.profile_id)
         return false
       }
+      forgetDeletion(profile.profile_id)
       return true
     } catch (error) {
-      await handleError(error)
-      list.value = await fetchList().catch(() => list.value)
+      if (!current(token, session)) return false
+      if (error instanceof ProfileApiError && ['revision_conflict', 'invalid_data', 'profile_inaccessible', 'resource_not_found', 'operation_id_conflict', 'unsupported_schema_version'].includes(error.code)) {
+        forgetDeletion(profile.profile_id)
+      }
+      await handleError(error, profile.profile_id)
+      if (!current(token, session)) return false
+      const nextList = await fetchList().catch(() => null)
+      if (!current(token, session)) return false
+      if (nextList) {
+        list.value = nextList
+        if (activeId.value === profile.profile_id && !nextList.profiles.some((entry) => entry.profile_id === profile.profile_id && entry.state === 'active')) {
+          await clearActive(profile.profile_id)
+        }
+      }
       return false
     } finally {
       busy.value = false
+    }
+  }
+
+  /** Removes only a definitively resolved deletion from the in-memory retry queue. @param profileId Target profile UUID. */
+  function forgetDeletion(profileId: string): void {
+    const next = new Map(pendingDeletions.value)
+    next.delete(profileId)
+    pendingDeletions.value = next
+  }
+
+  /** Replays pending deletions with their original UUID and revision, even after profiles leave the list. */
+  async function retryDeletions(): Promise<void> {
+    if (busy.value) return
+    const token = lifecycle
+    const session = sessionGeneration()
+    for (const request of pendingDeletions.value.values()) {
+      if (!current(token, session)) return
+      if (!await deleteProfile(request.profile)) return
     }
   }
 
@@ -487,12 +540,15 @@ export function useProfiles(): ProfilesStore {
     initialized,
     hasProfiles,
     pendingOnly,
+    hasPendingDeletions,
     initialize,
     retry,
+    acceptSnapshot,
     clearError,
     select,
     createProfile,
     deleteProfile,
+    retryDeletions,
   }
 }
 

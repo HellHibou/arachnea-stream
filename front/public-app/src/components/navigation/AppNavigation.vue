@@ -56,6 +56,12 @@ function openManager(id: string | null = null, create = false): void {
   emit('close')
   void nextTick(() => { managerOpen.value = true })
 }
+/** Closes the native mobile modal before opening the teleported profile selector. */
+function openProfileSwitcher(): void {
+  if (surface.value instanceof HTMLDialogElement && surface.value.open) surface.value.close()
+  emit('close')
+  void nextTick(() => { profileSwitcherOpen.value = true })
+}
 /** Revokes the account session while preserving any visible server error. */
 async function signOut(): Promise<void> { try { await accountSession.logout() } catch { /* Session error is rendered by the gate. */ } }
 /** Reflects mobile shell state into the native modal, preserving its keyboard/focus trap. */
@@ -103,7 +109,7 @@ onScopeDispose(() => {
       :active-home-id="activeHomeId" :active-source-id="activeSourceId" :lives-active="route.name === 'lives' || route.name === 'live-details'"
       @navigate="emit('close')" @create="openManager(null, true)" @manage="openManager()" @edit="openManager($event)"
       @update:sources-expanded="setExpanded" />
-    <v-btn block prepend-icon="mdi-account-switch" @click="profileSwitcherOpen = true">
+    <v-btn block prepend-icon="mdi-account-switch" @click="openProfileSwitcher">
       {{ profiles.activeProfile.value?.name ?? t('profiles.switch') }}
     </v-btn>
     <v-btn block prepend-icon="mdi-logout" :disabled="accountSession.busy.value" @click="signOut">{{ t('accounts.signOut') }}</v-btn>

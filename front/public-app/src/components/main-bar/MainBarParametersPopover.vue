@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, watch } from 'vue'
-import Parameters from '../Parameters.vue'
+import { watch } from 'vue'
+import ParametersDialog from '../parameters/ParametersDialog.vue'
 
 /**
- * Props accepted by the main toolbar parameters popover.
+ * Compatibility wrapper opening the shared settings dialog from a toolbar.
  */
 interface Props {
   /**
@@ -16,7 +16,7 @@ interface Props {
    */
   toggleButtonId: string
   /**
-   * Identifier applied to the parameters panel container.
+   * Legacy panel identifier retained for existing callers.
    */
   panelId: string
 }
@@ -32,7 +32,7 @@ const emit = defineEmits<{
 }>()
 
 /**
- * Requests closing the parameters popover.
+ * Requests closing the settings dialog.
  */
 function closeParameters() {
   emit('close-parameters')
@@ -51,29 +51,6 @@ function focusToggleButton() {
   toggleButton.focus()
 }
 
-/**
- * Closes the popover when Escape is pressed while the panel is visible.
- *
- * @param event Keyboard event captured at the window level.
- */
-function handleWindowKeyDown(event: KeyboardEvent) {
-  if (!props.isParametersVisible || event.key !== 'Escape') {
-    return
-  }
-
-  closeParameters()
-}
-
-/** Adds keyboard event listener when component mounts. */
-onMounted(() => {
-  window.addEventListener('keydown', handleWindowKeyDown)
-})
-
-/** Removes keyboard event listener when component unmounts. */
-onBeforeUnmount(() => {
-  window.removeEventListener('keydown', handleWindowKeyDown)
-})
-
 /** Restores focus to toggle button when parameters panel is closed. */
 watch(
   () => props.isParametersVisible,
@@ -86,60 +63,5 @@ watch(
 </script>
 
 <template>
-  <div v-if="isParametersVisible" class="main-bar__popover">
-    <div
-      class="main-bar__dismiss-layer"
-      aria-hidden="true"
-      @click="closeParameters"
-    />
-
-    <div
-      :id="panelId"
-      class="main-bar__parameters"
-      @click.stop
-    >
-      <Parameters />
-    </div>
-  </div>
+  <ParametersDialog :open="isParametersVisible" @update:open="!$event && closeParameters()" />
 </template>
-
-<style scoped>
-.main-bar__popover {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
-  left: 0;
-  z-index: 1;
-}
-
-.main-bar__dismiss-layer {
-  position: fixed;
-  inset: 0;
-  border: 0;
-  background: var(--bg-transparent);
-}
-
-.main-bar__parameters {
-  position: relative;
-  z-index: 1;
-  width: min(100%, 520px);
-  max-width: calc(100vw - 32px);
-  margin-left: auto;
-  padding: 6px 8px 8px;
-  border: 1px solid var(--border-color-primary);
-  border-radius: var(--radius);
-  background: var(--bg-transparent);
-  backdrop-filter: var(--backdrop-filter-strong);
-  -webkit-backdrop-filter: var(--backdrop-filter-strong);
-  box-shadow:
-    var(--shadow-heavy),
-    var(--inset-light);
-}
-
-@media (max-width: 640px) {
-  .main-bar__parameters {
-    max-width: calc(100vw - 20px);
-    padding: 6px 6px 8px;
-  }
-}
-</style>
