@@ -792,7 +792,7 @@ navigation in its rails, includes live and collection rails, and preserves card
 order. Its static `get_live` emits the existing live resolver without a catalogue
 request. Saved custom-home formats remain compatible. Actual authorized playback still depends on the provider.
 
-## Server accounts and profile persistence (steps 2–5)
+## Server accounts and profile persistence
 
 `profiles::ProfileStores::open(application_path)` opens `data/profiles.sqlite3` and `data/arachnea-stream-profiles.sqlite3`. Common accounts, session digests, profiles, UI preferences, onboarding and operation receipts belong to the former; streaming preferences, homes, section preferences and bookmarks belong to the latter. Both use Core typed schemas. The common repository generates profile UUIDs and streaming reuses them unchanged. Existing service, Cloudflare and proxy databases remain separate and unchanged; no browser data is imported. `ProfileStores::memory()` uses two isolated in-memory SQLite databases; existing scraper memory constructors remain available.
 
@@ -800,7 +800,7 @@ request. Saved custom-home formats remain compatible. Actual authorized playback
 
 Run only one application writer per data directory. Back up both stores at the same quiescent boundary; after restore, startup recovery checks references and stops on orphaned/incompatible data without silently deleting it. Failed operations retain their intent for retry; a recovery failure stops startup. Do not restore just one profile database independently.
 
-Public accounts/sessions, catalogue/media authorization, profile/preferences APIs, embedded avatars and live administrator profile quota are implemented. Server-backed homes/sections/bookmarks APIs and frontend adapters are delivered. Public profile selection/onboarding/draft forms remain planned. Streaming preferences and personal documents are validated and versioned. See the target contract in [English](../../../docs/specifications/arachnea-user-profiles-en.md) or [French](../../../docs/specifications/arachnea-user-profiles-fr.md).
+Public accounts/sessions, catalogue/media authorization, profile/preferences APIs, embedded avatars and live administrator profile quota are implemented. Server-backed homes/sections/bookmarks APIs and frontend adapters are delivered. Public profile selection, per-account/server resume, common/service onboarding and explicit Save/Cancel drafts are delivered. Remaining local personal preference paths are removed. Streaming preferences and personal documents are validated and versioned. See the target contract in [English](../../../docs/specifications/arachnea-user-profiles-en.md) or [French](../../../docs/specifications/arachnea-user-profiles-fr.md).
 
 
 Accounts are created only in the independent administration UI (`admin/`, Users). Creation/reset accepts an administrator-chosen temporary password (12–128 Unicode scalar values); users must replace it before any content access. Login names normalize to lowercase ASCII and must contain 3–64 letters/digits/dots/underscores/hyphens. Public credentials and sessions are separate from administrator and provider identities. Existing admin policy still permits loopback/desktop-admin access and requires administrator authentication for remote server clients. The login screen links to administration so the first public account can be created without a public session.
@@ -811,7 +811,7 @@ All scraper JSON and binary registrations are protected before callbacks/cache v
 
 Desktop secrets never reach JavaScript or browser storage. Core captures the real invoking webview for IPC/custom-protocol calls; remote documents cannot acquire the native account context and admin IPC requires the admin window. Native persistence uses macOS Keychain, Windows Credential Manager or Linux Secret Service (`secret-tool`, commonly supplied by `libsecret-tools`). An unavailable/locked vault produces an explicit memory-only session notice; no plaintext file fallback. Native events and browser BroadcastChannel invalidate session views; focus/visibility polling revalidates them. Interactive native tab, vault and platform packaging checks remain manual validation work.
 
-Account deletion blocks the account and revokes sessions before coordinated profile cleanup. Pending cleanup can be retried from administration, including after refreshing the user list; completed deletion receipts survive removal. Password plaintext and password-derived request digests never enter durable operation receipts. Step 3 introduced no import or server profile guide. From step 5, homes/sections/bookmarks no longer use browser persistence; other preferences and the profile-selection UI follow in later steps.
+Account deletion blocks the account and revokes sessions before coordinated profile cleanup. Pending cleanup can be retried from administration, including after refreshing the user list; completed deletion receipts survive removal. Password plaintext and password-derived request digests never enter durable operation receipts. Step 3 introduced no import or server profile guide. From step 5, homes/sections/bookmarks no longer use browser persistence; selection/onboarding, preference drafts and retirement of remaining local personal persistence are delivered in steps 6–8.
 
 
 Profile API operations (`profiles/list`, `create`, `get`, `update`, `delete`, `initialize_streaming`, `save_preferences`, `complete_onboarding`, `operation`) share authenticated REST/Tauri contracts and revalidate sessions under lifecycle guards. Creation atomically enforces Unicode-normalized account-local names and quota; common profiles have no streaming rows until explicit initialization. Preferences use revisions and mixed saves use durable forward recovery. New profiles never read browser data. Deleting the last profile returns an empty list; the public guide/selection UI is delivered in step 6.
@@ -847,3 +847,80 @@ errors and pending changes only in memory. Step 5 manual checks cover concurrent
 revisions, rollback on receipt failure, default clearing, populated cascades,
 restart/replay and real frontend adapters. Native UI/provider playback remains to
 be checked manually in the later integration steps.
+
+### Public preference lifecycle
+
+The session/profile gates mount content only after the server validates the
+account, selected profile, onboarding and streaming initialization. Last-profile
+hints are scoped by account/server and grant no authorization. UI language and
+theme start from defaults, then use confirmed common settings. Old local homes,
+sections, bookmarks, language, theme and player preferences are ignored without
+import or deletion. Volume/mute, navigation and resume hints remain on the device.
+
+Settings use detached drafts: Cancel discards them, Save sends changed domains
+with expected revisions and one stable operation UUID. Mixed saves commit common
+then streaming values through durable forward recovery; partial state is visible
+but is not applied globally. Retry repeats the same body/UUID after an uncertain
+reply. Conflicts require explicit reload/reapplication and review; no automatic
+last-writer-wins merge exists. Manual player quality/track/subtitle-appearance
+changes also use revision-checked streaming settings, with visible failures and
+immutable retries. Editing track rules clears persisted manual choices.
+
+Personal data has no offline mode. Unsent drafts and unconfirmed write requests
+exist only in memory. Bookmark positions are coalesced at 10-second intervals;
+pause/end/background transitions attempt a flush, and explicit profile switching
+attempts a bounded flush under the old profile. Forced closure or connectivity
+failure may lose recent progress and pending edits. Accepted durable operations
+are recovered on restart. No external-player authorization is included.
+
+### Profile backup and restore
+
+Paths below are relative to the application data root printed at startup. Source
+builds use `server/`; portable releases use the writable executable directory.
+Packaged installations use the OS user-data directory (macOS
+`~/Library/Application Support/hell-hibou.arachnea`, Linux
+`$XDG_DATA_HOME/hell-hibou.arachnea` or `~/.local/share/hell-hibou.arachnea`,
+Windows `%APPDATA%\hell-hibou.arachnea`). Container deployments use their persisted
+`/app/data` volume. Prefer backing up the complete resolved `data/` directory.
+
+| File | Required profile data |
+| --- | --- |
+| `data/profiles.sqlite3` | Accounts, password hashes, session digests, common profiles/settings/onboarding, durable coordination intents/receipts |
+| `data/arachnea-stream-profiles.sqlite3` | Streaming settings, homes, sections, bookmarks/progress, collection revisions and mutation receipts |
+| `data/config.json` | Server configuration, `max_profiles_per_user` and durable `profile_quota_operations` receipts |
+
+1. Stop the application/container and all processes writing this data directory;
+   close desktop windows as well. A single application writer per directory is
+   supported. Copying live databases sequentially does not create a consistent
+   cross-store backup.
+2. Copy the stopped `data/` directory as one snapshot, preserving permissions and
+   any SQLite `-wal`/`-shm` sidecars still present. Never discard sidecars or copy
+   only one profile database. Keep the application version with the backup.
+3. To restore, stop the destination application, retain its current directory as
+   a separate rollback copy, and restore the entire saved directory. Do not overlay
+   old SQLite sidecars onto a different database pair. Use a compatible application
+   version; keep ownership/write permissions appropriate for its process.
+4. Start one instance. Before exposing profile writes, `ProfileCoordinator::recover()`
+   replays incomplete intents idempotently and validates common/streaming
+   references and supported document versions. Missing owners, orphaned data or
+   recovery failure stop startup. Preserve the failing snapshot and logs; restore
+   a coherent backup rather than deleting rows or recreating one empty database.
+5. Verify administrator account listing/quota, public sign-in, profile selection,
+   homes/bookmarks and a saved preference. A relocated desktop installation uses
+   a different native vault namespace and may require sign-in again.
+
+Transactions are local to each SQLite file. Shared UUIDs do not provide a
+cross-file transaction, and startup integrity checks cannot prove that two
+otherwise valid files were captured at the same moment. They complement a
+coherent backup, rather than replacing it. Restore also restores account/session
+state from that snapshot; sessions remain subject to server validation and idle
+expiry. Native vault secrets are outside the database backup; no plaintext
+session secret is stored in browser personal keys.
+
+### Delivery validation
+
+See [step 9 in the implementation record](../../../docs/dev-tracking/server-user-profiles-analysis.md#étape-9--vérifier-et-documenter-la-livraison)
+for exact commands, results and remaining manual checks. Existing local checks
+cover the host build and suites; native window/vault lifecycle on all platforms,
+real provider playback and graphical fault/recovery flows require separate
+qualification. No new tests or test infrastructure were added for this delivery.

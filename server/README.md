@@ -21,6 +21,27 @@ This directory is the Rust backend Cargo workspace. It contains the stream appli
 - `arachnea-stream` passes its Tauri context, embedded frontend assets, URI scheme, and API prefix into the generic Tauri controller from `arachnea-core`.
 - DNS and proxy configuration examples live in `crates/arachnea-dns/config-sample/` and `crates/arachnea-proxy/config-sample/`.
 
+## Public accounts and profile data
+
+Stream requires an authenticated public account for catalogue and media access.
+Create/reset/delete accounts in the independent administrator **Users** view;
+temporary passwords require replacement before content access. Sessions persist
+with a 30-day idle timeout. Administrator Settings controls the global profile
+limit (default 3) in `data/config.json`.
+
+Common identities/sessions/UI preferences live in `data/profiles.sqlite3`;
+streaming preferences/homes/sections/bookmarks live in
+`data/arachnea-stream-profiles.sqlite3`, using the same common profile UUID.
+These paths are relative to the resolved application data root, which differs
+between source, portable and packaged installations. Neither old scraper stores
+nor old browser personal data are migrated. Profiles use server defaults and
+embedded avatars; personal writes have no offline mode.
+
+Follow the [Stream backup/restore procedure](crates/arachnea-stream/README.md#profile-backup-and-restore)
+for a coherent stopped-application snapshot, configuration, startup recovery and
+known limits. The [implementation/validation record](../docs/dev-tracking/server-user-profiles-analysis.md#étape-9--vérifier-et-documenter-la-livraison)
+records the final checks and remaining platform scenarios.
+
 ## Install Prerequisites
 
 Install Rust with `rustup`, Node.js with npm, Tauri's native platform requirements, and CMake. BoringSSL-based dependencies additionally need Go, Perl and a C++ compiler: BoringSSL's CMake runs `find_package(Perl REQUIRED)` and generates `err_data.c` with `go run`, so a missing one fails the configure step with `Os { code: 2, kind: NotFound }` (NASM is also required on Windows). Reopen the shell after installing CMake and verify `cmake --version`.

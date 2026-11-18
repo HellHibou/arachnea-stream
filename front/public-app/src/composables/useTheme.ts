@@ -6,7 +6,7 @@ import { useStorage } from '@/services/storage'
 /**
  * Provides the active theme preset and a function to switch themes.
  *
- * The selected theme is persisted in localStorage and applied by setting
+ * The confirmed profile theme is applied by setting
  * CSS custom properties on the document element.
  */
 export function useTheme() {
@@ -23,7 +23,7 @@ export function useTheme() {
   const isVisible = computed(() => presets.length > 1)
 
   /**
-   * Switches the active theme and persists the selection.
+   * Switches the runtime theme; persistence belongs to the preference editor.
    *
    * @param key Theme preset key to activate.
    */

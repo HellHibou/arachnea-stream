@@ -95,6 +95,26 @@ You can download the binaries and installers at <a href="https://github.com/Hell
   <a href="docs/screenshots/search_01.png"><img src="docs/screenshots/search_01.png" alt="Multi-source search" width="80%"></a>
 </p>
 
+### Accounts and personal profiles
+
+Content requires a public account created in **Administration → Users**. The
+administrator assigns a temporary password; the user replaces it at first login.
+Public accounts, administrator access and streaming-provider credentials are
+independent. Resetting a public password revokes its sessions and requires another
+password change. Sessions expire after 30 days without authenticated activity.
+
+Each account has up to **3 profiles** by default; change the limit in administrator
+Settings. Profiles keep their name/avatar, interface language/theme, streaming
+preferences, custom homes, pinned sections, bookmarks and progress on the server.
+The first-profile guide and selector work across devices; **Save/Cancel** controls
+settings edits. Existing browser data is not imported. Volume, mute, navigation
+and the last-profile resume hint stay on the device. Personal data requires the
+server; there is no offline write mode, and conflicts require explicit review.
+
+The two profile databases share the same profile UUIDs and must be backed up and
+restored together with configuration. See the [profile operations guide](server/crates/arachnea-stream/README.md#profile-backup-and-restore)
+for storage locations, restart recovery and known validation limits.
+
 ### Administration interface
 
 - Admin API mounted under `/api/admin/...` (web) or reachable through Tauri

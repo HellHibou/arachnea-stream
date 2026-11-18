@@ -8,25 +8,10 @@ export { DEFAULT_SUBTITLE_LANGUAGES, DEFAULT_SUBTITLE_LANGUAGE_PRIORITY } from '
 
 /** Prefix used for all storage keys. */
 export const STORE_PREFIX = 'arachnea.'
-/** Prefix used for parameter storage keys. */
-export const PARAM_PREFIX = 'param.'
-/** Storage key for home section editing buttons visibility. */
-export const HOME_SHOW_SECTION_EDITING_BUTTONS_KEY = 'home.showSectionEditingButtons'
 /** Storage key for video player volume. */
 export const VIDEO_PLAYER_VOLUME_KEY = 'videoPlayer.preferences.volume'
 /** Storage key for video player muted state. */
 export const VIDEO_PLAYER_MUTED_KEY = 'videoPlayer.preferences.muted'
-/** Storage key for video player quality. */
-export const VIDEO_PLAYER_QUALITY_KEY = 'videoPlayer.preferences.quality'
-/** Storage key for video player audio track. */
-export const VIDEO_PLAYER_AUDIO_TRACK_KEY = 'videoPlayer.preferences.audioTrack'
-/** Storage key for video player text track. */
-export const VIDEO_PLAYER_TEXT_TRACK_KEY = 'videoPlayer.preferences.textTrack'
-/** Storage key for video player text track settings. */
-export const VIDEO_PLAYER_TEXT_TRACK_SETTINGS_KEY = 'videoPlayer.preferences.textTrackSettings'
-/** Storage key for the selected theme preset. */
-export const THEME_KEY = 'theme.key'
-
 /** Default ordered track profiles preserving the neutral audio/subtitle behaviour. */
 export const DEFAULT_TRACK_PROFILES: readonly VideoJsTrackProfile[] = [
   { audio: 'original', subtitles: 'disabled' },

@@ -1,6 +1,6 @@
 # Profils utilisateurs persistés côté serveur — analyse et plan
 
-Date : 18 novembre 2026. Statut : étapes 1 à 7 réalisées ; contrats détaillés dans les spécifications FR/EN. Comptes, sessions, administration des utilisateurs et protection des routes sont branchés ; les étapes 8 à 9 restent à développer.
+Date : 18 novembre 2026. Statut : lots 1 à 9 réalisés ; contrôles locaux de livraison réussis sur macOS ARM64, qualifications graphiques/natives restantes détaillées au lot 9. Contrats détaillés dans les spécifications FR/EN. Comptes, sessions, administration des utilisateurs et protection des routes sont branchés ; le lot 9 consigne la validation locale et les limites de qualification.
 
 Ce document décrit la cible demandée et les écarts constatés dans le dépôt. Les noms de tables, d’opérations et de composants ci-dessous décrivent la cible ; le statut de livraison est précisé par étape et dans les spécifications. Les contrats détaillés de l’étape 1 sont définis dans les spécifications [française](../specifications/arachnea-user-profiles-fr.md) et [anglaise](../specifications/arachnea-user-profiles-en.md). Les deux stores et la coordination interne sont implémentés à l’étape 2 ; les API de comptes/sessions et la protection des accès sont exposées depuis l’étape 3 ; les API de profils, les avatars embarqués et le quota administrable sont exposés depuis l’étape 4 ; les collections personnelles streaming et leurs adaptateurs front sont livrés à l’étape 5.
 
@@ -324,6 +324,12 @@ Supprimer les chemins actifs de lecture/écriture IndexedDB et `localStorage` po
 
 **Validation :** mêmes profils initialement vides dans un navigateur vierge ou déjà utilisé ; anciennes homes, langues et signets locaux ignorés ; préférences d’appareil et reprise de connexion préservées.
 
+État : implémentée le 18 novembre 2026. Le store initialise ses paramètres depuis des défauts détachés, sans lecture des anciennes clés `arachnea.param.*`, d’affichage home ou de préférences personnelles du lecteur. Les watchers et la fonction héritée d’écriture locale des paramètres sont retirés. Les changements de contexte remettent les préférences personnelles à leurs défauts ; i18n et thème ne relisent aucune ancienne valeur, y compris dans le shell desktop. Les anciennes données IndexedDB restent ignorées, sans import ni suppression.
+
+Seuls volume/muet, navigation d’appareil et reprise du profil par compte/serveur restent persistés localement ; l’authentification conserve son cookie/coffre natif existant. Qualité (dont Auto), pistes manuelles et apparence des sous-titres sont restaurées depuis le snapshot streaming confirmé. Les changements du lecteur utilisent `save_preferences`, sérialisent les révisions et conservent le même corps/UUID en cas de résultat incertain ; le bandeau personnel permet Réessayer. Un conflit bloque les écritures lecteur jusqu’à une nouvelle application du snapshot serveur, sans rebasage automatique. Une modification des règles de pistes dans le brouillon efface aussi les anciens choix manuels dans le document envoyé. Les callbacks capturent leur génération ; un changement explicite de profil tente un flush borné à cinq secondes. Les demandes non confirmées restent uniquement en mémoire et ne sont pas garanties à la fermeture forcée.
+
+Validation : type-check, build et lint CSS publics réussis. Vérifications ciblées hors dépôt avec les vrais modules store/lecteur et transport simulé : anciennes clés ignorées, volume/muet préservés, absence d’écriture personnelle locale et d’ouverture IndexedDB, réinitialisation du contexte, révisions sérialisées, qualité Auto, champs annexes conservés, requête identique après réponse perdue et callbacks/réponses tardives isolés. Aucun test ni infrastructure ajouté au dépôt. Les parcours graphiques sur navigateur vierge/déjà utilisé, une lecture avec fournisseur réel et les fenêtres/coffres Tauri sur les trois plateformes restent manuels pour le lot 9.
+
 ### Étape 9 — Vérifier et documenter la livraison
 
 Exécuter les vérifications existantes pertinentes : `cargo fmt --check`, `cargo check` et suites existantes affectées depuis `server/`, puis `npm run type-check` et `npm run build-only` dans les deux fronts. Choisir les features Rust cohérentes avec les cibles REST et Tauri du dépôt. Ne pas ajouter de tests ni d’infrastructure de tests sans demande explicite ; adapter les tests déjà présents et consigner les scénarios manuels non couverts.
@@ -331,6 +337,30 @@ Exécuter les vérifications existantes pertinentes : `cargo fmt --check`, `carg
 Mettre à jour README, spécifications, `docs/TODO.md` et `CHANGELOG.md`. Documenter les deux stores, leurs identifiants communs, leur sauvegarde/restauration cohérente et la reprise des opérations coordonnées, la gestion admin des comptes et du reset, les accès authentifiés, les avatars embarqués, la durée des sessions, le plafond dans `config.json`, le démarrage sans import, l’absence de mode hors ligne et le comportement des conflits. Indiquer les contrôles impossibles à lancer et leur cause.
 
 **Livrable :** fonctionnalité vérifiée, exploitation documentée et limites connues explicites.
+
+État : réalisé le 18 novembre 2026. README racine, workspace et crate Stream alignés avec les lots livrés ; procédure de sauvegarde/restauration ajoutée au [README Stream](../../server/crates/arachnea-stream/README.md#profile-backup-and-restore). Les spécifications FR/EN et le suivi des tâches distinguent livraison locale et qualification de plateforme. Aucun changement de contrat, nouveau test ou infrastructure de tests introduit.
+
+Environnement : hôte `aarch64-apple-darwin`, Rust `1.98.1`. Commandes Cargo depuis `server/`, dépendances existantes figées (`--locked`) et cache local (`--offline`). Stream n’a pas de feature REST/Tauri séparée : sa configuration par défaut compile les deux contrôleurs, les adaptateurs natifs macOS, la persistance SQLite et l’embarquement des avatars. Les tests Core activent explicitement `sqlite-persistence`. Les features optionnelles de diagnostics et les cibles croisées ne font pas partie de cette qualification.
+
+| Contrôle exécuté | Résultat |
+| --- | --- |
+| `cargo fmt --all --check` | Réussi |
+| `cargo check --workspace --locked --offline` | Réussi, bibliothèque et binaire Stream inclus |
+| `cargo test -p arachnea-core -p arachnea-stream --lib --features arachnea-core/sqlite-persistence --locked --offline` | Core : 31 réussis. Premier passage Stream : 9 réussis, 5 échecs d’ouverture de socket loopback interdite par le bac à sable, 5 ignorés |
+| `cargo test -p arachnea-stream --lib --locked --offline` avec autorisation des sockets locales | 14 réussis, 0 échec, 5 ignorés |
+| `npm run type-check` et `npm run build-only` dans `front/admin-app/` | Réussis |
+| `npm run type-check`, `npm run build-only`, `npm run lint:css` dans `front/public-app/` | Réussis |
+| Vérifications ciblées temporaires du lot 8 relancées hors dépôt | Réussies : anciennes données locales ignorées, volume/muet préservés, absence d’accès personnel IndexedDB/localStorage, remise à zéro du contexte, sérialisation/réponse perdue/conflit/callback obsolète |
+
+Les builds Vite signalent les répertoires de sortie hors racine (non vidés), la taille de certains chunks publics et l’avertissement expérimental Node sur l’import JSON de Stylelint ; ces avertissements ne bloquent pas les commandes. Les artefacts générés ne sont pas ajoutés à Git. Les contrôles HTTP isolés des lots 3–5 et simulations du lot 7 restent les validations historiques déjà consignées, sans nouvelle exécution ni extension de couverture revendiquée ici. Les suites existantes Core/Stream ne constituent pas une suite dédiée aux comptes/profils.
+
+**Qualification manuelle restante, non couverte par cette session CLI :**
+
+- Parcours graphiques navigateur vierge et déjà utilisé, premier profil et préférences par défaut sans import, interruption/reprise des guides, dernier profil supprimé et reprise du dernier profil par compte/serveur.
+- Dialogue Enregistrer/Annuler : fermeture/abandon, double clic, conflits entre appareils, réponse perdue, redémarrage après acceptation et panne réelle entre les deux commits ; vérifier les états affichés et l’absence d’application partielle.
+- Coffres et fenêtres/onglets Tauri macOS, Linux et Windows : reprise après redémarrage, coffre verrouillé/indisponible, nouvelle fenêtre, changement de compte et invalidation après reset/suppression. Compilation hôte et tests locaux ne prouvent pas ces cycles natifs ; aucun environnement natif Windows/Linux n’a été lancé ici.
+- Lecture avec fournisseur réel : sauvegardes temporisées, pause/fin/arrière-plan, changement de profil en lecture, qualité Auto/pistes/sous-titres et reprise sur un autre appareil. Les cinq scénarios de fournisseurs restent ignorés par défaut ; ils nécessitent réseau, disponibilité et éventuels identifiants du fournisseur.
+- Exercice opérateur de sauvegarde/restauration d’un jeu réel à l’arrêt, avec vérification après reprise et conservation du jeu de retour arrière. La procédure est documentée ; aucune base utilisateur existante n’a été restaurée ni modifiée pour cette validation.
 
 ## 8. Impacts et risques principaux
 
@@ -373,4 +403,4 @@ Aucun point fonctionnel supplémentaire n’est laissé ouvert par ces échanges
 
 Les paramètres Enregistrer/Annuler sont livrés au lot 7, sans application globale avant confirmation complète. Le format exact du manifeste d’avatars, les noms d’opérations, la structure interne du sous-dossier et la temporisation des signets peuvent être arrêtés lors de l’implémentation sans nouvelle décision de périmètre.
 
-Les demandes utilisateur autorisent les étapes 1 à 7. Les spécifications FR/EN définissent les contrats cibles ; le socle de l’étape 2 et les comptes/sessions/protections/fronts de l’étape 3 sont implémentés. Les API de profils, avatars et le quota administrable de l’étape 4 sont implémentés ; le lot 5 expose les données personnelles streaming et leur persistance front, avec temporisation de lecture ; le lot 6 livre la sélection, la reprise et le guide initial. Le lot 7 livre les brouillons explicites de paramètres et la reprise des sauvegardes. Les étapes 8 à 9 (retrait des autres préférences locales et livraison) restent à réaliser.
+Les demandes utilisateur autorisent les étapes 1 à 9. Les spécifications FR/EN définissent les contrats cibles ; le socle de l’étape 2 et les comptes/sessions/protections/fronts de l’étape 3 sont implémentés. Les API de profils, avatars et le quota administrable de l’étape 4 sont implémentés ; le lot 5 expose les données personnelles streaming et leur persistance front, avec temporisation de lecture ; le lot 6 livre la sélection, la reprise et le guide initial. Le lot 7 livre les brouillons explicites de paramètres et la reprise des sauvegardes. Le lot 8 retire les accès personnels locaux restants et rattache les préférences annexes du lecteur au serveur. Le lot 9 livre la documentation d’exploitation et les résultats des contrôles existants ; les qualifications manuelles restantes sont suivies dans `docs/TODO.md`.

@@ -1,3 +1,4 @@
+import { getProfileContext, isCurrentProfile } from '@/services/profileContext'
 import { computed, ref, watch } from 'vue'
 import { useStorage, type VideoPlayerPreferences } from '@/services/storage'
 import type { VideoJsPlayerState } from '@/types/media'
@@ -21,6 +22,7 @@ export function usePlayerHandlers(props: VideoPlayerProps, emit: VideoPlayerEmit
   const { markSelectionPending } = options
 
   const storage = useStorage()
+  const context = getProfileContext()
 
   /**
    * Limits stored audio and quality preferences to player surfaces controlled by the user.
@@ -70,10 +72,11 @@ export function usePlayerHandlers(props: VideoPlayerProps, emit: VideoPlayerEmit
    * @param value - Latest captured player state, or `null` when unavailable.
    */
   const handlePlayerStateUpdate = (value: VideoJsPlayerState | null): void => {
+    if (!context || !isCurrentProfile(context)) return
     persistedVideoPlayerState.value = value
 
     if (value && shouldUseStoredPlayerPreferences.value) {
-      storage.setVideoPlayerPreferences(createVideoPlayerPreferences(value))
+      storage.setVideoPlayerPreferences(createVideoPlayerPreferences(value), context)
     }
   }
 
@@ -234,7 +237,7 @@ export function usePlayerHandlers(props: VideoPlayerProps, emit: VideoPlayerEmit
 /**
  * Builds initial player state, applying configured track profiles for a new entry.
  *
- * @param preferences Player preferences persisted in local storage.
+ * @param preferences Profile player preferences and device volume/mute.
  * @param restoreStoredTracks Whether durable track choices apply to this surface.
  * @returns Player state shape expected by the Video.js renderer.
  */
@@ -266,7 +269,7 @@ function createInitialVideoPlayerState(
  * Extracts only the player state fields that should be persisted between sessions.
  *
  * @param playerState Latest Video.js renderer state.
- * @returns Durable player preferences safe to store locally.
+ * @returns Player preferences split between profile and device storage.
  */
 function createVideoPlayerPreferences(playerState: VideoJsPlayerState): VideoPlayerPreferences {
   return {

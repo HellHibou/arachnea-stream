@@ -1,6 +1,6 @@
 # Server user accounts and profiles — implementation contract
 
-Status (18 November 2026): steps 1–7 delivered. Target contract for the [implementation plan](../dev-tracking/server-user-profiles-analysis.md); stores, accounts/sessions, user administration and content access controls are implemented; profile/preferences APIs, embedded avatars and the live admin quota are implemented; streaming collections and frontend adapters are delivered; the public profile selector, resume and onboarding guide are delivered; steps 8–9 remain pending. [French version](arachnea-user-profiles-fr.md).
+Status (18 November 2026): steps 1–9 delivered; local validation and remaining manual qualification are recorded below. Target contract for the [implementation plan](../dev-tracking/server-user-profiles-analysis.md); stores, accounts/sessions, user administration and content access controls are implemented; profile/preferences APIs, embedded avatars and the live admin quota are implemented; streaming collections and frontend adapters are delivered; the public profile selector, resume and onboarding guide are delivered; step 9 validation is recorded below. [French version](arachnea-user-profiles-fr.md).
 
 ## 1. Scope and ownership
 
@@ -60,7 +60,7 @@ Inventory covers `front/public-app` and `front/admin-app` source storage calls. 
 | `arachnea.theme.key` | Declared `THEME_KEY` with no active consumer; do not read as fallback |
 | `arachnea.test` | Transient availability probe in `storage/persistence.ts`, no preference |
 
-The public theme currently uses `arachnea.param.theme` via `useTheme`; i18n and theme initialization must start from defaults and then the common server snapshot. Window sizes, temporary navigation state, fetched pages, pagination and notifications stay on the device/in memory. No `sessionStorage` usage was found. `localStorage.clear()` exists in the generic helper; it must not be used by this feature.
+The public theme no longer uses `arachnea.param.theme`; `useTheme` exposes the in-memory profile value; i18n and theme initialization must start from defaults and then the common server snapshot. Window sizes, temporary navigation state, fetched pages, pagination and notifications stay on the device/in memory. No `sessionStorage` usage was found. `localStorage.clear()` exists in the generic helper; it must not be used by this feature.
 
 IndexedDB database `arachnea-db` has these personal object stores:
 
@@ -291,6 +291,22 @@ The dialog loads current server revisions and edits detached refs. Language and 
 
 Cancel confirms discarding edits when needed and performs no write. Saving or an uncertain outcome disables editing and ordinary dismissal; lost replies and partial operations retain the exact request and UUID for Retry. The UI distinguishes already committed common preferences from a fully confirmed save. Drafts remain in memory; forced closure loses unsent edits. Accepted operations remain durable on the server and resume on restart. The dialog can refresh an operation owned by another window but cannot reconstruct its intent: the originating window must finish it, or the server must recover it on restart.
 
-Conflicts preserve the draft. The user explicitly chooses to load server values or reapply only their changed fields to the latest snapshot, then reviews and saves with the new revisions. No automatic overwrite occurs. Remaining legacy local access and ancillary player preferences belong to step 8.
+Conflicts preserve the draft. The user explicitly chooses to load server values or reapply only their changed fields to the latest snapshot, then reviews and saves with the new revisions. No automatic overwrite occurs. Legacy local access removal and ancillary player preferences are delivered in step 8.
 
 Validation: public type-check, build, CSS lint and targeted execution of the actual composable with Vue and simulated transport (cancel, double click, mixed revisions, lost replies, partial saves, conflict/reapplication and obsolete replies). No tests added to the repository. Graphical/Tauri flows, restart and a real between-store failure from this dialog still require manual validation. Existing server coordination is unchanged.
+
+## Removal of local personal storage (step 8)
+
+Delivered: no active IndexedDB or legacy personal `localStorage` access. Parameters start from detached defaults and then the server snapshot; context changes reset them, including language/theme. Volume, mute, navigation and account/server-scoped resume remain local; cookie/native vault handling is unchanged. Old data is neither imported nor deleted.
+
+Quality, manual tracks and subtitle appearance are restored from confirmed streaming settings and saved through revision-checked `save_preferences`. Player changes are serialized; installing a snapshot performs no write. Lost replies retain the exact body and UUID for Retry in the personal-data banner. Conflicts block player writes until server settings are applied again (reload/selection/refresh), without automatic overwrite. Saving changed track rules also clears persisted manual track choices. Profile-switch flushing is bounded to five seconds; stale callbacks are rejected. No offline storage is introduced; forced closure may lose unconfirmed requests.
+
+Validation: public type-check, build, CSS lint and targeted checks of real modules with simulated transport. Graphical flows in fresh/previously used browsers, a real provider and Tauri windows/vaults remain to be qualified (see the step 9 record).
+
+## Delivery record (step 9, 18 November 2026)
+
+Steps 1–9 are delivered with local validation on `aarch64-apple-darwin` (Rust 1.98.1). `cargo fmt --all --check`, `cargo check --workspace --locked --offline`, 31 Core tests with `sqlite-persistence`, and 14 Stream tests pass; 5 live-provider scenarios remain ignored. The initial 5 Stream failures were sandbox-denied loopback binds; the authorized rerun passes. Both frontends pass type-check/build, public CSS lint passes, and targeted step 8 checks were rerun successfully. No new test suite or infrastructure was introduced.
+
+The [detailed record](../dev-tracking/server-user-profiles-analysis.md#étape-9--vérifier-et-documenter-la-livraison) separates current checks from historical validation. Graphical flows, real cross-store failures from the settings dialog, live providers and Tauri vault/window lifecycle on all three platforms still need qualification; this record does not certify those scenarios. Remaining tasks stay in `docs/TODO.md`.
+
+The [operations procedure](../../server/crates/arachnea-stream/README.md#profile-backup-and-restore) requires stopping every writer and capturing `data/` together, including both databases, any SQLite sidecars and `config.json` (quota/receipts included). Restore a coherent snapshot without mixing stale sidecars; idempotent recovery and reference checks run before profile writes become available. Inconsistency stops startup without silent corrective deletion. Those checks alone cannot prove that both files were captured simultaneously; never restore one database independently. Native vault secrets are outside database backups and relocating an installation may require signing in again.

@@ -1,4 +1,4 @@
-// Profile-backed personal collections and device/legacy preference state.
+// Profile-backed personal state and device playback preferences.
 import { computed, ref, watch } from 'vue'
 import type {
   MediaCardCollectionMode,
@@ -21,39 +21,28 @@ import {
 } from '@/services/entryBookmarks'
 
 import { createEntryBookmarksBridge } from './bookmarks'
-import { profileGeneration } from '@/services/profileContext'
+import { getProfileContext, isCurrentProfile, profileGeneration, type ProfileContext } from '@/services/profileContext'
 import { profileDefaultHomeId } from '@/services/profileDefaultHome'
 import { reportPersonalDataFailure } from '@/services/personalDataStatus'
 import {
-  DEFAULT_SUBTITLE_LANGUAGES,
-  HOME_SHOW_SECTION_EDITING_BUTTONS_KEY,
-  PARAM_PREFIX,
   PARAMETERS_DEF,
-  VIDEO_PLAYER_AUDIO_TRACK_KEY,
   VIDEO_PLAYER_MUTED_KEY,
-  VIDEO_PLAYER_QUALITY_KEY,
-  VIDEO_PLAYER_TEXT_TRACK_KEY,
-  VIDEO_PLAYER_TEXT_TRACK_SETTINGS_KEY,
   VIDEO_PLAYER_VOLUME_KEY,
 } from './keys'
 import { getStoreItem, setStoreItem } from './persistence'
 import {
-  createDefaultSubtitleLanguagePriority,
   sanitizeBoolean,
-  sanitizeNullableString,
   sanitizeQuality,
-  sanitizeSubtitleLanguagePriority,
-  sanitizeSubtitleLanguages,
-  sanitizeSubtitleTranslationByLanguage,
   sanitizeTextTrackPreference,
   sanitizeTextTrackSettings,
   sanitizeTrackPreference,
-  sanitizeTrackProfiles,
   sanitizeVideoVolume,
 } from './sanitizers'
 import { createSectionRecordsBridge } from './sectionRecords'
-import type { EntryBookmark, HomePreferences, Parameters } from './types'
+import type { EntryBookmark, HomePreferences, Parameters, VideoPlayerPreferences } from './types'
 import { createVideoPlayerPreferencesBridge } from './videoPreferences'
+import { applyTheme, findThemePreset, themePresets } from '@/services/theme'
+import { queuePlayerPreferences } from '@/services/profilePlayerPreferences'
 
 export type {
   EntryBookmark,
@@ -62,159 +51,17 @@ export type {
   VideoPlayerPreferences,
 } from './types'
 
-/** Parameter key for the interface language. */
-const LANGUAGE_PARAMETER_KEY = 'language'
-/** Parameter key for the subtitle language priority list. */
-const SUBTITLE_LANGUAGE_PRIORITY_PARAMETER_KEY = 'videoPlayer.subtitleLanguagePriority'
-/** Parameter key for per-language subtitle translation authorization. */
-const SUBTITLE_TRANSLATION_BY_LANGUAGE_PARAMETER_KEY = 'videoPlayer.subtitleTranslationByLanguage'
-
-/**
- * Checks whether two language priority lists are identical.
- *
- * @param left First language list.
- * @param right Second language list.
- * @returns True when both lists contain the same codes in the same order.
- */
-function areLanguageListsEqual(left: readonly string[], right: readonly string[]): boolean {
-    return left.length === right.length
-      && left.every((language, index) => language === right[index]);
-}
-
-/**
- * Checks whether two translation authorization maps are identical.
- *
- * @param left First authorization map.
- * @param right Second authorization map.
- * @returns True when both maps contain the same enabled codes.
- */
-function areTranslationLanguageMapsEqual(
-  left: Readonly<Record<string, boolean>>,
-  right: Readonly<Record<string, boolean>>,
-): boolean {
-  const leftKeys = Object.keys(left)
-  const rightKeys = Object.keys(right)
-  return leftKeys.length === rightKeys.length
-    && leftKeys.every((key) => left[key] === true && right[key] === true)
-}
-
-/**
- * Sanitizes one persisted parameter value.
- *
- * @param key Parameter key.
- * @param value Raw stored value.
- * @param defaultSubtitleLanguagePriority Interface-derived subtitle language default.
- * @param subtitleLanguagePriority Current subtitle language priority.
- * @returns Sanitized parameter value.
- */
-function sanitizeParameterValue(
-  key: string,
-  value: unknown,
-  defaultSubtitleLanguagePriority: string[],
-  subtitleLanguagePriority: readonly string[] = defaultSubtitleLanguagePriority,
-): unknown {
-    switch (key) {
-      case LANGUAGE_PARAMETER_KEY:
-      case 'defaultHomeId':
-        return sanitizeNullableString(value);
-      case 'videoPlayer.trackProfiles':
-        return sanitizeTrackProfiles(value);
-      case SUBTITLE_LANGUAGE_PRIORITY_PARAMETER_KEY:
-        return sanitizeSubtitleLanguagePriority(value, defaultSubtitleLanguagePriority);
-      case SUBTITLE_TRANSLATION_BY_LANGUAGE_PARAMETER_KEY:
-        return sanitizeSubtitleTranslationByLanguage(value, subtitleLanguagePriority);
-      case 'videoPlayer.subtitleLanguages':
-        return sanitizeSubtitleLanguages(value, DEFAULT_SUBTITLE_LANGUAGES);
-      case 'videoPlayer.allowAudioDescription':
-        return sanitizeBoolean(value, false);
-      default:
-        return value;
-    }
-}
-
 export const useStorage = defineStore('storage', () => {
     let storageInitialized = false
     window.addEventListener('arachnea-profile-context', () => { sectionRecords.value = []; bookmarkRecords.value = []; void refreshCachedRecords().catch(reportPersonalDataFailure) })
 
-    const storedLanguage = sanitizeNullableString(
-      getStoreItem(PARAM_PREFIX + LANGUAGE_PARAMETER_KEY, null),
-    )
-    const defaultSubtitleLanguagePriority = createDefaultSubtitleLanguagePriority(storedLanguage)
-    const initialSubtitleLanguagePriority = sanitizeSubtitleLanguagePriority(
-      getStoreItem(
-        PARAM_PREFIX + SUBTITLE_LANGUAGE_PRIORITY_PARAMETER_KEY,
-        getStoreItem(PARAM_PREFIX + 'videoPlayer.subtitleLanguages', null),
-      ),
-      defaultSubtitleLanguagePriority,
-    )
-    let hasCustomSubtitleLanguagePriority = !areLanguageListsEqual(
-      initialSubtitleLanguagePriority,
-      defaultSubtitleLanguagePriority,
-    )
-
-    const parameters: Parameters = {} as Parameters;
+    const parameters: Parameters = {} as Parameters
     PARAMETERS_DEF.forEach((param) => {
-        const defaultValue = param.key === SUBTITLE_LANGUAGE_PRIORITY_PARAMETER_KEY
-          ? initialSubtitleLanguagePriority
-          : param.defaultValue
-        const rawValue = param.key === 'defaultHomeId' ? null : getStoreItem(PARAM_PREFIX + param.key, defaultValue)
-        const value = sanitizeParameterValue(
-          param.key,
-          rawValue,
-          defaultSubtitleLanguagePriority,
-          (parameters as Partial<Parameters>)[SUBTITLE_LANGUAGE_PRIORITY_PARAMETER_KEY]?.value
-            ?? initialSubtitleLanguagePriority,
-        )
-        ;(parameters as any) [param.key] = ref(value);
-        watch((parameters as any) [param.key], (new_val) => {
-            if (param.key === 'defaultHomeId') return
-            setStoreItem(
-              PARAM_PREFIX + param.key,
-              sanitizeParameterValue(
-                param.key,
-                new_val,
-                defaultSubtitleLanguagePriority,
-                parameters[SUBTITLE_LANGUAGE_PRIORITY_PARAMETER_KEY].value,
-              ),
-            );
-        })
-    });
-
-    watch(profileDefaultHomeId, (id) => { parameters.defaultHomeId.value = id })
-
-    watch(parameters.language, (nextLanguage) => {
-      if (hasCustomSubtitleLanguagePriority) {
-        return
-      }
-
-      parameters[SUBTITLE_LANGUAGE_PRIORITY_PARAMETER_KEY].value =
-        createDefaultSubtitleLanguagePriority(nextLanguage)
+      const value = structuredClone(param.defaultValue)
+      ;(parameters as any)[param.key] = ref(value)
     })
 
-    watch(
-      parameters[SUBTITLE_LANGUAGE_PRIORITY_PARAMETER_KEY],
-      (nextPriority) => {
-        const currentDefault = createDefaultSubtitleLanguagePriority(parameters.language.value)
-        hasCustomSubtitleLanguagePriority = !areLanguageListsEqual(
-          sanitizeSubtitleLanguagePriority(nextPriority, currentDefault),
-          currentDefault,
-        )
-
-        const translationByLanguage = parameters[SUBTITLE_TRANSLATION_BY_LANGUAGE_PARAMETER_KEY].value
-        const sanitizedTranslationByLanguage = sanitizeSubtitleTranslationByLanguage(
-          translationByLanguage,
-          nextPriority,
-        )
-        if (!areTranslationLanguageMapsEqual(
-          translationByLanguage,
-          sanitizedTranslationByLanguage,
-        )) {
-          parameters[SUBTITLE_TRANSLATION_BY_LANGUAGE_PARAMETER_KEY].value =
-            sanitizedTranslationByLanguage
-        }
-      },
-      { deep: true },
-    )
+    watch(profileDefaultHomeId, (id) => { parameters.defaultHomeId.value = id })
 
     /** Reactive cache of pinned section records, loaded from the selected profile on init. */
     const sectionRecords = ref<HomeSectionRecord[]>([])
@@ -299,12 +146,7 @@ export const useStorage = defineStore('storage', () => {
 
     const homePreferences: HomePreferences = {
       pinnedSectionOrder,
-      showSectionEditingButtons: ref(
-        sanitizeBoolean(
-          getStoreItem<unknown>(HOME_SHOW_SECTION_EDITING_BUTTONS_KEY, true),
-          true,
-        ),
-      ),
+      showSectionEditingButtons: ref(true),
       sectionCollectionMode,
       sectionThumbnailOrientation,
       sectionThumbnailImageFit,
@@ -321,26 +163,21 @@ export const useStorage = defineStore('storage', () => {
         false,
       ),
     )
-    const videoPlayerQuality = ref<string | null>(
-      sanitizeQuality(
-        getStoreItem<unknown>(VIDEO_PLAYER_QUALITY_KEY, null),
-      ),
-    )
-    const videoPlayerAudioTrack = ref<VideoJsTrackPreference | null>(
-      sanitizeTrackPreference(
-        getStoreItem<unknown>(VIDEO_PLAYER_AUDIO_TRACK_KEY, null),
-      ),
-    )
-    const videoPlayerTextTrack = ref<VideoJsTextTrackPreference>(
-      sanitizeTextTrackPreference(
-        getStoreItem<unknown>(VIDEO_PLAYER_TEXT_TRACK_KEY, null),
-      ),
-    )
-    const videoPlayerTextTrackSettings = ref<VideoJsTextTrackSettings | null>(
-      sanitizeTextTrackSettings(
-        getStoreItem<unknown>(VIDEO_PLAYER_TEXT_TRACK_SETTINGS_KEY, null),
-      ),
-    )
+    const videoPlayerQuality = ref<string | null>(null)
+    const videoPlayerAudioTrack = ref<VideoJsTrackPreference | null>(null)
+    const videoPlayerTextTrack = ref<VideoJsTextTrackPreference>(sanitizeTextTrackPreference(null))
+    const videoPlayerTextTrackSettings = ref<VideoJsTextTrackSettings | null>(null)
+
+    window.addEventListener('arachnea-profile-context', () => {
+      PARAMETERS_DEF.forEach((param) => {
+        ;(parameters as any)[param.key].value = structuredClone(param.defaultValue)
+      })
+      if (themePresets.length) applyTheme(findThemePreset(parameters.theme.value))
+      homePreferences.showSectionEditingButtons.value = true
+      videoPlayerQuality.value = null
+      videoPlayerTextTrackSettings.value = null
+      resetVideoPlayerTrackPreferences()
+    })
 
     /** Invalidates track selections held by mounted players after a settings edit. */
     const trackPreferencesRevision = ref(0)
@@ -364,26 +201,6 @@ export const useStorage = defineStore('storage', () => {
     )
 
     watch(
-      homePreferences.showSectionEditingButtons,
-      (nextShowSectionEditingButtons) => {
-        const sanitizedShowSectionEditingButtons = sanitizeBoolean(
-          nextShowSectionEditingButtons,
-          true,
-        )
-
-        if (nextShowSectionEditingButtons !== sanitizedShowSectionEditingButtons) {
-          homePreferences.showSectionEditingButtons.value = sanitizedShowSectionEditingButtons
-          return
-        }
-
-        setStoreItem(
-          HOME_SHOW_SECTION_EDITING_BUTTONS_KEY,
-          sanitizedShowSectionEditingButtons,
-        )
-      },
-    )
-
-    watch(
       videoPlayerVolume,
       (next) => {
         setStoreItem(VIDEO_PLAYER_VOLUME_KEY, sanitizeVideoVolume(next))
@@ -395,37 +212,6 @@ export const useStorage = defineStore('storage', () => {
       (next) => {
         setStoreItem(VIDEO_PLAYER_MUTED_KEY, sanitizeBoolean(next, false))
       },
-    )
-
-    watch(
-      videoPlayerQuality,
-      (next) => {
-        setStoreItem(VIDEO_PLAYER_QUALITY_KEY, sanitizeQuality(next))
-      },
-    )
-
-    watch(
-      videoPlayerAudioTrack,
-      (next) => {
-        setStoreItem(VIDEO_PLAYER_AUDIO_TRACK_KEY, sanitizeTrackPreference(next))
-      },
-      { deep: true },
-    )
-
-    watch(
-      videoPlayerTextTrack,
-      (next) => {
-        setStoreItem(VIDEO_PLAYER_TEXT_TRACK_KEY, sanitizeTextTrackPreference(next))
-      },
-      { deep: true },
-    )
-
-    watch(
-      videoPlayerTextTrackSettings,
-      (next) => {
-        setStoreItem(VIDEO_PLAYER_TEXT_TRACK_SETTINGS_KEY, sanitizeTextTrackSettings(next))
-      },
-      { deep: true },
     )
 
     /**
@@ -492,7 +278,7 @@ export const useStorage = defineStore('storage', () => {
         return entryBookmarkLookup.value[bookmarkKey] ?? null
     }
 
-    const { getVideoPlayerPreferences, setVideoPlayerPreferences } = createVideoPlayerPreferencesBridge({
+    const playerPreferences = createVideoPlayerPreferencesBridge({
       volume: videoPlayerVolume,
       muted: videoPlayerMuted,
       quality: videoPlayerQuality,
@@ -500,6 +286,29 @@ export const useStorage = defineStore('storage', () => {
       textTrack: videoPlayerTextTrack,
       textTrackSettings: videoPlayerTextTrackSettings,
     })
+
+    const getVideoPlayerPreferences = playerPreferences.getVideoPlayerPreferences
+
+    /** Restores confirmed server player choices without triggering writes. @param values Streaming document. */
+    function applyVideoPlayerPreferences(values: Record<string, unknown>): void {
+      videoPlayerQuality.value = sanitizeQuality(values['arachnea.videoPlayer.preferences.quality'])
+      videoPlayerAudioTrack.value = sanitizeTrackPreference(values['arachnea.videoPlayer.preferences.audioTrack'])
+      videoPlayerTextTrack.value = sanitizeTextTrackPreference(values['arachnea.videoPlayer.preferences.textTrack'])
+      videoPlayerTextTrackSettings.value = sanitizeTextTrackSettings(values['arachnea.videoPlayer.preferences.textTrackSettings'])
+    }
+
+    /** Saves user-controlled player choices under their original profile. @param value Player state. @param context Owning player context. */
+    function setVideoPlayerPreferences(value: VideoPlayerPreferences, context: ProfileContext | null = getProfileContext()): void {
+      if (!context || !isCurrentProfile(context)) return
+      const previous = getVideoPlayerPreferences()
+      playerPreferences.setVideoPlayerPreferences(value)
+      const next = getVideoPlayerPreferences()
+      const changed: Record<string, unknown> = {}
+      for (const key of ['quality', 'audioTrack', 'textTrack', 'textTrackSettings'] as const) {
+        if (JSON.stringify(previous[key]) !== JSON.stringify(next[key])) changed[`arachnea.videoPlayer.preferences.${key}`] = next[key]
+      }
+      if (Object.keys(changed).length) queuePlayerPreferences(changed, context)
+    }
 
     /**
      * Get all application parameters
@@ -518,17 +327,6 @@ export const useStorage = defineStore('storage', () => {
         return homePreferences;
     }
 
-    /**
-     * Save all application parameters to localStorage
-     * @param parameters - Object containing parameter values to save
-     */
-    function saveParameters(parameters: any) {
-        PARAMETERS_DEF.forEach((param) => {
-          if (parameters[param.key] !== undefined)
-            setStoreItem(PARAM_PREFIX + param.key, parameters[param.key]);
-        });
-    }
-
     return {
       initStorage,
       refreshCachedRecords,
@@ -544,6 +342,7 @@ export const useStorage = defineStore('storage', () => {
       removeEntryBookmark,
       flushEntryBookmarks,
       entryBookmarks,
+      applyVideoPlayerPreferences,
       getVideoPlayerPreferences,
       setVideoPlayerPreferences,
       resetVideoPlayerTrackPreferences,

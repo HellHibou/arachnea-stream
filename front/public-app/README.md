@@ -447,7 +447,7 @@ replace the assets embedded in an already running server.
 
 `AccountSessionGate` restores the server session before mounting content and starting metadata, allowlist and personal-cache loading. Public login uses a dedicated POST JSON/GET state transport, with HttpOnly cookies in browsers and the native session broker in Tauri. Administrator-created/reset accounts must replace their temporary password before content can render. The login gate exposes the independent administration entry for first-account setup; the navigation menu signs out by revoking the session.
 
-Account changes clear in-memory catalogue validation, metadata, section/bookmark and notification caches; late replies are discarded by generation. BroadcastChannel/native events and focus/visibility/session polling revalidate other tabs. Credential drafts stay in component memory, and neither password nor token is written to localStorage/IndexedDB. An unavailable native OS vault is reported as memory-only persistence. Home/section/bookmark services now persist only through the selected profile API. Other legacy personal preference paths remain until step 8; no local import is performed, and the onboarding/selection UI is delivered by the step 6 gate below.
+Account changes clear in-memory catalogue validation, metadata, section/bookmark and notification caches; late replies are discarded by generation. BroadcastChannel/native events and focus/visibility/session polling revalidate other tabs. Credential drafts stay in component memory, and neither password nor token is written to localStorage/IndexedDB. An unavailable native OS vault is reported as memory-only persistence. Home/section/bookmark services now persist only through the selected profile API. Legacy personal preference paths are removed in step 8; no local import is performed, and the onboarding/selection UI is delivered by the step 6 gate below.
 
 
 ## Profile-backed personal collections (step 5)
@@ -459,8 +459,7 @@ profile/account generation to each request. The step 6 selection flow calls
 initializing streaming. The step 5 adapter deliberately did not select or create a
 profile: unselected lists are empty and personal writes display an error. Account/profile
 changes clear caches, invalidate delayed replies and never route an old queued
-write under a new UUID. General settings now use server drafts (step 7 below); remaining legacy local
-preference paths are removed in step 8.
+write under a new UUID. General settings use server drafts (step 7 below); step 8 removes remaining local personal preference paths.
 
 Section changes update reactive snapshots after server confirmation; reorders send
 the full set of section/home IDs with a collection revision. Bookmark snapshots
@@ -500,6 +499,23 @@ The dialog loads current server revisions and edits detached refs. Language and 
 
 Cancel confirms discarding edits when needed and performs no write. Saving or an uncertain outcome disables editing and ordinary dismissal; lost replies and partial operations retain the exact request and UUID for Retry. The UI distinguishes already committed common preferences from a fully confirmed save. Drafts remain in memory; forced closure loses unsent edits. Accepted operations remain durable on the server and resume on restart. The dialog can refresh an operation owned by another window but cannot reconstruct its intent: the originating window must finish it, or the server must recover it on restart.
 
-Conflicts preserve the draft. The user explicitly chooses to load server values or reapply only their changed fields to the latest snapshot, then reviews and saves with the new revisions. No automatic overwrite occurs. Remaining legacy local access and ancillary player preferences belong to step 8.
+Conflicts preserve the draft. The user explicitly chooses to load server values or reapply only their changed fields to the latest snapshot, then reviews and saves with the new revisions. No automatic overwrite occurs. Legacy local access removal and ancillary player preferences are delivered in step 8.
 
 Validation: public type-check, build, CSS lint and targeted execution of the actual composable with Vue and simulated transport (cancel, double click, mixed revisions, lost replies, partial saves, conflict/reapplication and obsolete replies). No tests added to the repository. Graphical/Tauri flows, restart and a real between-store failure from this dialog still require manual validation. Existing server coordination is unchanged.
+
+## Personal storage retirement (step 8)
+
+Delivered: no active IndexedDB or legacy personal `localStorage` access. Parameters start from detached defaults and then the server snapshot; context changes reset them, including language/theme. Volume, mute, navigation and account/server-scoped resume remain local; cookie/native vault handling is unchanged. Old data is neither imported nor deleted.
+
+Quality, manual tracks and subtitle appearance are restored from confirmed streaming settings and saved through revision-checked `save_preferences`. Player changes are serialized; installing a snapshot performs no write. Lost replies retain the exact body and UUID for Retry in the personal-data banner. Conflicts block player writes until server settings are applied again (reload/selection/refresh), without automatic overwrite. Saving changed track rules also clears persisted manual track choices. Profile-switch flushing is bounded to five seconds; stale callbacks are rejected. No offline storage is introduced; forced closure may lose unconfirmed requests.
+
+Validation: public type-check, build, CSS lint and targeted checks of real modules with simulated transport. Graphical flows in fresh/previously used browsers, a real provider and Tauri windows/vaults remain to be qualified (see the step 9 record).
+
+## Delivery checks (step 9)
+
+Public and admin type-check/build, public CSS lint, backend workspace check and
+existing Core/Stream local suites pass on macOS ARM64. The step 8 targeted
+storage/player checks were rerun successfully. These checks do not qualify native
+window/vault lifecycle, graphical Save/Cancel and fault-recovery flows, or real
+provider playback across devices. See the [validation record and remaining scenarios](../../docs/dev-tracking/server-user-profiles-analysis.md#étape-9--vérifier-et-documenter-la-livraison).
+For coherent backups/restores, use the [backend operations procedure](../../server/crates/arachnea-stream/README.md#profile-backup-and-restore).

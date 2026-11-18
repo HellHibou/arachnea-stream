@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { personalDataIssue, clearPersonalDataFailure } from '@/services/personalDataStatus'
+import { flushPlayerPreferences, pendingPlayerPreferences } from '@/services/profilePlayerPreferences'
 import { pendingBookmarkWrites } from '@/services/storage/bookmarks'
 import { useStorage } from '@/services/storage'
 import { useI18n } from '@/i18n'
@@ -8,16 +9,17 @@ const { t } = useI18n()
 const storage = useStorage()
 /** Retries immutable pending writes without replacing a newer server revision. */
 async function retry(): Promise<void> {
-  await storage.flushEntryBookmarks()
-  if (!pendingBookmarkWrites.value) clearPersonalDataFailure()
+  const previousIssue = personalDataIssue.value
+  await Promise.all([storage.flushEntryBookmarks(), flushPlayerPreferences()])
+  if (!pendingBookmarkWrites.value && !pendingPlayerPreferences.value && personalDataIssue.value === previousIssue) clearPersonalDataFailure()
 }
 </script>
 
 <template>
-  <aside v-if="personalDataIssue || pendingBookmarkWrites" class="personal-data-status" :role="personalDataIssue ? 'alert' : 'status'">
+  <aside v-if="personalDataIssue || pendingBookmarkWrites || pendingPlayerPreferences" class="personal-data-status" :role="personalDataIssue ? 'alert' : 'status'">
     <p>{{ t(personalDataIssue ? 'personalData.failed' : 'personalData.saving') }}</p>
     <p v-if="personalDataIssue">{{ personalDataIssue.message }}</p>
-    <v-btn v-if="personalDataIssue && pendingBookmarkWrites" variant="text" @click="retry">{{ t('personalData.retry') }}</v-btn>
+    <v-btn v-if="personalDataIssue && (pendingBookmarkWrites || pendingPlayerPreferences)" variant="text" @click="retry">{{ t('personalData.retry') }}</v-btn>
     <v-btn v-if="personalDataIssue" variant="text" @click="clearPersonalDataFailure">{{ t('personalData.dismiss') }}</v-btn>
   </aside>
 </template>

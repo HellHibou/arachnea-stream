@@ -38,6 +38,11 @@ export function usePreferenceDraft() {
         .filter(([key]) => priority.includes(key)),
     )
     streaming['arachnea.home.showSectionEditingButtons'] = homePreferences.showSectionEditingButtons.value
+    const trackKeys = ['videoPlayer.trackProfiles', 'videoPlayer.subtitleLanguagePriority', 'videoPlayer.subtitleTranslationByLanguage', 'videoPlayer.allowAudioDescription']
+    if (trackKeys.some((key) => JSON.stringify(streaming[key]) !== JSON.stringify(source.streaming!.values[key]))) {
+      streaming['arachnea.videoPlayer.preferences.audioTrack'] = null
+      streaming['arachnea.videoPlayer.preferences.textTrack'] = { id: null, language: null, label: null, kind: null, mode: 'disabled', origin: 'profile' }
+    }
     return { common, streaming }
   }
 

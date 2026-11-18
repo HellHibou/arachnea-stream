@@ -1,6 +1,6 @@
 # Comptes et profils utilisateurs serveur — contrat d’implémentation
 
-Statut (18 novembre 2026) : étapes 1 à 7 réalisées. Contrat cible du [plan](../dev-tracking/server-user-profiles-analysis.md) ; stores, comptes/sessions, administration des utilisateurs et protection du contenu sont implémentés ; API de profils/préférences, avatars embarqués et quota admin à chaud sont implémentés ; les collections streaming et adaptateurs front sont livrés ; le sélecteur, la reprise et le guide de profils publics sont livrés ; les étapes 8 à 9 restent à développer. [Version anglaise](arachnea-user-profiles-en.md).
+Statut (18 novembre 2026) : lots 1 à 9 livrés, validation locale et qualifications manuelles restantes détaillées en fin de document. Contrat cible du [plan](../dev-tracking/server-user-profiles-analysis.md) ; stores, comptes/sessions, administration des utilisateurs et protection du contenu sont implémentés ; API de profils/préférences, avatars embarqués et quota admin à chaud sont implémentés ; les collections streaming et adaptateurs front sont livrés ; le sélecteur, la reprise et le guide de profils publics sont livrés ; le bilan du lot 9 est consigné en fin de document. [Version anglaise](arachnea-user-profiles-en.md).
 
 ## 1. Périmètre et responsabilités
 
@@ -35,7 +35,7 @@ Un profil neuf ne possède aucune home personnalisée, section ni signet. Préf�
 
 ## 2. Inventaire exhaustif du stockage navigateur et destination
 
-Cet inventaire décrit le stockage local initial avant implémentation. Le lot 5 remplace la persistance homes/sections/signets ; les autres préférences locales restent jusqu’aux lots 7/8.
+Cet inventaire décrit le stockage local initial avant implémentation. Le lot 5 remplace la persistance homes/sections/signets ; les lots 7/8 retirent les autres préférences personnelles locales.
 
 Inventaire des appels de stockage des sources `front/public-app` et `front/admin-app`. Les paramètres ci-dessous sont les suffixes littéraux de `arachnea.param.` dans `services/storage/keys.ts` (`PARAMETERS_DEF`) ; les autres clés sont complètes. Les valeurs par défaut et enums actuels proviennent de `keys.ts`, `sanitizers.ts`, `types/media.ts`, `services/languages.ts` et sont conservés sauf précision ici.
 
@@ -60,7 +60,7 @@ Inventaire des appels de stockage des sources `front/public-app` et `front/admin
 | `arachnea.theme.key` | Constante `THEME_KEY` déclarée sans consommateur actif ; ne pas lire en repli |
 | `arachnea.test` | Sonde transitoire de disponibilité de `storage/persistence.ts`, pas une préférence |
 
-Le thème public utilise actuellement `arachnea.param.theme` via `useTheme`. Initialiser i18n/thème depuis les défauts puis l’instantané serveur commun. Dimensions des fenêtres, navigation temporaire, pages chargées, pagination et notifications restent sur l’appareil/en mémoire. Aucun usage de `sessionStorage` trouvé. Le helper générique contient `localStorage.clear()` ; cette fonctionnalité ne doit pas l’utiliser.
+Le thème public n’utilise plus `arachnea.param.theme` ; `useTheme` expose la valeur du profil en mémoire. Initialiser i18n/thème depuis les défauts puis l’instantané serveur commun. Dimensions des fenêtres, navigation temporaire, pages chargées, pagination et notifications restent sur l’appareil/en mémoire. Aucun usage de `sessionStorage` trouvé. Le helper générique contient `localStorage.clear()` ; cette fonctionnalité ne doit pas l’utiliser.
 
 La base IndexedDB `arachnea-db` contient ces stores personnels :
 
@@ -291,6 +291,22 @@ Le dialogue charge les révisions courantes du serveur et édite des refs détac
 
 Annuler confirme l’abandon si nécessaire, sans écriture. Une sauvegarde en cours ou incertaine bloque les contrôles et la fermeture ordinaire ; une réponse perdue ou un état partiel garde le corps exact et le même UUID pour Réessayer. L’UI distingue les préférences communes déjà enregistrées d’un enregistrement entièrement confirmé. Le brouillon reste en mémoire ; une fermeture forcée perd les modifications non envoyées. Les opérations acceptées restent durables côté serveur et reprennent au redémarrage. Le dialogue peut relire une opération appartenant à une autre fenêtre mais ne reconstruit pas son intention : son émetteur doit la terminer, ou le serveur la reprendre au redémarrage.
 
-En cas de conflit, le brouillon reste disponible. L’utilisateur choisit explicitement de charger les valeurs serveur ou de réappliquer seulement ses champs modifiés sur le dernier snapshot, puis vérifie et enregistre avec les nouvelles révisions. Aucun écrasement automatique. Le retrait des autres accès locaux hérités et préférences annexes du lecteur reste au lot 8.
+En cas de conflit, le brouillon reste disponible. L’utilisateur choisit explicitement de charger les valeurs serveur ou de réappliquer seulement ses champs modifiés sur le dernier snapshot, puis vérifie et enregistre avec les nouvelles révisions. Aucun écrasement automatique. Le retrait des accès locaux hérités et les préférences annexes du lecteur sont livrés au lot 8.
 
 Validation : type-check, build, lint CSS et scénarios ciblés sur le composable réel avec Vue/transport simulé (annulation, double clic, révisions mixtes, réponse perdue, état partiel, conflit/réapplication, réponses obsolètes). Aucun test ajouté au dépôt. Restent à vérifier : parcours graphiques et Tauri, redémarrage et panne réelle entre stores depuis ce dialogue. La coordination serveur existante n’est pas modifiée.
+
+## Retrait du stockage personnel local (lot 8)
+
+Livré : aucun accès actif à IndexedDB ni aux anciennes clés personnelles `localStorage`. Les paramètres démarrent depuis des défauts détachés puis le snapshot serveur ; les changements de contexte les réinitialisent, y compris langue/thème. Volume, mode muet, navigation et reprise par compte/serveur restent locaux ; cookie/coffre natif inchangés. Aucune importation ni suppression des anciennes données.
+
+Qualité, pistes manuelles et apparence des sous-titres sont restaurées depuis le streaming confirmé et enregistrées par `save_preferences` avec révision attendue. Les changements lecteur sont sérialisés, sans écriture lors d’une simple application du snapshot. Une réponse perdue conserve corps et UUID ; Réessayer dans le bandeau reprend la demande. Un conflit bloque les écritures lecteur jusqu’à réapplication du snapshot serveur (rechargement/sélection/rafraîchissement), sans écrasement automatique. Les règles de pistes modifiées via Enregistrer effacent aussi les choix manuels persistés. Le flush avant changement de profil est borné à cinq secondes ; les callbacks obsolètes sont rejetés. Aucun stockage hors ligne : la fermeture forcée peut perdre les demandes non confirmées.
+
+Validation : type-check, build, lint CSS publics et vérifications ciblées des modules réels avec transport simulé. Parcours graphiques navigateur vierge/déjà utilisé, fournisseur réel et fenêtres/coffres Tauri restent à qualifier (voir bilan du lot 9).
+
+## Bilan de livraison (lot 9, 18 novembre 2026)
+
+Les lots 1 à 9 sont livrés avec validation locale sur `aarch64-apple-darwin` (Rust 1.98.1). `cargo fmt --all --check`, `cargo check --workspace --locked --offline`, 31 tests Core avec `sqlite-persistence`, puis 14 tests Stream réussissent ; les 5 scénarios fournisseurs restent ignorés. Les 5 échecs Stream initiaux provenaient uniquement de sockets loopback interdites par le bac à sable ; la relance autorisée réussit. Les deux fronts passent type-check/build, le front public passe le lint CSS et les vérifications ciblées du lot 8 sont relancées avec succès. Aucune nouvelle suite ni infrastructure de tests.
+
+Le [bilan détaillé](../dev-tracking/server-user-profiles-analysis.md#étape-9--vérifier-et-documenter-la-livraison) distingue contrôles actuels et validations historiques. Les parcours graphiques, pannes réelles entre stores depuis le dialogue, fournisseurs et coffres/fenêtres Tauri sur les trois plateformes restent à qualifier ; ce bilan ne certifie pas ces scénarios. Les tâches restent dans `docs/TODO.md`.
+
+La [procédure d’exploitation](../../server/crates/arachnea-stream/README.md#profile-backup-and-restore) demande un arrêt de tous les écrivains puis une sauvegarde commune de `data/`, dont les deux bases, leurs éventuels sidecars SQLite et `config.json` (quota/reçus inclus). Restaurer un ensemble cohérent sans mélanger d’anciens sidecars ; la reprise idempotente et les contrôles de rattachement précèdent l’ouverture des écritures. Une incohérence bloque le démarrage sans suppression corrective silencieuse. Ces contrôles ne prouvent pas à eux seuls la simultanéité des deux captures ; ne jamais restaurer une seule base indépendamment. Les secrets du coffre natif sont hors sauvegarde des bases et un déplacement peut imposer une reconnexion.

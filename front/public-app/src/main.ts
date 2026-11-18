@@ -16,7 +16,7 @@ import { createPinia } from 'pinia'
 import router from './router'
 import { APP_TITLE } from './constants'
 import { initializeI18n } from './i18n'
-import { loadThemes } from '@/services/theme'
+import { applyTheme, findThemePreset, defaultThemeKey, loadThemes } from '@/services/theme'
 
 
 /** The Vuetify instance with configured icon sets and aliases. */
@@ -69,6 +69,7 @@ async function bootstrap(): Promise<void> {
    }
 
    await loadThemes()
+   applyTheme(findThemePreset(defaultThemeKey))
 
    app.mount('#app')
  }

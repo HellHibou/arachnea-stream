@@ -1,3 +1,4 @@
+import { acceptPlayerPreferences } from '@/services/profilePlayerPreferences'
 import { nextTick } from 'vue'
 import { setLanguage } from '@/i18n'
 import { useStorage } from '@/services/storage'
@@ -34,4 +35,6 @@ export async function applyProfilePreferences(snapshot: ProfileSnapshot, context
     }
   }
   storage.getHomePreferences().showSectionEditingButtons.value = values['arachnea.home.showSectionEditingButtons'] as boolean
+  await nextTick()
+  if (isCurrentProfile(context) && request === application && acceptPlayerPreferences(snapshot, context)) storage.applyVideoPlayerPreferences(values)
 }

@@ -476,6 +476,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Completed user profiles step 9 documentation and host validation: documented first-account/reset/session behavior, embedded avatars, profile quota, personal-data ownership and no-import/offline/conflict limits; added stopped-application backup/restore instructions for the coherent SQLite pair, configuration and remaining sidecars, with startup recovery/reference checks. Rust workspace check/format, 31 Core tests, 14 Stream tests (5 live-provider tests ignored), both frontend type-check/builds and public CSS lint pass on macOS ARM64. Initial sandbox-denied loopback tests pass after authorization. Graphical flows, real-provider playback, native vault/window lifecycle and an operator restore drill remain explicitly tracked; no new tests or test infrastructure were added.
+
 - Renamed the stream variant field `label` to `quality` in source YAML and Rust serialization/deserialization, without a compatibility alias.
 
 - Player payloads now expose `streams[]` directly, with shared storyboards, chapters and subtitles alongside it. All source/hoster YAML, resolver output and source-check fixtures use this format; the former `stream.sources` contract is unsupported. Deploy the server and public frontend together.
@@ -924,6 +926,8 @@ All notable changes to the server workspace are recorded here.
 - Added the `ParameterSubtitleLanguages.vue` component (a language combo box plus an editable 2-letter code input, with add/remove buttons keeping at least one entry) and the `videoPlayer.subtitleLanguages` storage parameter for configuring subtitle languages.
 
 #### Changed
+
+- Completed profile step 8: removed legacy local personal parameter reads/writes and persistence watchers; reset personal runtime state on profile changes. Quality, manual tracks and subtitle appearance now use revision-checked server preferences with serialized writes, immutable retries and visible failures. Only device volume/mute, navigation and account/server profile resume remain local. Old browser data is ignored without import or deletion; edited track rules clear persisted manual choices.
 
 - Reordered the public player control bar: the audio language button now appears before the subtitles button, the playback speed control sits between the subtitles and fullscreen controls, and the picture-in-picture button sits just left of the fullscreen button.
 
