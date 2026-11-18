@@ -1,5 +1,6 @@
 //! Durable forward recovery across independently committed profile stores.
 
+mod api;
 mod apply;
 mod integrity;
 /// Validated request shapes and application-owned recovery intents.

@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "fallback_avatar_id": "blue",
+  "avatars": [
+    {
+      "id": "blue",
+      "file": "blue.png"
+    },
+    {
+      "id": "green",
+      "file": "green.png"
+    },
+    {
+      "id": "purple",
+      "file": "purple.png"
+    }
+  ]
+}

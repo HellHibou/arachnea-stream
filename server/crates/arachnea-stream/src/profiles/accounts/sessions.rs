@@ -17,7 +17,7 @@ use serde_json::json;
 use uuid::Uuid;
 
 /// Internal authenticated context; never serialized with secrets/hashes.
-pub(super) struct Authenticated {
+pub(crate) struct Authenticated {
     /// Internal account record, never serialized to clients.
     pub user: User,
     /// Validated session metadata.
@@ -30,7 +30,7 @@ impl AccountService {
     /// # Arguments
     /// * `token` - Opaque session secret used only in memory.
     /// * `restricted_allowed` - Whether mandatory-password sessions are permitted.
-    pub(super) async fn authenticate(
+    pub(crate) async fn authenticate(
         &self,
         token: String,
         restricted_allowed: bool,
@@ -211,7 +211,15 @@ impl AccountService {
 }
 
 /// Validates account/session state and extends the 30-day inactivity window.
-fn validate(
+///
+/// # Arguments
+/// * `common` - Authoritative account/session repository.
+/// * `tx` - Common transaction, held inside the account lifecycle guard for writes.
+/// * `token` - Opaque transport secret used only in memory.
+///
+/// # Errors
+/// Rejects revoked/expired sessions and inactive accounts; returns storage errors.
+pub(crate) fn validate(
     common: &CommonRepository,
     tx: &SqliteTransaction<'_>,
     token: &str,

@@ -1,0 +1,44 @@
+{
+  "defaultHomeId": null,
+  "thumbnailOrientation": "landscape",
+  "thumbnailImageFit": "contain",
+  "thumbnailSizeMultiplier": 1,
+  "collectionMode": "grid",
+  "useTrailerAsBackground": true,
+  "useCatalogBannersAsBackground": true,
+  "isBackgroundAnimated": true,
+  "backgroundImageFit": "cover",
+  "isEpisodeAutoplayEnabled": false,
+  "videoPlayer.autoskip.previously": false,
+  "videoPlayer.autoskip.intro": false,
+  "videoPlayer.autoskip.coming_next": false,
+  "videoPlayer.autoskip.outro": false,
+  "videoPlayer.autoskip.ads": false,
+  "videoPlayer.trackProfiles": [
+    {
+      "audio": "original",
+      "subtitles": "disabled"
+    }
+  ],
+  "videoPlayer.subtitleLanguagePriority": [
+    "en"
+  ],
+  "videoPlayer.subtitleTranslationByLanguage": {},
+  "videoPlayer.subtitleLanguages": [
+    "en"
+  ],
+  "videoPlayer.allowAudioDescription": false,
+  "securityMode": "safe",
+  "arachnea.home.showSectionEditingButtons": true,
+  "arachnea.videoPlayer.preferences.quality": null,
+  "arachnea.videoPlayer.preferences.audioTrack": null,
+  "arachnea.videoPlayer.preferences.textTrack": {
+    "id": null,
+    "language": null,
+    "label": null,
+    "kind": null,
+    "mode": "disabled",
+    "origin": "profile"
+  },
+  "arachnea.videoPlayer.preferences.textTrackSettings": null
+}

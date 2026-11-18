@@ -265,5 +265,14 @@
       "network_error": "Le service des comptes est indisponible. Réessayez.",
       "method_not_allowed": "Le service des comptes est indisponible. Réessayez."
     }
+  },
+  "profileQuota": {
+    "title": "Profils utilisateurs",
+    "limit": "Nombre maximal de profils par compte",
+    "hint": "Défaut : 3. Une baisse conserve les profils existants et bloque les créations tant que le plafond est atteint.",
+    "invalid": "Saisissez un entier positif dans la plage des entiers sûrs.",
+    "save": "Enregistrer le plafond",
+    "saved": "Plafond enregistré et appliqué.",
+    "retry": "Recharger le plafond"
   }
 }

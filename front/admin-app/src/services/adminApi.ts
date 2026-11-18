@@ -600,3 +600,19 @@ export async function resetPublicUserPassword(operation_id: string, user_id: str
 export async function deletePublicUser(operation_id: string, user_id: string): Promise<void> {
   await apiCall('delete_user', { method: 'POST', body: { operation_id, user_id } })
 }
+
+/** Reads the current application-wide profile quota. */
+export async function fetchProfileQuota(): Promise<number> {
+  const reply = await apiCall<{ data: { max_profiles_per_user: number } }>('profile_settings')
+  return reply.data.max_profiles_per_user
+}
+/** Persists and applies the profile quota without reloading content services.
+ * @param operation_id Stable identity retained when retrying an unchanged draft.
+ * @param max_profiles_per_user Positive safe integer.
+ */
+export async function saveProfileQuota(operation_id: string, max_profiles_per_user: number): Promise<number> {
+  const reply = await apiCall<{ data: { max_profiles_per_user: number } }>('save_profile_settings', {
+    method: 'POST', body: { operation_id, max_profiles_per_user },
+  })
+  return reply.data.max_profiles_per_user
+}

@@ -21,7 +21,7 @@ pub(super) fn native_public(context: &RequestControlerContext) -> bool {
 /// # Arguments
 /// * `context` - Transport-captured request metadata.
 /// * `write` - Whether this operation mutates account state.
-pub(super) fn method(context: &RequestControlerContext, write: bool) -> Result<()> {
+pub(crate) fn method(context: &RequestControlerContext, write: bool) -> Result<()> {
     if let Some(actual) = context.method() {
         if actual != if write { "POST" } else { "GET" } {
             return Err(reject(
@@ -117,7 +117,7 @@ impl AccountService {
     ///
     /// # Arguments
     /// * `context` - Transport-captured request metadata.
-    pub(super) async fn authorize(&self, context: &RequestControlerContext) -> Result<String> {
+    pub(crate) async fn authorize(&self, context: &RequestControlerContext) -> Result<String> {
         let (secret, _) = self.secret(context).await?;
         let secret = secret.ok_or_else(|| {
             reject(

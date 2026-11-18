@@ -16,7 +16,14 @@ impl Inner {
     }
 
     /// Returns an existing receipt only when its actor, target and body agree.
-    fn existing(
+    ///
+    /// # Arguments
+    /// * `tx` - Common transaction containing the receipt.
+    /// * `id` - Client operation UUID.
+    /// * `user_id` - Authenticated account identity.
+    /// * `profile_id` - Optional expected profile target.
+    /// * `request` - Normalized complete mutation body including its kind.
+    pub(super) fn existing(
         &self,
         tx: &SqliteTransaction<'_>,
         id: Uuid,
@@ -37,7 +44,11 @@ impl Inner {
     }
 
     /// Rejects a second mutation until this profile's pending intent is resolved.
-    fn no_pending(&self, tx: &SqliteTransaction<'_>, profile_id: Uuid) -> Result<()> {
+    ///
+    /// # Arguments
+    /// * `tx` - Common transaction containing pending intents.
+    /// * `profile_id` - Profile whose mutations must be serialized.
+    pub(super) fn no_pending(&self, tx: &SqliteTransaction<'_>, profile_id: Uuid) -> Result<()> {
         let common = &self.stores.common;
         anyhow::ensure!(
             tx.find(&common.operations, &by_id("profile_id", profile_id))?
@@ -72,6 +83,18 @@ impl Inner {
             .transaction(|tx| {
                 self.active_account(tx, user_id)?;
                 if let Some(op) = self.existing(tx, id, user_id, None, &request)? {
+                    let profile = tx
+                        .get(
+                            &common.profiles,
+                            &op.profile_id
+                                .context("creation profile missing")?
+                                .to_string(),
+                        )?
+                        .context("profile is inaccessible")?;
+                    anyhow::ensure!(
+                        profile.user_id == user_id && profile.state != ProfileState::Deleting,
+                        "profile is inaccessible"
+                    );
                     return Ok(op);
                 }
                 let profile =

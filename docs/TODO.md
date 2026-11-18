@@ -3,7 +3,7 @@
 Ce fichier suit les tâches DNS, HTTP et proxy prévues qui restent pertinentes pour l'espace de travail serveur. Il doit être mis à jour lorsque des tâches sont ajoutées, terminées, déplacées vers un outil de suivi ou rendues obsolètes par des décisions de conception ultérieures.
 
 ## Streaming
-- Profils utilisateurs serveur : étapes 1 à 3 réalisées ([analyse](dev-tracking/server-user-profiles-analysis.md), [contrat FR](specifications/arachnea-user-profiles-fr.md), [contrat EN](specifications/arachnea-user-profiles-en.md)). Réaliser les étapes 4 à 9 : API profils/avatars/quota, données streaming, parcours et paramètres front. Comptes/sessions, gestion admin et protection des routes sont implémentés. Vérifier encore les parcours graphiques/coffres Tauri sur macOS, Linux et Windows ; aucune API publique de profils n’est encore exposée.
+- Profils utilisateurs serveur : étapes 1 à 4 réalisées ([analyse](dev-tracking/server-user-profiles-analysis.md), [contrat FR](specifications/arachnea-user-profiles-fr.md), [contrat EN](specifications/arachnea-user-profiles-en.md)). Réaliser les étapes 5 à 9 : homes/sections/signets serveur, sélection/guide, brouillons et retrait du stockage personnel local. API de profils/préférences, avatars embarqués et quota admin à chaud sont exposés. Vérifier encore les parcours graphiques/coffres Tauri sur macOS, Linux et Windows et le retour visuel au guide après suppression du dernier profil.
 - Ajouter téléchargement de vidéo si la source est au format mp4
 - Ajout prise d'un sceershoot de la vidéo
 - Ajouter gestion du volume: Normalisation  + boost du volume

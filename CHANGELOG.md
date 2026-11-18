@@ -379,6 +379,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Implemented user profiles step 4: authenticated REST/Tauri profile CRUD, strict common/streaming preference validation, Unicode name uniqueness, revision/idempotency checks, lazy streaming initialization and cascading deletion. Added a build-validated embedded avatar manifest with three PNGs and controller-prefixed authenticated image/catalogue routes. Profile creation uses the live persisted per-account quota (default 3); failed configuration saves preserve the previous value and lowering the quota retains existing profiles.
+
 - Implemented user profiles step 3: administered public accounts, Argon2id passwords, persistent digest-only sessions with 30-day idle expiry, mandatory temporary-password replacement, atomic reset/revocation, and coordinated account deletion. Content JSON/media/proxy/DRM/translation callbacks now require a valid unrestricted public session before cache checks. REST uses HttpOnly cookies and origin/method validation; native sessions use OS vaults with a visible memory-only fallback.
 
 - Implemented user profiles step 2: separate common/streaming modules and new `profiles.sqlite3` / `arachnea-stream-profiles.sqlite3` stores, typed identities/documents, common-generated profile UUIDs, durable idempotent coordination, guarded deletion and startup recovery/reference validation. Existing service stores and frontend behavior remain unchanged; public account/profile APIs and access controls follow in later steps.
@@ -657,6 +659,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Added application-owned additional-option reads and serialized configuration mutations under the existing administrator write lock, allowing Stream quota updates to retain concurrent port/network/proxy changes without rebuilding the scraper.
+
 - Exposed the existing administrator authorization/write checks as an application-operation boundary, preserving local/remote policy and keeping public-account business logic in Stream.
 
 - `extract_regex_items` now resolves runtime query placeholders, including `{{name}}` inside a regex repetition quantifier, and `pivot_items_by_index` generated fields accept `{index0}` alongside the existing one-based `{}`. `fetch_regex_items_from_items` can derive a request URL from source fields and copy response-scoped regex fields to every extracted item. This permits generic deferred selectors and per-response credentials without source-specific Rust code.
@@ -846,6 +850,8 @@ All notable changes to the server workspace are recorded here.
 ### <u>front-admin</u>
 
 #### Added
+
+- Added a separate English/French profile-limit form in Settings, including desktop, with safe-integer validation and stable retry identities. Quota changes apply after persistence without reloading the scraper.
 
 - Added public user listing, account creation, temporary-password reset and confirmed account deletion through the independent administrator API.
 

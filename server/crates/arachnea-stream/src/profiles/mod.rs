@@ -1,7 +1,6 @@
 //! Application-owned common profiles and streaming persistence.
 //!
-//! No public routes are registered here. Authentication, input validation and
-//! transport adapters are supplied by the later account/profile API stages.
+//! Account and profile adapters share persistent authorization and lifecycle guards.
 
 /// Public account/session service and transport authorization.
 pub mod accounts;
@@ -59,3 +58,7 @@ fn read_enum<T: DeserializeOwned>(value: &str) -> Result<T> {
         value.to_string(),
     ))?)
 }
+
+/// Embedded avatar catalogue and protected profile transport adapters.
+pub mod routes;
+mod validation;

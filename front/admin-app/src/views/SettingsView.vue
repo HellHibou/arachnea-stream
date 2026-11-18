@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ProfileQuotaSection from '@/components/ProfileQuotaSection.vue'
 import ProxySettingsSection from '@/components/ProxySettingsSection.vue'
 import type { ProxySettingsUpdate } from '@/services/adminApi'
 import { computed, onMounted, ref, type ComputedRef } from 'vue'
@@ -418,6 +419,7 @@ onMounted(() => {
             <v-text-field v-if="editableHttpSettings.root" v-model="entrypointRoot" :label="t('settings.entrypointRoot')" :placeholder="t('settings.entrypointRootPlaceholder')" variant="outlined" class="mt-4" :hint="settings ? sourceHint(settings.entrypoint_root_source) : undefined" persistent-hint />
           </v-card-text>
         </v-card>
+        <ProfileQuotaSection />
         <ProxySettingsSection v-if="!popupMode && settings?.proxy" v-model="proxyDraft" :settings="settings.proxy" :loading="isLoading" />
         <v-card variant="outlined" class="mb-6">
           <v-card-title>{{ t('settings.applicationGroup') }}</v-card-title>

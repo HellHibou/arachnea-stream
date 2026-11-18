@@ -179,7 +179,7 @@ async fn main() -> Result<()> {
     profile_coordinator.recover().await?;
     let accounts = Arc::new(arachnea_stream::profiles::accounts::AccountService::new(
         &profile_stores,
-        profile_coordinator,
+        profile_coordinator.clone(),
         &application::get_application_data_path(""),
     )?);
 
@@ -307,9 +307,15 @@ async fn main() -> Result<()> {
     )?;
     arachnea_stream::profiles::accounts::routes::register(
         controler.as_mut(),
-        accounts,
+        accounts.clone(),
         admin_state.state.clone(),
     );
+    arachnea_stream::profiles::routes::register(
+        controler.as_mut(),
+        accounts,
+        profile_coordinator,
+        admin_state.state.clone(),
+    )?;
     let _ = late_reload.set(admin_state.reload_coordinator);
 
     controler.launch();

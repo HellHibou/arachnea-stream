@@ -6,7 +6,7 @@ pub mod guard;
 mod native;
 pub mod routes;
 mod service;
-mod sessions;
+pub(crate) mod sessions;
 #[cfg(windows)]
 mod windows_vault;
 
@@ -41,8 +41,13 @@ pub(crate) struct AccountError {
     pub field: Option<&'static str>,
 }
 
-/// Builds a typed account rejection usable through contextual anyhow errors.
-fn reject(code: &'static str, status: u16, message: &'static str) -> anyhow::Error {
+/// Builds a typed account/profile rejection usable through contextual anyhow errors.
+///
+/// # Arguments
+/// * `code` - Stable client error identifier.
+/// * `status` - HTTP status shared by REST and native transports.
+/// * `message` - Non-secret English diagnostic.
+pub(crate) fn reject(code: &'static str, status: u16, message: &'static str) -> anyhow::Error {
     AccountError {
         code,
         status,
@@ -53,7 +58,10 @@ fn reject(code: &'static str, status: u16, message: &'static str) -> anyhow::Err
 }
 
 /// Formats an API failure without exposing database/credential diagnostics.
-fn failure(error: &anyhow::Error) -> (u16, Value) {
+///
+/// # Arguments
+/// * `error` - Contextual account/profile rejection or internal storage failure.
+pub(crate) fn failure(error: &anyhow::Error) -> (u16, Value) {
     let (status, code, message) = error
         .downcast_ref::<AccountError>()
         .map(|e| (e.status, e.code, e.message))
@@ -80,7 +88,11 @@ fn failure(error: &anyhow::Error) -> (u16, Value) {
 }
 
 /// Adds a safe field path to a validation error, retaining its stable code.
-fn for_field(field: &'static str, error: anyhow::Error) -> anyhow::Error {
+///
+/// # Arguments
+/// * `field` - Stable request field path, without client data.
+/// * `error` - Typed rejection or contextual storage failure to preserve.
+pub(crate) fn for_field(field: &'static str, error: anyhow::Error) -> anyhow::Error {
     match error.downcast::<AccountError>() {
         Ok(mut error) => {
             error.field = Some(field);

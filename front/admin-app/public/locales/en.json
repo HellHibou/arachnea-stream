@@ -265,5 +265,14 @@
       "network_error": "The account service is unavailable. Please retry.",
       "method_not_allowed": "The account service is unavailable. Please retry."
     }
+  },
+  "profileQuota": {
+    "title": "User profiles",
+    "limit": "Maximum profiles per account",
+    "hint": "Default: 3. Lowering the limit keeps existing profiles and prevents further creation while the limit is reached.",
+    "invalid": "Enter a positive safe integer.",
+    "save": "Save profile limit",
+    "saved": "Profile limit saved and applied.",
+    "retry": "Reload profile limit"
   }
 }

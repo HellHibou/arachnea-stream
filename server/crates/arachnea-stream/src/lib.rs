@@ -213,3 +213,38 @@ pub const PUBLIC_SESSION_CHANGED_EVENT: &str = "arachnea-public-session-changed"
 pub const PUBLIC_NATIVE_VAULT_SERVICE_PREFIX: &str = "arachnea.public";
 /// OS credential account containing the selected public account UUID.
 pub const PUBLIC_NATIVE_VAULT_ACTIVE_ACCOUNT: &str = "active-account";
+
+/// Default maximum number of common profiles per public account.
+pub const DEFAULT_MAX_PROFILES_PER_USER: usize = 3;
+/// Additional application configuration key for the live profile quota.
+pub const MAX_PROFILES_PER_USER_KEY: &str = "max_profiles_per_user";
+
+/// Supported common UI locales, aligned with the public locale index.
+pub(crate) const PROFILE_UI_LANGUAGES: &[&str] = &["en", "fr"];
+/// Common theme identities, aligned with the public theme catalogue.
+pub(crate) const PROFILE_THEME_KEYS: &[&str] = &[
+    "arachnea-blue",
+    "purple-twitch",
+    "rumble-green",
+    "yellow-molotov",
+    "orange-crunchy",
+    "pink-odysee",
+    "red-flix",
+];
+/// Maximum ordered audio combinations: one per catalogued language plus original.
+pub(crate) const PROFILE_MAX_TRACK_PROFILES: usize = 184;
+/// Supported Video.js subtitle appearance keys.
+pub(crate) const PROFILE_TEXT_TRACK_KEYS: &[&str] = &[
+    "backgroundColor",
+    "backgroundOpacity",
+    "color",
+    "edgeStyle",
+    "fontFamily",
+    "fontPercent",
+    "textOpacity",
+    "windowColor",
+    "windowOpacity",
+];
+
+/// Additional configuration receipts committed atomically with quota updates.
+pub(crate) const PROFILE_QUOTA_RECEIPTS_KEY: &str = "profile_quota_operations";

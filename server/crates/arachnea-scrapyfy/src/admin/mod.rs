@@ -515,3 +515,41 @@ fn reply_to_output(reply: Result<AdminReply, AdminError>) -> ControlerJsonOutput
         headers,
     }
 }
+
+impl AdminState {
+    /// Reads an application-owned option from the authoritative persisted snapshot.
+    ///
+    /// # Arguments
+    /// * `key` - Additional option owned and validated by the application.
+    ///
+    /// # Errors
+    /// Returns configuration read errors.
+    pub fn application_option(&self, key: &str) -> anyhow::Result<Option<String>> {
+        Ok(self
+            .adapter
+            .persisted_settings()?
+            .additional_option(key)
+            .map(str::to_owned))
+    }
+
+    /// Serializes an application-only configuration mutation with all admin writes.
+    ///
+    /// The callback validates and edits the latest candidate. Persistence precedes
+    /// publication; this operation never reconstructs the scraper.
+    ///
+    /// # Arguments
+    /// * `update` - Application validator/mutator, run under the shared write guard.
+    ///
+    /// # Errors
+    /// Returns validation or persistence errors without publishing failed changes.
+    pub async fn update_application_options<T>(
+        &self,
+        update: impl FnOnce(&mut CoreApplicationOptions) -> anyhow::Result<T>,
+    ) -> anyhow::Result<T> {
+        let _write = self.settings_write.lock().await;
+        let mut candidate = self.adapter.persisted_settings()?;
+        let result = update(&mut candidate)?;
+        self.adapter.save_persisted_settings(&candidate)?;
+        Ok(result)
+    }
+}
