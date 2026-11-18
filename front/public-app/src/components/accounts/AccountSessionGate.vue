@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
-import App from '@/App.vue'
 import router from '@/router'
 import { useAccountSession, useAccountSessionMonitor } from '@/composables/useAccountSession'
 import { useServiceMetadata } from '@/composables/useServiceMetadata'
@@ -12,6 +11,7 @@ import { t } from '@/i18n'
 import { resolveAppPath } from '@/services/baseUrl'
 import { isDesktopApp, openAdministrationWindow } from '@/services/rustify/desktop'
 import AccountCredentialsForm from './AccountCredentialsForm.vue'
+import ProfileSessionGate from '@/components/profiles/ProfileSessionGate.vue'
 
 const accounts = useAccountSession()
 const contentReady = ref(false)
@@ -58,7 +58,7 @@ async function openAdmin(): Promise<void> {
 <template>
   <div v-if="!accounts.restored.value" class="account-gate" role="status">{{ t('accounts.restoring') }}</div>
   <template v-else-if="accounts.ready.value && contentReady">
-    <App :key="contentKey" />
+    <ProfileSessionGate :key="contentKey" />
     <p v-if="accounts.errorCode.value" class="session-warning" role="alert">{{ t(`accounts.errors.${accounts.errorCode.value}`) }}</p>
     <p v-if="!accounts.session.value?.persistent" class="session-warning" role="status">{{ t('accounts.memoryOnly') }}</p>
   </template>
@@ -78,6 +78,21 @@ async function openAdmin(): Promise<void> {
 </template>
 
 <style scoped>
-.account-gate { min-height: 100dvh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; }
-.session-warning { position: fixed; bottom: 0; right: 0; z-index: 50; padding: 12px; background: var(--bg-surface); }
+.account-gate {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100dvh;
+  padding: 24px;
+}
+
+.session-warning {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  z-index: 50;
+  padding: 12px;
+  background: var(--bg-surface);
+}
 </style>

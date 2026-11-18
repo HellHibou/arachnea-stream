@@ -814,7 +814,7 @@ Desktop secrets never reach JavaScript or browser storage. Core captures the rea
 Account deletion blocks the account and revokes sessions before coordinated profile cleanup. Pending cleanup can be retried from administration, including after refreshing the user list; completed deletion receipts survive removal. Password plaintext and password-derived request digests never enter durable operation receipts. Step 3 introduced no import or server profile guide. From step 5, homes/sections/bookmarks no longer use browser persistence; other preferences and the profile-selection UI follow in later steps.
 
 
-Profile API operations (`profiles/list`, `create`, `get`, `update`, `delete`, `initialize_streaming`, `save_preferences`, `complete_onboarding`, `operation`) share authenticated REST/Tauri contracts and revalidate sessions under lifecycle guards. Creation atomically enforces Unicode-normalized account-local names and quota; common profiles have no streaming rows until explicit initialization. Preferences use revisions and mixed saves use durable forward recovery. New profiles never read browser data. Deleting the last profile returns an empty list; the public guide/selection UI follows in step 6.
+Profile API operations (`profiles/list`, `create`, `get`, `update`, `delete`, `initialize_streaming`, `save_preferences`, `complete_onboarding`, `operation`) share authenticated REST/Tauri contracts and revalidate sessions under lifecycle guards. Creation atomically enforces Unicode-normalized account-local names and quota; common profiles have no streaming rows until explicit initialization. Preferences use revisions and mixed saves use durable forward recovery. New profiles never read browser data. Deleting the last profile returns an empty list; the public guide/selection UI is delivered in step 6.
 
 The authenticated `profiles/avatars` catalogue and `profiles/avatar/<id>` images use the active controller's API prefix. The manifest and three PNGs under crate-owned `resources/avatars/` are checked and embedded at build time; runtime needs no avatar files. IDs, paths, MIME signatures, missing files and fallback are checked; removed IDs remain persisted and consumers render the catalogue fallback. Recompile to change the catalogue. Keep server locale/theme keys, language aliases/limits and streaming defaults aligned with frontend catalogues.
 
@@ -840,10 +840,10 @@ profile/account deletion. Back up the same two physical stores together; no new
 database or migration of technical scraper stores is introduced.
 
 Frontend personal collection services use these REST/Tauri operations and require
-an explicit profile context, activated by the future step 6 selector. Old browser
+an explicit profile context, activated by the step 6 selector. Old browser
 collections remain present but inactive, with no import. Progress writes are
 coalesced per bookmark at 10-second intervals plus explicit flushes, with visible
 errors and pending changes only in memory. Step 5 manual checks cover concurrent
 revisions, rollback on receipt failure, default clearing, populated cascades,
 restart/replay and real frontend adapters. Native UI/provider playback remains to
-be checked in the later integration steps.
+be checked manually in the later integration steps.

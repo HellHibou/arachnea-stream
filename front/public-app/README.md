@@ -447,17 +447,17 @@ replace the assets embedded in an already running server.
 
 `AccountSessionGate` restores the server session before mounting content and starting metadata, allowlist and personal-cache loading. Public login uses a dedicated POST JSON/GET state transport, with HttpOnly cookies in browsers and the native session broker in Tauri. Administrator-created/reset accounts must replace their temporary password before content can render. The login gate exposes the independent administration entry for first-account setup; the navigation menu signs out by revoking the session.
 
-Account changes clear in-memory catalogue validation, metadata, section/bookmark and notification caches; late replies are discarded by generation. BroadcastChannel/native events and focus/visibility/session polling revalidate other tabs. Credential drafts stay in component memory, and neither password nor token is written to localStorage/IndexedDB. An unavailable native OS vault is reported as memory-only persistence. Home/section/bookmark services now persist only through the selected profile API. Other legacy personal preference paths remain until steps 7–8; no local import or onboarding profile UI is delivered here.
+Account changes clear in-memory catalogue validation, metadata, section/bookmark and notification caches; late replies are discarded by generation. BroadcastChannel/native events and focus/visibility/session polling revalidate other tabs. Credential drafts stay in component memory, and neither password nor token is written to localStorage/IndexedDB. An unavailable native OS vault is reported as memory-only persistence. Home/section/bookmark services now persist only through the selected profile API. Other legacy personal preference paths remain until steps 7–8; no local import is performed, and the onboarding/selection UI is delivered by the step 6 gate below.
 
 
 ## Profile-backed personal collections (step 5)
 
 `services/profileApi.ts` uses no-store REST requests or the same Tauri commands,
 without the catalogue ETag cache. `services/profileContext.ts` supplies an immutable
-profile/account generation to each request. The step 6 selection flow must call
+profile/account generation to each request. The step 6 selection flow calls
 `setActiveProfileContext(profileId)` after validating the selected profile and
-initializing streaming. This step deliberately does not select or create a profile:
-unselected lists are empty and personal writes display an error. Account/profile
+initializing streaming. The step 5 adapter deliberately did not select or create a
+profile: unselected lists are empty and personal writes display an error. Account/profile
 changes clear caches, invalidate delayed replies and never route an old queued
 write under a new UUID. Remaining general preferences are still local until the
 later draft/storage steps.
@@ -478,3 +478,15 @@ Validated with public type-check/build, CSS lint for the status component, actua
 module runs for queue timing/replay/context and real REST adapter checks against
 isolated databases. Graphical profile selection, provider playback and native
 window/vault checks remain later work; no new test infrastructure is introduced.
+
+## Profile gate, resume and onboarding (step 6)
+
+`ProfileSessionGate` now mounts inside `AccountSessionGate` with the account/session key. It owns one `useProfiles()` controller per authenticated session and provides it to the onboarding, switcher and `App`. Content mounts only after a server-validated profile is active, so profile-bound caches and personal writes never start under an anonymous selection.
+
+Initialization lists profiles and the embedded avatar catalogue in parallel. The last profile is restored from a local key scoped by server identity and account id when the server still reports it active; otherwise the reusable onboarding or the selector is shown. Loading a profile waits for any durable pending operation, completes the `common` guide, initializes streaming with `{}` server defaults at first service use, completes the `arachnea-stream` guide and then publishes the context. Interrupted creation retries the same operation id, and interrupted initialization/guide operations are resumed before activation. Concurrent completion by another tab is tolerated.
+
+`ProfileOnboarding`/`ProfileForm` collect name, avatar, language and theme, then show the guide's service step. `ProfileSwitcher` lists active profiles, reports quota/preparation/errors, creates an additional profile and deletes with confirmation. The navigation exposes the same switcher in a dialog. Deletion of the active profile unmounts content; deleting the last profile returns to the guide.
+
+Browser tabs use a per-server `BroadcastChannel`, desktop webviews use the native `arachnea-profiles-changed` event, and focus/visibility revalidate list/revision state without forcing another window's selection. A profile deleted or revoked elsewhere clears the local context. Device keys contain no secret; old local personal preferences are not imported, and new profiles start with automatic language and the `arachnea-blue` theme.
+
+Validated with `npm run type-check`, `npm run build-only` and `npm run lint:css`. No tests or test infrastructure were added. Graphical first-login/interruption/resume, real Tauri windows/vaults and playback with coalesced writes remain manual validation work.

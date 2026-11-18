@@ -1,14 +1,13 @@
 <script setup lang="ts">
-import { useAccountSession } from '@/composables/useAccountSession'
-const accountSession = useAccountSession()
-/** Revokes the account session while preserving any visible server error. */
-async function signOut(): Promise<void> { try { await accountSession.logout() } catch { /* Session error is rendered by the gate. */ } }
 import { computed, nextTick, onMounted, onScopeDispose, shallowRef, useTemplateRef, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import AppSidebar from '@/components/navigation/AppSidebar.vue'
 import CustomHomeManager from '@/components/home/CustomHomeManager.vue'
+import ProfileSwitcherDialog from '@/components/profiles/ProfileSwitcherDialog.vue'
 import { useCustomHomeManager } from '@/composables/home/useCustomHomeManager'
 import { useServiceMetadata } from '@/composables/useServiceMetadata'
+import { useAccountSession } from '@/composables/useAccountSession'
+import { injectProfiles } from '@/composables/useProfiles'
 import { useI18n } from '@/i18n'
 import { useStorage } from '@/services/storage'
 
@@ -17,6 +16,9 @@ const props = defineProps<{ mobile: boolean; open: boolean; hidden: boolean }>()
 const emit = defineEmits<{ close: []; settings: []; 'update:width': [width: number] }>()
 const route = useRoute()
 const { t } = useI18n()
+const accountSession = useAccountSession()
+const profiles = injectProfiles()
+const profileSwitcherOpen = shallowRef(false)
 const manager = useCustomHomeManager()
 const metadata = useServiceMetadata()
 const editingEnabled = useStorage().getHomePreferences().showSectionEditingButtons
@@ -54,6 +56,8 @@ function openManager(id: string | null = null, create = false): void {
   emit('close')
   void nextTick(() => { managerOpen.value = true })
 }
+/** Revokes the account session while preserving any visible server error. */
+async function signOut(): Promise<void> { try { await accountSession.logout() } catch { /* Session error is rendered by the gate. */ } }
 /** Reflects mobile shell state into the native modal, preserving its keyboard/focus trap. */
 function syncDialog(): void {
   const dialog = surface.value
@@ -99,6 +103,9 @@ onScopeDispose(() => {
       :active-home-id="activeHomeId" :active-source-id="activeSourceId" :lives-active="route.name === 'lives' || route.name === 'live-details'"
       @navigate="emit('close')" @create="openManager(null, true)" @manage="openManager()" @edit="openManager($event)"
       @update:sources-expanded="setExpanded" />
+    <v-btn block prepend-icon="mdi-account-switch" @click="profileSwitcherOpen = true">
+      {{ profiles.activeProfile.value?.name ?? t('profiles.switch') }}
+    </v-btn>
     <v-btn block prepend-icon="mdi-logout" :disabled="accountSession.busy.value" @click="signOut">{{ t('accounts.signOut') }}</v-btn>
     <p v-if="metadata.isLoading.value" class="app-navigation__status" role="status">{{ t('entry.loadingMessage') }}</p>
     <div v-if="manager.errorMessage.value || metadata.errorMessage.value || preferenceError" class="app-navigation__status" role="status">
@@ -106,6 +113,7 @@ onScopeDispose(() => {
       <v-btn @click="manager.refresh(); metadata.refresh()">{{ t('sourceHome.retry') }}</v-btn>
     </div>
   </component>
+  <ProfileSwitcherDialog v-model:open="profileSwitcherOpen" />
   <CustomHomeManager v-model:open="managerOpen" :show-trigger="false" :edit-home-id="editorTarget"
     :source-id="activeSourceId" :create-on-open="createRequested" />
 </template>

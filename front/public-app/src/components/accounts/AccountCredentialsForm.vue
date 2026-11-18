@@ -35,7 +35,17 @@ function submit(): void {
 </template>
 
 <style scoped>
-.account-form { width: min(420px, 100%); margin: auto; padding: 24px; }
-.account-form h1 { margin-bottom: 20px; }
-.account-form p { margin-block: 12px; }
+.account-form {
+  width: min(420px, 100%);
+  margin: auto;
+  padding: 24px;
+}
+
+.account-form h1 {
+  margin-bottom: 20px;
+}
+
+.account-form p {
+  margin-block: 12px;
+}
 </style>
