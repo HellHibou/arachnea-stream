@@ -7,6 +7,9 @@
 
 mod conversion;
 mod schema;
+mod transaction;
+
+pub use transaction::SqliteTransaction;
 
 use conversion::{read_row, to_sql_value};
 use schema::initialize_schema;
@@ -20,10 +23,9 @@ use std::{
 };
 
 use async_trait::async_trait;
-use rusqlite::{
-    types::{Value as SqlValue, ValueRef},
-    Connection,
-};
+/// SQLite cells used by domain-owned composite key implementations.
+pub use rusqlite::types::{Value as SqlValue, ValueRef};
+use rusqlite::Connection;
 
 use super::typed_store::{
     checked_schema, decode, encode, expired, safe_name, EntityDocument, EntityQuery, EntitySchema,

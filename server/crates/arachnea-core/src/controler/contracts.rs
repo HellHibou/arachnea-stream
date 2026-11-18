@@ -62,11 +62,20 @@ impl From<Value> for ControlerJsonOutput {
     }
 }
 
+/// Native webview identity captured by the transport, never deserialized from JS.
+#[derive(Clone)]
+pub struct NativeWebviewContext {
+    /// Actual native webview label.
+    pub label: String,
+    /// Current native webview document URL.
+    pub url: String,
+}
+
 /// Context of an incoming controller request.
 ///
 /// Carries the HTTP headers received by the controller backend so registered
 /// commands can access them without depending on a specific transport
-/// (REST HTTP headers, empty Tauri IPC context, ...).
+/// (REST HTTP headers and transport-captured native webview identities).
 #[derive(Default, Clone)]
 pub struct RequestControlerContext {
     /// Incoming request headers as key-value pairs.
@@ -74,10 +83,12 @@ pub struct RequestControlerContext {
     /// TCP address of the remote peer, when the transport exposes one.
     ///
     /// The REST backend fills this from the connection socket address; the
-    /// desktop Tauri IPC context leaves it `None`.
+    /// desktop Tauri IPC context leaves it `None`; this does not authenticate a user.
     remote_addr: Option<std::net::SocketAddr>,
     /// HTTP method of the incoming request, when the transport exposes one.
     method: Option<String>,
+    native_webview: Option<NativeWebviewContext>,
+    path: Option<String>,
 }
 
 impl RequestControlerContext {
@@ -90,7 +101,37 @@ impl RequestControlerContext {
             headers,
             remote_addr: None,
             method: None,
+            native_webview: None,
+            path: None,
         }
+    }
+
+    /// Attaches transport-captured native identity.
+    ///
+    /// # Arguments
+    /// * `caller` - Native identity captured by Tauri, never request payload data.
+    pub fn with_native_webview(mut self, caller: NativeWebviewContext) -> Self {
+        self.native_webview = Some(caller);
+        self
+    }
+
+    /// Returns the native caller, absent for every REST request.
+    pub fn native_webview(&self) -> Option<&NativeWebviewContext> {
+        self.native_webview.as_ref()
+    }
+
+    /// Attaches the transport-captured HTTP path.
+    ///
+    /// # Arguments
+    /// * `path` - Full incoming path used for cookie scoping.
+    pub fn with_path(mut self, path: impl Into<String>) -> Self {
+        self.path = Some(path.into());
+        self
+    }
+
+    /// Returns the incoming HTTP path when available.
+    pub fn path(&self) -> Option<&str> {
+        self.path.as_deref()
     }
 
     /// Sets the TCP address of the remote peer.
@@ -127,7 +168,7 @@ impl RequestControlerContext {
     /// Returns the TCP address of the remote peer, when known.
     ///
     /// `None` means the transport does not expose a peer address, such as the
-    /// desktop Tauri IPC context; such requests are local by construction.
+    /// desktop Tauri IPC context. Locality does not authenticate a public account.
     pub fn remote_addr(&self) -> Option<std::net::SocketAddr> {
         self.remote_addr
     }
@@ -203,6 +244,8 @@ pub struct ControlerStreamInput {
     /// desktop Tauri IPC context leaves it `None`, which means the request is
     /// local by construction.
     pub remote_addr: Option<std::net::SocketAddr>,
+    /// Native webview identity captured by Tauri; always absent for REST.
+    pub native_webview: Option<NativeWebviewContext>,
     /// Raw request body bytes.
     ///
     /// This field contains the complete request body as binary data.

@@ -1575,3 +1575,7 @@ Source saves/resets replace that scope atomically. The table is opened directly;
 historical JSON parameter data is not migrated. An incompatible existing primary key
 is rejected without converting or deleting rows. The administration API and reload
 behavior are unchanged.
+
+## Application accounts and profiles
+
+The separate [server user profiles contract](arachnea-user-profiles-en.md) defines the target account/session, profile storage and access-control APIs. Stores/internal coordination (step 2) and accounts/sessions/user administration/content access controls (step 3) are implemented; profile APIs remain pending. This application contract does not extend this YAML schema.

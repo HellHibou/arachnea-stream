@@ -47,6 +47,7 @@ pub(super) async fn retrieve(
         method: "GET".into(),
         headers: headers.clone(),
         remote_addr: None,
+        native_webview: None,
         body: Vec::new(),
         entry_point: prefix.to_string(),
         force_buffer_response: false,

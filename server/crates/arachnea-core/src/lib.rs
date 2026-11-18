@@ -229,3 +229,6 @@ pub(crate) const TAURI_FRONTEND_WINDOW_WIDTH: f64 = 980.0;
 
 /// Initial independent public frontend window height in logical pixels.
 pub(crate) const TAURI_FRONTEND_WINDOW_HEIGHT: f64 = 680.0;
+
+/// Response header requesting a named, payload-free event in native webviews only.
+pub const CONTROLLER_NATIVE_EVENT_HEADER: &str = "x-arachnea-native-event";

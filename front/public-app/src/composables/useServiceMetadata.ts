@@ -1,6 +1,7 @@
 import { computed, readonly, shallowRef } from 'vue'
 
 import { t } from '@/i18n'
+import { sessionGeneration } from '@/services/sessionEvents'
 import { loadServiceMetadata } from '@/services/rustify'
 import type { ServiceMetadata } from '@/types/serviceMetadata'
 
@@ -13,6 +14,7 @@ const errorMessage = shallowRef<string | null>(null)
 /** Shared request prevents duplicate metadata discovery across consumers. */
 let loadPromise: Promise<ServiceMetadata[]> | null = null
 let hasLoaded = false
+window.addEventListener('arachnea-session-context', () => { services.value = []; hasLoaded = false; loadPromise = null; errorMessage.value = null })
 
 /** Map of service metadata indexed by service id for quick lookup. */
 const servicesById = computed(() => {
@@ -37,8 +39,9 @@ export function useServiceMetadata() {
   function load(): Promise<ServiceMetadata[]> {
     if (loadPromise) return loadPromise
     if (hasLoaded) return Promise.resolve(services.value)
-    loadPromise = fetchMetadata().finally(() => { loadPromise = null })
-    return loadPromise
+    const pending = fetchMetadata().finally(() => { if (loadPromise === pending) loadPromise = null })
+    loadPromise = pending
+    return pending
   }
 
   /** Fetches display metadata without loading provider homes. */
@@ -46,19 +49,22 @@ export function useServiceMetadata() {
     isLoading.value = true
     errorMessage.value = null
 
+    const generation = sessionGeneration()
     try {
       const loadedServices = await loadServiceMetadata()
+      if (generation !== sessionGeneration()) return []
       services.value = loadedServices
       hasLoaded = true
       return loadedServices
     } catch (error) {
+      if (generation !== sessionGeneration()) return []
       errorMessage.value =
         error instanceof Error
           ? error.message
           : t('errors.serviceMetadata')
       return []
     } finally {
-      isLoading.value = false
+      if (generation === sessionGeneration()) isLoading.value = false
     }
   }
 

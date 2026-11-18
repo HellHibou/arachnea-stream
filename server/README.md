@@ -165,3 +165,8 @@ internal key is never saved or displayed; user keys are displayed once and only
 their cryptographic verifiers are persisted. HTTP proxy authentication does not
 provide encryption: secure remote access separately, and publish container ports
 explicitly. See the Scrapyfy, Stream and proxy crate READMEs for details.
+
+
+## Public application accounts
+
+The Stream application now requires a public account for catalogue and media access. Open the independent `admin/` UI (also linked from the login screen), choose Users and create an account with a temporary password. The user must replace it on first sign-in. Administrator and provider identities remain separate; reset revokes public sessions and account deletion coordinates both profile stores. Browser sessions use HttpOnly cookies and expire server-side after 30 days of inactivity. Desktop sessions use the OS credential vault, with a visible memory-only fallback when unavailable. See [the account/profile contract](../docs/specifications/arachnea-user-profiles-en.md) and the [Stream operational notes](crates/arachnea-stream/README.md).

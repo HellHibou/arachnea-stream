@@ -9,6 +9,7 @@ import type {
   VideoJsTrackPreference,
 } from '@/types/media'
 import { defineStore } from 'pinia'
+import { isSessionContentAllowed, sessionGeneration } from '@/services/sessionEvents'
 import {
   initHomeSectionsDB,
   getAllSections,
@@ -131,6 +132,8 @@ function sanitizeParameterValue(
 }
 
 export const useStorage = defineStore('storage', () => {
+    let storageInitialized = false
+    window.addEventListener('arachnea-session-context', () => { sectionRecords.value = []; bookmarkRecords.value = [] })
 
     const storedLanguage = sanitizeNullableString(
       getStoreItem(PARAM_PREFIX + LANGUAGE_PARAMETER_KEY, null),
@@ -428,11 +431,14 @@ export const useStorage = defineStore('storage', () => {
      * another tab, typically when the tab becomes visible again.
      */
     async function refreshCachedRecords(): Promise<void> {
+      if (!isSessionContentAllowed()) return
+      const generation = sessionGeneration()
       const [sections, bookmarks] = await Promise.all([
         getAllSections(),
         getAllBookmarks(),
       ])
 
+      if (generation !== sessionGeneration()) return
       sectionRecords.value = sections
       bookmarkRecords.value = bookmarks
     }
@@ -443,12 +449,14 @@ export const useStorage = defineStore('storage', () => {
      * Must be called once before the store is used, typically from the app bootstrap.
      */
     async function initStorage(): Promise<void> {
+      if (storageInitialized) { await refreshCachedRecords(); return }
       await Promise.all([
         initHomeSectionsDB(),
         initEntryBookmarksDB(),
       ])
 
       await refreshCachedRecords()
+      storageInitialized = true
 
       // Resynchronize the cache whenever the tab becomes visible again,
       // so changes made from another tab are reflected in this one.

@@ -548,10 +548,12 @@ impl ControlerService for RestControlerService {
             .and(Self::peer_addr_filter())
             .and(warp::body::json::<Value>())
             .and(warp::header::headers_cloned())
+            .and(warp::path::full())
             .and_then(
                 move |addr: Option<std::net::SocketAddr>,
                       input: Value,
-                      headers: warp::http::HeaderMap| {
+                      headers: warp::http::HeaderMap,
+                      path: warp::path::FullPath| {
                     let post_call = Arc::clone(&post_call);
                     async move {
                         Ok::<(Box<dyn Reply + Send>,), Rejection>(
@@ -563,7 +565,8 @@ impl ControlerService for RestControlerService {
                                         &headers,
                                     ))
                                     .with_remote_addr(Self::remote_peer(addr))
-                                    .with_method("POST"),
+                                    .with_method("POST")
+                                    .with_path(path.as_str()),
                                 },
                             )
                             .await,
@@ -579,10 +582,12 @@ impl ControlerService for RestControlerService {
             .and(Self::peer_addr_filter())
             .and(warp::query::raw().or(warp::any().map(String::new)).unify())
             .and(warp::header::headers_cloned())
+            .and(warp::path::full())
             .and_then(
                 move |addr: Option<std::net::SocketAddr>,
                       input: String,
-                      headers: warp::http::HeaderMap| {
+                      headers: warp::http::HeaderMap,
+                      path: warp::path::FullPath| {
                     let get_call = Arc::clone(&get_call);
                     async move {
                         Ok::<(Box<dyn Reply + Send>,), Rejection>(
@@ -594,7 +599,8 @@ impl ControlerService for RestControlerService {
                                         &headers,
                                     ))
                                     .with_remote_addr(Self::remote_peer(addr))
-                                    .with_method("GET"),
+                                    .with_method("GET")
+                                    .with_path(path.as_str()),
                                 },
                             )
                             .await,
@@ -717,6 +723,7 @@ impl ControlerService for RestControlerService {
                             method: method.to_string(),
                             headers: Self::headers_to_map(&headers),
                             remote_addr: Some(Self::remote_peer(remote_addr)),
+                            native_webview: None,
                             body,
                             entry_point,
                             force_buffer_response: false,

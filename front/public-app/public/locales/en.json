@@ -483,5 +483,39 @@
     "new": "New tab",
     "close": "Close {title}",
     "error": "Tab operation failed"
+  },
+  "accounts": {
+    "loginTitle": "Sign in to Arachnea",
+    "changeTitle": "Choose a new password",
+    "changeRequired": "Replace the temporary password before accessing content.",
+    "login": "Login",
+    "password": "Password",
+    "currentPassword": "Current password",
+    "newPassword": "New password",
+    "confirmPassword": "Confirm password",
+    "passwordMismatch": "The passwords do not match.",
+    "passwordHint": "Passwords must contain 12–128 characters.",
+    "savePassword": "Save password",
+    "signIn": "Sign in",
+    "signOut": "Sign out",
+    "restoring": "Restoring your session…",
+    "loading": "Loading your application…",
+    "retry": "Retry",
+    "memoryOnly": "This device cannot save the session securely. Sign in again after restarting.",
+    "errors": {
+      "invalid_credentials": "Invalid login or password.",
+      "invalid_data": "Check the supplied values.",
+      "session_required": "Please sign in.",
+      "session_expired": "Your session has expired.",
+      "session_revoked": "Your session is no longer valid.",
+      "password_change_required": "Choose a new password before continuing.",
+      "storage_unavailable": "The account service is unavailable. Please retry.",
+      "origin_rejected": "This request was refused.",
+      "login_rate_limited": "Too many failed attempts. Try again later.",
+      "method_not_allowed": "This operation could not be submitted.",
+      "operation_id_conflict": "This operation has already been used. Please sign in again."
+    },
+    "administration": "Administration",
+    "adminOpenError": "The administration window could not be opened."
   }
 }

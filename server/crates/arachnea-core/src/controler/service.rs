@@ -29,7 +29,8 @@ pub trait ControlerService {
     /// Registers a type-erased header-aware JSON callback under a command name.
     ///
     /// Backends without HTTP semantics (e.g. Tauri IPC) receive empty request
-    /// headers and ignore the status/headers of the output.
+    /// headers, receive transport-captured native identity, and ignore the HTTP
+    /// status/headers except native event dispatch metadata.
     ///
     /// # Arguments
     /// * `name` - The command name to register the function under.

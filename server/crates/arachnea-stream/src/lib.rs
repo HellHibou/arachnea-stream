@@ -1,6 +1,9 @@
 #![warn(missing_docs)]
 //! Arachnea stream service facade and player resolvers.
 
+/// Persisted common profiles and streaming-domain coordination.
+pub mod profiles;
+
 /// Stream-specific hooks and compatibility paths for Scrapyfy administration.
 pub mod admin_composition;
 /// Global ETag construction and decoding for aggregated responses.
@@ -175,3 +178,38 @@ pub const DEFAULT_TRANSLATION_MAX_CONCURRENT_REQUESTS: usize = 1;
 
 /// Default account quota window: 30 days.
 pub const DEFAULT_TRANSLATION_BUDGET_WINDOW_SECONDS: u64 = 2_592_000;
+
+// Account/profile persistence.
+
+/// Physical store name for common public accounts and profile identities.
+pub const PROFILES_STORE_NAME: &str = "profiles";
+/// Physical store name for streaming data attached to common profile UUIDs.
+pub const STREAM_PROFILES_STORE_NAME: &str = "arachnea-stream-profiles";
+/// Initial version of persisted profile documents and coordination intents.
+pub const PROFILE_DOCUMENT_VERSION: i64 = 1;
+/// Largest revision exactly representable by JavaScript/JSON clients.
+pub const PROFILE_MAX_REVISION: i64 = 9_007_199_254_740_991;
+/// Common onboarding scope stored without service-specific data.
+pub const PROFILE_COMMON_SCOPE: &str = "common";
+/// Streaming onboarding scope; initialized on first streaming use only.
+pub const PROFILE_STREAM_SCOPE: &str = "arachnea-stream";
+
+/// Public login minimum length in ASCII bytes.
+pub const PUBLIC_LOGIN_MIN_LENGTH: usize = 3;
+/// Public login maximum length in ASCII bytes.
+pub const PUBLIC_LOGIN_MAX_LENGTH: usize = 64;
+/// Public password minimum length in Unicode scalar values.
+pub const PUBLIC_PASSWORD_MIN_LENGTH: usize = 12;
+/// Public password maximum length in Unicode scalar values.
+pub const PUBLIC_PASSWORD_MAX_LENGTH: usize = 128;
+/// Public session idle expiration, 30 days in milliseconds.
+pub const PUBLIC_SESSION_IDLE_TTL_MS: i64 = 30 * 24 * 60 * 60 * 1000;
+/// Public session cookie name, separate from the administrator cookie.
+pub const PUBLIC_SESSION_COOKIE: &str = "arachnea_public_session";
+
+/// Payload-free native event invalidating public session views across webviews.
+pub const PUBLIC_SESSION_CHANGED_EVENT: &str = "arachnea-public-session-changed";
+/// OS credential service namespace prefix; changing it invalidates native resume.
+pub const PUBLIC_NATIVE_VAULT_SERVICE_PREFIX: &str = "arachnea.public";
+/// OS credential account containing the selected public account UUID.
+pub const PUBLIC_NATIVE_VAULT_ACTIVE_ACCOUNT: &str = "active-account";

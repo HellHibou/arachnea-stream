@@ -233,5 +233,37 @@
     "revokeConfirm": "Révoquer la clé « {label} » ? Les nouvelles authentifications seront refusées ; les tunnels déjà établis peuvent se terminer pendant 30 secondes au maximum.",
     "noKeys": "Aucune clé API utilisateur.",
     "pinned": "Imposé par la ligne de commande : {settings}"
+  },
+  "users": {
+    "title": "Utilisateurs",
+    "login": "Identifiant",
+    "temporaryPassword": "Mot de passe temporaire",
+    "passwordHint": "Entre 12 et 128 caractères. L’utilisateur devra remplacer ce mot de passe à sa prochaine connexion.",
+    "create": "Créer un compte",
+    "list": "Comptes publics",
+    "reset": "Réinitialiser le mot de passe",
+    "delete": "Supprimer le compte",
+    "deleting": "Suppression en cours",
+    "changeRequired": "Remplacement du mot de passe requis",
+    "active": "Actif",
+    "empty": "Aucun compte public.",
+    "refresh": "Actualiser",
+    "cancel": "Annuler",
+    "deleteConfirmation": "Supprimer {login}, tous ses profils et leurs données ? Cette action est irréversible.",
+    "errors": {
+      "invalid_data": "Vérifiez l’identifiant et le mot de passe.",
+      "login_taken": "Cet identifiant est déjà utilisé.",
+      "resource_not_found": "Ce compte n’est plus accessible.",
+      "storage_unavailable": "L’opération n’a pas pu être terminée. Réessayez avec le même formulaire pour la reprendre.",
+      "admin_required": "Une autorisation administrateur est nécessaire.",
+      "origin_rejected": "Cette requête a été refusée.",
+      "operation_id_conflict": "Cet identifiant d’opération a déjà été utilisé. Fermez le formulaire et réessayez.",
+      "unauthorized": "Une autorisation administrateur est nécessaire.",
+      "forbidden": "Cette opération n’est pas autorisée.",
+      "request_failed": "Le service des comptes est indisponible. Réessayez.",
+      "invalid_response": "Le service des comptes est indisponible. Réessayez.",
+      "network_error": "Le service des comptes est indisponible. Réessayez.",
+      "method_not_allowed": "Le service des comptes est indisponible. Réessayez."
+    }
   }
 }

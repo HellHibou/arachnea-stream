@@ -573,3 +573,30 @@ export function createProxyKey(label: string): Promise<{ key: ProxyKeyInfo; toke
 export function deleteProxyKey(id: string): Promise<void> {
   return apiCall('delete-proxy-key', { method: 'POST', body: { id } })
 }
+
+/** Safe public account row for administration. */
+export interface PublicUser {
+  user_id: string
+  login: string
+  must_change_password: boolean
+  state: 'active' | 'deleting'
+  created_at: number
+}
+
+/** Lists public accounts through the existing administrator transport. */
+export async function fetchPublicUsers(): Promise<PublicUser[]> {
+  const reply = await apiCall<{ data: { users: PublicUser[] } }>('users')
+  return reply.data.users
+}
+/** Creates a public account. @param operation_id Stable retry identity. @param login Canonical login. @param temporary_password Non-persisted temporary password. */
+export async function createPublicUser(operation_id: string, login: string, temporary_password: string): Promise<void> {
+  await apiCall('create_user', { method: 'POST', body: { operation_id, login, temporary_password } })
+}
+/** Resets credentials and revokes sessions. @param operation_id Stable retry identity. @param user_id Target account. @param temporary_password Non-persisted temporary password. */
+export async function resetPublicUserPassword(operation_id: string, user_id: string, temporary_password: string): Promise<void> {
+  await apiCall('reset_user_password', { method: 'POST', body: { operation_id, user_id, temporary_password } })
+}
+/** Deletes the confirmed account and its profile data. @param operation_id Stable retry identity. @param user_id Target account. */
+export async function deletePublicUser(operation_id: string, user_id: string): Promise<void> {
+  await apiCall('delete_user', { method: 'POST', body: { operation_id, user_id } })
+}

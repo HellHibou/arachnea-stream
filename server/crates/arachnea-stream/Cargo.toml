@@ -38,10 +38,12 @@ xxhash-rust.workspace = true
 tauri = { workspace = true, features = [] }
 tauri-plugin-opener.workspace = true
 thiserror.workspace = true
+sha2 = "0.10"
 tokio = { workspace = true, features = ["full"] }
 tracing.workspace = true
 url.workspace = true
 urlencoding.workspace = true
+uuid = { workspace = true, features = ["serde", "v4"] }
 
 [build-dependencies]
 serde_json.workspace = true
@@ -50,3 +52,9 @@ tauri-build.workspace = true
 [dev-dependencies]
 serde_yaml.workspace = true
 arachnea-scrapyfy = { path = "../arachnea-scrapyfy", default-features = false, features = ["test-support"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework = "3.7"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security_Credentials"] }

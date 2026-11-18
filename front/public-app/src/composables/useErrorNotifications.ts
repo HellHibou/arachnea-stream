@@ -4,6 +4,7 @@ import type { ScraperExecutionError } from '@/types/scraperError'
 
 /** Session-global queue consumed by the notification UI introduced in point 6. */
 const notifications = shallowRef<ScraperExecutionError[]>([])
+window.addEventListener('arachnea-session-context', () => { notifications.value = [] })
 
 /** Adds one structured execution error to the global notification queue. */
 export function enqueueErrorNotification(error: ScraperExecutionError): void {

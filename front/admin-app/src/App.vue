@@ -179,6 +179,7 @@ onMounted(() => {
           prepend-icon="mdi-server"
           :title="serviceStoreTitle(storeId)"
         />
+        <v-list-item :to="{ name: 'users' }" prepend-icon="mdi-account-group" :title="t('users.title')" />
         <v-list-item :to="{ name: 'settings' }" prepend-icon="mdi-cog" :title="t('nav.settings')" />
       </v-list>
     </v-navigation-drawer>

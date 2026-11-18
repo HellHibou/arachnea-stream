@@ -1611,3 +1611,7 @@ Sauvegarde et réinitialisation remplacent ce périmètre atomiquement. La table
 ouverte directement, sans migration des anciennes données JSON. Une clé primaire
 existante incompatible est refusée, sans conversion ni suppression de lignes.
 Les contrats admin et le mécanisme de rechargement sont conservés.
+
+## Comptes et profils applicatifs
+
+Le [contrat des profils utilisateurs serveur](arachnea-user-profiles-fr.md) définit séparément les futures API de comptes/sessions, de persistance des profils et de contrôle d’accès. Les stores/coordination (étape 2) et comptes/sessions/administration des utilisateurs/protections du contenu (étape 3) sont implémentés ; les API de profils restent à développer. Ce contrat applicatif ne modifie pas ce schéma YAML.

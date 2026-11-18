@@ -13,6 +13,7 @@ use crate::controler::{
 /// * `entry_point` - Public command URL used by generated links.
 /// * `path` - Remaining route path after the command.
 /// * `query` - Raw route query preserved for signed upstream URLs.
+/// * `native_webview` - Native caller captured from the protocol context.
 pub(super) fn respond(
     request: ::tauri::http::Request<Vec<u8>>,
     responder: ::tauri::UriSchemeResponder,
@@ -20,6 +21,7 @@ pub(super) fn respond(
     entry_point: String,
     path: String,
     query: String,
+    native_webview: Option<crate::controler::NativeWebviewContext>,
 ) {
     let method = request.method().to_string();
     let headers_map = request
@@ -41,6 +43,7 @@ pub(super) fn respond(
                 method,
                 headers: headers_map,
                 remote_addr: None,
+                native_webview,
                 body: request.body().to_vec(),
                 entry_point,
                 force_buffer_response: true,

@@ -8,7 +8,7 @@ use crate::controler::{
     StreamControlerFunction,
 };
 use crate::TAURI_WEB_BASE;
-use ::tauri::Wry;
+use ::tauri::{Manager, Wry};
 
 /// Registers stream routes and frontend mounts on the configured custom scheme.
 ///
@@ -33,7 +33,11 @@ pub(super) fn register(
         let tauri_instance = web_instance_etag().to_string();
         builder = builder.register_asynchronous_uri_scheme_protocol(
             uri_scheme,
-            move |_app, request, responder| {
+            move |app, request, responder| {
+                let caller = app
+                    .app_handle()
+                    .get_webview(app.webview_label())
+                    .and_then(|webview| super::caller::capture(&webview, &web_scheme));
                 let request_path = request_path_from_tauri_uri(request.uri(), &web_scheme);
 
                 if let Some((command, path, query)) =
@@ -52,6 +56,7 @@ pub(super) fn register(
                             entry_point,
                             path,
                             query,
+                            caller,
                         );
                         return;
                     }

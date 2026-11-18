@@ -34,7 +34,9 @@ pub use value_encryption::{decrypt_value, encrypt_value};
 
 /// Physical SQLite database owners, configurations and typed entity table views.
 #[cfg(feature = "sqlite-persistence")]
-pub use sqlite_store::{SqlKey, SqliteDatabase, SqliteEntityStore, SqliteStoreConfig};
+pub use sqlite_store::{
+    SqlKey, SqliteDatabase, SqliteEntityStore, SqliteStoreConfig, SqliteTransaction,
+};
 /// Typed SQLite persistence store configured for exactly one entity schema.
 #[cfg(feature = "sqlite-persistence")]
 pub type SqlitePersistenceStore<E> = SqliteEntityStore<E>;

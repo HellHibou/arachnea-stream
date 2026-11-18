@@ -233,5 +233,37 @@
     "revokeConfirm": "Revoke key “{label}”? New authentications will be rejected; existing tunnels may drain for up to 30 seconds.",
     "noKeys": "No user API keys.",
     "pinned": "Pinned by the command line: {settings}"
+  },
+  "users": {
+    "title": "Users",
+    "login": "Login",
+    "temporaryPassword": "Temporary password",
+    "passwordHint": "Use 12–128 characters. The user must replace this password on their next sign-in.",
+    "create": "Create account",
+    "list": "Public accounts",
+    "reset": "Reset password",
+    "delete": "Delete account",
+    "deleting": "Deletion in progress",
+    "changeRequired": "Password replacement required",
+    "active": "Active",
+    "empty": "No public accounts yet.",
+    "refresh": "Refresh",
+    "cancel": "Cancel",
+    "deleteConfirmation": "Delete {login}, all its profiles and their data? This action cannot be undone.",
+    "errors": {
+      "invalid_data": "Check the login and password.",
+      "login_taken": "This login is already in use.",
+      "resource_not_found": "This account is no longer accessible.",
+      "storage_unavailable": "The operation could not be completed. Retry with the same form to resume it.",
+      "admin_required": "Administrator authorization is required.",
+      "origin_rejected": "This request was refused.",
+      "operation_id_conflict": "This operation ID has already been used. Close the form and retry.",
+      "unauthorized": "Administrator authorization is required.",
+      "forbidden": "This operation is not allowed.",
+      "request_failed": "The account service is unavailable. Please retry.",
+      "invalid_response": "The account service is unavailable. Please retry.",
+      "network_error": "The account service is unavailable. Please retry.",
+      "method_not_allowed": "The account service is unavailable. Please retry."
+    }
   }
 }

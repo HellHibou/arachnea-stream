@@ -13,7 +13,7 @@ use crate::{
 };
 use ::tauri::{
     ipc::{Invoke, InvokeBody, InvokeError},
-    AppHandle, Manager, WebviewUrl, WebviewWindowBuilder, Wry,
+    AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder, Wry,
 };
 use anyhow::anyhow;
 use serde_json::Value;
@@ -30,6 +30,27 @@ pub(super) fn handler(
     invoke_web_scheme: String,
 ) -> impl Fn(Invoke) -> bool + Send + Sync + 'static {
     move |invoke: Invoke| {
+        let webview = invoke.message.webview();
+        let caller = super::caller::capture(&webview, &invoke_web_scheme);
+        let Some(caller) = caller else {
+            invoke
+                .resolver
+                .respond(Err::<(), InvokeError>(InvokeError::from(
+                    "Untrusted native caller",
+                )));
+            return true;
+        };
+        if invoke.message.command().starts_with("admin/")
+            && (caller.label != ADMIN_WINDOW_LABEL
+                || !caller.url.contains(&format!("/{ADMIN_WEB_MOUNT}/")))
+        {
+            invoke
+                .resolver
+                .respond(Err::<(), InvokeError>(InvokeError::from(
+                    "Administration window required",
+                )));
+            return true;
+        }
         if invoke.message.command().starts_with("desktop_tabs_") {
             return tabs::handle_invoke(invoke);
         }
@@ -106,14 +127,20 @@ pub(super) fn handler(
                     }
                 };
 
+            let app = invoke.message.webview().app_handle().clone();
             invoke.resolver.respond_async(async move {
                 handler(ControlerJsonInput {
                     payload: ControlerFunctionInput::Json(payload),
                     // Tauri IPC carries no HTTP headers.
-                    context: RequestControlerContext::default(),
+                    context: RequestControlerContext::default().with_native_webview(caller),
                 })
                 .await
-                .map(|output| output.value)
+                .map(|output| {
+                    if let Some(event) = output.headers.get(crate::CONTROLLER_NATIVE_EVENT_HEADER) {
+                        let _ = app.emit(event, ());
+                    }
+                    output.value
+                })
                 .map_err(|e| InvokeError::from_anyhow(anyhow!("Handler error: {}", e)))
             });
             true

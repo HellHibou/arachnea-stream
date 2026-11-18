@@ -442,3 +442,10 @@ After `npm run build-only` in `front/public-app/`, rebuild the executable with
 `cargo build -p arachnea-stream --bin arachnea` in `server/`, restart the running
 application, and reload the browser. Rebuilding the frontend alone does not
 replace the assets embedded in an already running server.
+
+
+## Public account session gate
+
+`AccountSessionGate` restores the server session before mounting content and starting metadata, allowlist and personal-cache loading. Public login uses a dedicated POST JSON/GET state transport, with HttpOnly cookies in browsers and the native session broker in Tauri. Administrator-created/reset accounts must replace their temporary password before content can render. The login gate exposes the independent administration entry for first-account setup; the navigation menu signs out by revoking the session.
+
+Account changes clear in-memory catalogue validation, metadata, section/bookmark and notification caches; late replies are discarded by generation. BroadcastChannel/native events and focus/visibility/session polling revalidate other tabs. Credential drafts stay in component memory, and neither password nor token is written to localStorage/IndexedDB. An unavailable native OS vault is reported as memory-only persistence. Existing personal preference/home/bookmark storage remains local until later profile migration steps; no local-data import or onboarding profile UI is delivered here.

@@ -483,5 +483,39 @@
     "new": "Nouvel onglet",
     "close": "Fermer {title}",
     "error": "Échec de l’action sur l’onglet"
+  },
+  "accounts": {
+    "loginTitle": "Connexion à Arachnea",
+    "changeTitle": "Choisir un nouveau mot de passe",
+    "changeRequired": "Remplacez le mot de passe temporaire avant d’accéder au contenu.",
+    "login": "Identifiant",
+    "password": "Mot de passe",
+    "currentPassword": "Mot de passe actuel",
+    "newPassword": "Nouveau mot de passe",
+    "confirmPassword": "Confirmer le mot de passe",
+    "passwordMismatch": "Les mots de passe ne correspondent pas.",
+    "passwordHint": "Le mot de passe doit contenir entre 12 et 128 caractères.",
+    "savePassword": "Enregistrer le mot de passe",
+    "signIn": "Se connecter",
+    "signOut": "Se déconnecter",
+    "restoring": "Restauration de la session…",
+    "loading": "Chargement de l’application…",
+    "retry": "Réessayer",
+    "memoryOnly": "Cet appareil ne peut pas enregistrer la session de façon sécurisée. Reconnectez-vous après redémarrage.",
+    "errors": {
+      "invalid_credentials": "Identifiant ou mot de passe incorrect.",
+      "invalid_data": "Vérifiez les valeurs saisies.",
+      "session_required": "Connectez-vous pour continuer.",
+      "session_expired": "Votre session a expiré.",
+      "session_revoked": "Votre session n’est plus valide.",
+      "password_change_required": "Choisissez un nouveau mot de passe pour continuer.",
+      "storage_unavailable": "Le service des comptes est indisponible. Réessayez.",
+      "origin_rejected": "Cette requête a été refusée.",
+      "login_rate_limited": "Trop de tentatives échouées. Réessayez plus tard.",
+      "method_not_allowed": "Cette opération n’a pas pu être envoyée.",
+      "operation_id_conflict": "Cette opération a déjà été utilisée. Reconnectez-vous."
+    },
+    "administration": "Administration",
+    "adminOpenError": "La fenêtre d’administration n’a pas pu être ouverte."
   }
 }

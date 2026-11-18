@@ -22,9 +22,9 @@ pub use application::{
 };
 pub use contracts::{
     ControlerFunctionInput, ControlerJsonInput, ControlerJsonOutput, ControlerStreamInput,
-    ControlerStreamOutput, JsonControlerFunction, JsonControlerFuture, RequestControlerContext,
-    ResponseBody, SerializedControlerFunction, SerializedControlerFuture, StreamControlerFunction,
-    StreamControlerFuture,
+    ControlerStreamOutput, JsonControlerFunction, JsonControlerFuture, NativeWebviewContext,
+    RequestControlerContext, ResponseBody, SerializedControlerFunction, SerializedControlerFuture,
+    StreamControlerFunction, StreamControlerFuture,
 };
 use options::ServerNetworkMode;
 pub(crate) use registration::normalize_etag;

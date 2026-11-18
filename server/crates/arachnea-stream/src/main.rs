@@ -172,6 +172,17 @@ async fn main() -> Result<()> {
         }
     };
 
+    let profile_stores =
+        arachnea_stream::profiles::ProfileStores::open(application::get_application_data_path(""))?;
+    let profile_coordinator =
+        arachnea_stream::profiles::ProfileCoordinator::new(profile_stores.clone());
+    profile_coordinator.recover().await?;
+    let accounts = Arc::new(arachnea_stream::profiles::accounts::AccountService::new(
+        &profile_stores,
+        profile_coordinator,
+        &application::get_application_data_path(""),
+    )?);
+
     // Service credentials are stored encrypted (per-field AES-256-GCM) in the
     // typed `arachnea-services` SQLite store; the activation overrides,
     // Cloudflare sessions and proxy inventory live in the same typed stores.
@@ -253,7 +264,13 @@ async fn main() -> Result<()> {
     let cli_proxy = options.cli_proxy.clone();
 
     let mut controler = arachnea_core::create_application_controler!(options.application_option);
-    let reloadable = reloadable.register_service(controler.as_mut());
+    let reloadable = {
+        let mut protected = arachnea_stream::profiles::accounts::guard::ContentController {
+            inner: controler.as_mut(),
+            accounts: accounts.clone(),
+        };
+        reloadable.register_service(&mut protected)
+    };
 
     // Hot application of server settings is owned by Core's REST supervisor;
     // Core's factory combines the shared persisted configuration reader
@@ -288,6 +305,11 @@ async fn main() -> Result<()> {
         cli_scraper,
         controler.as_mut(),
     )?;
+    arachnea_stream::profiles::accounts::routes::register(
+        controler.as_mut(),
+        accounts,
+        admin_state.state.clone(),
+    );
     let _ = late_reload.set(admin_state.reload_coordinator);
 
     controler.launch();

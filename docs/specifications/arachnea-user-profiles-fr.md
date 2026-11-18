@@ -1,0 +1,241 @@
+# Comptes et profils utilisateurs serveur — contrat d’implémentation
+
+Statut (18 novembre 2026) : étapes 1 à 3 réalisées. Contrat cible du [plan](../dev-tracking/server-user-profiles-analysis.md) ; stores, comptes/sessions, administration des utilisateurs et protection du contenu sont implémentés ; API de profils et étapes 4 à 9 restent à développer. [Version anglaise](arachnea-user-profiles-en.md).
+
+## 1. Périmètre et responsabilités
+
+Les comptes publics sont administrés, distincts de l’identité administrateur et des identifiants des fournisseurs. L’authentification précède tout accès au contenu. Ce périmètre ne comprend ni inscription publique, ni récupération par e-mail, ni import local, ni file d’écritures hors ligne, ni autorisation de lecteurs externes.
+
+`arachnea-stream/src/profiles/` porte la fonctionnalité applicative, sans nouvelle crate :
+
+| Module | Responsabilité |
+| --- | --- |
+| `common/models`, `common/repository` | Identités compte/profil, préférences communes, guide et transactions locales dans `profiles` |
+| `accounts/service`, `accounts/sessions`, `accounts/credentials` | Identifiants publics, sessions persistantes, mutations admin ; les repositories communs conservent l’autorité identité/quota |
+| `streaming/models`, `streaming/repository`, `streaming/service` | Préférences streaming, homes, sections et signets |
+| `coordination` | Opérations durables, sérialisation par profil, reprise et suppression des comptes |
+| `avatars` | Validation du manifeste embarqué, catalogue, images et avatar de repli |
+| `accounts/dto`, `accounts/routes`, `accounts/guard`, `accounts/native` | DTO comptes, adaptateurs REST/Tauri, autorisation du contenu, gestionnaire de secrets natifs ; adaptateurs de profils aux étapes suivantes |
+| Composition `main.rs` | Ouverture des stores, injection des repositories/configuration/authentification, reprise et routes |
+
+Core ne porte que les extensions génériques de persistance/contrôleur. Scrapyfy conserve son authentification administrateur, sans métier des comptes publics. YAML et façades de scraping ne façonnent pas les réponses des profils.
+
+Une instance `SqliteDatabase` par store physique, avec injection des vues typées :
+
+| Store | Tables et clés |
+| --- | --- |
+| `data/profiles.sqlite3` | `users(id)` avec login normalisé unique ; `user_sessions(id)` indexé par `user_id` ; `profiles(id)` indexé par `user_id`, unicité `(user_id, normalized_name)` ; `profile_settings(profile_id)` ; `profile_onboarding(profile_id, scope)` ; `profile_operations(operation_id)` |
+| `data/arachnea-stream-profiles.sqlite3` | `stream_profile_settings(profile_id)` ; `profile_homes(profile_id, home_id)` ; `profile_home_sections(profile_id, section_key)` ; `profile_bookmarks(profile_id, source_id, entry)` |
+
+`user_id`, `profile_id`, `home_id`, `operation_id` sont des UUID générés par le serveur, jamais réattribués. Seul le socle commun crée `profile_id`, réutilisé tel quel en streaming sans recopier propriétaire/nom/avatar. Aucune clé étrangère interbase ni transaction globale atomique. Identités, propriétaire, état, noms normalisés, révisions et champs de recherche restent explicites ; les documents imbriqués sont du JSON typé avec `schema_version: 1`. Déclarer la version de chaque schéma via le mécanisme Core existant. Les stores services/Cloudflare/proxy restent inchangés. Préserver les constructeurs en mémoire.
+
+Core fournit désormais des transactions locales synchrones IMMEDIATE via `SqliteDatabase::transaction`, des opérations typées get/find/put/delete_where et des index uniques composés vérifiés appartenant à l’appelant via `SqliteTransaction::ensure_unique`. Le put transactionnel utilise un upsert sur clé primaire et refuse les collisions secondaires sans supprimer d’autre ligne. Une vue d’une autre base physique est refusée. Ces appels s’exécutent sur un thread bloquant et ne doivent ni s’imbriquer ni invoquer les méthodes async de la base verrouillée. L’enregistrement REST accepte actuellement GET et POST pour les commandes JSON ; l’étape 3 doit fournir un enregistrement contrôlant les méthodes et un contexte d’authentification fiable avant de l’utiliser pour les mutations.
+
+Un profil neuf ne possède aucune home personnalisée, section ni signet. Préférences communes et guide existent à sa création ; les données streaming sont initialisées au premier usage seulement. Aucune donnée du navigateur n’initialise un profil. Sauvegarder/restaurer les deux stores à une même frontière de quiescence de l’application ; vérifier les rattachements et reprendre les opérations avant d’accepter les écritures.
+
+## 2. Inventaire exhaustif du stockage navigateur et destination
+
+Inventaire des appels de stockage des sources `front/public-app` et `front/admin-app`. Les paramètres ci-dessous sont les suffixes littéraux de `arachnea.param.` dans `services/storage/keys.ts` (`PARAMETERS_DEF`) ; les autres clés sont complètes. Les valeurs par défaut et enums actuels proviennent de `keys.ts`, `sanitizers.ts`, `types/media.ts`, `services/languages.ts` et sont conservés sauf précision ici.
+
+| Clé(s) actuelle(s) | Propriétaire / champ cible |
+| --- | --- |
+| `language`, `theme` | Profil commun, `settings.values.language`, `settings.values.theme` ; langue null = langue du navigateur |
+| `defaultHomeId` | Profil streaming ; null = accueil agrégé ; sinon home de ce profil |
+| `thumbnailOrientation`, `thumbnailImageFit`, `thumbnailSizeMultiplier`, `collectionMode` | Affichage streaming |
+| `useTrailerAsBackground`, `useCatalogBannersAsBackground`, `isBackgroundAnimated`, `backgroundImageFit` | Arrière-plan streaming |
+| `isEpisodeAutoplayEnabled` | Lecteur streaming |
+| `videoPlayer.autoskip.previously`, `videoPlayer.autoskip.intro`, `videoPlayer.autoskip.coming_next`, `videoPlayer.autoskip.outro`, `videoPlayer.autoskip.ads` | Saut des chapitres streaming |
+| `videoPlayer.trackProfiles` | Combinaisons audio/sous-titres ordonnées, distinctes des profils utilisateurs |
+| `videoPlayer.subtitleLanguagePriority`, `videoPlayer.subtitleTranslationByLanguage`, `videoPlayer.subtitleLanguages` | Sous-titres streaming ; conserver l’alias historique dans le DTO typé, exiger l’accord des deux listes ordonnées si fournies ensemble, retourner la priorité canonique dans les deux ; aucun repli sur le navigateur |
+| `videoPlayer.allowAudioDescription`, `securityMode` | Accessibilité/sécurité du lecteur streaming |
+| `arachnea.home.showSectionEditingButtons` | Affichage streaming |
+| `arachnea.videoPlayer.preferences.quality` | Lecteur streaming, chaîne ou null (Auto) ; disponibilité résolue pour chaque média |
+| `arachnea.videoPlayer.preferences.audioTrack`, `arachnea.videoPlayer.preferences.textTrack` | Derniers choix manuels streaming ; conserver les champs/origin typés actuels, sans considérer un ID fournisseur comme universel ; choix indisponible = repli vers les combinaisons configurées |
+| `arachnea.videoPlayer.preferences.textTrackSettings` | Apparence des sous-titres streaming ; clés existantes autorisées uniquement |
+| `arachnea.videoPlayer.preferences.volume`, `arachnea.videoPlayer.preferences.muted` | Appareil ; conserver les clés, volume fini entre 0 et 1 et muet booléen |
+| `arachnea.navigation.visible`, `arachnea.navigation.sourcesExpanded` | Appareil ; clés conservées |
+| `admin.theme` | Interface admin/appareil ; indépendant du thème public |
+| `arachnea.theme.key` | Constante `THEME_KEY` déclarée sans consommateur actif ; ne pas lire en repli |
+| `arachnea.test` | Sonde transitoire de disponibilité de `storage/persistence.ts`, pas une préférence |
+
+Le thème public utilise actuellement `arachnea.param.theme` via `useTheme`. Initialiser i18n/thème depuis les défauts puis l’instantané serveur commun. Dimensions des fenêtres, navigation temporaire, pages chargées, pagination et notifications restent sur l’appareil/en mémoire. Aucun usage de `sessionStorage` trouvé. Le helper générique contient `localStorage.clear()` ; cette fonctionnalité ne doit pas l’utiliser.
+
+La base IndexedDB `arachnea-db` contient ces stores personnels :
+
+| Store / clé actuelle | Document / identité cible |
+| --- | --- |
+| `custom_homes` / `id`, index `navigationOrder` | `profile_homes` ; préserver `CustomHomeDefinition` schemaVersion 1, nom, ordre, sources de bannières, raccourcis, blocs avec IDs distincts/options d’affichage, fusion, visibilité des signets et dates |
+| `home_sections` / `name`, index `order` | `profile_home_sections` ; ordre, mode de collection, orientation/ajustement ; `name` devient `section_key`, y compris `local:bookmarks` réservé |
+| `entry_bookmarks` / `key` | `profile_bookmarks` ; identité source/entry et tous les champs `EntryBookmark` : groupId, selectedItemId, playbackTime, title, alternativeTitleLabel, imagePosterUrl, imageLandscapeUrl, imageUrl, description, mediaTypeLabel, seasonLabel, episodeNumber, isFullyWatched ; modifiedAt devient une date serveur |
+
+La clé base64url du signet reste un jeton de route/présentation, jamais une autorisation. Conserver le trim source/entry, sans autre réécriture d’URL ni invention d’identité de source. Les anciens stores restent physiquement présents mais deviennent inactifs à l’étape 8.
+
+Chemins à remplacer, consommateurs indirects inclus :
+
+- `services/indexDB.ts` ouvre la base et fournit le CRUD ; `customHomes.ts` ouvre aussi des transactions directes via `withDatabaseRetry`.
+- `services/storage/index.ts` initialise les paramètres locaux, écrit via watchers, charge sections/signets et les recharge au retour visibilité/focus ; `storage/sectionRecords.ts` et `storage/bookmarks.ts` écrivent.
+- Les homes contournent ce store via `router/index.ts`, `services/defaultHome.ts`, `composables/home/useCustomHomeManager.ts`, `useCustomHomeDefinition.ts`.
+- `composables/home/useHomeCatalog.ts` consomme les identités de signets et le cache réactif ; les écritures depuis les vues détail/lecteur passent par le bridge du stockage. Remplacer uniquement Pinia ne couvre pas ces chemins.
+- `main.ts`, `App.vue`, `i18n/index.ts`, `composables/useTheme.ts` consomment les préférences au démarrage ; `Parameters.vue` et `parameters/ParametersDialog.vue` modifient actuellement directement les valeurs partagées.
+- `services/rustify/apiClient.ts` indexe les ETags REST uniquement par commande/paramètres. Désactiver le cache personnel et vider les caches authentifiés en mémoire au changement de compte/profil/serveur. Toute réutilisation du cache catalogue reste précédée de l’autorisation, y compris une réponse 304.
+
+Nouvelles clés de reprise sans secret : `arachnea.resume.<encoded-server-identity>.lastUserId` et `arachnea.resume.<encoded-server-identity>.<user_id>.lastProfileId`. Encoder en base64url l’origine canonique et la racine applicative du serveur ; le mode local natif utilise une identité d’installation stable. Revalider les deux IDs côté serveur. Aucun mot de passe/jeton de session dans le stockage JavaScript.
+
+## 3. DTO de transport et validation
+
+Les nouvelles API utilisent snake_case pour l’enveloppe et les métadonnées. L’objet `values` conserve exactement les clés/champs frontend ci-dessus (points/camelCase inclus) ; les adaptateurs isolent le nommage Rust. Dates UTC en millisecondes Unix entières. Révisions entières positives représentables exactement en JSON, incrémentées par le serveur ; `expected_revision: 0` = création seulement. Refuser champs de mutation inconnus, enums invalides, nombres non finis et versions inconnues avec erreurs de champ ; ne pas corriger silencieusement les écritures distantes.
+
+| DTO | Champs / invariants |
+| --- | --- |
+| `AccountView` | `user_id`, `login`, `must_change_password` ; aucun hash, secret ni permission admin |
+| `SessionView` | `authenticated`, `account: AccountView|null`, `expires_at: integer|null`, `persistent: boolean` ; compte/expiration null si anonyme |
+| `ProfileView` | `profile_id`, `user_id`, `name`, `avatar_id`, `order`, `state: creating|active|deleting`, `revision`, `created_at`, `updated_at` |
+| `VersionedSettings` | `schema_version: 1`, `revision`, `values` ; commun = language/theme seulement, streaming = lignes streaming de la section 2 seulement |
+| `OnboardingView` | `scope: common|arachnea-stream`, `state: pending|completed`, `revision` ; absence streaming = non initialisé |
+| `ProfileSnapshot` | `profile: ProfileView`, `common: VersionedSettings`, `streaming: VersionedSettings|null`, `onboarding: OnboardingView[]`, `pending_operation: OperationView|null` ; sans toutes les homes/signets |
+| `ProfileList` | `profiles: ProfileView[]`, `max_profiles_per_user`, `used_slots` ; identités creating/deleting comptées jusqu’au nettoyage, seules les actives sont sélectionnables |
+| `OperationView` | `operation_id`, `kind`, `profile_id: UUID|null`, `state`, `step`, `retryable`, `result: object|null` ; jamais de payload durable/hash exposé |
+| `AvatarCatalogue` | `schema_version: 1`, `fallback_avatar_id`, `avatars: [{avatar_id, url, mime_type}]` ; URLs résolues via le préfixe du contrôleur |
+| `HomeRecord` | `profile_id`, `home_id`, `revision`, `definition: CustomHomeDefinition` ; definition.id = home_id, dates serveur |
+| `SectionRecord` | `profile_id`, `section_key`, `revision`, `order`, `collectionMode`, `thumbnailOrientation`, `thumbnailImageFit` |
+| `BookmarkRecord` | `profile_id`, `source_id`, `entry`, `revision`, `modified_at`, `bookmark: EntryBookmark` ; remplacement complet, pas de maximum implicite de position |
+
+Login : trim, minuscules ASCII, 3–64 caractères `[a-z0-9._-]`, unique entre comptes. Mot de passe : 12–128 valeurs scalaires Unicode, sans trim/normalisation/troncature ; Argon2id avec sel aléatoire neuf. Création et reset admin imposent de remplacer le mot de passe temporaire par une valeur différente. Même erreur de connexion pour compte absent, mot de passe erroné ou compte inactif.
+
+Nom de profil : trim, normalisation NFC, 1–64 valeurs scalaires Unicode, aucun caractère de contrôle. Clé d’unicité = case folding Unicode par défaut du nom normalisé, puis NFC ; contrainte `(user_id, normalized_name)` dans la transaction commune, pas seulement dans l’UI. Un renommage conserve l’UUID. `avatar_id` doit appartenir au catalogue embarqué. Manifeste : `{schema_version:1, fallback_avatar_id, avatars:[{id,file}]}` ; IDs uniques, fichiers relatifs sans traversée/chemin absolu, MIME PNG/JPEG/WebP vérifiés. Manifeste invalide/fichier absent fait échouer le build. Un avatar retiré utilise le repli sans réécrire l’identité stockée ; toute nouvelle sélection doit être valide.
+
+Quota : entier positif représentable exactement en JSON, défaut 3 ; une baisse sous l’usage actuel ne supprime ni ne bloque les profils existants, mais interdit les créations jusqu’au retour sous le plafond. Stocker `max_profiles_per_user` uniquement dans les options additionnelles Core de `config.json`. Sérialiser toutes les mutations de configuration, persister avant publication ; un échec conserve la valeur effective précédente. Pas de reconstruction du scraper pour ce seul changement.
+
+Langue UI null ou locale supportée, thème existant. Langues de lecture selon normalisation/limites existantes (`MAX_TRACK_PROFILES`, limites sous-titres 10) ; clés de traduction incluses dans la priorité canonique. Préserver enums et défauts de la section 2. Enums d’affichage : `portrait|landscape`, `contain|cover`, `grid|single-row|list` ; thumbnailSizeMultiplier fini entre 0.5 et 1.5. Préférences booléennes = booléens JSON ; securityMode = `safe|confirmation|unsafe`. Apparence limitée aux `TEXT_TRACK_SETTINGS_KEYS` actuelles. Position null ou secondes finies positives/zéro ; épisode null ou entier positif ; ordres entiers positifs/zéro représentables exactement en JSON. Résoudre les références home/défaut/sections dans le profil autorisé. Supprimer une home par défaut remet defaultHomeId à null dans la même transaction streaming. Un réordonnancement fournit la séquence complète concernée sans doublon, oubli ni ID étranger.
+
+## 4. Opérations et erreurs
+
+`<api>` désigne le préfixe du contrôleur sous la racine configurée, normalement `/api`. Les noms ci-dessous sont les commandes cibles, également Tauri. GET pour les lectures avec paramètres de requête ; POST JSON pour les mutations, refusées en GET (405). Réponses `{data: T, error: null}` ou `{data: null, error: {code, message, field_errors, operation_id}}`. Messages anglais, codes stables traduits par l’UI, field_errors associant chemins de champ et messages anglais. Ces API n’utilisent pas l’enveloppe d’agrégation du scraper.
+
+Chaque requête profil porte `profile_id` ; le contexte session/admin est injecté par le transport, jamais déduit d’un `user_id` client. Chaque mutation durable porte un UUID client `operation_id`, rattaché à l’acteur et au type d’opération. Persister l’empreinte de la requête normalisée et le résultat : même ID/corps = reprise/résultat d’origine, corps différent = conflit. Garder les reçus durant la vie du compte, ou du profil pour les opérations propres au profil ; empêcher une répétition en vol de recréer un profil supprimé. Revalider authentification/propriété même pour relire un reçu.
+
+| Méthode / commande | Requête → données |
+| --- | --- |
+| POST `accounts/login` | `{login,password}` → SessionView ; session transmise uniquement par transport protégé |
+| GET `accounts/session` | `{}` → SessionView ; état anonyme minimal autorisé |
+| POST `accounts/change_password` | `{operation_id,current_password,new_password}` → SessionView ; révocation des autres sessions, rotation du secret courant |
+| POST `accounts/logout` | `{operation_id}` → `{revoked:true}` ; effacement du secret de transport, répétition sûre |
+| GET `profiles/list` | `{}` → ProfileList |
+| POST `profiles/create` | `{operation_id,name,avatar_id,common_values}` → OperationView ; profil commun seulement |
+| GET `profiles/get` | `{profile_id}` → ProfileSnapshot |
+| POST `profiles/update` | `{operation_id,profile_id,expected_revision,name,avatar_id}` → ProfileView |
+| POST `profiles/delete` | `{operation_id,profile_id,expected_revision}` → OperationView ; confirmation UI obligatoire |
+| POST `profiles/initialize_streaming` | `{operation_id,profile_id,values}` → OperationView ; initialisation unique |
+| POST `profiles/save_preferences` | `{operation_id,profile_id,common?:{expected_revision,values},streaming?:{expected_revision,values}}` → OperationView ; au moins un domaine, aucune initialisation implicite |
+| POST `profiles/complete_onboarding` | `{operation_id,profile_id,scope,expected_revision}` → OnboardingView ; identité/préférences requises déjà confirmées |
+| GET `profiles/operation` | `{operation_id}` → OperationView, propriétaire/admin selon l’opération |
+| GET `profiles/avatars`, `profiles/avatar/<avatar_id>` | `{}` → AvatarCatalogue / octets image |
+| GET `profiles/homes`, `profiles/sections`, `profiles/bookmarks` | `{profile_id}` → `{items: Record[], revision}` ; révision de collection pour ordonner/réconcilier les changements |
+| POST `profiles/save_home`, `profiles/save_section`, `profiles/save_bookmark` | `{operation_id,profile_id,expected_revision,value}` → Record correspondant ; value contient identité/document |
+| POST `profiles/delete_home`, `profiles/delete_section`, `profiles/delete_bookmark` | `{operation_id,profile_id,expected_revision,identity}` → `{deleted:true}` |
+| POST `profiles/reorder_homes`, `profiles/reorder_sections` | `{operation_id,profile_id,expected_revision,ids}` → `{items,revision}` ; révision attendue de collection |
+| GET `admin/users`, `admin/profile_settings` | admin → `{users:[AccountView + state,created_at]}` / `{max_profiles_per_user}` |
+| POST `admin/create_user` | `{operation_id,login,temporary_password}` → AccountView |
+| POST `admin/delete_user` | `{operation_id,user_id}` → OperationView ; confirmation UI obligatoire |
+| POST `admin/reset_user_password` | `{operation_id,user_id,temporary_password}` → `{user_id,must_change_password:true}` |
+| POST `admin/save_profile_settings` | `{operation_id,max_profiles_per_user}` → valeur effective `{max_profiles_per_user}` |
+
+`identity` vaut `{home_id}`, `{section_key}` ou `{source_id,entry}`. `value` vaut `{home_id,definition}`, le contenu de SectionRecord ou `{source_id,entry,bookmark}`, sans métadonnées serveur. Une création de home peut omettre home_id et reçoit un UUID serveur, réutilisé en cas de répétition. Révisions de ligne et collection distinctes ; chaque mutation incrémente transactionnellement celle de collection. Collection vide initialement à 1.
+
+| Erreur stable | HTTP | Réaction client |
+| --- | --- | --- |
+| `invalid_credentials`, `session_required`, `session_expired`, `session_revoked` | 401 | Connexion ; invalider les caches personnels si session invalide |
+| `password_change_required` | 403 | Écran de remplacement obligatoire, sans profils/contenu |
+| `admin_required`, `origin_rejected` | 403 | Refus |
+| `profile_inaccessible`, `resource_not_found` | 404 | Ne pas révéler l’existence d’une ressource étrangère ; revalider la sélection |
+| `invalid_data`, `unsupported_schema_version` | 422 | Brouillon conservé, erreurs de champ |
+| `login_taken`, `profile_name_taken`, `profile_quota_reached` | 409 | Rafraîchir liste/quota, conserver les saisies |
+| `revision_conflict`, `operation_id_conflict`, `operation_in_progress` | 409 | Recharger/comparer explicitement, aucun écrasement silencieux |
+| `storage_unavailable` | 503 | Brouillon conservé, répéter avec le même ID |
+| `method_not_allowed` | 405 | Corriger le transport |
+
+Travail coordonné en cours : 202 avec OperationView ; achevé : 200. Échec transitoire après commit durable : inclure operation_id pour consultation/reprise. L’instantané expose l’opération et les révisions par domaine ; l’UI ne doit pas annoncer le brouillon intégralement enregistré. Aucun mot de passe dans les reçus/logs : seulement les hashes/intention interne nécessaires aux opérations atomiques ; répétitions authentifiées liées au reçu, sans clair ni empreinte de requête dérivée du mot de passe.
+
+## 5. Cohérence et cycle de vie
+
+Compte `active|deleting`, profil `creating|active|deleting`, guide séparé. Identité non active = aucun accès streaming. Types coordonnés : `create_profile`, `initialize_streaming`, `save_preferences`, `delete_profile`, `delete_user` ; états durables `pending|running|retry_pending|completed` avec étape, révisions attendues, payload versionné, acteur et dernière erreur contextualisée. Les mutations locales/reçus d’un même store sont atomiques. Validation/conflit définitif avant premier commit ne crée aucune opération métier en attente.
+
+| Parcours | Points de reprise ordonnés |
+| --- | --- |
+| Création commune | Réserver quota/nom, UUID creating et opération → défauts/guide communs → active et terminé ; aucun streaming |
+| Initialisation streaming | Verrouiller/revalider → intention durable → préférences au même UUID → guide du service pending et opération terminée |
+| Préférences mixtes | Verrouiller/revalider → valider les deux révisions avant écriture et persister l’intention → commit commun → commit streaming → terminer ; reprise selon marqueur d’opération, jamais égalité supposée des valeurs |
+| Suppression profil | Verrouiller → deleting et opération en commun → supprimer toutes les lignes streaming → supprimer préférences/guide/identité communs et terminer le reçu |
+| Suppression compte | deleting et révocation atomique → terminer/coordonner les opérations et suppressions de tous les profils → supprimer données communes du compte et terminer le reçu admin |
+
+Un même verrou par profil couvre validation, écritures streaming et suppression pour toutes les fenêtres/requêtes. Verrou du compte avant ceux des profils, plusieurs profils acquis par UUID triés. Revalider compte/session/profil sous verrou avant chaque écriture. La suppression attend les commits en vol, bloque les nouveaux et termine/rend caduques les sauvegardes inachevées avant nettoyage. La reprise ne recrée aucune ligne streaming pour une identité absente/deleting. Quota/unicité exigent aussi une transaction commune entre créations concurrentes ; le verrou UI ne suffit pas. Un seul processus applicatif écrit par répertoire de données, sauf coordination équivalente au niveau base.
+
+Les sauvegardes mixtes utilisent la reprise vers l’avant, sans prétendre à un rollback global. Elles bloquent les autres mutations du même profil tant qu’incomplètes, mais exposent les états confirmés par domaine et l’opération en attente. Réconcilier les marqueurs au redémarrage avant les écritures de profils. Suppression répétable ; reçu de suppression disponible après nettoyage pour son appelant autorisé. Supprimer le dernier profil ramène au guide. Ordre/home par défaut restent atomiques dans le streaming. Conflit = rechargement/comparaison/réapplication explicite, sans dernier écrivain gagnant ni maximum de position.
+
+Progression : au plus une écriture toutes les 10 secondes pendant la lecture, plus pause/fin/changement de média. Sérialiser par signet, fusionner les mises à jour non envoyées et attendre la révision confirmée avant l’envoi suivant. Avec connexion fonctionnelle, fermeture brutale = perte possible des 10 dernières secondes ; panne réseau = perte potentiellement supérieure, erreur visible et attente en mémoire. Aucune garantie d’écriture à la fermeture ni persistance hors ligne. Le changement de profil tente de terminer les écritures, ignore les callbacks obsolètes et n’envoie jamais l’ancienne progression sous le nouvel UUID.
+
+## 6. Sessions et routes protégées
+
+Secret de session navigateur aléatoire cryptographique, cookie HttpOnly, SameSite=Lax, limité au préfixe API sous la racine applicative, Secure en HTTPS ; un déploiement local HTTP explicite ne peut pas utiliser Secure. `user_sessions` ne stocke que l’empreinte cryptographique, user_id, dernière activité, expiration/révocation. Chaque usage authentifié valide compte, remplacement obligatoire et session persistée ; expiration glissante à 30 jours. Déconnexion/reset/suppression invalident la requête suivante, segments et catalogue en cache inclus. Les octets déjà livrés ne peuvent être rappelés.
+
+Limiter les origines d’écriture à l’application (connexion/déconnexion incluses) ; vérifier Origin ou Referer de même origine, refuser les écritures navigateur invérifiables. Pas de CORS permissif avec credentials. Réponses personnelles/session `Cache-Control: no-store`. Cookies compatibles avec la racine configurée. Session publique sans permission admin, cookie admin sans autorisation de contenu public.
+
+| Surface existante/cible | Accès requis |
+| --- | --- |
+| Shell de connexion, JS/CSS/polices embarqués et ressources par défaut nécessaires | Anonyme pour affichage/connexion uniquement, aucun préchargement personnel/catalogue |
+| `accounts/login`, `accounts/session` minimal | Anonyme autorisé, sans profils/contenu |
+| `accounts/change_password`, `accounts/logout` | Session valide, autorisé pendant le remplacement obligatoire |
+| `search`, `load_home`, `get_service`, `list_lives`, `get_category`, `get_section`, `get_recommendations`, `get_banners`, `get_players`, `get_entry`, `get_season`, `get_live`, `get_stream` | Compte public valide sans restriction ; contrôle avant scraping ou ETag/304 |
+| `proxy` et **tous ses chemins descendants** | Même autorisation pour images/média/manifestes réécrits, initialisations/segments HLS/DASH, audio, sous-titres, vignettes ; requêtes range incluses |
+| `get_drm_license` (POST binaire) | Même autorisation avant lecture/transmission du corps de licence |
+| `translation/get_services`, `translation/translate_url` | Même autorisation, sous-titres traduits en streaming inclus |
+| Tous les `profiles/*`, catalogue/images avatars inclus | Session sans restriction ; propriété active pour chaque opération liée au profil |
+| `admin/*`, opérations d’administration | Authentification admin indépendante existante, également pour comptes/quota |
+| IPC Tauri et routes binaires du protocole personnalisé | Mêmes contrôles session/propriété ; une fenêtre ne constitue pas une authentification |
+
+Sources de l’inventaire : `reloadable_stream_scraper.rs::register_routes`, `stream_scraper/registration.rs`, `api.rs` traduction, Core REST `service.rs`, Tauri `ipc.rs`, `protocol.rs`, `stream_response.rs`. Les requêtes sortantes fournisseur restent distinctes ; les contrôles portent sur les points d’entrée applicatifs. Aucun chemin média anonyme alternatif. Les médias tiers chargés directement par un lecteur déjà autorisé dépendent des contrôles du fournisseur ; Arachnea ne révoque pas une URL déjà divulguée.
+
+Tauri capture désormais label/URL de la véritable webview pour IPC et protocole personnalisé. Les documents externes ne peuvent pas fournir ces métadonnées ; les commandes d’administration exigent la fenêtre admin de confiance. Le gestionnaire applicatif lie les onglets publics de confiance à la même session persistée, conserve son secret dans le coffre système par installation/compte et ne transmet que l’état à JavaScript. Les nouveaux onglets reprennent via ce gestionnaire. Keychain, Credential Manager et Secret Service Linux (`secret-tool`) portent la persistance ; coffre indisponible/verrouillé = session en mémoire signalée, reconnexion après redémarrage, aucun repli en clair. Les événements natifs complètent BroadcastChannel, focus/visibilité et contrôle de session toutes les 30 secondes. Cycle de vie graphique natif et coffre restent à vérifier manuellement sur plateforme.
+
+## 7. Vérifications existantes et limites de validation
+
+Aucun test ni infrastructure ajouté à l’étape 1. Aucun fichier de suite frontend test/spec ni script de test identifié dans les deux applications. Suites backend existantes à réévaluer lors de l’implémentation :
+
+| Suite existante | Contrat affecté |
+| --- | --- |
+| `arachnea-core/tests/persistence/sqlite_store.rs`, `tests/persistence/typed_store/{memory,file}.rs`, `tests/support/{persistence,typed_store}.rs` | Schémas typés, vues de tables partagées, atomicité locale et parité des constructeurs |
+| `arachnea-core/tests/controler/rest_settings.rs` | Priorité configuration JSON, échec de persistance, application à chaud |
+| `arachnea-scrapyfy/tests/scrapyfy/admin_settings.rs` | Options additionnelles, conservation des réglages existants |
+| `arachnea-stream/tests/stream_scraper.rs`, `tests/support/stream_scraper.rs`, `tests/support/application.rs` | Constructeurs mémoire, composition, handlers catalogue |
+| `arachnea-stream/tests/stream_resolver.rs`, `tests/support/stream_resolver.rs` | URLs proxy/média/licence et contexte d’enregistrement |
+| `arachnea-scrapyfy/tests/scrapyfy/global_etag.rs` | Réponses catalogue en cache précédées d’authentification |
+
+Les tests actuels scraper/resolver ne prouvent pas l’autorisation des routes. Aucune suite compte/profil/session existante ; vérifier manuellement redémarrage/inactivité, restriction après reset, isolement, quota/noms concurrents, panne entre stores, écritures tardives pendant suppression, refus GET/POST/range/média anonyme, préfixe, contexte Tauri onglets/protocole, avatars embarqués, conflit/brouillon et anciennes données locales inactives. Ne créer aucun test sans demande explicite. Exécuter les suites affectées et checks Rust/frontend lorsque le code change. Pour l’étape 1 : liens, couverture de l’inventaire, parité bilingue et `git diff --check` ; compilation inutile pour ces seuls documents.
+
+## 8. Implémentation de l’étape 2 et limites d’exploitation
+
+`ProfileStores::open(application_path)` crée/rouvre uniquement les deux nouvelles bases sous `data/`, avec six tables communes et quatre streaming. Les métadonnées des schémas typés existants réconcilient les déclarations physiques ; documents de profils et payloads d’opérations commencent à `PROFILE_DOCUMENT_VERSION = 1`. UUID typés en Rust, persistés comme texte canonique, clés de référence composées incluses. La création commune contrôle quota/unicité dans la transaction qui réserve identité et intention durable. Quota effectif et nom/avatar/préférences validés sont injectés par les futurs services ; aucun endpoint admin/configuration n’est implémenté ici.
+
+`ProfileStores::memory()` utilise deux bases SQLite indépendantes en mémoire, sans fichiers et avec les mêmes transactions/reprises. Les anciens constructeurs mémoire du scraper sont conservés. `main.rs` compose séparément ces stores, reprend les opérations avant les contrôleurs, puis vérifie les rattachements compte/profil/préférences/guide/sessions et streaming. Une erreur de reprise/schéma/référence interrompt le démarrage avec contexte ; aucune donnée orpheline n’est supprimée. Les opérations reprenables restent durables pour le prochain démarrage/essai.
+
+Le repository commun traite les payloads d’opération comme du JSON versionné opaque et ne dépend d’aucune table streaming. Le coordinateur applicatif couvre création commune, initialisation streaming, préférences mixtes et suppression profil/compte. Il conserve reçus/marqueurs, rend caduques les intentions en attente lors d’une suppression et conserve les reçus après nettoyage. Stores/coordinateurs clonés partagent leurs verrous. Les mutations sont sérialisées par compte (profils différents inclus), avec verrou de profil lorsque pertinent, conservés dans les tâches bloquantes malgré l’annulation du futur. Une seule application écrit par répertoire de données ; aucun coordinateur interprocessus.
+
+Préférences communes typées ; contenus imbriqués streaming homes/sections/signets/préférences en enveloppes JSON versionnées, dans l’attente des validateurs/API des étapes suivantes. Repositories et coordinateur sont des briques internes, pas des frontières d’authentification ; les appelants doivent fournir données validées et identité autorisée. À l’étape 2, authentification/routes restaient à développer ; l’étape 3 ci-dessous implémente comptes, sessions et protection du contenu. Validation des avatars et routes de profils restent à développer.
+
+Le scénario SQLite de lecture/écriture existant est adapté pour les commits/rollbacks multitables, unicité composée, refus interbase, réouverture des index et fonctionnement mémoire ; aucune nouvelle suite ajoutée. À l’étape 2, panne/reprise et suppression concurrente n’étaient pas couvertes. L’étape 3 valide manuellement la reprise après commit partiel et la cascade peuplée ; la suppression pendant une lecture réelle concurrente reste à vérifier. Les tests scraper existants ne couvrent pas les parcours de comptes.
+
+Vérifications étape 2 réussies depuis `server/` : `cargo fmt --all --check`, `cargo check -p arachnea-stream --offline`, 9 tests SQLite Core existants et 14 tests de bibliothèque Stream (5 scénarios fournisseurs réels ignorés). Stream a nécessité une relance autorisant les sockets locaux, refusés par le sandbox pour ses serveurs HTTP de test. `git diff --check` est également passé.
+
+## 9. Implémentation et validation de l’étape 3
+
+Connexion/état/changement de mot de passe/déconnexion et opérations admin liste/création/reset/suppression utilisent les enveloppes de la section 4. Le mot de passe temporaire doit toujours être remplacé. Hachage par la primitive Argon2id partagée ; seuls les digests SHA-256 de secrets aléatoires entrent dans SQLite. Reset/remplacement révoquent atomiquement les anciennes sessions ; le remplacement renouvelle le secret courant. Une connexion réussie révoque atomiquement la session précédente présentée par ce transport. Les sessions indépendantes d’autres appareils restent valides jusqu’à reset/remplacement/suppression.
+
+POST JSON et origine vérifiée pour les mutations ; `login_rate_limited` (429) limite les échecs de connexion publique. La validation peut fournir des erreurs de champ ; les pannes exposent un diagnostic sûr et l’ID d’opération, sans identifiants secrets. Les opérations locales à mot de passe conservent atomiquement des reçus terminés sans secret ; une répétition relit le résultat d’origine sans clair ni empreinte de requête dérivée du mot de passe. Si la réponse de remplacement est perdue avant réception du nouveau cookie, se reconnecter avec le nouveau mot de passe.
+
+`ContentController` enveloppe tout enregistrement JSON/binaire du scraper avant callback/ETag : descendants proxy/ranges, manifestes/segments/sous-titres/images, DRM et traduction inclus. Shell de connexion et ressources restent publics ; l’admin conserve sa politique indépendante. Cette politique existante autorise loopback et fenêtre admin native sans compte public et exige l’authentification admin pour les clients serveur distants. Un cookie public ne donne aucune permission admin ; les webviews publiques natives ne peuvent pas invoquer les commandes admin.
+
+L’expiration serveur progresse à chaque requête authentifiée. Les cookies navigateur sont renouvelés par la lecture d’état rapide (toutes les 30 secondes si visible) ; les réponses de contenu lentes ne réinstallent pas le cookie d’un ancien compte après changement. Path suit le préfixe API entrant. Origin/Referer HTTPS conserve Secure ; une lecture d’état sans métadonnées de schéma ne réécrit pas le cookie. Les reverse proxies doivent préserver Host et Origin/Referer cohérents et utiliser la racine configurée. Événements natifs/BroadcastChannel vident le contexte mémoire ; les réponses tardives sont refusées par génération.
+
+Le front Vue public utilise AccountSessionGate/formulaire dédiés et n’initialise le contenu qu’après authentification sans restriction. L’entrée admin indépendante reste disponible avant connexion pour créer le premier compte. Le front admin ajoute gestion des utilisateurs, formulaires de mots de passe temporaires et confirmation de suppression. L’ancien stockage personnel local reste actif après connexion jusqu’aux étapes 5 à 8 ; aucun import, guide de profil serveur ni API de profils n’est annoncé ici.
+
+Validation manuelle HTTP sur copie isolée du serveur, comptes/bases générés sous `/private/tmp`, préfixe `/stage3`. Contrôlés : refus anonymes JSON/proxy/range/licence/traduction, méthodes/origines, logins normalisés/uniques et répétition de création, restriction temporaire, remplacement, catalogue autorisé, reset révoquant deux sessions, déconnexion, expiration forcée, reprise après redémarrage, reprise de sauvegarde mixte partiellement appliquée sans double révision, cascade complète dans les deux stores, suppression répétable et maintien de l’accès admin local indépendant. Serveur temporaire arrêté ensuite. Parcours graphiques/coffres natifs et exécution Linux/Windows restent des vérifications de plateforme ; aucune nouvelle suite ajoutée.

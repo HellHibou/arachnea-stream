@@ -1,4 +1,5 @@
 import { t } from '@/i18n'
+import { sessionGeneration, reportSessionFailure } from '@/services/sessionEvents'
 import { resolveAppPath } from '@/services/baseUrl'
 import { enqueueErrorNotification } from '@/composables/useErrorNotifications'
 import type {
@@ -22,6 +23,7 @@ interface EtagCacheEntry {
 
 /** In-memory conditional-validation cache shared by every REST GET call. */
 const etagCache = new Map<string, EtagCacheEntry>()
+window.addEventListener('arachnea-session-context', () => etagCache.clear())
 
 /**
  * Builds the cache key of one REST GET request from its command and parameters.
@@ -53,6 +55,7 @@ export async function call_api<T = unknown>(
   fct_name: string,
   params: Record<string, unknown>,
 ): Promise<T> {
+  const generation = sessionGeneration()
   const tauriWindow = window as TauriWindow
   const tauriInvoke =
     tauriWindow.__TAURI__?.core?.invoke ?? tauriWindow.__TAURI__?.invoke
@@ -60,6 +63,7 @@ export async function call_api<T = unknown>(
   try {
     if (tauriInvoke) {
       const payload = await tauriInvoke<unknown>(fct_name, params)
+      checkSessionReply(payload, generation)
       return unwrapAggregationPayload<T>(payload, fct_name)
     }
 
@@ -89,14 +93,16 @@ export async function call_api<T = unknown>(
 
     const response = await fetch(
       `${restApiBaseUrl}/${fct_name}${requestQueryString ? `?${requestQueryString}` : ''}`,
-      { method: 'GET', headers },
+      { method: 'GET', headers, credentials: 'same-origin' },
     )
 
+    if (generation !== sessionGeneration()) throw new ReportedApiError('Discarded response from a previous account.')
     if (response.status === 304 && cachedEntry) {
       return unwrapAggregationPayload<T>(cachedEntry.payload, fct_name)
     }
 
     const payload = await parseResponseBody(response)
+    checkSessionReply(payload, generation)
 
     if (!response.ok) {
       handleFailedRestResponse(payload, fct_name, response.status)
@@ -297,4 +303,13 @@ function extractErrorMessage(payload: unknown): string | null {
   }
 
   return null
+}
+
+/** Rejects late replies and closes the gate on authentication failures. @param payload Server response. @param generation Original account generation. */
+function checkSessionReply(payload: unknown, generation: number): void {
+  if (generation !== sessionGeneration()) throw new ReportedApiError('Discarded response from a previous account.')
+  if (isJsonRecord(payload) && isJsonRecord(payload.error) && typeof payload.error.code === 'string') {
+    reportSessionFailure(payload.error.code)
+    throw new ReportedApiError(typeof payload.error.message === 'string' ? payload.error.message : 'Session is unavailable.')
+  }
 }

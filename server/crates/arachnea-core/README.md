@@ -122,3 +122,14 @@ codecs must also guarantee atomic replacement to provide equivalent file-level g
 Atomic replacement serializes operations on the same file-store instance; independently
 opened file stores do not coordinate their cached snapshots. This remains a single-table
 operation, not a multi-table transaction.
+
+## Local typed SQLite transactions
+
+With `sqlite-persistence`, `SqliteDatabase::transaction` runs a synchronous IMMEDIATE transaction across typed views of the same physical database. Its `SqliteTransaction` exposes `get`, `find`, primary-key-upsert `put`, `delete_where` and `ensure_unique`. Callback failure rolls back the whole local transaction; tables belonging to another database are rejected. `ensure_unique` creates/verifies caller-owned unique indexes over declared columns, preserved on schema reopening. Transactional `put` rejects secondary uniqueness collisions without replacing another identity.
+
+Call these synchronous operations on a blocking thread. Do not nest transactions or call async table methods while the same database lock is held. Transactions never span physical databases. `SqliteDatabase::memory()` provides the same transaction/table API without files. These are generic primitives; application-specific coordination and recovery remain in the application crate.
+
+
+## Native request identity
+
+`RequestControlerContext` carries the transport-captured HTTP path and optional `NativeWebviewContext` (actual webview label/document URL). Binary `ControlerStreamInput` carries the same optional native identity; REST always leaves it absent. Tauri rejects IPC from external documents, requires the native administration window for `admin/*`, and captures the originating webview for custom-protocol resources. These facts do not authenticate a public account; application authorization remains separate. Header-aware native callbacks can return `CONTROLLER_NATIVE_EVENT_HEADER` to emit a named payload-free event across webviews after a state change. This metadata is produced by callbacks, never accepted from request payloads.

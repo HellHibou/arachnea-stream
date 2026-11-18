@@ -83,6 +83,10 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Added transport-captured native webview identity to JSON/binary controller contexts, HTTP path metadata for mount-scoped cookies, trusted native IPC checks and payload-free native response events. Admin IPC is restricted to the native administration window.
+
+- Added synchronous typed SQLite transactions across table views in one physical database, verified caller-owned composite unique indexes, primary-key upserts that preserve secondary uniqueness, and an in-memory database constructor. The existing SQLite round-trip scenario now checks multi-table rollback, uniqueness, reopening and cross-database rejection.
+
 - Added dependency-independent country-code primitives for permissive ordered normalization, canonical sorting and strict ordered validation with caller-owned error diagnostics. Country shape validation remains limited to two ASCII letters.
 
 - Added atomic primary-key-scope replacement to SQLite, memory and file typed stores. File mutations now serialize snapshot persistence before publishing cached state.
@@ -375,6 +379,10 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Implemented user profiles step 3: administered public accounts, Argon2id passwords, persistent digest-only sessions with 30-day idle expiry, mandatory temporary-password replacement, atomic reset/revocation, and coordinated account deletion. Content JSON/media/proxy/DRM/translation callbacks now require a valid unrestricted public session before cache checks. REST uses HttpOnly cookies and origin/method validation; native sessions use OS vaults with a visible memory-only fallback.
+
+- Implemented user profiles step 2: separate common/streaming modules and new `profiles.sqlite3` / `arachnea-stream-profiles.sqlite3` stores, typed identities/documents, common-generated profile UUIDs, durable idempotent coordination, guarded deletion and startup recovery/reference validation. Existing service stores and frontend behavior remain unchanged; public account/profile APIs and access controls follow in later steps.
+
 - Anime-Sama now exposes season episodes with deferred links and resolves the selected episode's opaque `lien:<id>` entries through its fresh `epsJeton` player API in `get_players`. The deferred response follows every language page advertised by the source, returns the actual host embed URLs instead of leaking temporary `/api/lien.php` endpoints, and labels each player with its source language.
 
 - Added Odysee full-text `search` through Lighthouse with one batched claim metadata lookup per nonempty page, landscape video cards, clickable channel cards and pagination based on unfiltered search results.
@@ -649,6 +657,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Exposed the existing administrator authorization/write checks as an application-operation boundary, preserving local/remote policy and keeping public-account business logic in Stream.
+
 - `extract_regex_items` now resolves runtime query placeholders, including `{{name}}` inside a regex repetition quantifier, and `pivot_items_by_index` generated fields accept `{index0}` alongside the existing one-based `{}`. `fetch_regex_items_from_items` can derive a request URL from source fields and copy response-scoped regex fields to every extracted item. This permits generic deferred selectors and per-response credentials without source-specific Rust code.
 
 - Added the generic `project_json_relations` post-processor for projecting JSON identifiers and directional relations into a configured object.
@@ -837,6 +847,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Added public user listing, account creation, temporary-password reset and confirmed account deletion through the independent administrator API.
+
 - Added the `arachnea-translation` service store to the admin configuration and its English/French titles and descriptions, allowing the disabled Azure Translator and LibreTranslate providers to be configured and reloaded like other service groups.
 - Added the Arachnéa Proxy settings block with activation, port/network controls, effective state, CLI field locking and named API-key creation/copy/revocation. Tokens are displayed only after creation.
 - Added content-type filtering and localized metadata-value labels through optional `value_labels` translation-key mappings shared by filter options and service-row tags.
@@ -863,6 +875,8 @@ All notable changes to the server workspace are recorded here.
 ### <u>front-public</u>
 
 #### Added
+
+- Added a session gate, login/mandatory-password forms, independent administration entry and sign-out action. Content boot waits for authentication; account changes invalidate caches and stale responses across browser/native tabs without exposing session tokens to JavaScript storage.
 
 - Added a chapter menu button to the public player control bar: it lists each chapter start as a zero-padded `hh:mm:ss` timecode with its title or localized type label (`Intro`, `Ad`, ...), seeks to the start of the selected chapter, and stays hidden when the source has no chapter. When only typed chapters exist (`ads`, `intro`, `outro`, ...), synthetic content chapters are generated for the uncovered timeline ranges so the menu still covers the whole playback.
 
@@ -1088,6 +1102,8 @@ All notable changes to the server workspace are recorded here.
 ### <u>Other</u>
 
 #### Added
+
+- Documented step 1 of server user profiles in matching French/English specifications: browser storage ownership inventory, account/profile DTOs and validation, stable errors, REST/Tauri authorization boundaries, durable cross-store recovery and affected existing checks. Runtime implementation remains pending; the tracking plan and TODO distinguish the drafted contracts from approved behavior.
 
 - Documented the proposed player stream alternatives contract, explicit AnimeUltime/Odysee grouping, integrated language/quality controls, format priority and bounded fallback shared by video, live and trailers. Implementation awaits approval; tracked in `docs/dev-tracking/player-stream-alternatives-analysis.md` and `docs/TODO.md`.
 - Updated the player stream alternatives analysis to require sources without IDs and a complete YAML/resolver migration with no backward compatibility, including affected consumers, fixtures and response caches.

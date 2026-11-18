@@ -40,10 +40,9 @@ use crate::scrapyfy::{
 };
 
 use auth::{LoginRateLimiter, SessionStore};
-use ops::AdminError;
 
 pub use auth::ADMIN_SESSION_COOKIE;
-pub use ops::{register_admin_service, AdminReply};
+pub use ops::{register_admin_service, AdminError, AdminReply};
 pub use reload::{
     prepare_group_reload, ReloadCoordinator, ReloadGroupReport, ReloadSummary, RuntimeReloadReport,
     TrayReloadSummary, ValidatedReloadGroup,
@@ -413,6 +412,26 @@ impl AdminState {
             settings.entrypoint_root = entrypoint_root;
             settings.entrypoint_root_source = SettingSource::Configuration;
         }
+    }
+
+    /// Authorizes an application-owned admin operation using existing admin policy.
+    ///
+    /// # Arguments
+    /// * `context` - Trusted controller request metadata.
+    /// * `write` - Whether to also enforce administration write protections.
+    ///
+    /// # Errors
+    /// Returns an authorization, method or origin rejection.
+    pub async fn authorize_application_operation(
+        &self,
+        context: &RequestControlerContext,
+        write: bool,
+    ) -> Result<(), AdminError> {
+        ops::require_authorized(self, context).await?;
+        if write {
+            ops::verify_write(self, context)?;
+        }
+        Ok(())
     }
 
     /// Returns the session store.

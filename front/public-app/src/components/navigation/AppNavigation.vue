@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import { useAccountSession } from '@/composables/useAccountSession'
+const accountSession = useAccountSession()
+/** Revokes the account session while preserving any visible server error. */
+async function signOut(): Promise<void> { try { await accountSession.logout() } catch { /* Session error is rendered by the gate. */ } }
 import { computed, nextTick, onMounted, onScopeDispose, shallowRef, useTemplateRef, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import AppSidebar from '@/components/navigation/AppSidebar.vue'
@@ -95,6 +99,7 @@ onScopeDispose(() => {
       :active-home-id="activeHomeId" :active-source-id="activeSourceId" :lives-active="route.name === 'lives' || route.name === 'live-details'"
       @navigate="emit('close')" @create="openManager(null, true)" @manage="openManager()" @edit="openManager($event)"
       @update:sources-expanded="setExpanded" />
+    <v-btn block prepend-icon="mdi-logout" :disabled="accountSession.busy.value" @click="signOut">{{ t('accounts.signOut') }}</v-btn>
     <p v-if="metadata.isLoading.value" class="app-navigation__status" role="status">{{ t('entry.loadingMessage') }}</p>
     <div v-if="manager.errorMessage.value || metadata.errorMessage.value || preferenceError" class="app-navigation__status" role="status">
       <p>{{ manager.errorMessage.value ?? metadata.errorMessage.value ?? preferenceError }}</p>

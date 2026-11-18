@@ -1,6 +1,7 @@
 //! Tauri controller backend and compatibility reexports.
 
 mod assets;
+mod caller;
 mod configuration;
 mod dispatcher;
 mod ipc;

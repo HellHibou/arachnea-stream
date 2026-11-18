@@ -92,6 +92,24 @@ async fn put_get_delete_roundtrip() -> anyhow::Result<()> {
             TestEntity::schema(),
         )?)
         .is_err());
+    database.transaction(|tx| {
+        tx.ensure_unique(&store, &["name", "port"])?;
+        tx.put(&store, &entity("transaction:80", "atomic", 60))?;
+        tx.put(&other, &entity("transaction:80", "atomic", 60))
+    })?;
+    let failed: anyhow::Result<()> = database.transaction(|tx| {
+        tx.put(&other, &entity("rolled-back:80", "rollback", 60))?;
+        tx.put(&store, &entity("collision:80", "atomic", 60))
+    });
+    assert!(failed.is_err());
+    assert!(other.get(&"rolled-back:80".to_string()).await?.is_none());
+    assert!(store.get(&"transaction:80".to_string()).await?.is_some());
+    database.transaction(|tx| {
+        assert_eq!(tx.find(&store, &EntityQuery::new())?.len(), 1);
+        assert!(tx.get(&store, &"transaction:80".to_string())?.is_some());
+        tx.delete_where(&store, &EntityQuery::new())?;
+        tx.delete_where(&other, &EntityQuery::new())
+    })?;
     drop(database);
     store.put(&entity("h1:80", "a", 60)).await?;
     other.put(&entity("h1:80", "other", 60)).await?;
@@ -111,6 +129,23 @@ async fn put_get_delete_roundtrip() -> anyhow::Result<()> {
         TestEntity::schema(),
     )?)?;
     assert!(separate.get(&"h1:80".to_string()).await?.is_none());
+    assert!(independent
+        .transaction(|tx| tx.get(&store, &"h1:80".to_string()))
+        .is_err());
+    let reopened = SqliteDatabase::open(SqliteStoreConfig::new("test-inventory")?, &dir)?;
+    let reopened_table = reopened.table::<TestEntity>(PersistenceTableConfig::new(
+        "test-inventory",
+        TestEntity::schema(),
+    )?)?;
+    reopened.transaction(|tx| tx.ensure_unique(&reopened_table, &["name", "port"]))?;
+    assert!(reopened
+        .transaction(|tx| { tx.ensure_unique(&reopened_table, &["missing"]) })
+        .is_err());
+    let memory = SqliteDatabase::memory()?;
+    let memory_table =
+        memory.table::<TestEntity>(PersistenceTableConfig::new("memory", TestEntity::schema())?)?;
+    memory.transaction(|tx| tx.put(&memory_table, &entity("memory:80", "memory", 60)))?;
+    assert!(memory_table.get(&"memory:80".to_string()).await?.is_some());
     assert!(dir.join("independent.sqlite3").is_file());
     let _ = std::fs::remove_dir_all(&dir);
     Ok(())
