@@ -178,6 +178,9 @@ function openSignupUrl(): void {
 
         <v-alert
           v-if="successMessage"
+          closable
+          :close-label="t('common.close')"
+          @click:close="successMessage = null"
           type="success"
           variant="tonal"
           class="mb-4"

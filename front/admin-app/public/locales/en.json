@@ -18,6 +18,9 @@
     "loginFailed": "Login failed. Please try again."
   },
   "services": {
+    "toggleFiltered": "Enable or disable all displayed services",
+    "bulkEnableTitle": "Enable displayed services",
+    "bulkEnableWarning": "The following services require credentials that have not been configured. Enable them anyway?",
     "title": "Services",
     "description": "Manage service availability and credentials.",
     "empty": "No services available.",
@@ -290,6 +293,28 @@
       "fair": "Fair",
       "good": "Good",
       "strong": "Strong"
+    }
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "enabledServices": "Enabled services / total",
+    "refresh": "Refresh",
+    "unavailable": "Data unavailable",
+    "loadFailed": "Some dashboard data could not be loaded.",
+    "adminPasswordMissing": "The administrator password has not been set.",
+    "noUsers": "No user account has been created.",
+    "status": {
+      "success": "OK",
+      "warning": "Warning",
+      "error": "Error",
+      "info": "Info"
+    },
+    "empty": {
+      "stream": "No streaming service is active.",
+      "hoster": "No streaming host is active.",
+      "translation": "No translation service is configured.",
+      "proxies": "No proxy is active. Geolocation restrictions cannot be bypassed.",
+      "ipCountries": "No service is enabled. Please specify your country code in the settings."
     }
   }
 }

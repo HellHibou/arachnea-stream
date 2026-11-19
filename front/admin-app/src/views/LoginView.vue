@@ -21,7 +21,7 @@ async function handleLogin(): Promise<void> {
 
   const success = await login(password.value)
   if (success) {
-    router.push({ name: 'users' })
+    router.push({ name: 'dashboard' })
   } else {
     loginError.value = error.value?.message ?? t('auth.loginFailed')
     password.value = ''

@@ -24,9 +24,16 @@ export interface ServiceFilterDefinition {
   value_format?: 'language'
 }
 
+/** Optional dashboard message and severity when a group has no enabled services. */
+export interface ServiceEmptyStateDefinition {
+  label?: string
+  severity: 'error' | 'warning' | 'info'
+}
+
 interface AppConfigState {
   title: string
   serviceStores: string[]
+  serviceEmptyStates: Record<string, ServiceEmptyStateDefinition>
   serviceFilters: Record<string, ServiceFilterDefinition[]>
 }
 
@@ -34,10 +41,11 @@ interface AppConfigState {
 interface ValidatedAppConfig {
   title: string
   serviceStores: string[]
+  serviceEmptyStates: Record<string, ServiceEmptyStateDefinition>
   serviceFilters: Record<string, ServiceFilterDefinition[]>
 }
 
-const state = ref<AppConfigState>({ title: '', serviceStores: [], serviceFilters: {} })
+const state = ref<AppConfigState>({ title: '', serviceStores: [], serviceFilters: {}, serviceEmptyStates: {} })
 const isLoading = ref(false)
 const errorMessage = ref<string | null>(null)
 const loaded = ref(false)
@@ -77,6 +85,7 @@ export function useAppConfig() {
   return {
     title: computed(() => state.value.title),
     serviceStores: computed(() => state.value.serviceStores),
+    serviceEmptyStates: computed(() => state.value.serviceEmptyStates),
     serviceFilters: computed(() => state.value.serviceFilters),
     isLoading: readonly(isLoading),
     errorMessage: readonly(errorMessage),
@@ -168,7 +177,28 @@ function validateAppConfig(payload: unknown): ValidatedAppConfig {
       })
     }
   }
-  return { title: rawTitle.trim(), serviceStores, serviceFilters }
+  const serviceEmptyStates: Record<string, ServiceEmptyStateDefinition> = {}
+  const rawEmptyStates = payload['service-empty-states']
+  if (rawEmptyStates !== undefined) {
+    if (!isRecord(rawEmptyStates)) throw new Error('service-empty-states must be an object.')
+    for (const [store, definition] of Object.entries(rawEmptyStates)) {
+      if (!serviceStores.includes(store) || !isRecord(definition)) {
+        throw new Error(`Invalid empty state for ${store}.`)
+      }
+      const { label, severity } = definition
+      if (severity !== 'error' && severity !== 'warning' && severity !== 'info') {
+        throw new Error(`Invalid empty state severity for ${store}.`)
+      }
+      if (label !== undefined && (typeof label !== 'string' || !label.trim())) {
+        throw new Error(`Empty state label for ${store} must be a non-empty translation key.`)
+      }
+      serviceEmptyStates[store] = {
+        severity,
+        ...(typeof label === 'string' ? { label: label.trim() } : {}),
+      }
+    }
+  }
+  return { title: rawTitle.trim(), serviceStores, serviceFilters, serviceEmptyStates }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

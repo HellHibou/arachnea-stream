@@ -1539,6 +1539,73 @@ accepted. Available values come from the complete group catalog.
 Filtering is local: OR within each tag, AND across tags and text search (ID, title,
 description). Switching groups resets the filters.
 
+### Bulk activation of filtered services
+
+A checkbox to the left of search enables or disables all displayed services after text and
+metadata filtering. It is checked when all editable displayed services are enabled and
+indeterminate when only some are enabled. Clicking the indeterminate state enables the
+remaining services. Unavailable services are excluded; the checkbox is disabled when there
+are no editable results or an operation is in progress. Hidden groups and services are unchanged.
+
+The action captures visible results and updates only services needing an activation change.
+When required credentials are missing, a confirmation lists the affected services and offers
+to cancel or enable anyway; no services change before confirmation. Writes use existing
+individual operations in order, followed by a catalog refresh. The first failure stops the
+batch: already confirmed changes remain applied, without a global transaction. Manual runtime
+reload remains necessary, as with individual switches.
+
+Reload results and success confirmations for settings, administrator passwords, profile
+limits and service credentials include a Close button. Dismissing a message clears the
+current result; subsequent operations can display a new confirmation.
+
+### Settings and user management layout
+
+Settings cards use at most three columns with a target minimum width of 540 px (50% wider
+than the initial 360 px), falling back to one column fitting the available width on small
+screens. Cards flow from top to bottom in each column, then into the next, with 24 px spacing
+and no shared row alignment: short cards no longer leave gaps imposed by taller neighboring
+cards. Each card stays intact. The dedicated desktop settings popup keeps a single column.
+Forms and save actions retain their behavior. User management displays Refresh at the top
+right beside the page title, matching the dashboard; Add stays in the user accounts card.
+
+### Administrator dashboard
+
+The admin entry point (`/`, redirected to `/dashboard`) and successful login open the
+dashboard. A menu entry returns to it. Each configured `service-store` group has a clickable
+card in configuration order, displaying a server icon to the left of its localized name, enabled services / total, and
+status. The counter uses the admin catalog's `enabled` field; it performs no network health
+check and does not guarantee the runtime has been reloaded. The total includes declared
+sources whose YAML cannot be loaded, without counting sources already in the catalog twice.
+
+Optional `service-empty-states` in `front/admin-app/public/config.json` configures the
+severity and message when a group has no enabled services:
+
+```json
+{
+  "service-empty-states": {
+    "arachnea-stream": {"severity": "error", "label": "dashboard.empty.stream"},
+    "arachnea-stream-hoster": {"severity": "warning", "label": "dashboard.empty.hoster"},
+    "arachnea-translation": {"severity": "info", "label": "dashboard.empty.translation"},
+    "arachnea-proxies": {"severity": "info", "label": "dashboard.empty.proxies"},
+    "arachnea-ip-countries": {"severity": "info", "label": "dashboard.empty.ipCountries"}
+  }
+}
+```
+
+Each entry must reference a configured `service-store` group. `severity` is required
+(`error`, `warning`, or `info`); `label` is an optional translation key that must be non-empty
+when present. Without an entry, an empty group displays Info without a message. With at
+least one enabled service, the status is OK and the message is hidden. Bundled messages
+report missing streaming, hosting, or translation services; proxies explain that geolocation
+restrictions cannot be bypassed, and IP countries request a country code in settings.
+English and French translations are provided.
+
+Separate warnings appear when no permanent administrator password is configured or the
+user account list is empty. They link to settings and user accounts respectively. Refresh
+reloads all three independent sources (catalog, admin status, accounts). Failed reads display
+an error without producing false zero counters or missing-account/password warnings.
+Groups missing from the response are shown as unavailable.
+
 ### Declared availability countries and content types
 
 `geo_countries` is `[be]` for RTL Play, RTBF Auvio and LN24, and `[fr]` for France TV,

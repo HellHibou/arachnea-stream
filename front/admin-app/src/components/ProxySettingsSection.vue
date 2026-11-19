@@ -22,7 +22,7 @@ function hint(source: SettingSource): string | undefined {
 </script>
 
 <template>
-  <v-card variant="outlined" class="mb-6">
+  <v-card variant="outlined">
     <v-card-title>{{ t('proxy.title') }}</v-card-title>
     <v-card-text>
       <v-alert v-if="pinnedSettings" type="info" variant="tonal" class="mb-4" :text="t('proxy.pinned', { settings: pinnedSettings })" />

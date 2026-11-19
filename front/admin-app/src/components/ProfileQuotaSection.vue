@@ -50,11 +50,11 @@ onMounted(load)
 </script>
 
 <template>
-  <v-card variant="outlined" class="mb-6">
+  <v-card variant="outlined">
     <v-card-title>{{ t('profileQuota.title') }}</v-card-title>
     <v-card-text>
       <v-alert v-if="error" type="error" variant="tonal" class="mb-4" :text="error" />
-      <v-alert v-if="success" type="success" variant="tonal" class="mb-4" :text="t('profileQuota.saved')" />
+      <v-alert v-if="success" closable :close-label="t('common.close')" @click:close="success = false" type="success" variant="tonal" class="mb-4" :text="t('profileQuota.saved')" />
       <v-form v-if="loaded" @submit.prevent="save">
         <v-text-field v-model="draft" type="number" min="1" step="1" :max="Number.MAX_SAFE_INTEGER"
           :label="t('profileQuota.limit')" :hint="t('profileQuota.hint')" persistent-hint

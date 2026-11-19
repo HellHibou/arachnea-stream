@@ -57,7 +57,7 @@ async function checkAuth(): Promise<void> {
     } else if (result.auth_required && !result.authenticated) {
       router.push({ name: 'login' })
     } else if (router.currentRoute.value.name === 'login') {
-      router.push({ name: 'users' })
+      router.push({ name: 'dashboard' })
     }
   }
   isLoading.value = false
@@ -172,6 +172,7 @@ onMounted(() => {
     <!-- Always visible regardless of the window size. -->
     <v-navigation-drawer v-if="isAuthenticated" permanent>
       <v-list nav>
+        <v-list-item :to="{ name: 'dashboard' }" prepend-icon="mdi-view-dashboard" :title="t('dashboard.title')" />
         <v-list-item :to="{ name: 'users' }" prepend-icon="mdi-account-group" :title="t('users.title')" />
         <v-list-item :to="{ name: 'settings' }" prepend-icon="mdi-cog" :title="t('nav.settings')" />
         <v-list-item

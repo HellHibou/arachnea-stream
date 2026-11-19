@@ -1573,6 +1573,79 @@ libellés littéraux ne sont pas pris en charge. Les options viennent du catalog
 les filtres sont locaux, avec OU entre valeurs d’un tag et ET entre tags et recherche textuelle
 (identifiant, titre, description). Ils sont réinitialisés lors d’un changement de groupe.
 
+### Activation groupée des services filtrés
+
+À gauche du champ de recherche, une case permet d’activer ou de désactiver tous les services
+affichés après application de la recherche et des filtres de métadonnées. Elle est cochée
+si tous les services modifiables affichés sont activés et partiellement cochée si seulement
+certains le sont. Un clic sur l’état partiel active les services restants. Les services
+indisponibles sont exclus et la case est désactivée en l’absence de résultats modifiables
+ou pendant une opération. Les groupes et services masqués ne sont pas modifiés.
+
+L’action capture les résultats visibles et ne modifie que ceux dont l’activation doit changer.
+Si des identifiants requis manquent, une confirmation liste les services concernés et propose
+d’annuler ou d’activer quand même ; aucun service n’est modifié avant cette confirmation.
+Les écritures utilisent les opérations unitaires existantes, dans l’ordre, puis la liste est
+actualisée. Le premier échec arrête le traitement : les changements déjà confirmés restent
+appliqués, sans transaction globale. Le rechargement manuel reste nécessaire comme pour
+les interrupteurs individuels.
+
+Les messages de résultat de rechargement et les confirmations de sauvegarde des paramètres,
+du mot de passe administrateur, du quota de profils et des identifiants de services proposent
+un bouton Fermer. La fermeture masque le message courant ; une opération ultérieure peut
+afficher une nouvelle confirmation.
+
+### Disposition des paramètres et des utilisateurs
+
+Les cartes des paramètres occupent au maximum trois colonnes, avec une largeur minimale
+cible de 540 px (+50 % par rapport aux 360 px initiaux), et une seule colonne réduite à la
+largeur disponible sur petit écran. Elles s’enchaînent de haut en bas dans chaque colonne,
+puis dans la suivante, avec 24 px d’espacement, sans alignement sur des lignes communes :
+une carte courte ne laisse donc pas de vide imposé par la hauteur d’une carte voisine.
+Chaque carte reste entière. La fenêtre dédiée aux paramètres desktop conserve une colonne. Les formulaires et leurs actions de sauvegarde restent identiques.
+La page Utilisateurs affiche le bouton Actualiser en haut à droite, à côté du titre,
+comme le tableau de bord ; le bouton Ajouter reste dans la carte des comptes utilisateurs.
+
+### Tableau de bord administrateur
+
+L’accueil admin (`/` redirigé vers `/dashboard`) et la connexion réussie ouvrent le tableau
+de bord. Une entrée du menu permet d’y revenir. Il affiche une carte cliquable par groupe
+de `service-store`, dans l’ordre configuré, avec une icône de serveur à gauche du nom localisé, le nombre de services
+activés / le total et un état. Le compteur utilise le champ `enabled` du catalogue admin ;
+il ne vérifie pas la disponibilité réseau et ne garantit pas que le runtime a été rechargé.
+Le total inclut les sources déclarées dont le YAML ne peut pas être chargé, sans compter
+une seconde fois celles déjà présentes dans le catalogue.
+
+La section optionnelle `service-empty-states` de `front/admin-app/public/config.json`
+configure le niveau et le message lorsqu’aucun service du groupe n’est activé :
+
+```json
+{
+  "service-empty-states": {
+    "arachnea-stream": {"severity": "error", "label": "dashboard.empty.stream"},
+    "arachnea-stream-hoster": {"severity": "warning", "label": "dashboard.empty.hoster"},
+    "arachnea-translation": {"severity": "info", "label": "dashboard.empty.translation"},
+    "arachnea-proxies": {"severity": "info", "label": "dashboard.empty.proxies"},
+    "arachnea-ip-countries": {"severity": "info", "label": "dashboard.empty.ipCountries"}
+  }
+}
+```
+
+Chaque entrée doit désigner un groupe de `service-store`. `severity` est obligatoire
+(`error`, `warning` ou `info`) ; `label` est une clé de traduction optionnelle, non vide
+si présente. Sans entrée, un groupe vide affiche Info sans message. Dès qu’un service
+est activé, l’état est OK et le message est masqué. Les messages fournis signalent
+l’absence de streaming, d’hébergeurs ou de traduction ; pour les proxys, l’impossibilité
+de contourner la géolocalisation ; pour les pays IP, la nécessité de préciser le code pays
+dans les paramètres. Les traductions françaises et anglaises sont fournies.
+
+Deux avertissements distincts apparaissent si aucun mot de passe administrateur permanent
+n’est configuré ou si la liste des comptes utilisateurs est vide. Ils renvoient respectivement
+aux paramètres et aux comptes utilisateurs. Le bouton Actualiser recharge les trois sources
+indépendamment (catalogue, statut admin et comptes). Une lecture échouée affiche une erreur ;
+elle ne produit ni faux compteur à zéro ni avertissement d’absence de comptes ou de mot de passe.
+Un groupe absent de la réponse est indiqué comme indisponible.
+
 ### Pays et types de contenu déclarés
 
 Les tags `geo_countries` valent `[be]` pour RTL Play, RTBF Auvio et LN24, et `[fr]` pour

@@ -18,6 +18,9 @@
     "loginFailed": "Échec de la connexion. Veuillez réessayer."
   },
   "services": {
+    "toggleFiltered": "Activer ou désactiver tous les services affichés",
+    "bulkEnableTitle": "Activer les services affichés",
+    "bulkEnableWarning": "Les services suivants nécessitent des identifiants qui ne sont pas configurés. Les activer quand même ?",
     "title": "Services",
     "description": "Gérer la disponibilité des services et leurs identifiants.",
     "empty": "Aucun service disponible.",
@@ -290,6 +293,28 @@
       "fair": "Moyenne",
       "good": "Bonne",
       "strong": "Forte"
+    }
+  },
+  "dashboard": {
+    "title": "Tableau de bord",
+    "enabledServices": "Services activés / total",
+    "refresh": "Actualiser",
+    "unavailable": "Données indisponibles",
+    "loadFailed": "Certaines données du tableau de bord n’ont pas pu être chargées.",
+    "adminPasswordMissing": "Le mot de passe administrateur n’est pas défini.",
+    "noUsers": "Aucun compte utilisateur n’a été créé.",
+    "status": {
+      "success": "OK",
+      "warning": "Warning",
+      "error": "Error",
+      "info": "Info"
+    },
+    "empty": {
+      "stream": "Aucun service de streaming n’est actif.",
+      "hoster": "Aucun hébergeur de streaming n’est actif.",
+      "translation": "Aucun service de traduction n’est configuré.",
+      "proxies": "Aucun proxy n’est actif. Le système de géolocalisation ne peut pas être contourné.",
+      "ipCountries": "Aucun service n’est activé. Veuillez préciser votre code pays dans les paramètres."
     }
   }
 }

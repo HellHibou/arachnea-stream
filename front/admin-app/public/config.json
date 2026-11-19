@@ -29,5 +29,27 @@
         }
       }
     ]
+  },
+  "service-empty-states": {
+    "arachnea-stream": {
+      "label": "dashboard.empty.stream",
+      "severity": "error"
+    },
+    "arachnea-stream-hoster": {
+      "label": "dashboard.empty.hoster",
+      "severity": "warning"
+    },
+    "arachnea-translation": {
+      "label": "dashboard.empty.translation",
+      "severity": "info"
+    },
+    "arachnea-proxies": {
+      "label": "dashboard.empty.proxies",
+      "severity": "info"
+    },
+    "arachnea-ip-countries": {
+      "label": "dashboard.empty.ipCountries",
+      "severity": "info"
+    }
   }
 }

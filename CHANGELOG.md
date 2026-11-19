@@ -857,6 +857,12 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Added a tri-state activation checkbox to the left of service search, applying only to editable filtered results, with confirmation for missing required credentials and a final catalog refresh. Updates stop on the first failure and retain the existing manual runtime reload.
+
+- Settings cards now wrap into responsive columns and rows, user management places Refresh at the top right beside the title, and dashboard group names have a server icon on their left.
+
+- Added the default administrator dashboard with linked service-group cards, enabled/total counts, configurable empty-group translation keys and severity through optional `service-empty-states`, and warnings for an unset permanent administrator password or an empty user account list. Includes independent refresh/error handling and English/French translations; opening admin and successful login now land on the dashboard.
+
 - Replaced the public-user list and creation form with a table: per-account login, a mandatory-password-change checkbox persisted through `set_user_password_change`, reset and delete action columns, and an Add button next to Refresh opening a credentials dialog styled like the service-credentials dialog. The dialog keeps the temporary password in memory, shows a password-strength indicator and defaults the next-sign-in replacement option to checked. The account section is titled "User accounts".
 - Added a separate English/French profile-limit form in Settings, including desktop, with safe-integer validation and stable retry identities. Quota changes apply after persistence without reloading the scraper.
 
@@ -868,6 +874,14 @@ All notable changes to the server workspace are recorded here.
 - Added configurable per-service-group metadata filters and text search, plus an Options dialog for YAML-declared editable parameters. The dialog validates inputs, shows bilingual TF1 country labels, restores YAML defaults in a cancellable draft, and requests runtime reload after saving. Service logos now reflect saved constants and parameters.
 
 #### Fixed
+
+- Reload result messages and success confirmations for settings, administrator passwords, profile limits and service credentials can now be dismissed with a localized close button. Subsequent operations can display their results again.
+
+- Dashboard server icons now match their group status color, remaining neutral when group data is unavailable.
+
+- Settings cards now use up to three independently flowing columns with a 540 px target minimum width (+50%), eliminating shared-row gaps between cards of different heights while preserving the single-column desktop settings popup.
+
+- The bulk service checkbox now uses the same compact control width as the service switches, stays centered and no longer expands into the search field’s space.
 
 - Password length guidance is now a contextual warning shown only for non-empty passwords shorter than four Unicode scalar values.
 - Password creation/reset fields now allow the UTF-16 input length needed for all 128 Unicode scalar values accepted by the server.
@@ -881,6 +895,8 @@ All notable changes to the server workspace are recorded here.
 - Service metadata filter labels now use locale dictionary keys resolved through the existing translation system; configuration no longer embeds language dictionaries or literal labels.
 
 #### Changed
+
+- Doubled the bulk service checkbox cell width while keeping the checkbox centered.
 
 - Renamed the Web settings block to “Serveur Web - Arachnéa Stream” in French, with the corresponding English label.
 - Placed the proxy API-key creation button to the right of its name field on the same row.

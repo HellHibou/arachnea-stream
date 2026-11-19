@@ -5,7 +5,14 @@ import { formatLanguageLabel } from '@/services/languages'
 import type { ServiceFilterDefinition } from '@/services/appConfig'
 import type { AdminServiceEntry } from '@/services/adminApi'
 
-const props = defineProps<{ definitions: readonly ServiceFilterDefinition[]; services: AdminServiceEntry[] }>()
+const props = defineProps<{
+  definitions: readonly ServiceFilterDefinition[]
+  services: AdminServiceEntry[]
+  allEnabled: boolean
+  partiallyEnabled: boolean
+  bulkDisabled: boolean
+}>()
+const emit = defineEmits<{ toggleAll: [enabled: boolean] }>()
 const query = defineModel<string>('query', { required: true })
 const selected = defineModel<Record<string, string[]>>('selected', { required: true })
 const { t } = useI18n()
@@ -30,8 +37,14 @@ function update(key: string, values: string[]) {
 <template>
   <v-row class="mb-2">
     <v-col cols="12" md="4">
-      <v-text-field v-model="query" :label="t('services.search')" prepend-inner-icon="mdi-magnify"
-        clearable @click:clear="query = ''" hide-details />
+      <div class="d-flex align-center ga-2">
+        <v-checkbox-btn class="service-bulk-toggle" density="compact" :model-value="allEnabled" :indeterminate="partiallyEnabled"
+          :disabled="bulkDisabled" :aria-label="t('services.toggleFiltered')"
+          :title="t('services.toggleFiltered')" color="success"
+          @update:model-value="emit('toggleAll', $event === true)" />
+        <v-text-field v-model="query" :label="t('services.search')" prepend-inner-icon="mdi-magnify"
+          clearable @click:clear="query = ''" hide-details />
+      </div>
     </v-col>
     <v-col v-for="filter in filters" :key="filter.key" cols="12" md="2">
       <v-select :model-value="selected[filter.key] ?? []" :label="filter.label" :items="filter.options" item-title="title" item-value="value"
@@ -40,3 +53,10 @@ function update(key: string, values: string[]) {
     </v-col>
   </v-row>
 </template>
+
+<style scoped>
+.service-bulk-toggle {
+  flex: 0 0 calc(2 * var(--v-selection-control-size));
+  justify-content: center;
+}
+</style>

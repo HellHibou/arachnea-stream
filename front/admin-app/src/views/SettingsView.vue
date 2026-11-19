@@ -394,22 +394,21 @@ onMounted(() => {
 
 <template>
   <v-container fluid>
-    <v-row>
-      <v-col cols="12" md="8" lg="6">
-        <h1 class="text-h4 mb-2">{{ t('settings.title') }}</h1>
-        <p class="text-body-1 text-medium-emphasis mb-4">
-          {{ t('settings.description') }}
-        </p>
-        <v-alert v-if="localError" type="error" variant="tonal" class="mb-4" :text="localError" />
-        <v-alert v-if="successMessage" type="success" variant="tonal" class="mb-4" :text="successMessage" />
-        <v-alert v-if="redirectTarget" type="info" variant="tonal" class="mb-4" :text="t('settings.redirectNotice', { url: redirectTarget })" />
-        <v-row class="mb-2">
-          <v-spacer />
-          <v-btn color="primary" variant="elevated" :loading="isLoading" @click="handleSaveSettings">
-            {{ t('settings.save') }}
-          </v-btn>
-        </v-row>
-        <v-card v-if="!popupMode && hasEditableHttpSettings" variant="outlined" class="mb-6">
+    <div>
+      <h1 class="text-h4 mb-2">{{ t('settings.title') }}</h1>
+      <p class="text-body-1 text-medium-emphasis mb-4">
+        {{ t('settings.description') }}
+      </p>
+      <v-alert v-if="localError" type="error" variant="tonal" class="mb-4" :text="localError" />
+      <v-alert v-if="successMessage" closable :close-label="t('common.close')" @click:close="successMessage = null" type="success" variant="tonal" class="mb-4" :text="successMessage" />
+      <v-alert v-if="redirectTarget" type="info" variant="tonal" class="mb-4" :text="t('settings.redirectNotice', { url: redirectTarget })" />
+      <div class="d-flex justify-end mb-4">
+        <v-btn color="primary" variant="elevated" :loading="isLoading" @click="handleSaveSettings">
+          {{ t('settings.save') }}
+        </v-btn>
+      </div>
+      <div class="settings-layout" :class="{ 'settings-layout--popup': popupMode }">
+        <v-card v-if="!popupMode && hasEditableHttpSettings" variant="outlined">
           <v-card-title>{{ t('settings.serverGroup') }}</v-card-title>
           <v-card-text>
             <v-text-field v-if="editableHttpSettings.port" v-model.number="port" :label="t('settings.serverPort')" :placeholder="t('settings.serverPortPlaceholder')" type="number" variant="outlined" :hint="settings ? sourceHint(settings.server_port_source) : undefined" persistent-hint />
@@ -421,7 +420,7 @@ onMounted(() => {
         </v-card>
         <ProfileQuotaSection />
         <ProxySettingsSection v-if="!popupMode && settings?.proxy" v-model="proxyDraft" :settings="settings.proxy" :loading="isLoading" />
-        <v-card variant="outlined" class="mb-6">
+        <v-card variant="outlined">
           <v-card-title>{{ t('settings.applicationGroup') }}</v-card-title>
           <v-card-text>
             <v-text-field v-model="currentCountry" :label="t('settings.currentCountry')" :placeholder="t('settings.currentCountryPlaceholder')" variant="outlined" :hint="settings ? sourceHint(settings.current_country_source) : undefined" persistent-hint />
@@ -443,7 +442,7 @@ onMounted(() => {
           <v-card-title>{{ t('adminPassword.title') }}</v-card-title>
           <v-card-text>
             <v-alert v-if="passwordError" type="error" variant="tonal" class="mb-4" :text="passwordError" />
-            <v-alert v-if="passwordSuccess" type="success" variant="tonal" class="mb-4" :text="passwordSuccess" />
+            <v-alert v-if="passwordSuccess" closable :close-label="t('common.close')" @click:close="passwordSuccess = null" type="success" variant="tonal" class="mb-4" :text="passwordSuccess" />
             <v-form @submit.prevent="handleChangePassword">
               <v-text-field v-if="passwordConfigured" v-model="currentPassword" :label="t('adminPassword.currentPassword')" :placeholder="t('adminPassword.currentPasswordPlaceholder')" type="password" variant="outlined" autocomplete="current-password" />
               <v-text-field v-model="newPassword" :label="t('adminPassword.newPassword')" :placeholder="t('adminPassword.newPasswordPlaceholder')" type="password" variant="outlined" autocomplete="new-password" class="mt-2" />
@@ -457,7 +456,26 @@ onMounted(() => {
             </v-btn>
           </v-card-actions>
         </v-card>
-      </v-col>
-    </v-row>
+      </div>
+    </div>
   </v-container>
 </template>
+
+<style scoped>
+.settings-layout {
+  columns: 540px 3;
+  column-gap: 24px;
+}
+
+.settings-layout > * {
+  display: inline-block;
+  width: 100%;
+  margin-bottom: 24px;
+  break-inside: avoid;
+  vertical-align: top;
+}
+
+.settings-layout--popup {
+  column-count: 1;
+}
+</style>

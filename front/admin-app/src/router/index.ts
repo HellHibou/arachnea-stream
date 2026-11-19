@@ -9,8 +9,14 @@ const router = createRouter({
     {
       path: '/',
       name: 'home',
-      // The administration entry point lands on user management by default.
-      redirect: { name: 'users' },
+      // The administration entry point opens the dashboard.
+      redirect: { name: 'dashboard' },
+    },
+    {
+      path: '/dashboard',
+      name: 'dashboard',
+      component: () => import('@/views/DashboardView.vue'),
+      meta: { requiresAuth: true },
     },
     {
       path: '/services',

@@ -69,6 +69,49 @@ const filteredServices = computed(() => {
   })
 })
 
+const bulkBusy = ref(false)
+const bulkConfirmation = ref<AdminServiceEntry[]>([])
+const editableFilteredServices = computed(() => filteredServices.value.filter((service) => !service.unavailable))
+const allFilteredEnabled = computed(() => editableFilteredServices.value.length > 0
+  && editableFilteredServices.value.every((service) => service.enabled))
+const partiallyFilteredEnabled = computed(() => !allFilteredEnabled.value
+  && editableFilteredServices.value.some((service) => service.enabled))
+const bulkMissingCredentials = computed(() => bulkConfirmation.value.filter((service) =>
+  service.credentials?.required && !service.credentials.configured,
+))
+
+/** Applies activation only to the captured filtered services, then refreshes persisted state. */
+async function applyFilteredEnabled(targets: AdminServiceEntry[], enabled: boolean): Promise<void> {
+  bulkConfirmation.value = []
+  bulkBusy.value = true
+  try {
+    for (const service of targets) {
+      const result = await setServiceEnabled(service.service_store_id, service.id, enabled)
+      if (result?.reload_required) {
+        needsReload.value = true
+        reloadResult.value = t('services.reloadRequired')
+      }
+      // Stop on the first failure; the API notification reports it and refresh restores confirmed state.
+      if (!result) break
+    }
+  } finally {
+    await loadServices()
+    switchEpoch.value += 1
+    bulkBusy.value = false
+  }
+}
+
+/** Captures only visible services whose state needs changing; preserves credential consent. */
+function requestFilteredEnabled(enabled: boolean): void {
+  if (bulkBusy.value || isLoading.value || bulkConfirmation.value.length > 0) return
+  const targets = editableFilteredServices.value.filter((service) => service.enabled !== enabled)
+  if (enabled && targets.some((service) => service.credentials?.required && !service.credentials.configured)) {
+    bulkConfirmation.value = targets
+    return
+  }
+  void applyFilteredEnabled(targets, enabled)
+}
+
 /**
  * Formats one metadata field with its localized values grouped in declaration order.
  * @param key Metadata field identifier.
@@ -342,6 +385,7 @@ onMounted(() => {
 watch(serviceStoreId, () => {
   searchQuery.value = ''
   selectedTags.value = {}
+  bulkConfirmation.value = []
   parameterService.value = null
   ensureKnownGroup()
   loadServices()
@@ -390,6 +434,9 @@ watch(serviceStoreId, () => {
 
         <v-alert
           v-else-if="reloadResult"
+          closable
+          :close-label="t('common.close')"
+          @click:close="reloadResult = null"
           :type="reloadSucceeded ? 'success' : 'error'"
           variant="tonal"
           class="mb-4"
@@ -411,7 +458,10 @@ watch(serviceStoreId, () => {
         </v-alert>
 
         <ServiceMetadataFilters v-model:query="searchQuery" v-model:selected="selectedTags"
-          :definitions="filterDefinitions" :services="services" />
+          :definitions="filterDefinitions" :services="services"
+          :all-enabled="allFilteredEnabled" :partially-enabled="partiallyFilteredEnabled"
+          :bulk-disabled="isLoading || bulkBusy || bulkConfirmation.length > 0 || editableFilteredServices.length === 0"
+          @toggle-all="requestFilteredEnabled" />
 
         <v-progress-circular
           v-if="isLoading && services.length === 0"
@@ -442,7 +492,7 @@ watch(serviceStoreId, () => {
                   color="success"
                   hide-details
                   density="compact"
-                  :disabled="service.unavailable"
+                  :disabled="service.unavailable || bulkBusy || isLoading || bulkConfirmation.length > 0"
                   @update:model-value="$event === true ? requestEnable(service) : handleSetEnabled(service, false)"
                 />
                 <div v-if="service.logo" class="service-logo">
@@ -488,6 +538,25 @@ watch(serviceStoreId, () => {
             </template>
           </v-list-item>
         </v-list>
+
+        <v-dialog :model-value="bulkConfirmation.length > 0" max-width="560"
+          @update:model-value="!$event && (bulkConfirmation = [])">
+          <v-card>
+            <v-card-title>{{ t('services.bulkEnableTitle') }}</v-card-title>
+            <v-card-text>
+              <p>{{ t('services.bulkEnableWarning') }}</p>
+              <ul class="mt-2 pl-4">
+                <li v-for="service in bulkMissingCredentials" :key="serviceKey(service)">{{ getServiceName(service) }}</li>
+              </ul>
+            </v-card-text>
+            <v-card-actions class="flex-wrap">
+              <v-btn variant="text" @click="bulkConfirmation = []">{{ t('common.cancel') }}</v-btn>
+              <v-btn color="primary" @click="applyFilteredEnabled([...bulkConfirmation], true)">
+                {{ t('services.enableWarning.activateAnyway') }}
+              </v-btn>
+            </v-card-actions>
+          </v-card>
+        </v-dialog>
 
         <v-dialog
           :model-value="enableConfirmKey !== null"

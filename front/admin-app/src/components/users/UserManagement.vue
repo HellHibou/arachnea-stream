@@ -92,15 +92,17 @@ async function submitDelete(): Promise<void> {
 </script>
 
 <template>
-  <v-container>
-    <h1 class="mb-4">{{ t('users.title') }}</h1>
+  <v-container fluid>
+    <div class="d-flex align-center justify-space-between ga-4 mb-6">
+      <h1 class="text-h4">{{ t('users.title') }}</h1>
+      <v-btn prepend-icon="mdi-refresh" :loading="busy" @click="load">{{ t('users.refresh') }}</v-btn>
+    </div>
     <v-alert v-if="errorCode" type="error" class="mb-4" role="alert">
       {{ t(`users.errors.${errorCode}`) }}
     </v-alert>
     <v-card :title="t('users.list')">
       <v-card-text>
         <div class="users-toolbar">
-          <v-btn variant="text" :disabled="busy" @click="load">{{ t('users.refresh') }}</v-btn>
           <v-btn
             variant="text"
             prepend-icon="mdi-plus"
