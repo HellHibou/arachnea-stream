@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 256 256">
+  <title>Woman — Red-Flix</title>
+  <rect width="256" height="256" fill="#b00710"/>
+  <path d="M65 190 70 97q0-53 58-53t58 53l5 93q-62 24-126 0Z" fill="#24283b"/><path d="M31 256v-16q0-36 44-43l30-5h46l30 5q44 7 44 43v16Z" fill="#fff4df"/><path d="M108 165h40v39q-20 21-40 0Z" fill="#f2c6a5"/><circle cx="77" cy="125" r="12" fill="#f2c6a5"/><circle cx="179" cy="125" r="12" fill="#f2c6a5"/><path d="M82 101q0-37 46-37t46 37v39q0 45-46 50-46-5-46-50Z" fill="#f2c6a5"/><path d="M77 115V91q0-42 51-42 48 0 50 45l-2 22q-27-10-40-39-11 28-59 38Z" fill="#24283b"/><path d="M107 121v5" stroke="#24283b" stroke-width="5" stroke-linecap="round"/><path d="M149 121v5" stroke="#24283b" stroke-width="5" stroke-linecap="round"/><path d="M116 158q12 12 24 0" fill="none" stroke="#24283b" stroke-width="4" stroke-linecap="round"/>
+</svg>

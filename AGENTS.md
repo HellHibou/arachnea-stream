@@ -2,6 +2,7 @@
 
 ## Project Context
 - This repository is split into a Rust backend under `server/` and a Vue.js frontend under `front/`.
+- `tools/makepng/` contains the cross-platform Node.js SVG-to-PNG avatar exporter. See `tools/makepng/README.md` for requirements and options.
 - Keep subdirectory-specific rules in the nearest `AGENTS.md` file and treat this root file as the shared baseline.
 - Prefer small, local changes over broad rewrites.
 
@@ -43,6 +44,7 @@ Small local fixes and non-structural updates can be implemented directly.
 - Do not introduce new test infrastructure by default.
 
 ## Engineering Defaults
+- Regenerate avatar PNGs with `npm ci --prefix tools/makepng` followed by `node tools/makepng/makepng.mjs` from the repository root (Node.js 20.9 or newer). Keep editable SVG sources under `server/crates/arachnea-stream/resources/avatars/sources/`; see that crate's `AGENTS.md` for avatar rules.
 - Preserve existing behavior unless the requested change requires otherwise.
 - Keep shared backend crates independent from application crates; pass application-specific configuration as parameters instead of hardcoding crate paths.
 - Keep errors contextualized.

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 256 256">
+  <title>Television</title>
+  <rect width="256" height="256" fill="#db91ad"/>
+  <path d="m106 65-24-22m68 22 24-22" fill="none" stroke="#24283b" stroke-width="9" stroke-linecap="round"/><rect x="38" y="65" width="180" height="133" rx="23" fill="#24283b"/><rect x="52" y="79" width="132" height="105" rx="14" fill="#fff4df"/><path d="m105 106 42 26-42 26Z" fill="#eeb95a"/><circle cx="201" cy="108" r="6" fill="#eeb95a"/><circle cx="201" cy="131" r="6" fill="#fff4df"/><path d="m83 198-12 17m102-17 12 17" stroke="#24283b" stroke-width="10" stroke-linecap="round"/>
+</svg>

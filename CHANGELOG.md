@@ -379,6 +379,12 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Added 28 flat, four-color profile avatars: man, woman, boy and girl in all seven frontend theme colors, with editable SVG sources and 512 × 512 PNG exports. The embedded catalogue preserves the three original avatar IDs and fallback for existing profiles.
+
+- Added four streaming profile avatars (cinema clapperboard, popcorn, television and headphones) and six animals (cat, dog, fox, panda, owl and rabbit), with fixed palettes of at most four colors and no theme variants.
+
+- Recreated the original neutral profile silhouette as editable SVGs and two-color 512 × 512 PNGs in all seven theme colors, preserving the existing `blue`, `green`, `purple` and fallback IDs and adding `yellow`, `orange`, `pink` and `red`.
+
 - Implemented user profiles step 5: authenticated profile-local home/section/bookmark CRUD and complete atomic reorders, strict versioned payload validation, server-owned home UUIDs/timestamps, collection revisions and atomic mutation receipts. Deleted-record versions prevent stale writes after recreation; deleting a default home clears its reference in the same streaming transaction. Streaming metadata participates in startup consistency checks and cascading cleanup.
 
 - Implemented user profiles step 4: authenticated REST/Tauri profile CRUD, strict common/streaming preference validation, Unicode name uniqueness, revision/idempotency checks, lazy streaming initialization and cascading deletion. Added a build-validated embedded avatar manifest with three PNGs and controller-prefixed authenticated image/catalogue routes. Profile creation uses the live persisted per-account quota (default 3); failed configuration saves preserve the previous value and lowering the quota retains existing profiles.
@@ -908,6 +914,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Added profile name/avatar editing from profile management, reusing the identity form with Save/Cancel, revision-checked updates, explicit conflict reload and immediate active identity refresh without switching profiles.
+
 - Added step 7 settings drafts with explicit Save/Cancel, discard confirmation, shared onboarding language/theme controls, revision-checked changed-domain saves and immutable operation retries after partial or lost responses. Conflicts retain edits for explicit reload or reapplication to the latest values. Only complete confirmed snapshots update common/streaming form preferences and notify other windows; unchanged refreshes preserve track selection, partial saves remain unapplied, and stale dictionary replies cannot replace a newer language. Remaining legacy browser preference paths are deferred to step 8.
 
 - Added the step 6 profile gate before content views: `ProfileSessionGate` restores the last profile per account/server (or shows the reusable onboarding/selector), finishes pending operations and common/streaming onboarding scopes, initializes streaming with server defaults on first service use, and remounts the application shell under the validated profile context. `ProfileOnboarding`, `ProfileForm`, `ProfileAvatar`, `ProfileCommonPreferences`, `ProfileSwitcher` and the navigation switcher dialog cover creation, quota/error states and deletion. Cross-tab/desktop invalidation uses a per-server `BroadcastChannel`, a native Tauri event plus focus/visibility revalidation without force-switching another tab; an inaccessible profile clears the active context. No old local preference is imported: initialization starts with automatic language and the default theme.
@@ -1001,6 +1009,20 @@ All notable changes to the server workspace are recorded here.
 
 
 #### Fixed
+
+- Styled the profile editor heading like preference section headings, with bold typography, the theme accent marker and a bottom divider.
+
+- Matched the profile management password-save button to the centered, rounded theme-accent actions used for profile editing.
+
+- Removed the fallback “Create profile” button from profile editing explicitly, and gave its centered Cancel/Save buttons the theme accent background used by preference controls.
+
+- Fixed direct custom-home URLs showing “Accueil not found” before profile restoration: profile-dependent guards now skip unselected contexts, and activation reruns title/legacy home resolution for the selected profile.
+
+- Placed profile editing actions in the same card footer structure as preferences, with centered Cancel/Save buttons on one row.
+
+- Fixed direct startup at `/` ignoring the selected profile’s default home when the initial router guard ran before profile restoration. The application resolves the landing page after activation, preserving query/hash values and explicit routes while discarding stale profile replies.
+
+- Matched the profile identity editor to the preferences dialog styling and aligned Cancel/Save on one row using the same button style.
 
 - Added a 7 px offset below the profile-menu trigger and kept the current profile avatar at full opacity while its disabled name stays dimmed.
 - Profile menu actions now use the sidebar highlight colors and rounded corners on hover, with the same focus ring for keyboard navigation.
@@ -1158,6 +1180,10 @@ All notable changes to the server workspace are recorded here.
 ### <u>Other</u>
 
 #### Added
+
+- Added the cross-platform Node.js exporter `tools/makepng/makepng.mjs`, replacing the macOS-only avatar `sources/export.swift` script while preserving opaque 512 × 512 PNG output and source-palette quantization (at most four colors).
+
+- Documented makepng installation, usage, and avatar export rules in the root and arachnea-stream `AGENTS.md` files.
 
 - Documented step 1 of server user profiles in matching French/English specifications: browser storage ownership inventory, account/profile DTOs and validation, stable errors, REST/Tauri authorization boundaries, durable cross-store recovery and affected existing checks. Runtime implementation remains pending; the tracking plan and TODO distinguish the drafted contracts from approved behavior.
 

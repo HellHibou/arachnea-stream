@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 256 256">
+  <title>Fox</title>
+  <rect width="256" height="256" fill="#568e86"/>
+  <path d="m57 119 1-71 60 42h20l60-42 1 71 13 22-27 43-57 31-57-31-27-43Z" fill="#ed8a46"/><path d="m70 72 2 39 26-17Zm116 0-2 39-26-17Z" fill="#24283b"/><path d="m45 141 56 13 27 34 27-34 56-13-26 43-57 31-57-31Z" fill="#fff4df"/><circle cx="99" cy="133" r="5" fill="#24283b"/><circle cx="157" cy="133" r="5" fill="#24283b"/><path d="M117 181q11-8 22 0l-11 12Z" fill="#24283b"/>
+</svg>

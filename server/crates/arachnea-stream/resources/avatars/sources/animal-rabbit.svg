@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 256 256">
+  <title>Rabbit</title>
+  <rect width="256" height="256" fill="#6eac99"/>
+  <path d="M79 119Q49 31 81 28q26-3 37 84Zm59-7q11-87 37-84 32 3 2 91Z" fill="#fff4df"/><path d="M87 103Q66 44 82 43q12-1 21 61Zm66 1q9-62 21-61 16 1-5 60Z" fill="#de9aa4"/><ellipse cx="128" cy="158" rx="73" ry="58" fill="#fff4df"/><circle cx="101" cy="148" r="5" fill="#24283b"/><circle cx="155" cy="148" r="5" fill="#24283b"/><path d="m119 169 9 9 9-9Z" fill="#de9aa4"/><path d="M128 178v8m0 0q-11 10-20 0m20 0q11 10 20 0" stroke="#24283b" stroke-width="4" stroke-linecap="round" fill="none"/>
+</svg>

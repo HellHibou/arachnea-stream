@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 256 256">
+  <title>Owl</title>
+  <rect width="256" height="256" fill="#7a91c2"/>
+  <path d="m61 117-3-58 42 23q28-10 56 0l42-23-3 58q14 21 11 48-4 49-78 49t-78-49q-3-27 11-48Z" fill="#24283b"/><path d="M69 125q-1-37 29-38 21 0 30 22 9-22 30-22 30 1 29 38v25q0 35-31 35-17 0-28-16-11 16-28 16-31 0-31-35Z" fill="#fff4df"/><circle cx="99" cy="130" r="19" fill="#eeb95a"/><circle cx="157" cy="130" r="19" fill="#eeb95a"/><circle cx="99" cy="130" r="5" fill="#24283b"/><circle cx="157" cy="130" r="5" fill="#24283b"/><path d="m118 158 10 20 10-20Z" fill="#eeb95a"/><path d="m100 209-6 11m62-11 6 11" stroke="#eeb95a" stroke-width="8" stroke-linecap="round"/>
+</svg>

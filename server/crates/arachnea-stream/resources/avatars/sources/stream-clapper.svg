@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 256 256">
+  <title>Cinema clapperboard</title>
+  <rect width="256" height="256" fill="#8871dc"/>
+  <rect x="48" y="98" width="160" height="108" rx="15" fill="#24283b"/><path d="M48 112h160v22H48Z" fill="#fff4df"/><path d="m57 104-11-32q-3-10 7-13l126-34q10-3 13 7l9 33Z" fill="#fff4df"/><path d="m66 55 25-7-11 41-25 7Zm50-14 25-7-11 41-25 7Zm50-14 14-3q10-1 12 8l2 8-14 21-25 7Z" fill="#24283b"/><path d="m115 153 33 20-33 20Z" fill="#eeb95a"/>
+</svg>

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 256 256">
+  <title>Headphones</title>
+  <rect width="256" height="256" fill="#4ba997"/>
+  <path d="M61 139v-22q0-67 67-67t67 67v22" fill="none" stroke="#24283b" stroke-width="19"/><path d="M64 104q10-46 64-46t64 46" fill="none" stroke="#fff4df" stroke-width="9" stroke-linecap="round"/><rect x="47" y="123" width="37" height="68" rx="17" fill="#24283b"/><rect x="172" y="123" width="37" height="68" rx="17" fill="#24283b"/><path d="M65 141v30m126-30v30" stroke="#eeb95a" stroke-width="9" stroke-linecap="round"/><path d="M143 107v57m0-57 20-5v17l-20 5" stroke="#24283b" stroke-width="7" stroke-linejoin="round" fill="#24283b"/><ellipse cx="131" cy="168" rx="15" ry="11" fill="#24283b"/>
+</svg>

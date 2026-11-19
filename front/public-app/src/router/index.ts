@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 
 import { isSessionContentAllowed } from '@/services/sessionEvents'
+import { getProfileContext } from '@/services/profileContext'
 
 import { getAppBasePath } from '@/services/baseUrl'
 import { resolveDefaultHomeRoute } from '@/services/defaultHome'
@@ -83,7 +84,7 @@ const router = createRouter({
 })
 
 router.beforeEach(async (to) => {
-  if (!isSessionContentAllowed()) return true
+  if (!isSessionContentAllowed() || !getProfileContext()) return true
   if (to.name === 'legacy-custom-home') {
     const home = await loadCustomHome(readRouteParam(to.params.homeId))
     if (home) return { ...customHomeRoute(home), query: to.query, hash: to.hash, replace: true }

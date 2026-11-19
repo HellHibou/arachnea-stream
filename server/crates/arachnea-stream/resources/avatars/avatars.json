@@ -7,12 +7,180 @@
       "file": "blue.png"
     },
     {
+      "id": "purple",
+      "file": "purple.png"
+    },
+    {
       "id": "green",
       "file": "green.png"
     },
     {
-      "id": "purple",
-      "file": "purple.png"
+      "id": "yellow",
+      "file": "yellow.png"
+    },
+    {
+      "id": "orange",
+      "file": "orange.png"
+    },
+    {
+      "id": "pink",
+      "file": "pink.png"
+    },
+    {
+      "id": "red",
+      "file": "red.png"
+    },
+    {
+      "id": "man-arachnea-blue",
+      "file": "man-arachnea-blue.png"
+    },
+    {
+      "id": "man-purple-twitch",
+      "file": "man-purple-twitch.png"
+    },
+    {
+      "id": "man-rumble-green",
+      "file": "man-rumble-green.png"
+    },
+    {
+      "id": "man-yellow-molotov",
+      "file": "man-yellow-molotov.png"
+    },
+    {
+      "id": "man-orange-crunchy",
+      "file": "man-orange-crunchy.png"
+    },
+    {
+      "id": "man-pink-odysee",
+      "file": "man-pink-odysee.png"
+    },
+    {
+      "id": "man-red-flix",
+      "file": "man-red-flix.png"
+    },
+    {
+      "id": "woman-arachnea-blue",
+      "file": "woman-arachnea-blue.png"
+    },
+    {
+      "id": "woman-purple-twitch",
+      "file": "woman-purple-twitch.png"
+    },
+    {
+      "id": "woman-rumble-green",
+      "file": "woman-rumble-green.png"
+    },
+    {
+      "id": "woman-yellow-molotov",
+      "file": "woman-yellow-molotov.png"
+    },
+    {
+      "id": "woman-orange-crunchy",
+      "file": "woman-orange-crunchy.png"
+    },
+    {
+      "id": "woman-pink-odysee",
+      "file": "woman-pink-odysee.png"
+    },
+    {
+      "id": "woman-red-flix",
+      "file": "woman-red-flix.png"
+    },
+    {
+      "id": "boy-arachnea-blue",
+      "file": "boy-arachnea-blue.png"
+    },
+    {
+      "id": "boy-purple-twitch",
+      "file": "boy-purple-twitch.png"
+    },
+    {
+      "id": "boy-rumble-green",
+      "file": "boy-rumble-green.png"
+    },
+    {
+      "id": "boy-yellow-molotov",
+      "file": "boy-yellow-molotov.png"
+    },
+    {
+      "id": "boy-orange-crunchy",
+      "file": "boy-orange-crunchy.png"
+    },
+    {
+      "id": "boy-pink-odysee",
+      "file": "boy-pink-odysee.png"
+    },
+    {
+      "id": "boy-red-flix",
+      "file": "boy-red-flix.png"
+    },
+    {
+      "id": "girl-arachnea-blue",
+      "file": "girl-arachnea-blue.png"
+    },
+    {
+      "id": "girl-purple-twitch",
+      "file": "girl-purple-twitch.png"
+    },
+    {
+      "id": "girl-rumble-green",
+      "file": "girl-rumble-green.png"
+    },
+    {
+      "id": "girl-yellow-molotov",
+      "file": "girl-yellow-molotov.png"
+    },
+    {
+      "id": "girl-orange-crunchy",
+      "file": "girl-orange-crunchy.png"
+    },
+    {
+      "id": "girl-pink-odysee",
+      "file": "girl-pink-odysee.png"
+    },
+    {
+      "id": "girl-red-flix",
+      "file": "girl-red-flix.png"
+    },
+    {
+      "id": "stream-clapper",
+      "file": "stream-clapper.png"
+    },
+    {
+      "id": "stream-popcorn",
+      "file": "stream-popcorn.png"
+    },
+    {
+      "id": "stream-tv",
+      "file": "stream-tv.png"
+    },
+    {
+      "id": "stream-headphones",
+      "file": "stream-headphones.png"
+    },
+    {
+      "id": "animal-cat",
+      "file": "animal-cat.png"
+    },
+    {
+      "id": "animal-dog",
+      "file": "animal-dog.png"
+    },
+    {
+      "id": "animal-fox",
+      "file": "animal-fox.png"
+    },
+    {
+      "id": "animal-panda",
+      "file": "animal-panda.png"
+    },
+    {
+      "id": "animal-owl",
+      "file": "animal-owl.png"
+    },
+    {
+      "id": "animal-rabbit",
+      "file": "animal-rabbit.png"
     }
   ]
 }

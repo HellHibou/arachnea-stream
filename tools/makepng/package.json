@@ -1,0 +1,16 @@
+{
+  "name": "arachnea-makepng",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Cross-platform SVG avatar exporter for Arachnea.",
+  "engines": {
+    "node": ">=20.9.0"
+  },
+  "scripts": {
+    "start": "node makepng.mjs"
+  },
+  "dependencies": {
+    "sharp": "0.34.5"
+  }
+}

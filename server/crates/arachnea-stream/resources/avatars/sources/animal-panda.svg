@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 256 256">
+  <title>Panda</title>
+  <rect width="256" height="256" fill="#d9a9c1"/>
+  <circle cx="73" cy="77" r="28" fill="#24283b"/><circle cx="183" cy="77" r="28" fill="#24283b"/><ellipse cx="128" cy="139" rx="79" ry="72" fill="#fff4df"/><ellipse cx="96" cy="132" rx="22" ry="29" transform="rotate(28 96 132)" fill="#24283b"/><ellipse cx="160" cy="132" rx="22" ry="29" transform="rotate(-28 160 132)" fill="#24283b"/><circle cx="100" cy="129" r="6" fill="#fff4df"/><circle cx="156" cy="129" r="6" fill="#fff4df"/><ellipse cx="128" cy="166" rx="13" ry="9" fill="#24283b"/><path d="M116 182q12 13 24 0" fill="none" stroke="#24283b" stroke-width="4" stroke-linecap="round"/><circle cx="76" cy="167" r="8" fill="#eeb95a"/><circle cx="180" cy="167" r="8" fill="#eeb95a"/>
+</svg>

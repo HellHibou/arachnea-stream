@@ -62,6 +62,7 @@ export interface ProfilesStore {
   clearError: () => void
   select: (profileId: string) => Promise<void>
   createProfile: (input: CreateProfileInput) => Promise<CreateProfileResult | null>
+  updateProfile: (profile: ProfileView, name: string, avatarId: string) => Promise<boolean>
   deleteProfile: (profile: ProfileView) => Promise<boolean>
   retryDeletions: () => Promise<void>
 }
@@ -99,6 +100,7 @@ export function useProfiles(): ProfilesStore {
   let disposed = false
   let revalidation = 0
   let pendingCreate: { operationId: string; body: string } | null = null
+  const pendingUpdates = new Map<string, { operationId: string; body: string }>()
   const pendingDeletions = shallowRef(new Map<string, { operationId: string; profile: ProfileView }>())
   const native = (window as unknown as { __TAURI__?: { event?: NativeProfileEvents } }).__TAURI__?.event
 
@@ -426,6 +428,49 @@ export function useProfiles(): ProfilesStore {
     }
   }
 
+  /** Updates an owned identity without changing the active context.
+   * @param profile Profile and revision captured when opening the editor.
+   * @param name Edited display name.
+   * @param avatarId Selected catalogue avatar.
+   * @returns Whether the server confirmed the update.
+   */
+  async function updateProfile(profile: ProfileView, name: string, avatarId: string): Promise<boolean> {
+    if (busy.value || disposed || !isSessionContentAllowed()) return false
+    const session = sessionGeneration()
+    const token = lifecycle
+    const body = { profile_id: profile.profile_id, expected_revision: profile.revision, name: name.trim(), avatar_id: avatarId }
+    const serialized = JSON.stringify(body)
+    let request = pendingUpdates.get(profile.profile_id)
+    if (!request || request.body !== serialized) {
+      request = { operationId: createOperationId(), body: serialized }
+      pendingUpdates.set(profile.profile_id, request)
+    }
+    busy.value = true
+    errorCode.value = null
+    revalidation += 1
+    try {
+      const updated = await profileSessionWrite<ProfileView>('update', body, request.operationId)
+      if (!current(token, session)) return false
+      pendingUpdates.delete(profile.profile_id)
+      revalidation += 1
+      if (list.value) list.value = { ...list.value, profiles: list.value.profiles.map((entry) => entry.profile_id === updated.profile_id ? updated : entry) }
+      if (snapshot.value?.profile.profile_id === updated.profile_id) snapshot.value = { ...snapshot.value, profile: updated }
+      broadcast()
+      return true
+    } catch (error) {
+      if (!current(token, session)) return false
+      if (error instanceof ProfileApiError && error.code !== 'storage_unavailable') pendingUpdates.delete(profile.profile_id)
+      await handleError(error, profile.profile_id)
+      if (error instanceof ProfileApiError && error.code === 'revision_conflict') {
+        const nextList = await fetchList().catch(() => null)
+        if (current(token, session) && nextList) list.value = nextList
+      }
+      return false
+    } finally {
+      busy.value = false
+    }
+  }
+
   /** Deletes one owned profile and clears it when active. @param profile Selected profile view with its revision. @returns Whether the server confirmed deletion. */
   async function deleteProfile(profile: ProfileView): Promise<boolean> {
     if (busy.value || disposed || !isSessionContentAllowed()) return false
@@ -554,6 +599,7 @@ export function useProfiles(): ProfilesStore {
     clearError,
     select,
     createProfile,
+    updateProfile,
     deleteProfile,
     retryDeletions,
   }

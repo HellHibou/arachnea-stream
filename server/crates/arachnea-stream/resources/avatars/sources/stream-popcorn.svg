@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 256 256">
+  <title>Popcorn</title>
+  <rect width="256" height="256" fill="#3399ff"/>
+  <path d="M74 113q-20-7-14-25 4-11 16-11-5-23 17-26 12-3 20 8 4-25 25-20 15 3 15 20 20-12 30 6 4 8 0 17 21 0 20 19-1 19-21 21Z" fill="#fff4df"/><path d="M67 111h122l-16 96q-1 10-13 10H96q-12 0-13-10Z" fill="#d64d56"/><path d="m87 111 17 106h18l-7-106Zm54 0-7 106h18l17-106Z" fill="#fff4df"/><path d="M67 111h122" stroke="#24283b" stroke-width="8" stroke-linecap="round"/>
+</svg>

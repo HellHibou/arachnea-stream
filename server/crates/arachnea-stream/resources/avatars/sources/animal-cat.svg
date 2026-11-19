@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 256 256">
+  <title>Cat</title>
+  <rect width="256" height="256" fill="#eeb95a"/>
+  <path d="M66 116 56 54l57 30h30l57-30-10 62q15 20 12 47-5 45-74 46-69-1-74-46-3-27 12-47Z" fill="#fff4df"/><path d="m70 72 6 42 22-20Zm116 0-6 42-22-20Z" fill="#d97a42"/><circle cx="101" cy="139" r="5" fill="#24283b"/><circle cx="155" cy="139" r="5" fill="#24283b"/><path d="m119 156 9 9 9-9Z" fill="#24283b"/><path d="M128 164v10m0 0q-10 12-20 1m20-1q10 12 20 1M83 160l-25-5m25 18-25 4m115-17 25-5m-25 18 25 4" stroke="#24283b" stroke-width="4" stroke-linecap="round" fill="none"/>
+</svg>

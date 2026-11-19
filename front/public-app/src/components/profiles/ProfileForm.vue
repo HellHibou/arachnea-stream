@@ -4,14 +4,16 @@ import { useI18n } from '@/i18n'
 import type { AvatarCatalogue } from '@/services/profileApi'
 import ProfileAvatar from './ProfileAvatar.vue'
 
-/** Reusable identity fields; validation is local and the parent owns persistence. */
+/** Identity fields; busy defaults to false, errorCode to null, showSubmit to true and submitLabel to the creation label. The parent owns persistence. */
 const props = withDefaults(defineProps<{
   name: string
   avatarId: string
   catalogue: AvatarCatalogue | null
   busy?: boolean
   errorCode?: string | null
-}>(), { busy: false, errorCode: null })
+  submitLabel?: string
+  showSubmit?: boolean
+}>(), { busy: false, errorCode: null, showSubmit: true })
 
 const emit = defineEmits<{
   'update:name': [value: string]
@@ -82,9 +84,11 @@ function updateAvatar(event: Event): void {
 
     <p v-if="errorCode" class="profile-form__error" role="alert">{{ t(`profiles.errors.${errorCode}`) }}</p>
     <slot />
-    <button class="profile-form__submit" type="submit" :disabled="busy || !nameValid || !avatarId">
-      {{ busy ? t('profiles.saving') : t('profiles.create') }}
-    </button>
+    <slot name="actions" :disabled="busy || !nameValid || !avatarId">
+      <button v-if="showSubmit" class="profile-form__submit" type="submit" :disabled="busy || !nameValid || !avatarId">
+        {{ busy ? t('profiles.saving') : (submitLabel ?? t('profiles.create')) }}
+      </button>
+    </slot>
   </form>
 </template>
 

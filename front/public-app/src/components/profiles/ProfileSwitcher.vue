@@ -6,6 +6,7 @@ import { useAccountSession } from '@/composables/useAccountSession'
 import type { ProfileView } from '@/services/profileApi'
 import ProfileAvatar from './ProfileAvatar.vue'
 import ProfilePasswordForm from './ProfilePasswordForm.vue'
+import ProfileEditor from './ProfileEditor.vue'
 
 const props = withDefaults(defineProps<{ manage?: boolean; selectOnly?: boolean }>(), { manage: false, selectOnly: false })
 const emit = defineEmits<{ create: []; selected: [profileId: string] }>()
@@ -15,6 +16,13 @@ const { t } = useI18n()
 
 const target = ref<ProfileView | null>(null)
 const confirmOpen = ref(false)
+const editing = ref<ProfileView | null>(null)
+
+/** Opens a detached identity editor. @param profile Profile to edit. */
+function requestEdit(profile: ProfileView): void {
+  profiles.clearError()
+  editing.value = profile
+}
 
 const quotaReached = computed(() => {
   const list = profiles.list.value
@@ -77,6 +85,9 @@ async function signOut(): Promise<void> {
           {{ profile.name }}
         </button>
         <span v-else class="profile-switcher__name">{{ profile.name }}</span>
+        <button v-if="props.manage && !props.selectOnly" class="profile-switcher__edit" type="button" :disabled="profiles.busy.value" :aria-label="t('profiles.editProfile', { name: profile.name })" @click="requestEdit(profile)">
+          {{ t('profiles.edit') }}
+        </button>
         <button v-if="!props.selectOnly" class="profile-switcher__delete" type="button" :disabled="profiles.busy.value" :aria-label="t('profiles.deleteProfile', { name: profile.name })" @click="requestDelete(profile)">
           {{ t('profiles.delete') }}
         </button>
@@ -102,6 +113,10 @@ async function signOut(): Promise<void> {
     <ProfilePasswordForm v-if="props.manage" />
   </section>
 
+  <v-dialog :model-value="Boolean(editing)" :persistent="profiles.busy.value" max-width="720" scrollable class="profile-editor-dialog" @update:model-value="!$event && (editing = null)">
+    <ProfileEditor v-if="editing" :key="editing.profile_id" :profile="editing" @saved="editing = null" @cancel="editing = null" />
+  </v-dialog>
+
   <v-dialog v-model="confirmOpen" max-width="420">
     <v-card>
       <v-card-title>{{ t('profiles.deleteTitle') }}</v-card-title>
@@ -118,6 +133,12 @@ async function signOut(): Promise<void> {
 </template>
 
 <style scoped>
+.profile-editor-dialog :deep(.v-overlay__scrim) {
+  backdrop-filter: var(--backdrop-filter-strong);
+  opacity: 1;
+  background: rgb(0 0 0 / 45%);
+}
+
 .profile-switcher {
   display: grid;
   gap: 20px;
@@ -221,6 +242,7 @@ async function signOut(): Promise<void> {
 }
 
 .profile-switcher__create,
+.profile-switcher__edit,
 .profile-switcher__delete,
 .profile-switcher__signout,
 .profile-switcher__pending button {
@@ -261,6 +283,7 @@ async function signOut(): Promise<void> {
 }
 
 .profile-switcher__create:focus-visible,
+.profile-switcher__edit:focus-visible,
 .profile-switcher__delete:focus-visible,
 .profile-switcher__signout:focus-visible,
 .profile-switcher__name:focus-visible,
@@ -270,6 +293,7 @@ async function signOut(): Promise<void> {
 }
 
 .profile-switcher__create:disabled,
+.profile-switcher__edit:disabled,
 .profile-switcher__delete:disabled,
 .profile-switcher__name:disabled {
   opacity: 0.5;

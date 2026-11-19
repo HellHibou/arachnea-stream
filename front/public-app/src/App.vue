@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, shallowRef, useTemplateRef, watch } from 'vue'
+import { computed, nextTick, onMounted, shallowRef, useTemplateRef, watch } from 'vue'
 import type { ComponentPublicInstance } from 'vue'
 import { RouterView, useRoute, useRouter, type RouteLocationRaw } from 'vue-router'
 import { type Parameters, useStorage } from '@/services/storage'
@@ -22,10 +22,12 @@ import ParametersDialog from '@/components/parameters/ParametersDialog.vue'
 import AppNavigation from '@/components/navigation/AppNavigation.vue'
 import { useAppNavigation } from '@/composables/useAppNavigation'
 import { resolveDefaultHomeRoute } from '@/services/defaultHome'
+import { getProfileContext, isCurrentProfile } from '@/services/profileContext'
 
 // Router instances
 const route = useRoute()
 const router = useRouter()
+onMounted(restoreProfileRoute)
 
 /** Template reference to the MainBar component for search input focus control. */
 const mainBarRef =
@@ -198,6 +200,24 @@ function handleSelectedLive(item: MediaSelectionTarget | LiveSelectionTarget) {
  */
 async function handleGoHome() {
   navigateTo(await resolveDefaultHomeRoute())
+}
+
+/** Resolves profile-owned home routes after activation, preserving explicit destinations and later navigation. */
+async function restoreProfileRoute(): Promise<void> {
+  const context = getProfileContext()
+  await router.isReady()
+  if (!context || !isCurrentProfile(context)) return
+  if (route.name === 'custom-home' || route.name === 'legacy-custom-home') {
+    await router.replace({ path: route.fullPath, force: true })
+    return
+  }
+  if (route.name !== 'home') return
+  const initialPath = route.fullPath
+  const target = await resolveDefaultHomeRoute()
+  if (!isCurrentProfile(context) || route.fullPath !== initialPath) return
+  if (typeof target === 'object' && 'name' in target && target.name !== 'home') {
+    await router.replace({ ...target, query: route.query, hash: route.hash })
+  }
 }
 
 /**

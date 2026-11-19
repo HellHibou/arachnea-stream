@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 256 256">
+  <title>Man — Orange Crunchy</title>
+  <rect width="256" height="256" fill="#ff6f16"/>
+  <path d="M31 256v-16q0-36 44-43l30-5h46l30 5q44 7 44 43v16Z" fill="#fff4df"/><path d="M108 165h40v39q-20 21-40 0Z" fill="#f2c6a5"/><path d="M75 122V89q0-45 51-45 49 0 54 43v40Z" fill="#24283b"/><circle cx="77" cy="126" r="12" fill="#f2c6a5"/><circle cx="179" cy="126" r="12" fill="#f2c6a5"/><path d="M81 101q0-40 47-40t47 40v39q0 47-47 51-47-4-47-51Z" fill="#f2c6a5"/><path d="M77 109V84q-1-33 34-39l18-14 6 16q37-4 47 26l-8 35-11-24q-26 11-57-1l-14 26Z" fill="#24283b"/><path d="M84 139q10 9 15 26 29 20 58 0 5-17 15-26v13q-3 39-44 44-41-5-44-44Z" fill="#24283b"/><path d="M107 119v5" stroke="#24283b" stroke-width="5" stroke-linecap="round"/><path d="M149 119v5" stroke="#24283b" stroke-width="5" stroke-linecap="round"/><path d="M113 159q15 13 30 0" fill="none" stroke="#fff4df" stroke-width="5" stroke-linecap="round"/>
+</svg>

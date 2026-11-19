@@ -100,7 +100,7 @@ async function save(): Promise<void> {
     <p v-if="errorCode" class="profile-password__error" role="alert">{{ t(`accounts.errors.${errorCode}`) }}</p>
     <v-alert v-if="passwordTooShort" type="warning" variant="tonal" role="alert">{{ t('accounts.passwordHint') }}</v-alert>
     <v-alert v-if="saved" type="success" variant="tonal" :text="t('profiles.passwordSaved')" class="profile-password__saved" />
-    <v-btn color="primary" :loading="accounts.busy.value" :disabled="accounts.busy.value" @click="submit">
+    <v-btn class="profile-password__submit" variant="flat" :loading="accounts.busy.value" :disabled="accounts.busy.value" @click="submit">
       {{ t('accounts.savePassword') }}
     </v-btn>
   </ParametersSection>
@@ -116,6 +116,22 @@ async function save(): Promise<void> {
 .profile-password__error {
   margin: 0;
   color: var(--text-danger);
+}
+
+.profile-password__submit {
+  justify-self: center;
+  min-height: 40px;
+  padding: 0 20px;
+  border-radius: 999px;
+  background: var(--bg-accent-primary);
+  color: var(--text-primary);
+  font: inherit;
+  font-weight: 700;
+}
+
+.profile-password__submit:focus-visible {
+  outline: var(--common-focus-ring);
+  outline-offset: 2px;
 }
 
 .profile-password__warning,
