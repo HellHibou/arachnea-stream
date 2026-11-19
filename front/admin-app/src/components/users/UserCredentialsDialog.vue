@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { useI18n } from '@/i18n'
 import { createOperationId } from '@/services/operationId'
-import { PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH } from '@/services/password'
+import { PASSWORD_INPUT_MAX_LENGTH, PASSWORD_MIN_LENGTH } from '@/services/password'
 import PasswordStrengthMeter from './PasswordStrengthMeter.vue'
 
 /** Create/reset mode, fixed reset target and busy state; credentials stay in memory only. */
@@ -31,6 +31,8 @@ const operationId = ref(createOperationId())
 const activeResetLogin = ref('')
 
 const isReset = computed(() => Boolean(activeResetLogin.value))
+/** Warns only while a non-empty password is below the server's scalar-value minimum. */
+const passwordTooShort = computed(() => password.value.length > 0 && Array.from(password.value).length < PASSWORD_MIN_LENGTH)
 const canSave = computed(() => (isReset.value || login.value.trim().length >= 3) && Array.from(password.value).length >= PASSWORD_MIN_LENGTH)
 
 /** Regenerates the retry identity whenever the submitted draft changes. */
@@ -103,7 +105,7 @@ function submit(): void {
             variant="outlined"
             autocomplete="new-password"
             :minlength="PASSWORD_MIN_LENGTH"
-            :maxlength="PASSWORD_MAX_LENGTH"
+            :maxlength="PASSWORD_INPUT_MAX_LENGTH"
             required
             :disabled="busy"
             class="mt-2"
@@ -130,7 +132,7 @@ function submit(): void {
             class="mb-2"
           />
 
-          <p class="text-body-2">{{ t('users.passwordHint') }}</p>
+          <v-alert v-if="passwordTooShort" type="warning" variant="tonal" role="alert">{{ t('users.passwordHint') }}</v-alert>
         </v-form>
       </v-card-text>
       <v-card-actions>

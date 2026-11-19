@@ -585,6 +585,8 @@
     "retryDeletions": "Reprendre les suppressions"
   },
   "personalData": {
+    "operation": "la synchronisation des données personnelles",
+    "pending": "Certaines modifications restent en attente d’enregistrement.",
     "failed": "Vos modifications n’ont pas pu être enregistrées. Rechargez les données concernées en cas de conflit.",
     "saving": "Enregistrement de vos modifications…",
     "retry": "Réessayer les sauvegardes en attente",

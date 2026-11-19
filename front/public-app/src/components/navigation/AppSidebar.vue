@@ -9,7 +9,7 @@ import type { ServiceMetadata } from '@/types/serviceMetadata'
 /** Presentation-only destinations; editing and navigation close requests are emitted upward. */
 defineProps<{ homes: CustomHomeDefinition[]; sources: readonly Pick<ServiceMetadata, 'id' | 'title' | 'logo'>[]; sourcesExpanded: boolean;
   activeHomeId: string | null; activeSourceId: string | null; livesActive: boolean; editingEnabled: boolean }>()
-const emit = defineEmits<{ settings: []; navigate: []; create: []; manage: []; edit: [id: string];
+const emit = defineEmits<{ navigate: []; create: []; manage: []; edit: [id: string];
   'update:sourcesExpanded': [expanded: boolean] }>()
 const sourceGroupId = useId()
 const { t } = useI18n()
@@ -44,9 +44,6 @@ const { t } = useI18n()
     </RouterLink>
     <SidebarSourceGroup :sources="sources" :expanded="sourcesExpanded" :active-source-id="activeSourceId"
       :group-id="sourceGroupId" @update:expanded="emit('update:sourcesExpanded', $event)" @navigate="emit('navigate')" />
-    <button class="sidebar-link" type="button" @click="emit('settings')">
-      <v-icon icon="mdi-cog" aria-hidden="true" /><strong>{{ t('navigation.settings') }}</strong>
-    </button>
   </nav>
 </template>
 

@@ -1,7 +1,7 @@
 import { t } from '@/i18n'
 import { sessionGeneration, reportSessionFailure } from '@/services/sessionEvents'
 import { resolveAppPath } from '@/services/baseUrl'
-import { enqueueErrorNotification } from '@/composables/useErrorNotifications'
+import { enqueueErrorNotification, reportFrontendErrorNotification } from '@/composables/useErrorNotifications'
 import type {
   ScraperAggregationResult,
   ScraperExecutionError,
@@ -217,36 +217,8 @@ function reportExecutionErrors(errors: ScraperExecutionError[]): void {
 
 /** Creates, logs, queues, and rejects a frontend-generated technical error. */
 function throwFrontendApiError(operation: string, message: string): never {
-  const error: ScraperExecutionError = {
-    code: nextFrontendErrorCode(),
-    operation,
-    source: null,
-    origin: 'frontend',
-    message,
-  }
-  reportExecutionErrors([error])
+  reportFrontendErrorNotification(operation, message)
   throw new ReportedApiError(message)
-}
-
-let lastFrontendErrorMillis = 0
-let frontendErrorSequence = 0
-
-/** Generates a monotonic browser-local diagnostic code matching the backend format. */
-function nextFrontendErrorCode(): string {
-  const currentMillis = Date.now()
-
-  if (currentMillis <= lastFrontendErrorMillis) {
-    frontendErrorSequence += 1
-    if (frontendErrorSequence > 99) {
-      lastFrontendErrorMillis += 1
-      frontendErrorSequence = 0
-    }
-  } else {
-    lastFrontendErrorMillis = currentMillis
-    frontendErrorSequence = 0
-  }
-
-  return `ARACHNEA_E${lastFrontendErrorMillis}${String(frontendErrorSequence).padStart(2, '0')}`
 }
 
 /** Signals that a structured error has already been queued and logged. */

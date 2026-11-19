@@ -28,10 +28,12 @@ function close(): void {
 </script>
 
 <template>
-  <v-dialog :model-value="open" max-width="720" scrollable @update:model-value="emit('update:open', $event)">
+  <v-dialog :model-value="open" max-width="720" scrollable class="profile-dialog-overlay" @update:model-value="emit('update:open', $event)">
     <v-card class="profile-dialog">
-      <v-card-title v-if="!creating && mode === 'manage'">{{ title }}</v-card-title>
-      <v-card-text>
+      <v-card-title v-if="!creating && mode === 'manage'" class="profile-dialog__header">
+        <h2 class="profile-dialog__title">{{ title }}</h2>
+      </v-card-title>
+      <v-card-text class="profile-dialog__content">
         <ProfileOnboarding v-if="creating" additional />
         <ProfileSwitcher
           v-else
@@ -39,9 +41,13 @@ function close(): void {
           :select-only="mode === 'select'"
           @create="startCreation"
           @selected="mode === 'select' && close()"
-        />
+        >
+          <template v-if="mode === 'select'" #actions>
+            <v-btn variant="text" @click="close">{{ t('customHome.close') }}</v-btn>
+          </template>
+        </ProfileSwitcher>
       </v-card-text>
-      <v-card-actions>
+      <v-card-actions v-if="creating || mode === 'manage'" class="profile-dialog__actions">
         <v-btn variant="text" @click="close">{{ t('customHome.close') }}</v-btn>
       </v-card-actions>
     </v-card>
@@ -53,5 +59,48 @@ function close(): void {
   background: var(--bg-surface);
   color: var(--text-primary);
   font-family: inherit;
+}
+
+.profile-dialog__content :deep(.profile-switcher),
+.profile-dialog__content :deep(.profile-onboarding) {
+  width: 100%;
+  margin: 0;
+  padding: 8px 0;
+}
+
+.profile-dialog__actions {
+  flex-wrap: wrap;
+}
+
+.profile-dialog__header {
+  padding: 16px 24px 0;
+}
+
+.profile-dialog__title {
+  position: relative;
+  padding-inline-start: 12px;
+  font-size: 1.16rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  line-height: 1.2;
+  white-space: normal;
+}
+
+.profile-dialog__title::before {
+  position: absolute;
+  top: 50%;
+  inset-inline-start: 0;
+  width: 4px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--bg-accent-marker-primary);
+  content: '';
+  transform: translateY(-50%);
+}
+
+.profile-dialog-overlay :deep(.v-overlay__scrim) {
+  backdrop-filter: var(--backdrop-filter-strong);
+  opacity: 1;
+  background: rgb(0 0 0 / 45%);
 }
 </style>

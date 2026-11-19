@@ -16,9 +16,8 @@ async function retry(): Promise<void> {
 </script>
 
 <template>
-  <aside v-if="personalDataIssue || pendingBookmarkWrites || pendingPlayerPreferences" class="personal-data-status" :role="personalDataIssue ? 'alert' : 'status'">
-    <p>{{ t(personalDataIssue ? 'personalData.failed' : 'personalData.saving') }}</p>
-    <p v-if="personalDataIssue">{{ personalDataIssue.message }}</p>
+  <aside v-if="pendingBookmarkWrites || pendingPlayerPreferences" class="personal-data-status" role="status">
+    <p>{{ t(personalDataIssue ? 'personalData.pending' : 'personalData.saving') }}</p>
     <v-btn v-if="personalDataIssue && (pendingBookmarkWrites || pendingPlayerPreferences)" variant="text" @click="retry">{{ t('personalData.retry') }}</v-btn>
     <v-btn v-if="personalDataIssue" variant="text" @click="clearPersonalDataFailure">{{ t('personalData.dismiss') }}</v-btn>
   </aside>

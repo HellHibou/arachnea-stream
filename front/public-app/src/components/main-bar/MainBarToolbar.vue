@@ -78,6 +78,8 @@ const emit = defineEmits<{
   'toggle-navigation': []
   /** Emitted when the search toggle is clicked. */
   'toggle-search': []
+  /** Emitted when settings are requested from the profile menu. */
+  settings: []
 }>()
 
 /** Internationalization utilities. */
@@ -161,7 +163,7 @@ const homeHref = computed(() => {
         <v-icon icon="$Search" size="22" aria-hidden="true" />
       </button>
 
-      <ProfileMenu />
+      <ProfileMenu @settings="emit('settings')" />
 
     </div>
   </div>

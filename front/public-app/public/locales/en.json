@@ -585,6 +585,8 @@
     "retryDeletions": "Retry pending deletions"
   },
   "personalData": {
+    "operation": "personal data synchronization",
+    "pending": "Some changes are still waiting to be saved.",
     "failed": "Your changes could not be saved. Reload the affected data after a conflict.",
     "saving": "Saving your changes…",
     "retry": "Retry pending saves",

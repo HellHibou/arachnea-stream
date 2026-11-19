@@ -6,6 +6,7 @@ import { useI18n } from '@/i18n'
 import ProfileAvatar from './ProfileAvatar.vue'
 import ProfileSwitcherDialog from './ProfileSwitcherDialog.vue'
 
+const emit = defineEmits<{ settings: [] }>()
 const profiles = injectProfiles()
 const accounts = useAccountSession()
 const { t } = useI18n()
@@ -32,6 +33,12 @@ function openManagement(): void {
   void nextTick(() => { manageOpen.value = true })
 }
 
+/** Opens the existing settings dialog after closing the profile menu. */
+function openSettings(): void {
+  menuOpen.value = false
+  void nextTick(() => { emit('settings') })
+}
+
 /** Revokes the account session. */
 async function signOut(): Promise<void> {
   menuOpen.value = false
@@ -40,7 +47,7 @@ async function signOut(): Promise<void> {
 </script>
 
 <template>
-  <v-menu v-model="menuOpen" :close-on-content-click="true">
+  <v-menu v-model="menuOpen" :close-on-content-click="true" :offset="7">
     <template #activator="{ props: activatorProps }">
       <button
         v-bind="activatorProps"
@@ -76,17 +83,21 @@ async function signOut(): Promise<void> {
 
       <v-divider />
 
-      <v-list-item class="profile-menu__item" @click="openSelection">
+      <v-list-item class="profile-menu__item" prepend-icon="mdi-account-switch" @click="openSelection">
         <v-list-item-title>{{ t('profiles.switch') }}</v-list-item-title>
       </v-list-item>
 
-      <v-list-item class="profile-menu__item" @click="openManagement">
+      <v-list-item class="profile-menu__item" prepend-icon="mdi-account-cog" @click="openManagement">
         <v-list-item-title>{{ t('profiles.manage') }}</v-list-item-title>
+      </v-list-item>
+
+      <v-list-item class="profile-menu__item" prepend-icon="mdi-cog" @click="openSettings">
+        <v-list-item-title>{{ t('navigation.settings') }}</v-list-item-title>
       </v-list-item>
 
       <v-divider />
 
-      <v-list-item class="profile-menu__item" @click="signOut">
+      <v-list-item class="profile-menu__item" prepend-icon="mdi-logout" @click="signOut">
         <v-list-item-title>{{ t('accounts.signOut') }}</v-list-item-title>
       </v-list-item>
     </v-list>
@@ -120,6 +131,7 @@ async function signOut(): Promise<void> {
 }
 
 .profile-menu__list {
+  --v-list-prepend-gap: 16px;
   min-width: 220px;
   background: var(--bg-surface);
   backdrop-filter: var(--backdrop-filter-medium);
@@ -130,9 +142,31 @@ async function signOut(): Promise<void> {
   overflow: hidden;
 }
 
-.profile-menu__item,
 .profile-menu__current {
+  opacity: 1;
+}
+
+.profile-menu__current :deep(.v-list-item-title) {
+  opacity: 0.6;
+}
+
+.profile-menu__item {
+  --v-hover-opacity: 0;
+  --v-focus-opacity: 0;
+  border-radius: var(--radius);
+  color: var(--text-primary);
   cursor: pointer;
+}
+
+.profile-menu__item:hover,
+.profile-menu__item:focus-visible {
+  background: var(--bg-surface);
+  color: var(--color-primary);
+}
+
+.profile-menu__item:focus-visible {
+  outline: var(--common-focus-ring);
+  outline-offset: -2px;
 }
 
 :deep(.v-overlay__content) {

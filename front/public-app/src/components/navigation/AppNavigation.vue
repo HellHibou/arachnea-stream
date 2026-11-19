@@ -10,7 +10,7 @@ import { useStorage } from '@/services/storage'
 
 /** Shell-owned responsive state; this component owns navigation records, not content resolution. */
 const props = defineProps<{ mobile: boolean; open: boolean; hidden: boolean }>()
-const emit = defineEmits<{ close: []; settings: []; 'update:width': [width: number] }>()
+const emit = defineEmits<{ close: []; 'update:width': [width: number] }>()
 const route = useRoute()
 const { t } = useI18n()
 const manager = useCustomHomeManager()
@@ -90,7 +90,7 @@ onScopeDispose(() => {
     <button v-if="props.mobile" type="button" class="app-navigation__close" @click="emit('close')">
       {{ t('navigation.close') }} <v-icon icon="mdi-close" aria-hidden="true" />
     </button>
-    <AppSidebar @settings="emit('close'); emit('settings')" :homes="manager.homes.value" :sources="sources" :sources-expanded="sourcesExpanded"
+    <AppSidebar :homes="manager.homes.value" :sources="sources" :sources-expanded="sourcesExpanded"
       :editing-enabled="editingEnabled"
       :active-home-id="activeHomeId" :active-source-id="activeSourceId" :lives-active="route.name === 'lives' || route.name === 'live-details'"
       @navigate="emit('close')" @create="openManager(null, true)" @manage="openManager()" @edit="openManager($event)"

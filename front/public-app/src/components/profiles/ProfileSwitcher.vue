@@ -95,7 +95,10 @@ async function signOut(): Promise<void> {
       </button>
     </div>
 
-    <button v-if="!props.manage" class="profile-switcher__signout" type="button" :disabled="accounts.busy.value" @click="signOut">{{ t('accounts.signOut') }}</button>
+    <footer v-if="!props.manage" class="profile-switcher__actions">
+      <button class="profile-switcher__signout" type="button" :disabled="accounts.busy.value" @click="signOut">{{ t('accounts.signOut') }}</button>
+      <slot name="actions" />
+    </footer>
     <ProfilePasswordForm v-if="props.manage" />
   </section>
 
@@ -128,16 +131,45 @@ async function signOut(): Promise<void> {
   align-items: start;
   justify-content: space-between;
   gap: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-color-primary);
 }
 
 .profile-switcher__header h1 {
+  position: relative;
   margin: 0 0 6px;
-  font-size: 1.6rem;
-  text-align: center;
+  padding-inline-start: 12px;
+  font-size: 1.16rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  line-height: 1.2;
+}
+
+.profile-switcher__header h1::before {
+  position: absolute;
+  top: 50%;
+  inset-inline-start: 0;
+  width: 4px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--bg-accent-marker-primary);
+  content: '';
+  transform: translateY(-50%);
 }
 
 .profile-switcher--select .profile-switcher__header {
-  justify-content: center;
+  justify-content: flex-start;
+}
+
+.profile-switcher--select .profile-switcher__list {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr));
+}
+
+.profile-switcher__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
 }
 
 .profile-switcher__quota,
@@ -153,7 +185,7 @@ async function signOut(): Promise<void> {
 
 .profile-switcher__list {
   display: grid;
-  gap: 8px;
+  gap: 12px;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -162,11 +194,12 @@ async function signOut(): Promise<void> {
 .profile-switcher__item {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 8px 12px;
+  gap: 16px;
+  padding: 12px 16px;
   border: 1px solid var(--border-color-primary);
   border-radius: var(--radius);
   background: var(--bg-surface);
+  box-shadow: var(--inset-light);
 }
 
 .profile-switcher__item--active {
@@ -183,6 +216,7 @@ async function signOut(): Promise<void> {
   font: inherit;
   font-weight: 600;
   text-align: left;
+  overflow-wrap: anywhere;
   cursor: pointer;
 }
 
@@ -193,7 +227,7 @@ async function signOut(): Promise<void> {
   min-height: 36px;
   padding: 8px 14px;
   border: 1px solid var(--border-color-primary);
-  border-radius: 999px;
+  border-radius: var(--radius);
   background: var(--bg-surface);
   color: var(--text-primary);
   font: inherit;
@@ -246,5 +280,19 @@ async function signOut(): Promise<void> {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+@media (max-width: 720px) {
+  .profile-switcher__header {
+    flex-wrap: wrap;
+  }
+
+  .profile-switcher__item {
+    flex-wrap: wrap;
+  }
+
+  .profile-switcher__delete {
+    margin-inline-start: auto;
+  }
 }
 </style>

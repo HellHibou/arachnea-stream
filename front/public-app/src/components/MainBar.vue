@@ -75,6 +75,8 @@ const emit = defineEmits<{
   'toggle-navigation': []
   /** Emitted when the search toggle is clicked. */
   'toggle-search': []
+  /** Emitted when settings are requested from the profile menu. */
+  settings: []
 }>()
 
 
@@ -115,6 +117,7 @@ defineExpose({ focusSearchInput, focusNavigationButton })
       @home="emit('home')"
       @toggle-navigation="emit('toggle-navigation')"
       @toggle-search="emit('toggle-search')"
+      @settings="emit('settings')"
     />
 
 

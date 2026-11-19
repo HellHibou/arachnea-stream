@@ -2,6 +2,8 @@
 export const PASSWORD_MIN_LENGTH = 4
 /** Maximum accepted public password length in Unicode scalar values. */
 export const PASSWORD_MAX_LENGTH = 128
+/** HTML input limit in UTF-16 code units, allowing two units per Unicode scalar value. */
+export const PASSWORD_INPUT_MAX_LENGTH = PASSWORD_MAX_LENGTH * 2
 
 /** Increasing password complexity levels shown by the strength indicator. */
 export type PasswordStrengthLevel = 'veryWeak' | 'weak' | 'fair' | 'good' | 'strong'
@@ -43,5 +45,5 @@ export function passwordStrength(value: string): PasswordStrength {
   if (length >= 8 && classes >= 3) score += 1
   if (length >= 12 && classes >= 3) score += 1
   const levels: PasswordStrengthLevel[] = ['veryWeak', 'weak', 'fair', 'good', 'strong']
-  return { level: levels[score] ?? 'veryWeak', percent: score * 20 }
+  return { level: levels[Math.min(score, levels.length - 1)] ?? 'veryWeak', percent: score * 20 }
 }

@@ -869,6 +869,9 @@ All notable changes to the server workspace are recorded here.
 
 #### Fixed
 
+- Password length guidance is now a contextual warning shown only for non-empty passwords shorter than four Unicode scalar values.
+- Password creation/reset fields now allow the UTF-16 input length needed for all 128 Unicode scalar values accepted by the server.
+- Password strength indicators keep the strongest score at the strongest label instead of falling back to very weak.
 - Shortened English metadata filter and service-tag labels to “Countries”, “Languages”, and “Content”, matching the concise French labels.
 - Shortened French metadata filter and service-tag labels to “Pays”, “Langues”, and “Contenu”.
 - Grouped each service metadata field into one tag with localized values separated by ` - `, and reduced desktop filter dropdown widths to half the search field width.
@@ -983,6 +986,15 @@ All notable changes to the server workspace are recorded here.
 
 #### Fixed
 
+- Added a 7 px offset below the profile-menu trigger and kept the current profile avatar at full opacity while its disabled name stays dimmed.
+- Profile menu actions now use the sidebar highlight colors and rounded corners on hover, with the same focus ring for keyboard navigation.
+- Personal-data failures now use the generic error notification stack with a correlation code, console diagnostic and collapsed technical details. Repeated identical visible errors are not duplicated; the pending-save indicator retains explicit retry controls without repeating the error or raw network message.
+- Moved Settings from the navigation sidebar into the profile menu immediately below Manage profiles, retaining the existing settings dialog and draft behavior.
+- Matched the profile-management title to the accented settings headings, left-aligned profile selection, reduced selection tiles to a 160 px minimum width and placed Close beside Sign out. Password length guidance is now a contextual warning shown only for non-empty replacements shorter than four Unicode scalar values.
+- Profile switch/management dialogs now follow the settings surface, blurred backdrop, accented headings and bordered sections; profile rows and the menu keep 16 px between avatars and names, and switch/manage/sign-out menu actions have icons.
+- Profile onboarding stays mounted while creation/selection runs, preserving the draft and the created profile identity until activation or retry.
+- Login and password-change fields now allow the UTF-16 input length needed for all 128 Unicode scalar values accepted by the server.
+- Password strength indicators keep the strongest score at the strongest label instead of falling back to very weak.
 - Fixed step 6 profile switching and deletion recovery: the mobile drawer closes before opening the profile dialog; selecting the active profile preserves its context generation and mounted bookmark callbacks. Pending deletions retain their original operation UUID and expected revision for explicit retries even when the target leaves the list. An inaccessible deletion target no longer clears another active profile, and a partially deleted active profile leaves content immediately after its state is confirmed by the list.
 
 - All player icons now render inside Document Picture-in-Picture windows. The chapter button, skip-chapter button and subtitle menu action icons were Material Design Icons font glyphs; since the PiP document cannot load the webfont, they displayed raw codepoints (e.g. `F027B`). They now use inlined SVG assets, like the other player control icons.
@@ -1158,6 +1170,7 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Removed the standalone English/French user-profile specifications and their links from the remaining documentation.
 - Revised the subtitle translation analysis to keep translated files exclusively in the browser and revalidate a composite source-validator/YAML/target-language ETag before translation. Audited commits `7c9208d3`, `49b96042` and `8bd1dff4`, recorded the required contract corrections for delivered lots 1–4, and updated the remaining implementation plan; runtime code is unchanged.
 
 - Documented `build_json_array`, `json_array_projection` and `preserves_request_order` in the Scrapyfy and Translation specifications (French and English), and recorded the translation catalog, credentials lookup and administrator reload behavior in the translation analysis and TODO.

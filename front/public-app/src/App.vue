@@ -241,11 +241,12 @@ function handleBackNavigation() {
       @home="handleGoHome"
       @toggle-navigation="closeParameters(); isSearchVisible = false; navigation.toggle()"
       @toggle-search="toggleSearch"
+      @settings="navigation.close(); toggleParameters()"
     />
 
     <AppNavigation :mobile="navigation.isMobile.value" :open="navigation.isOpen.value" :hidden="navigation.isFullscreen.value || (!navigation.isMobile.value && !navigation.isVisible.value)"
       @update:width="sidebarWidth = $event"
-      @close="navigation.close()" @settings="toggleParameters" />
+      @close="navigation.close()" />
     <ParametersDialog v-model:open="isParametersVisible" />
     <main class="app-content">
       <RouterView v-slot="{ Component }">

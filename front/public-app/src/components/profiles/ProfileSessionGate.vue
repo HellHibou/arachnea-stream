@@ -38,11 +38,11 @@ function startCreation(): void {
     <v-btn @click="profiles.retry()">{{ t('profiles.retry') }}</v-btn>
   </div>
   <App v-else-if="profiles.activeProfile.value" :key="profiles.activeId.value ?? undefined" />
-  <div v-else-if="profiles.busy.value" class="profile-gate" role="status">
-    {{ t('profiles.loading') }}
-  </div>
   <div v-else-if="creating || needsOnboarding" class="profile-gate">
     <ProfileOnboarding :additional="additionalCreation" />
+  </div>
+  <div v-else-if="profiles.busy.value" class="profile-gate" role="status">
+    {{ t('profiles.loading') }}
   </div>
   <div v-else class="profile-gate">
     <ProfileSwitcher

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { t } from '@/i18n'
-import { PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH } from '@/services/password'
+import { PASSWORD_INPUT_MAX_LENGTH, PASSWORD_MIN_LENGTH } from '@/services/password'
 import PasswordStrengthMeter from './PasswordStrengthMeter.vue'
 
 /** Form mode and operation state; no network calls or shared preference writes. */
@@ -13,6 +13,8 @@ const replacement = ref('')
 const confirmation = ref('')
 const mismatch = ref(false)
 const samePassword = ref(false)
+/** Warns only while a non-empty replacement is below the server's scalar-value minimum. */
+const passwordTooShort = computed(() => replacement.value.length > 0 && Array.from(replacement.value).length < PASSWORD_MIN_LENGTH)
 
 /** Hides the revoked-session notice because the login gate already conveys that state. */
 const formErrorCode = computed(() => props.errorCode === 'session_revoked' ? null : props.errorCode)
@@ -44,11 +46,11 @@ function confirmSamePassword(): void {
     <h1>{{ t(changePassword ? 'accounts.changeTitle' : 'accounts.loginTitle') }}</h1>
     <p v-if="changePassword">{{ t('accounts.changeRequired') }}</p>
     <v-text-field v-if="!changePassword" v-model="login" :label="t('accounts.login')" autocomplete="username" maxlength="64" required :disabled="busy" />
-    <v-text-field v-model="password" :label="t(changePassword ? 'accounts.currentPassword' : 'accounts.password')" type="password" autocomplete="current-password" :maxlength="PASSWORD_MAX_LENGTH" required :disabled="busy" />
+    <v-text-field v-model="password" :label="t(changePassword ? 'accounts.currentPassword' : 'accounts.password')" type="password" autocomplete="current-password" :maxlength="PASSWORD_INPUT_MAX_LENGTH" required :disabled="busy" />
     <template v-if="changePassword">
-      <v-text-field v-model="replacement" :label="t('accounts.newPassword')" type="password" autocomplete="new-password" :minlength="PASSWORD_MIN_LENGTH" :maxlength="PASSWORD_MAX_LENGTH" required :disabled="busy" />
+      <v-text-field v-model="replacement" :label="t('accounts.newPassword')" type="password" autocomplete="new-password" :minlength="PASSWORD_MIN_LENGTH" :maxlength="PASSWORD_INPUT_MAX_LENGTH" required :disabled="busy" />
       <PasswordStrengthMeter :password="replacement" />
-      <v-text-field v-model="confirmation" :label="t('accounts.confirmPassword')" type="password" autocomplete="new-password" :maxlength="PASSWORD_MAX_LENGTH" required :disabled="busy" />
+      <v-text-field v-model="confirmation" :label="t('accounts.confirmPassword')" type="password" autocomplete="new-password" :maxlength="PASSWORD_INPUT_MAX_LENGTH" required :disabled="busy" />
     </template>
     <p v-if="mismatch" role="alert">{{ t('accounts.passwordMismatch') }}</p>
     <v-alert v-if="samePassword" type="warning" variant="tonal" class="mb-4">
@@ -59,7 +61,7 @@ function confirmSamePassword(): void {
       </div>
     </v-alert>
     <p v-if="formErrorCode" role="alert">{{ t(`accounts.errors.${formErrorCode}`) }}</p>
-    <p v-if="changePassword">{{ t('accounts.passwordHint') }}</p>
+    <v-alert v-if="changePassword && passwordTooShort" type="warning" variant="tonal" role="alert">{{ t('accounts.passwordHint') }}</v-alert>
     <v-btn type="submit" color="primary" :loading="busy" :disabled="busy || samePassword">{{ t(changePassword ? 'accounts.savePassword' : 'accounts.signIn') }}</v-btn>
   </form>
 </template>

@@ -24,3 +24,37 @@ export function useErrorNotifications() {
     dismiss,
   }
 }
+
+/**
+ * Logs and queues a client-reported error through the generic notification stack.
+ * @param operation Operation label displayed in the localized summary.
+ * @param message Technical diagnostic shown in the collapsed details.
+ */
+export function reportFrontendErrorNotification(operation: string, message: string): void {
+  const error: ScraperExecutionError = {
+    code: nextFrontendErrorCode(), operation, source: null, origin: 'frontend', message,
+  }
+  console.error('Frontend operation error', error)
+  enqueueErrorNotification(error)
+}
+
+let lastFrontendErrorMillis = 0
+let frontendErrorSequence = 0
+
+/** Generates a monotonic browser-local diagnostic code matching the backend format. */
+function nextFrontendErrorCode(): string {
+  const currentMillis = Date.now()
+
+  if (currentMillis <= lastFrontendErrorMillis) {
+    frontendErrorSequence += 1
+    if (frontendErrorSequence > 99) {
+      lastFrontendErrorMillis += 1
+      frontendErrorSequence = 0
+    }
+  } else {
+    lastFrontendErrorMillis = currentMillis
+    frontendErrorSequence = 0
+  }
+
+  return `ARACHNEA_E${lastFrontendErrorMillis}${String(frontendErrorSequence).padStart(2, '0')}`
+}
