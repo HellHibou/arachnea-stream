@@ -1426,7 +1426,7 @@ contrat complet reste dans ce guide et la spécification commune ; ne pas copier
 une URL, un identifiant ou un sélecteur sans vérifier la réponse de la cible.
 
 - [dark-stream/anime-sama.yaml](../../server/services/arachnea-stream/dark-stream/anime-sama.yaml) — Catalogue HTML et post-traitements.
-- [legal-stream/rtlplay-be.yaml](../../server/services/arachnea-stream/legal-stream/rtlplay-be.yaml) — Extraction des données Next.js.
+- [legal-stream/rtlplay-be.yaml](../../server/services/arachnea-stream/legal-stream/rtlplay-be.yaml) — API JSON de RTL Play. La sélection des jaquettes ignore les champs de surimpression et les URL de `lfvp-static-overlays.dpgmedia.net`.
 - [legal-stream/rtbf-auvio-be.yaml](../../server/services/arachnea-stream/legal-stream/rtbf-auvio-be.yaml) — API JSON et requêtes supplémentaires.
 
 ### Requêtes supplémentaires et enveloppes

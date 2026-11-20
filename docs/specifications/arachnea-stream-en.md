@@ -1400,7 +1400,7 @@ authoring contract remains in this guide and the common specification; do not
 copy a provider URL, identifier or selector without checking the target response.
 
 - [dark-stream/anime-sama.yaml](../../server/services/arachnea-stream/dark-stream/anime-sama.yaml) — HTML catalogue and post-processing.
-- [legal-stream/rtlplay-be.yaml](../../server/services/arachnea-stream/legal-stream/rtlplay-be.yaml) — Next.js data extraction.
+- [legal-stream/rtlplay-be.yaml](../../server/services/arachnea-stream/legal-stream/rtlplay-be.yaml) — RTL Play JSON API. Artwork selection skips overlay fields and URLs from `lfvp-static-overlays.dpgmedia.net`.
 - [legal-stream/rtbf-auvio-be.yaml](../../server/services/arachnea-stream/legal-stream/rtbf-auvio-be.yaml) — JSON APIs and follow-up requests.
 
 ### Additional queries and result envelopes

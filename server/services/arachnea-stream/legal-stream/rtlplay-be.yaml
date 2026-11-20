@@ -102,6 +102,14 @@ shared:
     - type: format_text
       argument: "video/show/other"
 
+  actions_artwork_url: &actions_artwork_url
+    - type: regex_replace_all
+      pattern: '(?i)^(?:https?:)?//lfvp-static-overlays\.dpgmedia\.net(?:[:/?#].*)?$'
+      replacement: ""
+    - type: map
+      argument:
+        "": null
+
   actions_release_date_label: &actions_release_date_label
     - type: regex_find_all
       pattern: '((?:\p{L}+\.\s+)?\d{1,2}\s+\p{L}+\.?\s+\d{4})'
@@ -232,26 +240,22 @@ shared:
       type: string
       select: first
       pointer: /portraitImageUrl
-    - name: img/poster > link
-      type: string
-      select: first
-      pointer: /portraitOverlayImageUrl
+      actions: *actions_artwork_url
     - name: img/landscape > link
       type: string
       select: first
       pointer: /landscapeImageUrl
+      actions: *actions_artwork_url
     - name: img/landscape > link
       type: string
       select: first
       pointer: /heroImageUrl
+      actions: *actions_artwork_url
     - name: img/poster > link
       type: string
       select: first
       pointer: /imageUrl
-    - name: img/poster > link
-      type: string
-      select: first
-      pointer: /overlayImageUrl
+      actions: *actions_artwork_url
 
   teaser_entries_landscape: &teaser_entries_landscape
     - name: title
@@ -330,19 +334,18 @@ shared:
       type: string
       select: first
       pointer: /landscapeImageUrl
+      actions: *actions_artwork_url
     - name: img/landscape > link
       type: string
       select: first
       pointer: /heroImageUrl
+      actions: *actions_artwork_url
                    
     - name: img/landscape > link
       type: string
       select: first
       pointer: /imageUrl
-    - name: img/landscape > link
-      type: string
-      select: first
-      pointer: /overlayImageUrl
+      actions: *actions_artwork_url
 
   live_entries: &live_entries
     - name: title
@@ -442,14 +445,12 @@ shared:
       type: string
       select: first
       pointer: /teaserImageUrl
-    - name: img/poster > link
-      type: string
-      select: first
-      pointer: /overlayImageUrl
+      actions: *actions_artwork_url
     - name: img/landscape > link
       type: string
       select: first
       pointer: /heroImageUrl
+      actions: *actions_artwork_url
     - name: img/logo > link
       type: string
       select: first
@@ -524,22 +525,27 @@ queries:
             type: string
             select: first
             pointer: /largeImageUrl
+            actions: *actions_artwork_url
           - name: image
             type: string
             select: first
             pointer: /mediumImageUrl
+            actions: *actions_artwork_url
           - name: image
             type: string
             select: first
             pointer: /mobileImageUrl
+            actions: *actions_artwork_url
           - name: image
             type: string
             select: first
             pointer: /mobileCompressedImageUrl
+            actions: *actions_artwork_url
           - name: image
             type: string
             select: first
             pointer: /smartTvImageUrl
+            actions: *actions_artwork_url
           - name: logo
             type: string
             select: first
@@ -576,10 +582,12 @@ queries:
             type: string
             select: first
             pointer: /imageUrl
+            actions: *actions_artwork_url
           - name: image
             type: string
             select: first
             pointer: /hoverImageUrl
+            actions: *actions_artwork_url
           - name: link
             type: string
             select: first
@@ -693,22 +701,27 @@ queries:
             type: string
             select: first
             pointer: /largeImageUrl
+            actions: *actions_artwork_url
           - name: image
             type: string
             select: first
             pointer: /mediumImageUrl
+            actions: *actions_artwork_url
           - name: image
             type: string
             select: first
             pointer: /mobileImageUrl
+            actions: *actions_artwork_url
           - name: image
             type: string
             select: first
             pointer: /mobileCompressedImageUrl
+            actions: *actions_artwork_url
           - name: image
             type: string
             select: first
             pointer: /smartTvImageUrl
+            actions: *actions_artwork_url
           - name: logo
             type: string
             select: first
@@ -745,10 +758,12 @@ queries:
             type: string
             select: first
             pointer: /imageUrl
+            actions: *actions_artwork_url
           - name: image
             type: string
             select: first
             pointer: /hoverImageUrl
+            actions: *actions_artwork_url
           - name: link
             type: string
             select: first
@@ -962,22 +977,22 @@ queries:
             type: string
             select: first
             pointer: /imageUrl
+            actions: *actions_artwork_url
           - name: img/landscape > link
             type: string
             select: first
             pointer: /portraitImageUrl
-          - name: img/portrait > link
-            type: string
-            select: first
-            pointer: /portraitOverlayImageUrl
+            actions: *actions_artwork_url
           - name: img/landscape > link
             type: string
             select: first
             pointer: /landscapeImageUrl
+            actions: *actions_artwork_url
           - name: img/landscape > link
             type: string
             select: first
             pointer: /heroImageUrl
+            actions: *actions_artwork_url
           - name: img/logo > link
             type: string
             select: first
@@ -1039,14 +1054,17 @@ queries:
         type: string
         select: first
         pointer: /landscapeTeaserImageUrl
+        actions: *actions_artwork_url
       - name: img/poster > link
         type: string
         select: first
         pointer: /share/imageUrl
+        actions: *actions_artwork_url
       - name: img/landscape > link
         type: string
         select: first
         pointer: /backgroundImageUrl
+        actions: *actions_artwork_url
       - name: img/logo > link
         type: string
         select: first
@@ -1130,7 +1148,7 @@ queries:
       - name: content-advisor
         type: string
         pointer: /ratingIcons/*
-        select: all
+        select: first
 
       - name: players > name
         type: string
@@ -1258,10 +1276,7 @@ queries:
             type: string
             select: first
             pointer: /imageUrl
-          - name: img/preview > link
-            type: string
-            select: first
-            pointer: /overlayImageUrl
+            actions: *actions_artwork_url
 
 
   # ---------------------------------------------------------------

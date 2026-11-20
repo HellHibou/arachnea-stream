@@ -11,7 +11,7 @@ http:
 
 parameters:
   - name: base_url
-    value: https://flemmix.run
+    value: https://flemmix.uno
     description: "Base URL — update on domain change"
     label: Base URL
     editor:
@@ -50,7 +50,7 @@ shared:
         serie: video/show/serie
         ~: video/movie
 
-  catalog_card: &catalog_card
+  banner_card: &banner_card
     - name: source
       type: string
       actions:
@@ -76,7 +76,7 @@ shared:
       select: first
       selector: "a[rel=\"nofollow\"]"
       actions: *link_actions
-    - name: img/poster > link
+    - name: image
       type: string
       select: first
       selector: "a[rel=\"nofollow\"] > img"
@@ -485,16 +485,11 @@ queries:
                 argument: href
               - type: resolve_url
       # ---- Featured hero carousel ----
-      - name: sections
+      - name: banners > entries
         type: object[]
-        selector: ".related.newcarusel .owl-carousel.caroustyle"
+        selector: ".related.newcarusel .owl-carousel.caroustyle .item"
         select: all
-        entries:
-          - name: entries
-            type: object[]
-            selector: ".item"
-            select: all
-            entries: *catalog_card
+        entries: *banner_card
       # ---- Latest additions (episodes and complete seasons) ----
       - name: sections
         type: object[]

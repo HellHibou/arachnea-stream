@@ -516,6 +516,10 @@ All notable changes to the server workspace are recorded here.
 
 #### Fixed
 
+- RTL Play artwork selection skips overlay URLs and retains eligible cover images in listings and detail pages.
+
+- RTL Play entry details now use the first rating icon for `content-advisor`, avoiding serialization errors when RTL Play returns multiple ratings.
+
 - Updated the RTLplay client major version from `25` to `28`, used by the resolver and scraper `x-app-version` header and Android user-agent.
 
 - LuluStream HTML recognition now accepts the JavaScript `document.title` marker used by `lplaygo.com` pages whose initial title is `Loading...`. Deleted or expired files retain their explicit terminal error message.
@@ -540,6 +544,8 @@ All notable changes to the server workspace are recorded here.
 - Initialize application data before constructing resolver test fixtures so they also run in isolation, and add an atomic suffix to prevent temporary-directory collisions between concurrent fixtures. Update the existing home-entry test helper to traverse nested subsections, matching current Anime-Sama home output without changing production scraping.
 - Restore RMC home categories by selecting the semantic category rail instead of its obsolete provider ID, and correct its section-check reference to an actual mosaic tile. Emit TVMonaco player resolvers as single objects and discover the stream target from the current player. Include M6 editorial programme lists in recommendation extraction while retaining invalid-card diagnostics. Targeted live source checks pass for all three sources; access refusals and transport failures remain separate follow-ups.
 - Restore AnimeUltime's "Top animes", "Top dramas" and "Top tokusatsu" home sections by aligning their title and entry selectors with the DOM after statistics-block preprocessing. Existing section IDs and output shapes are preserved.
+- The Wiflix homepage carousel now appears in `banners.entries` with banner images, eliminating the untitled carousel section.
+
 - Wiflix `search` now returns results again. The AJAX POST to `/index.php?controller=ajax&mod=search` is gated by a JavaScript bot shield: the homepage runs `document.cookie = "h_check=" + (10+15)`, so the request must send `Cookie: h_check=25` itself — no server-side `Set-Cookie` exists to collect — together with a non-empty `Accept-Language` and `Referer`. A missing or different cookie answers the 18-byte `Bot shield active.` page, and `h_check=25` without `Accept-Language` answers `403` with an empty body. The query body is now declared with `request_body_actions` (the former `request_body` key was silently ignored, so the POST was empty), and `div.fast-search-result` cards are extracted again for films and series.
 
 #### Changed
