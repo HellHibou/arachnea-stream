@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router'
 import AppSidebar from '@/components/navigation/AppSidebar.vue'
 import CustomHomeManager from '@/components/home/CustomHomeManager.vue'
 import { useCustomHomeManager } from '@/composables/home/useCustomHomeManager'
+import { reportFrontendErrorNotification } from '@/composables/useErrorNotifications'
 import { useServiceMetadata } from '@/composables/useServiceMetadata'
 import { useI18n } from '@/i18n'
 import { useStorage } from '@/services/storage'
@@ -29,18 +30,21 @@ watch(surface, (element) => {
 const managerOpen = shallowRef(false)
 const editorTarget = shallowRef<string | null>(null)
 const createRequested = shallowRef(false)
-const preferenceError = shallowRef<string | null>(null)
 const expansionKey = 'arachnea.navigation.sourcesExpanded'
 const sourcesExpanded = shallowRef(true)
 const sources = computed(() => metadata.services.value.filter((source) => source.supportedQueries.includes('load_home')))
 const activeHomeId = computed(() => route.name === 'custom-home' ? String(route.meta.homeId) : null)
 const activeSourceId = computed(() => route.name === 'source-home' ? String(route.params.sourceId) : null)
 
+watch(manager.errorMessage, (message) => {
+  if (message) reportFrontendErrorNotification(t('navigation.label'), message)
+})
+
 /** @param expanded Group state; unavailable storage is reported without blocking navigation. */
 function setExpanded(expanded: boolean): void {
   sourcesExpanded.value = expanded
-  try { localStorage.setItem(expansionKey, JSON.stringify(expanded)); preferenceError.value = null }
-  catch { preferenceError.value = t('navigation.storageError') }
+  try { localStorage.setItem(expansionKey, JSON.stringify(expanded)) }
+  catch { reportFrontendErrorNotification(t('navigation.label'), t('navigation.storageError')) }
 }
 /** @param id Existing home id; null opens management, creation is an explicit separate request. @param create Creation intent. */
 function openManager(id: string | null = null, create = false): void {
@@ -73,8 +77,8 @@ onMounted(() => {
 })
 /** Reads the initial persisted preference once at page load; runtime toggles stay local to this page. */
 function readExpansion(): void {
-  try { sourcesExpanded.value = localStorage.getItem(expansionKey) !== 'false'; preferenceError.value = null }
-  catch { preferenceError.value = t('navigation.storageError') }
+  try { sourcesExpanded.value = localStorage.getItem(expansionKey) !== 'false' }
+  catch { reportFrontendErrorNotification(t('navigation.label'), t('navigation.storageError')) }
 }
 onScopeDispose(() => {
   widthObserver?.disconnect()
@@ -96,8 +100,7 @@ onScopeDispose(() => {
       @navigate="emit('close')" @create="openManager(null, true)" @manage="openManager()" @edit="openManager($event)"
       @update:sources-expanded="setExpanded" />
     <p v-if="metadata.isLoading.value" class="app-navigation__status" role="status">{{ t('entry.loadingMessage') }}</p>
-    <div v-if="manager.errorMessage.value || metadata.errorMessage.value || preferenceError" class="app-navigation__status" role="status">
-      <p>{{ manager.errorMessage.value ?? metadata.errorMessage.value ?? preferenceError }}</p>
+    <div v-if="manager.errorMessage.value || metadata.errorMessage.value" class="app-navigation__status">
       <v-btn @click="manager.refresh(); metadata.refresh()">{{ t('sourceHome.retry') }}</v-btn>
     </div>
   </component>

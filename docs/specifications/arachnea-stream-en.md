@@ -396,6 +396,12 @@ passes that value to `get_banners`, which returns the populated `banners`
 array. Do not fetch banner details through a `load_home` `sub_query` when
 `get_banners` is available.
 
+Channel categories can provide an optional `banners > source-logo` image URL
+alongside inline `banners > entries` or a deferred `banners > link`. The
+channel image replaces the provider logo at the same height, with its original
+aspect ratio. The provider logo is the fallback when the URL is absent or fails
+to load. Banner entry artwork still uses the entry-level `logo` field.
+
 ---
 
 ### 5.3 MediaItem object (catalogue entry)
@@ -678,6 +684,10 @@ Returns a single object with full programme metadata.
 | `media-type` | `string[]` | Media type |
 | `link` | `string` | API link |
 | `web-link` | `string` | Public link |
+| `channel` | `object` | Optional channel attribution (see below) |
+| `channel > name` | `string` | Display name of the channel |
+| `channel > logo` | `string` | Optional standalone logo URL |
+| `channel > request` | `object` | Category parameters forwarded to `get_category`, including `query_url` |
 | `video/trailer` | `string` | Trailer URL |
 | `year` | `number` | Year |
 | `release-date` | `string` | Release date |
@@ -704,6 +714,13 @@ Returns a single object with full programme metadata.
 | `img/landscape > link` | `string` | Landscape |
 | `img/logo > link` | `string` | Logo |
 | `img/preview > link` | `string` | Preview |
+
+`channel` is additive: responses without it remain valid. The scraper omits the
+attribution when the channel cannot be identified or its category cannot be
+built. The client also hides the link when the name or destination is unusable;
+a missing or failing logo does not prevent the name from being displayed. The
+`channel > request` parameters are provider-owned and opaque: the client adds
+the entry's source id to build the descriptor sent to `get_category`.
 
 `duration` represents seconds, including when supplied as a numeric string. Use
 `normalize_duration` for textual durations before rendering. Access `price` is a

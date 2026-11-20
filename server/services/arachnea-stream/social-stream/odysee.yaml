@@ -48,6 +48,12 @@ constants:
   - name: search_url
     value: "https://lighthouse.odysee.tv/search"
     description: Lighthouse full-text search endpoint returning claim identifiers.
+  - name: recommendations_url
+    value: "https://recsys.odysee.tv/search"
+    description: Odysee related-video endpoint returning claim identifiers.
+  - name: recommendations_size
+    value: "10"
+    description: Maximum number of related claims requested for one video.
   - name: page_size
     value: "24"
     description: Number of upstream search results requested per page.
@@ -119,6 +125,18 @@ shared:
     - name: img > link
       type: string
       pointer: /value/thumbnail/url
+
+  actions_valid_channel_field: &actions_valid_channel_field
+    - &action_channel_prefix
+      type: regex_find_all
+      pattern: '(?s)^(.+)$'
+      format: "{@odysee_channel_id}|{1}"
+    - &action_channel_replace_variables
+      type: replace_variables
+    - &action_channel_extract_value
+      type: regex_find_all
+      pattern: '^[0-9a-fA-F]{40}\|(.+)$'
+      format: "{1}"
 
 queries:
   - name: service_stream_metadata
@@ -260,6 +278,10 @@ queries:
               - name: channel_name
                 type: string
                 pointer: /name
+              - name: banners > source-logo
+                type: string
+                select: first
+                pointer: /value/thumbnail/url
               - name: banners > entries
                 type: object[]
                 pointer: /
@@ -278,9 +300,6 @@ queries:
                   - name: image
                     type: string
                     pointer: /value/cover/url
-                  - name: logo
-                    type: string
-                    pointer: /value/thumbnail/url
               - name: channel_labels_request
                 type: string
                 pointer: /claim_id
@@ -838,6 +857,84 @@ queries:
       - name: img > link
         type: string
         pointer: /result/items/0/value/thumbnail/url
+      - name: recommendations > link
+        type: string
+        pointer: /result/items/0[value/stream_type=video]/claim_id
+        actions:
+          - type: extract_field
+            path: /result/items/0
+          - type: format_text
+            argument: >-
+              var claim = {};
+              document.write("{recommendations_url}?s=" + encodeURIComponent(claim.value.title || claim.name || "")
+                + "&related_to=" + encodeURIComponent(claim.claim_id)
+                + "&from=0&size={recommendations_size}&free_only=true&nsfw=false");
+          - type: exec_js
+          - type: replace_text
+            search: "document_write="
+            replace: ""
+      - name: _entry_channel_id
+        type: string
+        select: first
+        pointer: /result/items/0[is_channel_signature_valid=true]/signing_channel/claim_id
+        actions:
+          - type: extract_variables
+            pattern: '^([0-9a-fA-F]{40})$'
+            name: "@odysee_channel_id"
+            value: "{1}"
+      - name: channel > name
+        type: string
+        select: first
+        pointer: /result/items/0/signing_channel/name
+        actions: *actions_valid_channel_field
+      - name: channel > name
+        type: string
+        select: first
+        pointer: /result/items/0/signing_channel/value/title
+        actions: *actions_valid_channel_field
+      - name: channel > logo
+        type: string
+        select: first
+        pointer: /result/items/0/signing_channel/value/thumbnail/url
+        actions: *actions_valid_channel_field
+      - name: channel > request > query_url
+        type: string
+        select: first
+        actions:
+          - type: format_text
+            argument: "{claim_search_url}"
+          - *action_channel_prefix
+          - *action_channel_replace_variables
+          - *action_channel_extract_value
+      - name: channel > request > category_kind
+        type: string
+        select: first
+        actions:
+          - type: format_text
+            argument: channel
+          - *action_channel_prefix
+          - *action_channel_replace_variables
+          - *action_channel_extract_value
+      - name: channel > request > channel_id
+        type: string
+        select: first
+        pointer: /result/items/0/signing_channel/claim_id
+        actions: *actions_valid_channel_field
+      - name: channel > request > channel_url
+        type: string
+        select: first
+        pointer: /result/items/0/signing_channel/canonical_url
+        actions: *actions_valid_channel_field
+      - name: channel > request > category_label
+        type: string
+        select: first
+        pointer: /result/items/0/signing_channel/name
+        actions: *actions_valid_channel_field
+      - name: channel > request > category_label
+        type: string
+        select: first
+        pointer: /result/items/0/signing_channel/value/title
+        actions: *actions_valid_channel_field
       - name: players
         type: object[]
         pointer: /result/items/*[value/stream_type=video]
@@ -908,3 +1005,67 @@ queries:
       - type: zip_fields
         source: "** > streams"
         values_field: url
+      - type: remove_fields
+        fields:
+          - _entry_channel_id
+
+  - name: get_recommendations
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{query_url}"
+    request_url_actions:
+      - type: regex_find_all
+        pattern: '^https://recsys\.odysee\.tv/search\?([^#]+)$'
+        format: "{recommendations_url}?{1}"
+    row_pointer: /
+    entries:
+      - name: current_page
+        type: number
+        actions:
+          - type: format_text
+            argument: "1"
+      - name: have_more
+        type: boolean
+        actions:
+          - type: format_text
+            argument: "false"
+      - name: _recommendations_body
+        type: string
+        pointer: /0/claimId
+        actions:
+          - type: extract_field
+            path: ""
+          - type: format_text
+            argument: >-
+              var ids = {}.map(item => item.claimId).filter(id => typeof id === "string"
+                && id.length === 40 && /^[a-f0-9]+$/i.test(id));
+              document.write(JSON.stringify({jsonrpc: "2.0", method: "claim_search", id: 1,
+                params: {claim_ids: ids, page_size: {recommendations_size}, no_totals: true}}));
+          - type: exec_js
+          - type: replace_text
+            search: "document_write="
+            replace: ""
+      - name: _recommendations_request
+        type: string
+        pointer: /0/claimId
+        actions:
+          - type: regex_find_all
+            pattern: '^[0-9a-fA-F]{40}$'
+            format: "{claim_search_url}"
+        sub_queries:
+          - scraper_type: json
+            target: parent
+            request_method: post
+            request_headers: *headers_json
+            request_body_actions:
+              - type: format_text
+                argument: "{_recommendations_body}"
+            row_pointer: /
+            entries:
+              - name: entries
+                type: object[]
+                pointer: /result/items/*[value/stream_type=video]
+                entries: *entries_media_cards
+    post_process:
+      - type: remove_fields
+        fields: [_recommendations_body, _recommendations_request]

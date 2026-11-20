@@ -410,6 +410,13 @@ texte sans bouton de navigation. Le frontend transmet le lien de chargement à
 bannières via une `sub_query` de `load_home` lorsque `get_banners` est
 disponible.
 
+Une catégorie de chaîne peut fournir une URL d’image facultative
+`banners > source-logo` à côté de `banners > entries` ou du lien différé
+`banners > link`. L’image de chaîne remplace le logo de la source à la même
+hauteur et conserve ses proportions. Le logo de la source sert de repli si
+l’URL est absente ou si l’image échoue au chargement. Le champ `logo` d’une
+entrée de bannière reste réservé à son visuel.
+
 ---
 
 ### 5.3 Objet MediaItem (entrée catalogue)
@@ -701,6 +708,10 @@ Retourne un objet unique avec les métadonnées complètes d'un programme.
 | `media-type` | `string[]` | Type de média |
 | `link` | `string` | Lien API |
 | `web-link` | `string` | Lien public |
+| `channel` | `object` | Attribution de chaîne facultative (voir ci-dessous) |
+| `channel > name` | `string` | Nom affiché de la chaîne |
+| `channel > logo` | `string` | URL du logo autonome, facultative |
+| `channel > request` | `object` | Paramètres de catégorie à transmettre à `get_category`, dont `query_url` |
 | `video/trailer` | `string` | URL de la bande-annonce |
 | `year` | `number` | Année |
 | `release-date` | `string` | Date de sortie |
@@ -727,6 +738,14 @@ Retourne un objet unique avec les métadonnées complètes d'un programme.
 | `img/landscape > link` | `string` | Paysage |
 | `img/logo > link` | `string` | Logo |
 | `img/preview > link` | `string` | Aperçu |
+
+`channel` est additif : les réponses qui ne l’exposent pas restent valides. Le
+scraper omet l’attribution lorsqu’il ne peut pas identifier la chaîne ou construire
+sa catégorie. Le client masque également le lien si le nom ou la destination est
+inutilisable ; un logo absent ou en échec de chargement n’empêche pas l’affichage
+du nom. Les paramètres de `channel > request` sont opaques et appartiennent au
+fournisseur : le client ajoute l’identifiant de source de la fiche pour construire
+le descripteur envoyé à `get_category`.
 
 `duration` représente des secondes, y compris sous forme de chaîne numérique.
 Utiliser `normalize_duration` pour les durées textuelles avant sérialisation.

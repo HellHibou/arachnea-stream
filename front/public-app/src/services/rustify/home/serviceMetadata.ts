@@ -1,3 +1,4 @@
+import { reportFrontendErrorNotification } from '@/composables/useErrorNotifications'
 import { t } from '@/i18n'
 import type { ServiceMetadata, ServiceThemeMetadata } from '@/types/serviceMetadata'
 
@@ -18,7 +19,9 @@ export async function loadServiceMetadata(): Promise<ServiceMetadata[]> {
   const response = await call_api<unknown>('get_service', {})
 
   if (!Array.isArray(response)) {
-    throw new Error(t('errors.unexpectedMetadataResponse'))
+    const message = t('errors.unexpectedMetadataResponse')
+    reportFrontendErrorNotification('get_service', message)
+    throw new Error(message)
   }
 
   return response

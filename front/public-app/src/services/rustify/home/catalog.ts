@@ -12,6 +12,7 @@ import {
   readBoolean,
   readPath,
   readRecordList,
+  resolveAssetUrl,
 } from '../primitives/readers'
 import { isDisplayableHomeBanner, normalizeHomeBanner, readBannerList } from './banners'
 import { catalogCategoryCards, identifyCatalogCategories, mergeHomeCategories, normalizeHomeCategory } from './categories'
@@ -100,7 +101,7 @@ export function normalizeHomeCatalog(payload: unknown, merge = true, parent?: Ho
 
   const rows = readRecordList(payload)
   const banners: Collection<HomeBanner> = { entries: [], source: '' }
-  const deferredBanners: Collection<HomeBanner>[] = []
+  const deferredBanners: HomeCatalogData['deferredBanners'] = []
   const categories: HomeCategory[] = []
   const sections: HomeSection[] = []
 
@@ -109,6 +110,8 @@ export function normalizeHomeCatalog(payload: unknown, merge = true, parent?: Ho
     const bannerCollection = isJsonRecord(row.banners) ? row.banners : null
     const bannerSource = firstNonEmptyString([bannerCollection?.source, rowSource])
     const bannerLink = firstNonEmptyString([bannerCollection?.link])
+    const sourceLogoUrl = resolveAssetUrl(firstNonEmptyString([bannerCollection?.['source-logo']]), bannerSource)
+    const branding = sourceLogoUrl ? { sourceLogoUrl } : {}
 
     const bannerEntries: HomeBanner[] = []
     readBannerList(bannerCollection?.entries ?? row.banners).forEach((banner) => {
@@ -118,14 +121,14 @@ export function normalizeHomeCatalog(payload: unknown, merge = true, parent?: Ho
         bannerSource,
       )
       if (isDisplayableHomeBanner(normalizedBanner)) {
-        bannerEntries.push(normalizedBanner)
+        bannerEntries.push({ ...normalizedBanner, ...branding })
       }
     })
 
     banners.entries.push(...bannerEntries)
 
     if (bannerSource && bannerLink) {
-      deferredBanners.push({ entries: [], source: bannerSource, link: bannerLink })
+      deferredBanners.push({ entries: [], source: bannerSource, link: bannerLink, ...branding })
     }
 
     readRecordList(row.categories).forEach((category) => {

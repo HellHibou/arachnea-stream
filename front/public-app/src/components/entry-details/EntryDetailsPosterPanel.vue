@@ -3,6 +3,9 @@ import { computed, ref, watch } from 'vue'
 
 import { useServiceMetadata } from '@/composables/useServiceMetadata'
 import { useI18n } from '@/i18n'
+import { categoryMediaTarget, mediaRoute } from '@/services/mediaRouting'
+import { normalizeHomeCategory } from '@/services/rustify/home/categories'
+import type { EntryChannel } from '@/types/entry'
 
 /**
  * Props accepted by the poster panel rendered on the left side of the entry details page.
@@ -37,6 +40,10 @@ interface Props {
    */
   source: string | null
   /**
+   * Optional channel attribution linking to its category page.
+   */
+  channel?: EntryChannel | null
+  /**
    * Indicates whether the source entry action should be visible.
    * @default true
    */
@@ -45,6 +52,7 @@ interface Props {
 
 /** Component props without defaults. */
 const props = withDefaults(defineProps<Props>(), {
+  channel: null,
   showSourceEntryAction: true,
 })
 const emit = defineEmits<{
@@ -70,11 +78,49 @@ const sourceLogo = computed(() =>
   sourceLogoAvailable.value ? sourceMetadata.value?.logo ?? null : null,
 )
 
+/** Whether the channel logo is available for display. */
+const channelLogoAvailable = ref(true)
+
+/** Collection category built from the channel request descriptor. */
+const channelCategory = computed(() => {
+  const channel = props.channel
+
+  if (!channel || !props.source) {
+    return null
+  }
+
+  return normalizeHomeCategory(
+    { label: channel.name, key: channel.name, request: channel.request },
+    0,
+    props.source,
+  )
+})
+
+/** Internal route opening the channel category. */
+const channelRoute = computed(() => {
+  const category = channelCategory.value
+
+  return category ? mediaRoute(categoryMediaTarget(category)) : null
+})
+
+/** Logo rendered beside the channel name while it loads successfully. */
+const channelLogo = computed(() =>
+  channelLogoAvailable.value ? props.channel?.logoUrl ?? null : null,
+)
+
 /** Resets source logo availability when source prop changes. */
 watch(
   () => props.source,
   () => {
     sourceLogoAvailable.value = true
+  },
+)
+
+/** Resets channel logo availability when the channel changes. */
+watch(
+  () => props.channel,
+  () => {
+    channelLogoAvailable.value = true
   },
 )
 
@@ -140,6 +186,24 @@ function handleSourceLogoError() {
         <v-icon icon="mdi-open-in-new" size="18" />
         {{ sourceTitle ? t('entry.sourceEntryNamed', { source: sourceTitle }) : t('entry.sourceEntry') }}
       </a>
+
+      <RouterLink
+        v-if="channelRoute && props.channel"
+        class="entry-details__secondary-action"
+        :to="channelRoute"
+        :aria-label="t('entry.channelEntry', { channel: props.channel.name })"
+      >
+        <img
+          v-if="channelLogo"
+          class="entry-details__channel-logo"
+          :src="channelLogo"
+          alt=""
+          aria-hidden="true"
+          @error="channelLogoAvailable = false"
+        />
+        <span class="entry-details__channel-label">{{ props.channel.name }}</span>
+        <v-icon icon="mdi-chevron-right" size="18" aria-hidden="true" />
+      </RouterLink>
     </div>
   </aside>
 </template>
@@ -224,12 +288,27 @@ function handleSourceLogoError() {
   background: var(--bg-accent-primary);
   box-shadow: var(--box-shadow-elevated);
   cursor: pointer;
+  text-decoration: none;
 }
 
 .entry-details__primary-action {
   background: var(--bg-accent-red);
   text-decoration: none;
   box-shadow: var(--box-shadow-elevated);
+}
+
+.entry-details__channel-logo {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  object-fit: contain;
+}
+
+.entry-details__channel-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .entry-details__source-logo {

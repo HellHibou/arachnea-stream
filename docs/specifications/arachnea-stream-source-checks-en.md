@@ -259,6 +259,53 @@ steps:
         - ["label"]
         - ["link"]
 
+  - id: category_banners_m6
+    operation: get_category
+    inputs:
+      query_url: "https://android.middleware.6play.fr/6play/v2/platforms/m6group_androidmob/services/m6replay/folders?limit=999&offset=0"
+    expect:
+      items_path: []
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["banners", "link"]
+        - ["banners", "source-logo"]
+
+  - id: category_banners_w9
+    operation: get_category
+    inputs:
+      query_url: "https://android.middleware.6play.fr/6play/v2/platforms/m6group_androidmob/services/w9replay/folders?limit=999&offset=0"
+    expect:
+      items_path: []
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["banners", "link"]
+        - ["banners", "source-logo"]
+
+  - id: category_banners_6ter
+    operation: get_category
+    inputs:
+      query_url: "https://android.middleware.6play.fr/6play/v2/platforms/m6group_androidmob/services/6terreplay/folders?limit=999&offset=0"
+    expect:
+      items_path: []
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["banners", "link"]
+        - ["banners", "source-logo"]
+
+  - id: category_banners_gulli
+    operation: get_category
+    inputs:
+      query_url: "https://android.middleware.6play.fr/6play/v2/platforms/m6group_androidmob/services/gulli/folders?limit=999&offset=0"
+    expect:
+      items_path: []
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["banners", "link"]
+
   - id: section
     operation: get_section
     inputs:
@@ -298,17 +345,15 @@ steps:
   - id: entry
     operation: get_entry
     inputs:
-      query_url:
-        from_step: section
-        items_path: ["entries"]
-        select: first_valid
-        value_path: ["link"]
+      query_url: "1058" # Le 1945, attributed to M6
     expect:
       items_path: []
       min_count: 1
       min_valid_count: 1
       required_non_empty:
         - ["title"]
+        - ["channel", "name"]
+        - ["channel", "request", "query_url"]
       optional_fields:
         - path: ["description"]
           type: string

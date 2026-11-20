@@ -10,7 +10,7 @@ import { useServiceMetadata } from '@/composables/useServiceMetadata'
 import { APP_TITLE } from '@/constants'
 import { useI18n } from '@/i18n'
 
-import type { EntryPlayer } from '@/types/entry'
+import type { EntryChannel, EntryPlayer } from '@/types/entry'
 import type { EntryPlayerLanguageOption } from '@/composables/entry-details/entryVideoPlayer'
 import type { ResolvedPlayerMediaSource } from '@/services/players'
 import type { MediaItem, ThumbnailImageFit } from '@/types/media'
@@ -61,6 +61,8 @@ import type { MediaItem, ThumbnailImageFit } from '@/types/media'
     entryUrl: string | null
     /** Source identifier for the entry. */
     source: string | null
+    /** Optional channel attribution linking to the channel category. */
+    channel?: EntryChannel | null
     /** Alternative title label to display. */
     alternativeTitleLabel: string | null
     /** Currently selected playable title. */
@@ -317,9 +319,11 @@ const emit = defineEmits<{
            :poster-frame-uses-contain="props.posterFrameUsesContain"
            :show-trailer-action="props.showTrailerAction"
            :trailer-action-label="props.trailerActionLabel"
-           :entry-url="props.entryUrl"
-           :source="props.source"
-           :show-source-entry-action="props.securityMode !== 'safe'"
+            :entry-url="props.entryUrl"
+            :source="props.source"
+            :channel="props.channel ?? null"
+            :show-source-entry-action="props.securityMode !== 'safe'"
+
            @toggle-trailer="emit('toggle-trailer')"
          />
 

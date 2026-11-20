@@ -379,6 +379,11 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Added an optional `channel` object to `get_entry` responses. Odysee requires a valid signature and a channel claim ID, with the LBRY channel name as a display-name fallback. M6Play derives the attribution from the programme's replay service code and restricts the mapping to its four replay channels. The field is additive and source-owned category parameters stay opaque to the client.
+- M6Play channel categories now expose `banners.link` for M6, W9, 6ter and Gulli, reusing the existing deferred programme carousel from category pages.
+- Odysee and M6Play channel categories expose `banners.source-logo` when a channel image is available.
+- Odysee video details now expose a deferred recommendations rail backed by Odysee's related-video API.
+
 - Added 28 flat, four-color profile avatars: man, woman, boy and girl in all seven frontend theme colors, with editable SVG sources and 512 × 512 PNG exports. The embedded catalogue preserves the three original avatar IDs and fallback for existing profiles.
 
 - Added four streaming profile avatars (cinema clapperboard, popcorn, television and headphones) and six animals (cat, dog, fox, panda, owl and rabbit), with fixed palettes of at most four colors and no theme variants.
@@ -926,7 +931,10 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
-- Added quick-add from the header of discoverable category pages, with Category content preselected. Empty category blocks show their status and offer a shortcut.
+- Entry details now show an optional channel link directly below the source action, styled like the trailer button. It reuses the collection route with all descriptor parameters, accepts a missing or failed logo without hiding the channel name, and stays hidden when the name or destination is unusable. M6Play channel categories load their programme carousel through the existing deferred banner loader.
+
+- Added quick-add next to the title of discoverable category pages, with Category content preselected. Empty category blocks show their status and offer a shortcut.
+- Channel banners use the channel logo in the provider logo slot at the same height, with a fallback to the provider logo when needed.
 
 - Added profile name/avatar editing from profile management, reusing the identity form with Save/Cancel, revision-checked updates, explicit conflict reload and immediate active identity refresh without switching profiles.
 
@@ -1023,6 +1031,8 @@ All notable changes to the server workspace are recorded here.
 
 
 #### Fixed
+
+- Sidebar errors appear only in the shared notification stack. The sidebar still offers a retry action when loading fails.
 
 - Custom home additions can rediscover categories published as inline collection cards and tolerate identical repeated category declarations. The add dialog distinguishes a missing origin from a failed content load.
 

@@ -120,7 +120,8 @@ writes use profile-local, source-scoped keys through the authenticated server AP
 Pinned records preserve their collection mode, orientation and image fit; the
 former IndexedDB section/bookmark stores are no longer active or imported. Deferred
 banner and section pagination updates are guarded against stale catalog loads.
-Navigation includes metadata refresh on errors and the catalog includes retry actions.
+Navigation includes a retry action for failed loads and reports errors through the
+shared notification stack. The catalog includes its own retry actions.
 Custom homes and source destinations are available through the permanent sidebar.
 
 ## Catalog section layouts
@@ -383,6 +384,13 @@ retained through pagination, merged rails and custom homes. Collection targets
 preserve the complete source request (`request.query_url` required), display an
 “Open category” action and have no entry URL. No saved-home migration is needed.
 Future media views extend this registry instead of individual card components.
+
+Entry details can expose an optional `channel` attribution returned by `get_entry`: a display name, an optional logo and a provider-owned category request. The poster panel renders it as an internal collection link directly below the source action, using the same route builder as category cards and preserving every request parameter. The link is hidden when the name or destination is unusable, and a missing or failed logo leaves the name visible. M6Play channel categories also expose `banners.link`, so their programme carousel is loaded through the existing deferred banner carousel and remains independent from the category rails.
+
+For a discoverable category, the quick-add pin sits next to the title. Channel
+banners use `banners.source-logo` in the provider logo slot at the same height
+and preserve the image aspect ratio. The provider logo is the fallback if the
+channel logo is unavailable. This also applies to deferred banners.
 
 Episode lists inside an entry use `selectionMode="local"` on the shared card
 collection. Their actions are buttons that select an episode in the current player,

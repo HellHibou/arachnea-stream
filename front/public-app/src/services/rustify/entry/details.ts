@@ -1,6 +1,6 @@
 import { t } from '@/i18n'
 import { normalizePriceAccess } from '@/services/priceAccess'
-import type { EntryDetails, EntryPlayer, EntryRecommendations } from '@/types/entry'
+import type { EntryChannel, EntryDetails, EntryPlayer, EntryRecommendations } from '@/types/entry'
 import type { Collection } from '@/types/media'
 
 import { call_api } from '../apiClient'
@@ -23,6 +23,7 @@ import {
   readFirstLink,
   readRecordList,
   readStringList,
+  readStringParamMap,
   resolveAssetUrl,
   resolveEntryUrl,
 } from '../primitives/readers'
@@ -102,6 +103,7 @@ function normalizeEntryDetails(entry: unknown, source: string, entryUrl: string)
     source,
     entryUrl: webLink ?? entryUrl,
     title: firstNonEmptyString([record.title]),
+    channel: normalizeEntryChannel(record.channel, source),
     alternativeTitleLabel: firstNonEmptyString([record['title/alt']]),
     trailerUrl,
     trailerResolver,
@@ -129,6 +131,35 @@ function normalizeEntryDetails(entry: unknown, source: string, entryUrl: string)
     recommendations: normalizeEntryRecommendations(record.recommendations, source),
     score: firstNumber(record.rating),
     price: normalizePriceAccess(record.price),
+  }
+}
+
+/**
+ * Converts the optional backend channel attribution into the normalized model.
+ *
+ * Returns `null` when the channel has no display name or no usable category
+ * request, so the detail UI hides the link instead of offering a dead target.
+ *
+ * @param value Raw backend `channel` payload returned by `get_entry`.
+ * @param source Source id used to resolve the logo asset URL.
+ * @returns Normalized channel attribution, or `null` when unusable.
+ */
+function normalizeEntryChannel(value: unknown, source: string): EntryChannel | null {
+  if (!isJsonRecord(value)) {
+    return null
+  }
+
+  const name = firstNonEmptyString([value.name])
+  const request = readStringParamMap(value.request)
+
+  if (!name || !request.query_url) {
+    return null
+  }
+
+  return {
+    name,
+    logoUrl: resolveAssetUrl(firstNonEmptyString([value.logo]), source),
+    request,
   }
 }
 

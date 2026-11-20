@@ -235,6 +235,18 @@ export interface EntryRecommendations {
 }
 
 /**
+ * Channel attribution exposed by a source for one entry.
+ */
+export interface EntryChannel {
+  /** Display name of the channel. */
+  name: string
+  /** Optional standalone logo URL for the channel. */
+  logoUrl: string | null
+  /** Category request parameters forwarded to `get_category` on navigation. */
+  request: Record<string, string>
+}
+
+/**
  * Normalized detailed media entry returned by the backend `get_entry` query.
  */
 export interface EntryDetails {
@@ -244,6 +256,8 @@ export interface EntryDetails {
   entryUrl: string | null
   /** The primary title of the entry. */
   title: string | null
+  /** Optional channel attribution with its category destination. */
+  channel: EntryChannel | null
   /** The alternative title label for the entry. */
   alternativeTitleLabel: string | null
   /** The URL to the trailer for this entry. */

@@ -231,6 +231,7 @@ const {
     :trailer-action-label="trailerActionLabel"
     :entry-url="details?.entryUrl ?? null"
     :source="source"
+    :channel="details?.channel ?? null"
     :alternative-title-label="alternativeTitleLabel"
     :selected-playable-title="selectedPlayableTitle"
     show-adjacent-navigation

@@ -505,12 +505,14 @@ function handleSelectCollectionItem(item: MediaItem) {
       </v-alert>
       <header v-if="props.mode === 'category' && props.category" class="home-catalog__heading">
         <p class="home-catalog__eyebrow">{{ t('category.label') }}</p>
-        <h1 class="home-catalog__title">{{ props.category.label }}</h1>
-        <HomePinButton
-          v-if="editingEnabled && categoryContentSupported && categoryAdd.references.value.length > 0"
-          :label="t('customHome.addCategory')"
-          @click="requestAdd({ kind: 'category', category: props.category, initialMode: 'content' })"
-        />
+        <div class="home-catalog__title-row">
+          <h1 class="home-catalog__title">{{ props.category.label }}</h1>
+          <HomePinButton
+            v-if="editingEnabled && categoryContentSupported && categoryAdd.references.value.length > 0"
+            :label="t('customHome.addCategory')"
+            @click="requestAdd({ kind: 'category', category: props.category, initialMode: 'content' })"
+          />
+        </div>
       </header>
       <article v-if="errorMessage" class="home-catalog__empty">
         <h2 class="home-catalog__empty-title">{{ t('catalog.loadingErrorTitle') }}</h2>
@@ -833,8 +835,17 @@ function handleSelectCollectionItem(item: MediaItem) {
   text-transform: uppercase;
 }
 
+.home-catalog__title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
 .home-catalog__title {
-  margin: 0 0 12px;
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
   color: var(--text-primary);
   font-size: clamp(1.7rem, 1.36rem + 1.1vw, 2.5rem);
   font-weight: 800;

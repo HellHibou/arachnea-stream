@@ -186,6 +186,7 @@ const details = computed<EntryDetailsModel | null>(() => {
     source: liveItem.source ?? '',
     entryUrl: liveItem.webUrl ?? liveItem.entryUrl,
     title: liveItem.title?.trim() || MSG_LIVE,
+    channel: null,
     alternativeTitleLabel: liveItem.alternativeTitleLabel?.trim() || null,
     trailerUrl: null,
     trailerResolver: null,

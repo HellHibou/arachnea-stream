@@ -335,6 +335,7 @@
     "player": "Lecteur",
     "sourceEntry": "Fiche source",
     "sourceEntryNamed": "Fiche {source}",
+    "channelEntry": "Ouvrir la chaîne {channel}",
     "sourceVideo": "Video source",
     "videoUnavailable": "Flux video indisponible pour ce lecteur.",
     "playerResolutionFailed": "Impossible de résoudre le lecteur vidéo. Essaye de sélectionner un autre lecteur.",

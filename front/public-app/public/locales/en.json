@@ -335,6 +335,7 @@
     "player": "Player",
     "sourceEntry": "Source entry",
     "sourceEntryNamed": "{source} entry",
+    "channelEntry": "Open {channel} channel",
     "sourceVideo": "Source video",
     "videoUnavailable": "Video stream unavailable for this player.",
     "playerResolutionFailed": "Unable to resolve the video player. Try selecting a different player.",

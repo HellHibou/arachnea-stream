@@ -101,6 +101,22 @@ const serviceMetadata = computed(() => getService(activeBanner.value?.source))
  */
 const activeBanner = computed(() => props.banners[activeIndex.value] ?? null)
 
+/** Channel branding takes the provider logo's slot, with a fallback for broken images. */
+const failedChannelLogoUrl = shallowRef<string | null>(null)
+const channelLogoUrl = computed(() => {
+  const url = activeBanner.value?.sourceLogoUrl
+  return url && url !== failedChannelLogoUrl.value ? url : null
+})
+const sourceLogoUrl = computed(() => channelLogoUrl.value ?? serviceMetadata.value?.logo)
+
+/** @param event Image error from the logo in the provider slot. */
+function handleSourceLogoError(event: Event) {
+  const image = event.currentTarget
+  if (image instanceof HTMLImageElement && image.getAttribute('src') === channelLogoUrl.value) {
+    failedChannelLogoUrl.value = channelLogoUrl.value
+  }
+}
+
 /**
  * Resolved media source for the active banner.
  *
@@ -609,11 +625,14 @@ onBeforeUnmount(() => {
       <div class="home-hero-banner__content">
         <div class="home-hero-banner__text">
           <div class="home-hero-banner__service">
-          <img v-if="serviceMetadata?.logo"
-            class="source-logo-image"
-            :src="serviceMetadata?.logo"
-            :alt="serviceMetadata?.title ? `${serviceMetadata?.title} logo` : ''"
-          />
+            <img
+              v-if="sourceLogoUrl"
+              :key="sourceLogoUrl"
+              class="source-logo-image"
+              :src="sourceLogoUrl"
+              :alt="!channelLogoUrl && serviceMetadata?.title ? `${serviceMetadata.title} logo` : ''"
+              @error="handleSourceLogoError"
+            />
             <HomePinButton v-if="props.showAddButton && activeBanner.source"
               :label="t('customHome.addBanners')" @click="emit('add-banners', activeBanner.source)" />
           </div>

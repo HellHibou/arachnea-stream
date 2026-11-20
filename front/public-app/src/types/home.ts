@@ -69,6 +69,8 @@ export interface HomeBanner {
   imageUrl: string | null
   /** The URL for the logo image. */
   logoUrl: string | null
+  /** Channel logo that replaces the provider logo on this banner. */
+  sourceLogoUrl?: string
   /** The URL for the background video, or null when the video requires player resolution. */
   videoUrl: string | null
   /** Optional player resolver used to obtain a playable stream via `get_stream`. */
@@ -169,7 +171,7 @@ export interface HomeCatalogData {
   /** The featured banners collection, eagerly loaded or deferred by source. */
   banners: Collection<HomeBanner>
   /** Deferred banner collections, each retaining its backend source and link. */
-  deferredBanners: Collection<HomeBanner>[]
+  deferredBanners: (Collection<HomeBanner> & { sourceLogoUrl?: string })[]
   /** The list of clickable categories. */
   categories: HomeCategory[]
   /** The list of media sections to display. */
