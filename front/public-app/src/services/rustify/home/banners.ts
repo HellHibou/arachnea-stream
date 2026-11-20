@@ -131,15 +131,20 @@ export function normalizeBannersResponse(
   const record = isJsonRecord(payload) ? payload : {}
   const banners = readBannerList(record.banners ?? record.entries ?? record)
     .map((banner, index) => normalizeHomeBanner(banner, startIndex + index, source))
-    .filter(
-      (banner) =>
-        banner.entryUrl &&
-        (banner.imageUrl || banner.title || banner.videoUrl || banner.player),
-    )
+    .filter(isDisplayableHomeBanner)
 
   return banners.sort((left, right) =>
     Number(isBannerVideoPlayable(right)) - Number(isBannerVideoPlayable(left)),
   )
+}
+
+/**
+ * Checks for visible banner content independently of its navigation target.
+ *
+ * @param banner Normalized banner from the home or deferred response.
+ */
+export function isDisplayableHomeBanner(banner: HomeBanner): boolean {
+  return Boolean(banner.imageUrl || banner.logoUrl || banner.title || banner.videoUrl || banner.player)
 }
 
 /**

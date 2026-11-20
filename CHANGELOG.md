@@ -668,14 +668,18 @@ All notable changes to the server workspace are recorded here.
 - Wiflix series `get_entry` no longer reports the page synopsis as the entry duration, and film/series durations are now normalized. Series pages have no `Qualité` row, so the previous fixed positions (`li:nth-of-type(8)` and `(9)`) shifted by one and read the `Durée` text as the quality and the `Synopsis` as the duration (for example MobLand saison 2 returned the whole synopsis as `duration` and `60 mn` as `quality`). `quality` and `duration` are now read from their own row labels on the page HTML, so films keep exposing `Qualité` while series expose no quality, and `duration` runs through `normalize_duration` so human-readable values such as `2h`, `60 mn` or `1 h 40 mn` reach the frontend as seconds instead of raw text.
 - Odysee `get_entry` players now return a `direct-link` that plays streams which are not cached at the CDN edge. The canonical `https://player.odycdn.com/v6/streams/<claim_id>/<sd_hash_prefix>.mp4` URL answered `401 this content cannot be accessed at the moment` for cold-cache claims (both video and audio), while the same file served through Odysee's signed download redirect answered `206`. The player link is now built from the public `https://odysee.com/$/rss/media/<claim_name>/<claim_id>/stream.mp4` route, which the player follows to the signed CDN URL; each range request re-enters the redirect and gets a fresh signature. The `.mp4` suffix keeps the link on the native video renderer instead of the iframe fallback.
 - Odysee category listings now expose channels as clickable categories that load their own videos, keep audio and other non-video claims out of video sections, and use `img/landscape` for video cards and entry details.
+- Odysee channel pages expose the creator's pinned video, channel artwork and Home, Content, Shorts and Playlists tabs with labels from the configured Odysee language dictionary.
 - Odysee channel cards now remain inside `sections[].entries` as `collection` subcategories alongside videos, instead of appearing in the page-level category strip. `get_category` accepts their channel request descriptors while preserving existing tag category links.
 - Odysee category and channel sections now expose pagination metadata and support `get_section`, preserving the selected filter across pages. Continuation is inferred from the upstream claim count before audio filtering, so mixed pages do not prematurely stop loading.
 - Fixed empty Odysee search results caused by the metadata request sending an unresolved `{search_body}` placeholder. The JavaScript action now emits the JSON-RPC body through `document.write` and strips its output prefix before sending the POST.
 - Odysee video entry players now offer an HLS master playlist before the existing MP4 fallback, enabling the player quality selector to list available transcoded resolutions instead of exposing only the original file.
+- Odysee video entry players now expose chapters from description timestamps, with the next timestamp as each end and the video duration as the final end.
 
 ### <u>arachnea-scrapyfy</u>
 
 #### Added
+
+- Added the generic `offset_items_field` post-processor for copying typed fields from relative list items with an optional fallback. Extended `extract_regex_items` to attach matches to fields on existing items and `normalize_duration` to convert clock durations into seconds.
 
 - Added application-owned additional-option reads and serialized configuration mutations under the existing administrator write lock, allowing Stream quota updates to retain concurrent port/network/proxy changes without rebuilding the scraper.
 
@@ -1017,6 +1021,8 @@ All notable changes to the server workspace are recorded here.
 #### Fixed
 
 - Styled the profile editor heading like preference section headings, with bold typography, the theme accent marker and a bottom divider.
+
+- Home and category banners can display artwork and text without a navigation link.
 
 - Matched the profile management password-save button to the centered, rounded theme-accent actions used for profile editing.
 

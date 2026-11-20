@@ -1501,6 +1501,10 @@ Formats supportés (`GetDateSource`) :
 
 ### `normalize_duration`
 Parse les durées lisibles (ex: `39 min`, `1 h 05 min`, `1 h 05`) en secondes. Un nombre seul suivant immédiatement une heure est interprété comme des minutes.
+Accepte aussi les valeurs isolées `mm:ss` et `hh:mm:ss`. La première
+composante peut avoir un nombre quelconque de chiffres. Les secondes et les
+minutes au format `hh:mm:ss` doivent comporter deux chiffres entre 00 et 59.
+Les valeurs non reconnues sont conservées telles quelles.
 
 ```yaml
 - type: normalize_duration
@@ -1800,7 +1804,8 @@ Construit des items de groupe à partir de correspondances regex répétées dan
 | Champ | Type | Description |
 |-------|------|-------------|
 | `source` | string | Champ source contenant le texte à analyser |
-| `target` | string | Champ cible recevant les items extraits |
+| `target` | string | Chemin du groupe cible |
+| `target_field` | string (opt.) | Chemin du champ qui reçoit les items extraits dans chaque item existant du groupe cible |
 | `pattern` | string | Expression régulière avec groupes capturants |
 | `entries` | array | Définition des champs extraits de chaque match |
 
@@ -1829,6 +1834,39 @@ Chaque `entry` dans `entries` :
 | `type` | string (opt.) | Type JSON de sortie |
 | `capture_group` | int (opt.) | Index du groupe de capture (1-based) |
 | `actions` | array | Actions appliquées à la valeur extraite |
+
+Les correspondances sont ajoutées dans l'ordre d'extraction. Avec
+`target_field`, chaque item explicite de `target` reçoit une copie des items
+extraits. Si `target_field` est omis, les items sont ajoutés directement à
+`target`.
+
+### `offset_items_field`
+Copie un champ de l'item `n + offset` dans l'item `n`. Les lectures utilisent
+l'ordre et le contenu d'origine de chaque groupe d'items explicites. Le nœud
+copié conserve son type de sortie.
+
+| Champ | Type | Description |
+|-------|------|-------------|
+| `source` | string | Chemin du groupe à la racine |
+| `nested_source` | string (opt.) | Chemin d'un groupe dans chaque item source. Les décalages s'appliquent séparément dans chaque groupe imbriqué |
+| `field` | string | Chemin du champ dans l'item désigné par le décalage |
+| `target` | string | Chemin du champ dans l'item courant |
+| `offset` | entier | Décalage d'index. Utiliser `1` pour l'item suivant ou `-1` pour le précédent |
+| `default` | string, number ou boolean (opt.) | Valeur de repli littérale si l'item ou le champ est absent |
+| `default_field` | string (opt.) | Chemin du champ de repli à la racine |
+
+Utiliser au plus une option de repli. Si le champ visé par le décalage et la
+valeur de repli sont tous deux indisponibles, le champ cible reste tel quel.
+
+```yaml
+- type: offset_items_field
+  source: players
+  nested_source: chapters
+  field: start
+  target: end
+  offset: 1
+  default_field: duration
+```
 
 ### `filter_items`
 Filtre les items d'un groupe en testant un champ scalaire avec une regex.

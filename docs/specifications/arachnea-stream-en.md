@@ -59,6 +59,12 @@ are not emitted in the page-level `categories` strip. Their request descriptors
 carry `category_kind=channel`, `channel_id` and `category_label`; `get_category`
 accepts these descriptors and searches video streams by `channel_ids` without
 reapplying the parent tag.
+Channel categories with a resolved channel URL expose the channel cover, avatar
+and name as a linkless banner. The Home tab puts the creator's pinned video in
+the first untitled section. The `language` source parameter selects the Odysee
+dictionary for Home, Content, Shorts and Playlists. Missing translations keep
+the source's English label. Shorts use the source's duration and aspect-ratio
+thresholds. Pagination counts the upstream page before applying the ratio filter.
 Existing tag category links default to `category_kind=tag`. Audio and other
 non-video streams are omitted from video sections. Odysee thumbnails use
 `img/landscape`, including entry details, so video cards render in landscape.
@@ -77,12 +83,16 @@ request and stops pagination.
 The batched request body is emitted through `document.write` and the
 `document_write=` prefix is removed before POSTing: `exec_js` does not return
 JavaScript expression completion values.
-Odysee `get_entry` exposes an HLS player first for video claims, using
+Odysee `get_entry` lists HLS as the first stream for video players, using
 `https://player.odycdn.com/v6/streams/<claim_id>/<full_sd_hash>/master.m3u8`.
 The master playlist supplies the available transcoded resolutions to the
-existing player quality selector. A separate MP4 player retains the public RSS
-media redirect as a fallback for claims without available HLS transcodes;
-the original file resolution does not imply that every HLS resolution exists.
+player quality selector. An MP4 stream in the same player uses the public RSS
+media redirect as a fallback for claims without available HLS transcodes.
+Odysee `get_entry` also publishes `players[].chapters` from description lines
+that start with a timestamp and a title, such as `00:00 Intro`. Each chapter
+ends at the next timestamp in description order. The video duration supplies
+the final end. The public player skips chapters with a missing end or an end
+at or before the start.
 
 RMC BFM Play selects the home category rail by its "Toutes les catégories" title,
 since its provider-generated ID can change. Its deferred `get_section` query
@@ -379,7 +389,9 @@ subsection labels.
 | `subtitle` | `string` | Subtitle |
 | `entryUrl` | `string` | Link variant |
 
-For lazy banners, `load_home` may emit only `banners > link`. The frontend
+A banner entry can omit its link and still display its artwork and text without
+a navigation button. For lazy banners, `load_home` may emit only `banners > link`.
+The frontend
 passes that value to `get_banners`, which returns the populated `banners`
 array. Do not fetch banner details through a `load_home` `sub_query` when
 `get_banners` is available.

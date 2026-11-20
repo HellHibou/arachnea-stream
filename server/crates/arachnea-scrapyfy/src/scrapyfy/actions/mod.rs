@@ -414,7 +414,7 @@ pub enum ScraperAction {
         months: HashMap<String, u32>,
     },
 
-    /// Parses human-readable durations such as `39 min` or `1 h 05 min` into seconds.
+    /// Parses unit-based durations and standalone clock durations into seconds.
     NormalizeDuration,
 
     /// Base64-decodes each current value.

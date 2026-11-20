@@ -20,6 +20,7 @@ mod group_items_by_header;
 mod math_helpers;
 mod merge_items_by_field;
 mod node_helpers;
+mod offset_items_field;
 mod pivot_items_by_index;
 mod project_json_relations;
 mod regex_helpers;
@@ -194,12 +195,38 @@ pub enum ScraperPostProcess {
     ExtractRegexItems {
         /// Source field containing the text to extract items from.
         source: String,
-        /// Target field where extracted items will be stored.
+        /// Target group that receives the extracted items.
         target: String,
+        /// Optional field on every item of `target` that receives the extracted
+        /// items. When omitted, the extracted items are appended directly under
+        /// `target`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target_field: Option<String>,
         /// Regex pattern used to extract items.
         pattern: String,
         /// List of field mappings for extracted regex groups.
         entries: Vec<ScraperRegexItemEntry>,
+    },
+
+    /// Copies a field from a relative item in the same group to each item.
+    OffsetItemsField {
+        /// Root group containing the items, or the parents of nested groups.
+        source: String,
+        /// Optional group path relative to each parent item.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        nested_source: Option<String>,
+        /// Field path to read from the relative item.
+        field: String,
+        /// Field path to write inside the current item.
+        target: String,
+        /// Signed distance from the current index within the same group.
+        offset: isize,
+        /// String, number or boolean to copy when the relative field is missing.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        default: Option<serde_json::Value>,
+        /// Root field to copy when the relative field is missing.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        default_field: Option<String>,
     },
 
     /// Filters explicit group items by matching one nested scalar field against a regex.
@@ -515,8 +542,28 @@ impl ScraperPostProcess {
                 ..
             } => fetch_actions_to_field::validate(owner, source, target, actions, request_actions),
             ScraperPostProcess::ExtractRegexItems {
-                pattern, entries, ..
-            } => extract_regex_items::validate(owner, pattern, entries),
+                target_field,
+                pattern,
+                entries,
+                ..
+            } => extract_regex_items::validate(owner, target_field.as_deref(), pattern, entries),
+            ScraperPostProcess::OffsetItemsField {
+                source,
+                nested_source,
+                field,
+                target,
+                default,
+                default_field,
+                ..
+            } => offset_items_field::validate(
+                owner,
+                source,
+                nested_source.as_deref(),
+                field,
+                target,
+                default.as_ref(),
+                default_field.as_deref(),
+            ),
             ScraperPostProcess::FetchRegexItemsFromItems {
                 pattern,
                 entries,
@@ -688,10 +735,40 @@ impl ScraperPostProcess {
             ScraperPostProcess::ExtractRegexItems {
                 source,
                 target,
+                target_field,
                 pattern,
                 entries,
             } => {
-                extract_regex_items::apply(root, context, source, target, pattern, entries);
+                extract_regex_items::apply(
+                    root,
+                    context,
+                    source,
+                    target,
+                    target_field.as_deref(),
+                    pattern,
+                    entries,
+                );
+                Ok(())
+            }
+            ScraperPostProcess::OffsetItemsField {
+                source,
+                nested_source,
+                field,
+                target,
+                offset,
+                default,
+                default_field,
+            } => {
+                offset_items_field::apply(
+                    root,
+                    source,
+                    nested_source.as_deref(),
+                    field,
+                    target,
+                    *offset,
+                    default.as_ref(),
+                    default_field.as_deref(),
+                );
                 Ok(())
             }
             ScraperPostProcess::FilterItems {

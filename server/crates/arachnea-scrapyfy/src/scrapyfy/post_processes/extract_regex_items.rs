@@ -3,27 +3,33 @@ use regex::Regex;
 
 use super::super::query_helpers::replace_template_placeholders;
 use super::super::scraper_data_node::ScraperDataNode;
-use super::node_helpers::{get_node, split_path};
+use super::node_helpers::{get_node, get_node_mut, split_path};
 use super::regex_helpers::build_regex_items;
 use super::types::{ScraperPostProcessContext, ScraperRegexItemEntry};
+use crate::scrapyfy::ScraperOutputType;
 
 /// Validates one `extract_regex_items` post-process definition.
 ///
 /// # Arguments
 ///
 /// * `owner` - Human-readable owner name used in error messages.
+/// * `target_field` - Optional field path on each target item.
 /// * `pattern` - Regular-expression template source to compile.
 /// * `entries` - Field definitions whose `actions` are recursively validated.
 ///
 /// # Errors
 ///
-/// Returns an error when `pattern` does not compile, or when one of the
-/// entry actions fails to validate.
+/// Returns an error for an empty `target_field`, an invalid pattern or entry
+/// type, or an invalid entry action.
 pub(super) fn validate(
     owner: &str,
+    target_field: Option<&str>,
     pattern: &str,
     entries: &[ScraperRegexItemEntry],
 ) -> Result<()> {
+    if target_field.is_some_and(|path| split_path(path).is_empty()) {
+        anyhow::bail!("extract_regex_items for {owner} requires a non-empty target_field");
+    }
     // Runtime placeholders are substituted only during query execution. Replace
     // named placeholders here so structural validation checks the surrounding
     // regex without treating `{url_fragment}` as an invalid repetition syntax.
@@ -63,7 +69,7 @@ pub(super) fn validate(
 }
 
 /// Builds explicit group items from repeated regex matches extracted from one
-/// text field and appends them under `target`.
+/// text field. Appends them under `target` or to a field on every target item.
 ///
 /// # Arguments
 ///
@@ -72,6 +78,8 @@ pub(super) fn validate(
 /// * `source` - `>`-delimited path of the source node whose scalar values are
 ///   scanned.
 /// * `target` - `>`-delimited path that receives the produced items.
+/// * `target_field` - Optional `>`-delimited path inside each existing target
+///   item that receives the produced items.
 /// * `pattern` - Regular expression applied to each source value.
 /// * `entries` - Field definitions for every regex match.
 pub(super) fn apply(
@@ -79,6 +87,7 @@ pub(super) fn apply(
     context: &ScraperPostProcessContext<'_>,
     source: &str,
     target: &str,
+    target_field: Option<&str>,
     pattern: &str,
     entries: &[ScraperRegexItemEntry],
 ) {
@@ -109,16 +118,26 @@ pub(super) fn apply(
         return;
     }
 
+    if let Some(target_field) = target_field {
+        let Some(target_node) = get_node_mut(root, target) else {
+            return;
+        };
+        let field_path = split_path(target_field);
+        for target_item in &mut target_node.items {
+            for item in &extracted_items {
+                target_item.push_node_typed(
+                    &field_path,
+                    item.clone(),
+                    ScraperOutputType::ObjectArray,
+                );
+            }
+        }
+        return;
+    }
+
     let target_path = split_path(target);
-    root.set_output_type(
-        &target_path,
-        crate::scrapyfy::ScraperOutputType::ObjectArray,
-    );
+    root.set_output_type(&target_path, ScraperOutputType::ObjectArray);
     for item in extracted_items {
-        root.push_node_typed(
-            &target_path,
-            item,
-            crate::scrapyfy::ScraperOutputType::ObjectArray,
-        );
+        root.push_node_typed(&target_path, item, ScraperOutputType::ObjectArray);
     }
 }

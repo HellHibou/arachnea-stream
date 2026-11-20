@@ -63,6 +63,13 @@ par `channel_ids`, sans réappliquer le tag parent. Les liens de catégories par
 existants utilisent `category_kind=tag` par défaut. Les flux audio et les autres
 contenus non vidéo sont exclus des sections vidéo. Les miniatures Odysee utilisent
 `img/landscape`, y compris dans les détails, pour afficher les vidéos en paysage.
+Pour les catégories dotées d’une URL de chaîne, l’accueil place la vidéo
+épinglée dans la première section, sans titre. La couverture, la photo de
+profil et le nom de la chaîne forment une bannière sans lien. Le paramètre
+`language` sélectionne le dictionnaire Odysee pour les quatre onglets. Les
+Shorts suivent les seuils de durée et de format de la source. La pagination
+compte les résultats amont avant le filtrage par format.
+
 Les sections Odysee exposent `have_more` lorsque la page amont contient
 24 résultats, comptés avant le filtrage des médias. `get_section` charge les
 pages suivantes avec `category_filter` et `category_label` transmis dans la
@@ -79,12 +86,18 @@ une page vide évite l'appel de métadonnées et arrête la pagination.
 Le corps de la requête groupée est émis via `document.write`, puis le préfixe
 `document_write=` est retiré avant le POST : `exec_js` ne renvoie pas la valeur
 finale des expressions JavaScript.
-Odysee `get_entry` propose d'abord un lecteur HLS pour les vidéos, via
+Odysee `get_entry` place le flux HLS en tête des flux de chaque lecteur vidéo, via
 `https://player.odycdn.com/v6/streams/<claim_id>/<sd_hash_complet>/master.m3u8`.
 Le manifeste maître fournit les résolutions transcodées disponibles au sélecteur
-de qualité existant. Un lecteur MP4 séparé conserve la redirection RSS publique
-en secours lorsque les transcodages HLS ne sont pas disponibles ; la résolution
-du fichier original ne garantit pas l'existence de toutes les qualités HLS.
+de qualité. Un flux MP4 dans le même lecteur utilise la redirection RSS publique
+en secours lorsque les transcodages HLS ne sont pas disponibles.
+La requête Odysee `get_entry` renseigne aussi `players[].chapters` à partir
+des lignes de description commençant par un horodatage suivi d'un titre,
+comme `00:00 Intro`.
+Chaque chapitre se termine à l'horodatage suivant dans l'ordre de la
+description. La durée de la vidéo borne le dernier chapitre. Le lecteur
+public ignore les chapitres dont la fin est absente ou inférieure ou égale au
+début.
 
 RMC BFM Play sélectionne le rail de catégories de l'accueil par son titre
 « Toutes les catégories », car son identifiant fournisseur peut changer.
@@ -391,8 +404,9 @@ fois, dont le titre combine le libellé de la section et celui de la sous-sectio
 | `entryUrl` | `string` | Variante de lien |
 
 Pour des bannières chargées paresseusement, `load_home` peut n'émettre que
-`banners > link`. Le frontend transmet cette valeur à `get_banners`, qui
-retourne alors le tableau `banners` complet. Ne pas charger les détails des
+`banners > link`. Une entrée de bannière sans lien affiche ses visuels et son
+texte sans bouton de navigation. Le frontend transmet le lien de chargement à
+`get_banners`, qui retourne alors le tableau `banners` complet. Ne pas charger les détails des
 bannières via une `sub_query` de `load_home` lorsque `get_banners` est
 disponible.
 

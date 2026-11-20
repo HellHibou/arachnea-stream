@@ -12,7 +12,7 @@ import {
   readPath,
   readRecordList,
 } from '../primitives/readers'
-import { normalizeHomeBanner, readBannerList } from './banners'
+import { isDisplayableHomeBanner, normalizeHomeBanner, readBannerList } from './banners'
 import { mergeHomeCategories, normalizeHomeCategory } from './categories'
 import { mergeHomeSections, normalizeHomeSection } from './sections'
 
@@ -117,15 +117,7 @@ export function normalizeHomeCatalog(payload: unknown, merge = true): HomeCatalo
         banners.entries.length + bannerEntries.length,
         bannerSource,
       )
-      if (
-        normalizedBanner.entryUrl &&
-        (
-          normalizedBanner.imageUrl ||
-          normalizedBanner.title ||
-          normalizedBanner.videoUrl ||
-          normalizedBanner.player
-        )
-      ) {
+      if (isDisplayableHomeBanner(normalizedBanner)) {
         bannerEntries.push(normalizedBanner)
       }
     })

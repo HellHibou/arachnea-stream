@@ -1469,6 +1469,9 @@ Supported formats (`GetDateSource`):
 
 ### `normalize_duration`
 Parses human-readable durations (e.g. `39 min`, `1 h 05 min`, `1 h 05`) into seconds. A bare number directly following an hours token is read as minutes.
+Also accepts standalone `mm:ss` and `hh:mm:ss` values. The leading component
+can have any number of digits. The seconds and the minutes in `hh:mm:ss`
+must have two digits in the range 00–59. Unrecognized values are kept as-is.
 
 ```yaml
 - type: normalize_duration
@@ -1762,7 +1765,8 @@ Builds group items from repeated regex matches in a text field.
 | Field | Type | Description |
 |-------|------|-------------|
 | `source` | string | Source field containing text to parse |
-| `target` | string | Target field receiving extracted items |
+| `target` | string | Target group path |
+| `target_field` | string (opt.) | Field path within each existing target item that receives the extracted items |
 | `pattern` | string | Regular expression with capturing groups |
 | `entries` | array | Definition of fields extracted from each match |
 
@@ -1791,6 +1795,38 @@ Each `entry` in `entries`:
 | `type` | string (opt.) | JSON output type |
 | `capture_group` | int (opt.) | Capture group index (1-based) |
 | `actions` | array | Actions applied to the extracted value |
+
+Matches are appended in extraction order. With `target_field`, each existing
+explicit item in `target` receives its own copy of the matched items. If
+`target_field` is omitted, matches are appended directly to `target`.
+
+### `offset_items_field`
+Copies a field from item `n + offset` into item `n`. It reads all values from
+the original order and contents of each explicit item group. The copied node
+keeps its output type.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `source` | string | Root group path |
+| `nested_source` | string (opt.) | Group path within each source item. Offsets are applied separately within each nested group |
+| `field` | string | Field path within the offset item |
+| `target` | string | Field path within the current item |
+| `offset` | integer | Relative index. Use `1` for the next item or `-1` for the previous item |
+| `default` | string, number or boolean (opt.) | Literal fallback when the offset item or field is missing |
+| `default_field` | string (opt.) | Root field path supplying the fallback |
+
+Use at most one fallback option. If the offset field and fallback are both
+unavailable, the target is left as-is.
+
+```yaml
+- type: offset_items_field
+  source: players
+  nested_source: chapters
+  field: start
+  target: end
+  offset: 1
+  default_field: duration
+```
 
 ### `filter_items`
 Filters items in a group by testing a scalar field with a regex.

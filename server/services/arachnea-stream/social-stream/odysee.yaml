@@ -10,19 +10,25 @@ http:
   user_agent_profile: chrome
 
 # ############################################################################
-# Editable parameters and constants
+# Parameters and constants
 # ############################################################################
 parameters:
+  - name: language
+    value: en
+    label: Language
+    description: Language of the channel tabs from Odysee's interface dictionary.
+    editor:
+      type: select
+      options:
+        - value: en
+          label: English
+        - value: fr
+          label: Français
+
+constants:
   - name: base_url
     value: "https://odysee.com"
     description: Public website base URL used for content API calls, web links and player stream redirects.
-    label: Base URL
-    editor:
-      type: regex
-      pattern: '^https?://[^\s/?#]+(?:/[^\s?#]*)?$'
-      message: Enter an absolute HTTP(S) URL without query, fragment or trailing slash.
-
-constants:
   - name: api_base
     value: "https://api.na-backend.odysee.com"
     description: Odysee LBRY backend API used for claim searches.
@@ -32,6 +38,10 @@ constants:
   - name: claim_search_url
     value: "{api_base}/api/v1/proxy?m=claim_search"
     description: Claim search proxy endpoint used for category listings.
+  - name: resolve_url
+    value: "{api_base}/api/v1/proxy?m=resolve"
+  - name: comments_url
+    value: "https://comments.odysee.tv/api/v2?m=setting.Get"
   - name: live_url
     value: "https://api.odysee.live"
     description: Odysee live API endpoint.
@@ -42,11 +52,11 @@ constants:
     value: "24"
     description: Number of upstream search results requested per page.
   - name: category_body
-    value: '{"jsonrpc":"2.0","method":"claim_search","params":{{category_filter},"page":{page},"page_size":24,"order_by":["trending_group","trending_mixed"],"has_source":true,"no_totals":true,"exclude_shorts":true},"id":1}'
+    value: '{"jsonrpc":"2.0","method":"claim_search","params":{{category_filter},"page":{page},"page_size":24,"no_totals":true},"id":1}'
     description: JSON-RPC body used to list tagged claims or videos from one channel.
   - name: category_kind
     value: tag
-    description: Category search mode, overridden with channel by channel category requests.
+    description: Category search mode, overridden by category requests for a channel ID or URL.
   - name: category_label
     value: "{any_tags}"
     description: Section label, overridden with the channel title by channel category requests.
@@ -134,7 +144,50 @@ queries:
     query_url: "{content_url}"
     row_pointer: /
     entries:
-      - name: categories
+      - name: source
+        type: string
+        actions:
+          - type: format_text
+            argument: "{source}"
+      - name: banners > entries
+        type: object[]
+        pointer: /data/en/featured/items/*
+        entries:
+          - name: media-type
+            type: string
+            actions:
+              - type: format_text
+                argument: collection
+          - name: title
+            type: string
+            pointer: /label
+          - name: image
+            type: string
+            pointer: /image
+          - name: link
+            type: string
+            pointer: /url
+          - name: request > query_url
+            type: string
+            actions:
+              - type: format_text
+                argument: "{claim_search_url}"
+          - name: request > category_kind
+            type: string
+            actions:
+              - type: format_text
+                argument: channel_url
+          - name: request > channel_url
+            type: string
+            pointer: /url
+            actions:
+              - type: regex_find_all
+                pattern: '^https://odysee\.com/(@[\p{L}\p{N}_.~%-]+(?::[0-9a-fA-F]+)?)/?$'
+                format: "lbry://{1}"
+          - name: request > category_label
+            type: string
+            pointer: /label
+      - name: sections
         type: object[]
         pointer: /data/en/categories/*
         entries:
@@ -147,19 +200,18 @@ queries:
           - name: description
             type: string
             pointer: /description
-          - name: request > query_url
-            type: string
-            actions:
-              - type: format_text
-                argument: "{claim_search_url}"
-          - name: request > any_tags
+          - name: link
             type: string
             pointer: /name
-          - name: request > source
+          - name: request > category_filter
             type: string
+            pointer: /name
             actions:
               - type: format_text
-                argument: "{source}"
+                argument: '"any_tags":"{}","order_by":["trending_group","trending_mixed"],"has_source":true,"exclude_shorts":true'
+          - name: request > category_label
+            type: string
+            pointer: /label
 
   - name: get_category
     scraper_type: json
@@ -171,13 +223,268 @@ queries:
       - target_param: category_filter
         source_param: category_kind
         values:
-          tag: '"any_tags":"{any_tags}"'
-          channel: '"channel_ids":["{channel_id}"],"claim_type":"stream","stream_types":["video"]'
+          tag: '"any_tags":"{any_tags}","order_by":["trending_group","trending_mixed"],"has_source":true,"exclude_shorts":true'
+          channel: '"channel_ids":["{channel_id}"],"claim_type":"stream","stream_types":["video"],"order_by":["trending_group","trending_mixed"],"has_source":true,"exclude_shorts":true'
+          channel_url: '"channel":"{channel_url}","claim_type":"stream","stream_types":["video"],"order_by":["release_time"],"has_source":true,"exclude_shorts":true'
+          channel_content: '"channel":"{channel_url}","claim_type":"stream","stream_types":["video"],"order_by":["release_time"],"has_source":true'
+          channel_shorts: '"channel":"{channel_url}","claim_type":"stream","stream_types":["video"],"order_by":["release_time"],"has_source":true,"duration":"<=180"'
+          channel_playlists: '"channel":"{channel_url}","claim_type":"collection","order_by":["release_time"]'
+          playlist: '"claim_ids":{playlist_ids},"claim_type":"stream","stream_types":["video"],"has_source":true'
         item_suffix: ""
     request_headers: *headers_json
     row_pointer: /
-    entries: &odysee_category_entries
-      - name: sections
+    entries:
+      - name: channel_request
+        type: string
+        actions:
+          - type: format_text
+            argument: "{category_kind}|{channel_url}"
+          - type: regex_find_all
+            pattern: '^channel(?:_url|_content|_shorts|_playlists)?\|lbry://@[^/\s"\\]+$'
+            format: "{resolve_url}"
+        sub_queries:
+          - scraper_type: json
+            target: parent
+            request_method: post
+            request_headers: *headers_json
+            request_body_actions:
+              - type: format_text
+                argument: '{"jsonrpc":"2.0","method":"resolve","params":{"urls":["{channel_url}"]},"id":1}'
+            row_pointer: /result/*
+            row_filters:
+              /value_type: [channel]
+            entries:
+              - name: channel_claim_id
+                type: string
+                pointer: /claim_id
+              - name: channel_name
+                type: string
+                pointer: /name
+              - name: banners > entries
+                type: object[]
+                pointer: /
+                entries:
+                  - name: key
+                    type: string
+                    pointer: /claim_id
+                  - name: title
+                    type: string
+                    select: first
+                    pointer: /name
+                  - name: title
+                    type: string
+                    select: first
+                    pointer: /value/title
+                  - name: image
+                    type: string
+                    pointer: /value/cover/url
+                  - name: logo
+                    type: string
+                    pointer: /value/thumbnail/url
+              - name: channel_labels_request
+                type: string
+                pointer: /claim_id
+                actions:
+                  - type: format_text
+                    argument: "{base_url}/app-strings/{language}.json"
+                sub_queries:
+                  - scraper_type: json
+                    target: parent
+                    http:
+                      empty_on_statuses: [404, 429, 502, 503, 504]
+                    row_pointer: /
+                    entries:
+                      - name: categories
+                        type: object[]
+                        pointer: /
+                        entries:
+                          - name: key
+                            type: string
+                            actions:
+                              - type: format_text
+                                argument: home
+                          - name: label
+                            type: string
+                            select: first
+                            actions:
+                              - type: format_text
+                                argument: Home
+                          - name: label
+                            type: string
+                            select: first
+                            pointer: /Home
+                          - &odysee_tab_query_url
+                            name: request > query_url
+                            type: string
+                            actions:
+                              - type: format_text
+                                argument: "{claim_search_url}"
+                          - name: request > category_kind
+                            type: string
+                            actions:
+                              - type: format_text
+                                argument: channel_url
+                          - &odysee_tab_channel_url
+                            name: request > channel_url
+                            type: string
+                            actions:
+                              - type: format_text
+                                argument: "{channel_url}"
+                          - &odysee_tab_category_label
+                            name: request > category_label
+                            type: string
+                            actions:
+                              - type: format_text
+                                argument: "{category_label}"
+                      - name: categories
+                        type: object[]
+                        pointer: /
+                        entries:
+                          - name: key
+                            type: string
+                            actions:
+                              - type: format_text
+                                argument: content
+                          - name: label
+                            type: string
+                            select: first
+                            actions:
+                              - type: format_text
+                                argument: Content
+                          - name: label
+                            type: string
+                            select: first
+                            pointer: /Content
+                          - *odysee_tab_query_url
+                          - name: request > category_kind
+                            type: string
+                            actions:
+                              - type: format_text
+                                argument: channel_content
+                          - *odysee_tab_channel_url
+                          - *odysee_tab_category_label
+                      - name: categories
+                        type: object[]
+                        pointer: /
+                        entries:
+                          - name: key
+                            type: string
+                            actions:
+                              - type: format_text
+                                argument: shorts
+                          - name: label
+                            type: string
+                            select: first
+                            actions:
+                              - type: format_text
+                                argument: Shorts
+                          - name: label
+                            type: string
+                            select: first
+                            pointer: /Shorts
+                          - *odysee_tab_query_url
+                          - name: request > category_kind
+                            type: string
+                            actions:
+                              - type: format_text
+                                argument: channel_shorts
+                          - *odysee_tab_channel_url
+                          - *odysee_tab_category_label
+                      - name: categories
+                        type: object[]
+                        pointer: /
+                        entries:
+                          - name: key
+                            type: string
+                            actions:
+                              - type: format_text
+                                argument: playlists
+                          - name: label
+                            type: string
+                            select: first
+                            actions:
+                              - type: format_text
+                                argument: Playlists
+                          - name: label
+                            type: string
+                            select: first
+                            pointer: /Playlists
+                          - *odysee_tab_query_url
+                          - name: request > category_kind
+                            type: string
+                            actions:
+                              - type: format_text
+                                argument: channel_playlists
+                          - *odysee_tab_channel_url
+                          - *odysee_tab_category_label
+              - name: channel_settings_request
+                type: string
+                pointer: /claim_id
+                actions:
+                  - type: format_text
+                    argument: "{category_kind}:{page}"
+                  - type: regex_find_all
+                    pattern: '^channel(?:_url)?:1$'
+                    format: "{comments_url}"
+                sub_queries:
+                  - scraper_type: json
+                    target: parent
+                    http:
+                      empty_on_statuses: [404, 429, 502, 503, 504]
+                    request_method: post
+                    request_headers: *headers_json
+                    request_body_actions:
+                      - type: format_text
+                        argument: '{"jsonrpc":"2.0","method":"setting.Get","params":{"channel_id":"{channel_claim_id}","channel_name":"{channel_name}"},"id":1}'
+                    row_pointer: /
+                    entries:
+                      - name: pinned_claim_id
+                        type: string
+                        select: first
+                        pointer: /result/homepage_settings/*[type=featured]/claim_id
+                      - name: pinned_claim_id
+                        type: string
+                        select: first
+                        pointer: /result/homepage_settings/sections/*[type=featured]/claim_id
+                      - name: pinned_video_request
+                        type: string
+                        select: first
+                        pointer: /result/homepage_settings/*[type=featured]/claim_id
+                        actions: &pinned_video_actions
+                          - type: regex_find_all
+                            pattern: '^[0-9a-f]{40}$'
+                            format: "{claim_search_url}"
+                        sub_queries: &pinned_video_queries
+                          - scraper_type: json
+                            target: parent
+                            request_method: post
+                            request_headers: *headers_json
+                            request_body_actions:
+                              - type: format_text
+                                argument: '{"jsonrpc":"2.0","method":"claim_search","params":{"claim_ids":["{pinned_claim_id}"],"page_size":1,"no_totals":true},"id":1}'
+                            row_pointer: /
+                            entries:
+                              - name: sections
+                                type: object[]
+                                pointer: /result/items/*[value/stream_type=video]
+                                entries:
+                                  - name: key
+                                    type: string
+                                    actions:
+                                      - type: format_text
+                                        argument: pinned
+                                  - name: entries
+                                    type: object[]
+                                    pointer: /
+                                    entries: *entries_media_cards
+                      - name: pinned_video_settings_request
+                        type: string
+                        select: first
+                        pointer: /result/homepage_settings/sections/*[type=featured]/claim_id
+                        actions: *pinned_video_actions
+                        sub_queries: *pinned_video_queries
+      - &odysee_category_section
+        name: sections
         type: object[]
         pointer: /
         select: all
@@ -187,7 +494,8 @@ queries:
             actions:
               - type: format_text
                 argument: "{category_label}"
-          - name: key
+          - &odysee_rail_key
+            name: key
             type: string
             actions:
               - type: format_text
@@ -207,6 +515,11 @@ queries:
             actions:
               - type: format_text
                 argument: "{category_filter}"
+          - name: request > category_kind
+            type: string
+            actions:
+              - type: format_text
+                argument: "{category_kind}"
           - name: request > category_label
             type: string
             actions:
@@ -227,9 +540,16 @@ queries:
               - name: id
                 type: string
                 pointer: /claim_id
+      # Filter candidates before merging them into the paginated rail.
+      - &odysee_category_channel
+        name: sections
+        type: object[]
+        pointer: /result/items/*[value_type=channel]
+        entries:
+          - *odysee_rail_key
           - name: entries
             type: object[]
-            pointer: /result/items/*[value_type=channel]
+            pointer: /
             entries: &entries_channel_cards
               - name: media-type
                 type: string
@@ -258,6 +578,9 @@ queries:
               - name: request > channel_id
                 type: string
                 pointer: /claim_id
+              - name: request > channel_url
+                type: string
+                pointer: /canonical_url
               - name: request > category_label
                 type: string
                 pointer: /value/title
@@ -266,12 +589,85 @@ queries:
                 actions:
                   - type: format_text
                     argument: "{source}"
+      - &odysee_category_video
+        name: sections
+        type: object[]
+        pointer: /result/items/*[value/stream_type=video]
+        entries:
+          - *odysee_rail_key
+          - name: hide_from_shorts
+            type: boolean
+            actions:
+              - type: extract_field
+                path: /value
+              - type: format_text
+                argument: "{category_kind}|{}"
+              - type: regex_find_all
+                pattern: '(?s)^channel_shorts\|(\{.+\})$'
+                format: 'document.write(hideFromShorts({1}.video));'
+              - type: exec_js
+                scripts:
+                  - 'function hideFromShorts(video) { return !video || !(video.width > 0 && video.height > 0 && video.width / video.height <= 0.8); }'
+              - type: regex_find_all
+                pattern: '^document_write=(true|false)$'
+                format: "{1}"
           - name: entries
             type: object[]
-            pointer: /result/items/*[value/stream_type=video]
+            pointer: /
             entries: *entries_media_cards
-    post_process: &odysee_category_pagination
-      - type: derive_pagination
+      - &odysee_category_playlist
+        name: sections
+        type: object[]
+        pointer: /result/items/*[value_type=collection]
+        entries:
+          - *odysee_rail_key
+          - name: entries
+            type: object[]
+            pointer: /
+            entries:
+              - name: media-type
+                type: string
+                actions:
+                  - type: format_text
+                    argument: collection
+              - name: title
+                type: string
+                pointer: /value/title
+              - name: img/landscape > link
+                type: string
+                pointer: /value/thumbnail/url
+              - name: request > query_url
+                type: string
+                actions:
+                  - type: format_text
+                    argument: "{claim_search_url}"
+              - name: request > category_kind
+                type: string
+                actions:
+                  - type: format_text
+                    argument: playlist
+              - name: request > playlist_ids
+                type: string
+                actions:
+                  - type: extract_field
+                    path: /value/claims
+              - name: request > category_label
+                type: string
+                pointer: /value/title
+    post_process:
+      - &odysee_filter_shorts
+        type: filter_items
+        source: sections
+        field: hide_from_shorts
+        pattern: '^true$'
+        keep_matching: false
+      - &odysee_merge_rail
+        type: merge_items_by_field
+        source: sections
+        field: key
+        merge_fields: [entries]
+      - &odysee_category_pagination
+        type: derive_pagination
         source: sections
         entries_field: pagination_items
         page_size_field: page_size
@@ -280,6 +676,12 @@ queries:
           - pagination_items
           - page_size
           - infer_have_more_from_full_page
+      - type: sort_items
+        source: sections
+        field: key
+        method: asc
+      - type: remove_fields
+        fields: [channel_request, channel_name, channel_claim_id, channel_labels_request, channel_settings_request, pinned_claim_id, pinned_video_request, pinned_video_settings_request]
 
   - name: get_section
     scraper_type: json
@@ -289,8 +691,15 @@ queries:
     request_body_pointer: /category_body
     request_headers: *headers_json
     row_pointer: /
-    entries: *odysee_category_entries
-    post_process: *odysee_category_pagination
+    entries:
+      - *odysee_category_section
+      - *odysee_category_channel
+      - *odysee_category_video
+      - *odysee_category_playlist
+    post_process:
+      - *odysee_filter_shorts
+      - *odysee_merge_rail
+      - *odysee_category_pagination
 
   - name: search
     scraper_type: json
@@ -470,6 +879,32 @@ queries:
                   - type: format_text
                     argument: "{base_url}/$/rss/media/{}/{query_url}/stream.mp4"
     post_process:
+      - type: extract_regex_items
+        source: description
+        target: players
+        target_field: chapters
+        pattern: '(?mR)^[ \t]*([0-9]{1,3}(?::[0-5][0-9]){1,2})[ \t]+(\S[^\r\n]*?)[ \t]*$'
+        entries:
+          - name: start
+            type: number
+            capture_group: 1
+            actions:
+              - type: normalize_duration
+          - name: title
+            type: string
+            capture_group: 2
+          - name: type
+            type: string
+            actions:
+              - type: format_text
+                argument: chapter
+      - type: offset_items_field
+        source: players
+        nested_source: chapters
+        field: start
+        target: end
+        offset: 1
+        default_field: duration
       - type: zip_fields
         source: "** > streams"
         values_field: url
