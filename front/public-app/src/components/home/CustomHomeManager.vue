@@ -2,6 +2,7 @@
 import { customHomeRoute } from '@/services/customHomeRoute'
 import { computed, defineAsyncComponent, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useServiceMetadata } from '@/composables/useServiceMetadata'
 import { useCustomHomeManager } from '@/composables/home/useCustomHomeManager'
 import { applyCustomHomeSelection } from '@/services/customHomeDraft'
 import { createCategoryReference, createSectionReference } from '@/services/customHomeReferences'
@@ -10,7 +11,7 @@ import { useI18n } from '@/i18n'
 import { useStorage } from '@/services/storage'
 import { profileDefaultHomeId, saveDefaultHome } from '@/services/profileDefaultHome'
 import { reportPersonalDataFailure } from '@/services/personalDataStatus'
-import type { CustomHomeAddIntent, CustomHomeDefinition } from '@/types/customHome'
+import type { CustomHomeAddIntent, CustomHomeCategoryMode, CustomHomeDefinition } from '@/types/customHome'
 import { applyQuickAddSelections, resolveQuickAddSelections } from '@/services/customHomeQuickAdd'
 import { createUuid } from '@/utils'
 import DefaultHomeSetting from './DefaultHomeSetting.vue'
@@ -33,7 +34,8 @@ const manager = useCustomHomeManager()
 const visible = shallowRef(false)
 const destination = shallowRef('')
 const newHomeName = shallowRef('')
-const categoryMode = shallowRef<'shortcut' | 'section'>('shortcut')
+const categoryMode = shallowRef<CustomHomeCategoryMode>('shortcut')
+const metadata = useServiceMetadata()
 const selectedCategoryIds = shallowRef<string[]>([])
 const deletion = shallowRef<CustomHomeDefinition | null>(null)
 const seeding = shallowRef(false)
@@ -43,8 +45,26 @@ const directEditor = shallowRef(false)
 const editorSnapshot = shallowRef<CustomHomeDefinition | null>(null)
 const editorDefinition = computed(() => manager.draft.value ?? editorSnapshot.value)
 const choices = computed(() => [{ title: t('customHome.create'), value: '' },
-  ...manager.homes.value.filter((home) => props.intent?.kind !== 'category' ||
-    route.name !== 'custom-home' || home.id !== route.meta.homeId).map((home) => ({ title: home.name, value: home.id }))])
+  ...manager.homes.value.map((home) => ({ title: home.name, value: home.id }))])
+const selectedCategories = computed(() => {
+  if (props.intent?.kind === 'category') return [props.intent.category]
+  if (props.intent?.kind === 'categories') {
+    return props.intent.categories.filter((category) => selectedCategoryIds.value.includes(category.id))
+  }
+  return []
+})
+const categoryContentAvailable = computed(() => selectedCategories.value.length > 0 &&
+  selectedCategories.value.every((category) => category.sources.length > 0 &&
+    category.sources.every((source) => source.name && supportsCategory(source.name))))
+
+/** @param sourceId Exact source id. @returns Whether the service advertises category loading. */
+function supportsCategory(sourceId: string): boolean {
+  return metadata.getService(sourceId)?.supportedQueries.includes('get_category') ?? false
+}
+
+watch(categoryContentAvailable, (available) => {
+  if (!available) categoryMode.value = 'shortcut'
+})
 watch(() => props.open, (value) => {
   if (value) {
     show()
@@ -57,7 +77,9 @@ watch(() => route.fullPath, () => { if (!manager.busy.value && !seeding.value) c
 function show(): void {
   directEditor.value = Boolean(props.editHomeId || props.createOnOpen)
   editorSnapshot.value = null
-  visible.value = true; destination.value = ''; newHomeName.value = ''; categoryMode.value = 'shortcut'
+  visible.value = true; destination.value = ''; newHomeName.value = ''
+  categoryMode.value = props.intent?.kind === 'category' ? props.intent.initialMode ?? 'shortcut' : 'shortcut'
+  if (props.intent?.kind === 'category' || props.intent?.kind === 'categories') void metadata.load()
   selectedCategoryIds.value = []
   manager.cancel(); void manager.refresh()
 }
@@ -86,10 +108,10 @@ function cancelListEditor(): void {
 async function add(): Promise<void> {
   if (!props.intent || seeding.value || manager.busy.value || (!destination.value && !newHomeName.value.trim())) return
   const intent = props.intent.kind === 'categories' ? { ...props.intent,
-    categories: props.intent.categories.filter((category) => selectedCategoryIds.value.includes(category.id)) } : props.intent
+    categories: selectedCategories.value } : props.intent
   seeding.value = true
   try {
-    const selections = await resolveQuickAddSelections(intent, categoryMode.value)
+    const selections = await resolveQuickAddSelections(intent, categoryMode.value, supportsCategory)
     if (!destination.value) await manager.refresh()
     const draft = await manager.begin(destination.value || undefined)
     if (!draft) return
@@ -162,7 +184,7 @@ async function fromSource(): Promise<void> {
           <v-radio-group v-if="props.intent.kind === 'category' || props.intent.kind === 'categories'" v-model="categoryMode" :label="t('customHome.categoryMode')"
             :disabled="manager.busy.value || seeding" inline>
             <v-radio :label="t('customHome.shortcut')" value="shortcut" />
-            <v-radio :label="t('customHome.categorySection')" value="section" />
+            <v-radio :label="t('customHome.categoryContent')" value="content" :disabled="!categoryContentAvailable" />
           </v-radio-group>
         </template>
         <template v-else-if="(!manager.draft.value && !directEditor) || editingFromList">

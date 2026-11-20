@@ -7,11 +7,12 @@ import { useServiceMetadata } from '@/composables/useServiceMetadata'
 import CustomHomeContentPicker from '@/components/home/CustomHomeContentPicker.vue'
 import CustomHomeBlockList from '@/components/home/CustomHomeBlockList.vue'
 import CustomHomeDraftActions from '@/components/home/CustomHomeDraftActions.vue'
+import { bannerReferenceKey } from '@/services/customHomeReferences'
 import { validateCustomHomeDefinition } from '@/services/customHomeValidation'
 import { applyCustomHomeSelection, moveCustomHomeItem } from '@/services/customHomeDraft'
 import { moveCustomHomeBlock, updateCustomHomeGroupDisplay } from '@/services/customHomeBlockGroups'
 import { useI18n } from '@/i18n'
-import type { CustomHomeDefinition, CustomHomeSelection } from '@/types/customHome'
+import type { BannerReference, CustomHomeDefinition, CustomHomeSelection } from '@/types/customHome'
 
 /** Initial detached draft; remount for a different editing session. Busy/errors belong to persistence owner. */
 const props = withDefaults(defineProps<{ definition: CustomHomeDefinition; busy?: boolean; errorMessage?: string | null }>(), {
@@ -43,6 +44,11 @@ function save(): void {
     const value = validateCustomHomeDefinition(draft.value)
     emit('save', value)
   } catch (error) { validationError.value = error instanceof Error ? error.message : String(error) }
+}
+/** @param reference Saved banner collection. @returns Its service or category label. */
+function bannerLabel(reference: BannerReference): string {
+  if (typeof reference === 'string') return metadata.getService(reference)?.title ?? reference
+  return `${metadata.getService(reference.sourceId)?.title ?? reference.sourceId} — ${reference.labelSnapshot}`
 }
 /** @param id Block identity. @param title User display override (blank removes it). */
 function updateTitle(id: string, title: string): void {
@@ -85,12 +91,12 @@ defineExpose({ save, canSave })
       <div class="custom-home-editor__table-wrap">
       <table class="custom-home-editor__table">
         <thead><tr><th scope="col">{{ t('customHome.serviceColumn') }}</th><th scope="col">{{ t('customHome.actionsColumn') }}</th></tr></thead>
-        <tbody><tr v-for="(source, index) in draft.bannerSources" :key="source">
-        <td>{{ metadata.getService(source)?.title ?? source }}</td>
+        <tbody><tr v-for="(source, index) in draft.bannerSources" :key="bannerReferenceKey(source)">
+        <td>{{ bannerLabel(source) }}</td>
         <td>
         <CustomHomeDraftActions :index="index" :count="draft.bannerSources.length"
           @move="update({ bannerSources: moveCustomHomeItem(draft.bannerSources, index, $event) })"
-          @remove="update({ bannerSources: draft.bannerSources.filter((id) => id !== source) })" />
+          @remove="update({ bannerSources: draft.bannerSources.filter((_, position) => position !== index) })" />
         </td></tr></tbody>
       </table></div>
       </ParametersSection>

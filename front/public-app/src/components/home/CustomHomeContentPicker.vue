@@ -23,6 +23,7 @@ const selectionError = shallowRef<string | null>(null)
 const choices = computed(() => metadata.services.value.filter((service) =>
   service.supportedQueries.includes('load_home') && (!props.sourceIds.length || props.sourceIds.includes(service.id)))
   .map((service) => ({ title: service.title, value: service.id })))
+const canAddCategoryContent = computed(() => metadata.getService(selectedSource.value)?.supportedQueries.includes('get_category'))
 const categories = computed(() => (props.sectionLabel ? [] : picker.discovery.value?.catalog.categories ?? [])
   .filter((category) => !props.categoryLabel || category.label === props.categoryLabel))
 const sections = computed(() => (props.categoryLabel ? [] : picker.discovery.value?.catalog.sections ?? [])
@@ -75,7 +76,7 @@ function selectSection(section: HomeSection, subsectionKey?: string): void {
         <v-btn v-if="!props.blockOnly" :title="t('customHome.addShortcutTooltip')" :disabled="category.identity?.ambiguous || !category.identity"
           @click="selectCategory(category, 'shortcut')">{{ t('customHome.shortcut') }}</v-btn>
         </td><td>
-        <v-btn :title="t('customHome.addCategorySectionsTooltip')" :disabled="category.identity?.ambiguous || !category.identity"
+        <v-btn :title="t('customHome.addCategorySectionsTooltip')" :disabled="category.identity?.ambiguous || !category.identity || !canAddCategoryContent"
           @click="selectCategory(category, 'block')">{{ t('customHome.categoryContent') }}</v-btn>
         </td></tr>
       <template v-for="section in sections" :key="section.id">

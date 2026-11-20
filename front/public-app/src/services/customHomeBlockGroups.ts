@@ -6,7 +6,7 @@ export function customHomeTitleKey(title: string | null): string {
   return (title ?? '').normalize('NFC').trim().replace(/\s+/gu, ' ').toLowerCase()
 }
 
-/** Editor grouping uses saved block labels, without fetching category columns. */
+/** Editor grouping uses saved section labels and keeps each category block movable as a unit. */
 export interface CustomHomeBlockGroup {
   key: string
   title: string | null
@@ -19,7 +19,7 @@ export function groupCustomHomeBlocks(blocks: CustomHomeBlock[], merge: boolean)
   for (const block of blocks) {
     const title = block.titleOverride?.trim() || block.reference.labelSnapshot
     const titleKey = customHomeTitleKey(title)
-    const key = merge && titleKey ? `title:${titleKey}` : `block:${block.id}`
+    const key = merge && block.kind === 'home-section' && titleKey ? `title:${titleKey}` : `block:${block.id}`
     const group = groups.get(key) ?? { key, title, blocks: [] }
     group.blocks.push(block)
     groups.set(key, group)

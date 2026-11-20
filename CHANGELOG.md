@@ -482,6 +482,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Profile home validation accepts category-owned banners and sections plus bounded parent paths in version 1 documents. Existing documents require no migration.
+
 - Public account passwords now accept 4–128 Unicode scalar values instead of 12–128. Account creation takes an optional `must_change_password` flag (mandatory replacement by default); the new administrator operation `admin/set_user_password_change` toggles it without touching credentials or sessions. Password replacement may reuse the current password, leaving the explicit client warning to the UI.
 
 - Completed user profiles step 9 documentation and host validation: documented first-account/reset/session behavior, embedded avatars, profile quota, personal-data ownership and no-import/offline/conflict limits; added stopped-application backup/restore instructions for the coherent SQLite pair, configuration and remaining sidecars, with startup recovery/reference checks. Rust workspace check/format, 31 Core tests, 14 Stream tests (5 live-provider tests ignored), both frontend type-check/builds and public CSS lint pass on macOS ARM64. Initial sandbox-denied loopback tests pass after authorization. Graphical flows, real-provider playback, native vault/window lifecycle and an operator restore drill remain explicitly tracked; no new tests or test infrastructure were added.
@@ -924,6 +926,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Added quick-add from the header of discoverable category pages, with Category content preselected. Empty category blocks show their status and offer a shortcut.
+
 - Added profile name/avatar editing from profile management, reusing the identity form with Save/Cancel, revision-checked updates, explicit conflict reload and immediate active identity refresh without switching profiles.
 
 - Added step 7 settings drafts with explicit Save/Cancel, discard confirmation, shared onboarding language/theme controls, revision-checked changed-domain saves and immutable operation retries after partial or lost responses. Conflicts retain edits for explicit reload or reapplication to the latest values. Only complete confirmed snapshots update common/streaming form preferences and notify other windows; unchanged refreshes preserve track selection, partial saves remain unapplied, and stale dictionary replies cannot replace a newer language. Remaining legacy browser preference paths are deferred to step 8.
@@ -1019,6 +1023,12 @@ All notable changes to the server workspace are recorded here.
 
 
 #### Fixed
+
+- Custom home additions can rediscover categories published as inline collection cards and tolerate identical repeated category declarations. The add dialog distinguishes a missing origin from a failed content load.
+
+- Pins on category pages now add the category’s own featured collection, a selected media section or subsection, and subcategories as shortcuts or content. Category pins appear with the displayed content. The add dialog resolves the original category before saving and reports resolution failures.
+
+- Custom-home category blocks preserve section titles, order and loaded subsections across pages. Category pages and linked rails have independent pagination and retry controls, including when a category page has no media rails.
 
 - Styled the profile editor heading like preference section headings, with bold typography, the theme accent marker and a bottom divider.
 

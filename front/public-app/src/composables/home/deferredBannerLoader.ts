@@ -9,11 +9,13 @@ import type { HomeBanner, HomeCatalogData } from '@/types/home'
  *
  * @param catalog Catalog returned by the home or category endpoint.
  * @param onCatalogUpdate Callback receiving the catalog after each successful deferred response.
+ * @param strict Whether scraper failures should reject each deferred response (default false).
  * @returns Catalog whose deferred banner links have been consumed.
  */
 export async function loadDeferredBannerPages(
   catalog: HomeCatalogData,
   onCatalogUpdate?: (catalog: HomeCatalogData) => void,
+  strict = false,
 ): Promise<HomeCatalogData> {
   const seenKeys = new Set<string>()
   const loadedEntries: HomeBanner[] = [...catalog.banners.entries]
@@ -27,7 +29,7 @@ export async function loadDeferredBannerPages(
     const key = `${collection.source}|${collection.link}`
     tasks.push({
       key,
-      loader: () => loadDeferredBannersFromSource(collection.source, collection.link!),
+      loader: () => loadDeferredBannersFromSource(collection.source, collection.link!, strict),
     })
   })
 
@@ -75,12 +77,14 @@ export async function loadDeferredBannerPages(
  *
  * @param source Backend source name.
  * @param link Banner link returned by the initial response.
+ * @param strict Whether scraper failures should reject the response.
  * @returns Normalized banners for this source.
  */
 async function loadDeferredBannersFromSource(
   source: string,
   link: string,
+  strict: boolean,
 ): Promise<HomeBanner[]> {
-  const response = await getBanners(source, link)
+  const response = await getBanners(source, link, strict)
   return normalizeBannersResponse(response, source)
 }

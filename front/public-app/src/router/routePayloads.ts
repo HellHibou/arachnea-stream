@@ -1,3 +1,5 @@
+import { MAX_CATEGORY_ANCESTORS } from '@/services/customHomeReferences'
+import type { CategoryOrigin } from '@/types/customHome'
 import { buildUrlSlug } from '@/services/textUtils'
 import type { LiveSelectionTarget } from '@/types/media'
 import type { HomeCategory, HomeCategorySource } from '@/types/home'
@@ -33,6 +35,8 @@ export interface CategoryRoutePayload extends VersionedRoutePayload {
   label: string
   /** Source descriptors required to load the category catalog. */
   sources: HomeCategorySource[]
+  /** Optional source-owned paths to replay before saving a navigated category. */
+  origins?: CategoryOrigin[]
 }
 
 /** Compatible v1 payload for live channels or events, with optional catalog presentation. */
@@ -123,6 +127,7 @@ export function encodeCategoryRouteParam(category: HomeCategory): string {
     v: 1,
     label: category.label,
     sources: category.sources,
+    ...(category.origins?.length ? { origins: category.origins } : {}),
   }
 
   return `${slug}-${encodeRoutePayload(payload)}`
@@ -151,7 +156,17 @@ export function decodeCategoryRoutePayload(segment: string): CategoryRoutePayloa
     v: 1,
     label: readNonEmptyString(payload.label) ?? '',
     sources: payload.sources.flatMap(readHomeCategorySource),
+    ...(Array.isArray(payload.origins) ? { origins: payload.origins.flatMap(readCategoryOrigin) } : {}),
   }
+}
+
+/** @param value Untrusted route hint. @returns A bounded path for catalog rediscovery. */
+function readCategoryOrigin(value: unknown): CategoryOrigin[] {
+  if (!isRouteRecord(value) || !Array.isArray(value.keys) || !value.keys.length ||
+      value.keys.length > MAX_CATEGORY_ANCESTORS + 1) return []
+  const sourceId = readNonEmptyString(value.sourceId)
+  if (!sourceId || !value.keys.every((key) => typeof key === 'string' && key.trim() === key && key)) return []
+  return [{ sourceId, keys: value.keys }]
 }
 
 /**
@@ -173,7 +188,7 @@ function readHomeCategorySource(value: unknown): HomeCategorySource[] {
     }
   })
 
-  return [source]
+  return [!source.name && source.source ? { ...source, name: source.source } : source]
 }
 
 /**

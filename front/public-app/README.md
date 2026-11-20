@@ -250,9 +250,28 @@ are accepted. Edition-only pins add service banners and source sections. A singl
 pin beside “Explore by category” opens destination selection and category checkboxes.
 Only checked categories are resolved, preserving their source contributions. Add
 requests use a single dialog: choose an existing home or name a new one, choose
-Shortcut/Section for categories, then Cancel/Add. Add resolves all clicked source
+Shortcut/Category content for categories, then Cancel/Add. Add resolves all clicked source
 contributions and commits one revision-checked definition without opening the editor
 or navigating away. Failure keeps the dialog open; cancellation does not write.
+The category page header opens the same dialog with Category content selected
+when the category can be rediscovered from its service home and the service
+advertises `get_category`. The hero pin adds the featured collection of the
+current category for the active service. The category strip can add discovered
+children as shortcuts or content. A section pin adds only the chosen rail or
+active subsection, with its category context. With editing controls enabled, pins
+appear as soon as the respective content is displayed. The add dialog checks
+the content's origin before saving and displays any resolution failure.
+Category content renders media sections in provider order, including linked sections and subsections. A custom title labels a
+single section or heads a multi-section block. Title merging keeps multi-section
+blocks together. A directory or an exhausted category without media shows a
+status and offers to add a shortcut while editing controls are enabled.
+The category block's **Load more from this category** button requests
+`get_category`, even when the current page has no media sections. Linked rails
+continue independently through `get_section`. A failed request can be retried on
+the block or rail that owns its cursor. Category lookups begin with `load_home`
+and replay up to eight parent categories through `get_category`. Existing v1
+documents are read directly. New category contributions use the optional
+category context in the same document version and require the updated server.
 Source-page preference namespaces are stripped only for discovery matching; they are
 never persisted as content identities. When a displayed rail groups several sections
 with the same preference key, all unambiguous source-owned references are added.
@@ -262,8 +281,8 @@ source and aggregated catalogs ignore legacy pin order without deleting preferen
 Compact translucent pin actions share one style. Category cards remain navigation
 links without individual pins. The sidebar heading has an edit icon
 instead of a separate management row. The Home icon is shown only at the group heading,
-not beside individual custom homes. Custom-home catalogs have no inline edition
-controls for banners, categories or sections. Ordering, removal and display options
+not beside individual custom homes. Custom-home catalogs offer a shortcut action
+for empty category blocks. Ordering, removal and display options
 are configured exclusively in the home manager, with revision-checked saves.
 
 ### Responsive shell navigation (lot 2D)
@@ -292,7 +311,7 @@ checks are still required; no browser test dependency has been introduced.
 
 The persistence and discovery APIs are connected to the lot 2B composition renderer
 and `/homes/:homeId` route and lot 2C editor. `types/customHome.ts` defines the version 1
-declarative schema: stable home/block ids, ordered source banners, category
+declarative schema: stable home/block ids, ordered source or category banners, category
 shortcuts/content references, section/subsection references, optional title
 overrides, `sectionMergeMode` (`none` by default or `title`) and bookmarks.
 Fetched entries, signed playback URLs, cache validators and pagination are not
@@ -311,9 +330,12 @@ stores are untouched but no longer read or written, and no browser data is impor
 `loadHomeSourceDiscovery(sources)` in `services/rustify.ts` selects only requested
 providers and returns independent, unmerged catalogs with availability flags. An
 empty selection makes no request; discovery does not hydrate deferred banners or
-sections. Existing aggregated normalization stays unchanged. References must be
-created from this discovery via `services/customHomeReferences.ts`, not aggregated
-catalogs. Identity uses exact source-scoped provider keys, canonical descriptors
+sections. Category-owned references use identities from unmerged `get_category`
+responses after the parent path is resolved. Route hints are checked against
+provider results before adding the category to a home. Collections published
+as inline media cards can also be rediscovered from their home or parent
+category. Repeated declarations of the same source identity and request count
+as one category. Identity uses exact source-scoped provider keys, canonical descriptors
 excluding pagination, then exact labels as a fragile fallback; it never uses array
 positions. Duplicate identities are marked ambiguous and rejected for selection.
 Inline-only sections and subsection identity under the parent are retained. A
@@ -323,7 +345,7 @@ Runtime validation rejects unknown fields/schema versions, invalid types,
 duplicate block ids, descriptor/source mismatches and recognizable credential
 fields. This is defensive validation, not a guarantee that arbitrary provider
 parameters are secret-free: only YAML-discovered category descriptors may be
-selected, and the future resolver must rediscover them before execution. Repeated
+selected, and the resolver rediscovers them before execution. Repeated
 content references remain permitted under distinct block ids. YAML identity
 corrections are a separate approval-dependent task; no provider YAML is modified
 by these foundations.

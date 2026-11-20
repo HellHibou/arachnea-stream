@@ -76,6 +76,9 @@ function updateDisplay(block: CustomHomeBlock, options: CustomHomeDisplayOptions
         <tr v-for="(block, index) in group.blocks" :key="block.id">
         <td>{{ metadata.getService(block.reference.sourceId)?.title ?? block.reference.sourceId }}</td>
         <td>{{ block.reference.labelSnapshot ?? t('customHome.untitled') }}
+          <small v-if="block.kind === 'home-section' && block.reference.category" class="custom-home-blocks__kind">
+            {{ block.reference.category.labelSnapshot }}
+          </small>
           <small class="custom-home-blocks__kind">{{ t(block.kind === 'home-section' ? 'customHome.section' : 'customHome.categoryContent') }}</small>
         </td>
         <td><input class="custom-home-blocks__input" type="text" :value="editingTitle?.id === block.id ? editingTitle.text : block.titleOverride ?? ''"

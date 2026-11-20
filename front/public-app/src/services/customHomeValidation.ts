@@ -1,3 +1,4 @@
+import { bannerReferenceKey, MAX_CATEGORY_ANCESTORS } from '@/services/customHomeReferences'
 import type {
   CategoryReference,
   CustomHomeBlock,
@@ -75,7 +76,7 @@ function fields(value: Record<string, unknown>, keys: string[], path: string): v
  */
 function category(value: unknown, path: string): CategoryReference {
   const input = record(value, path)
-  fields(input, ['sourceId', 'categoryKey', 'descriptor', 'labelSnapshot'], path)
+  fields(input, ['sourceId', 'categoryKey', 'descriptor', 'labelSnapshot', 'ancestorKeys'], path)
   const sourceId = identifier(input.sourceId, `${path}.sourceId`)
   const rawDescriptor = record(input.descriptor, `${path}.descriptor`)
   const descriptor: Record<string, string> = {}
@@ -93,8 +94,12 @@ function category(value: unknown, path: string): CategoryReference {
   if (descriptor.name !== sourceId || (descriptor.source && descriptor.source !== sourceId)) {
     throw new Error(`${path}.descriptor must belong to ${sourceId}`)
   }
+  const ancestorKeys = input.ancestorKeys === undefined ? [] : array(input.ancestorKeys, `${path}.ancestorKeys`)
+    .map((key, index) => identifier(key, `${path}.ancestorKeys[${index}]`))
+  if (ancestorKeys.length > MAX_CATEGORY_ANCESTORS) throw new Error(`${path}.ancestorKeys is too long`)
   return {
     sourceId,
+    ...(ancestorKeys.length ? { ancestorKeys } : {}),
     categoryKey: identifier(input.categoryKey, `${path}.categoryKey`),
     descriptor,
     labelSnapshot: text(input.labelSnapshot, `${path}.labelSnapshot`),
@@ -104,9 +109,13 @@ function category(value: unknown, path: string): CategoryReference {
 /** @param value Untrusted reference. @param path Field path. @returns Detached section reference. */
 function section(value: unknown, path: string): SectionReference {
   const input = record(value, path)
-  fields(input, ['sourceId', 'sectionKey', 'subsectionKey', 'labelSnapshot'], path)
+  fields(input, ['sourceId', 'sectionKey', 'subsectionKey', 'labelSnapshot', 'category'], path)
+  const sourceId = identifier(input.sourceId, `${path}.sourceId`)
+  const origin = input.category === undefined ? undefined : category(input.category, `${path}.category`)
+  if (origin && origin.sourceId !== sourceId) throw new Error(`${path}.category must belong to ${sourceId}`)
   return {
-    sourceId: identifier(input.sourceId, `${path}.sourceId`),
+    sourceId,
+    ...(origin ? { category: origin } : {}),
     sectionKey: identifier(input.sectionKey, `${path}.sectionKey`),
     ...(input.subsectionKey === undefined ? {} : {
       subsectionKey: identifier(input.subsectionKey, `${path}.subsectionKey`),
@@ -157,8 +166,11 @@ export function validateCustomHomeDefinition(value: unknown): CustomHomeDefiniti
     throw new Error(`${path}.kind is unsupported`)
   })
   const bannerSources = array(input.bannerSources, 'home.bannerSources')
-    .map((value, index) => identifier(value, `home.bannerSources[${index}]`))
-  if (new Set(bannerSources).size !== bannerSources.length) {
+    .map((value, index) => {
+      const path = `home.bannerSources[${index}]`
+      return typeof value === 'string' ? identifier(value, path) : category(value, path)
+    })
+  if (new Set(bannerSources.map(bannerReferenceKey)).size !== bannerSources.length) {
     throw new Error('home.bannerSources must not contain duplicates')
   }
   if (input.sectionMergeMode !== 'none' && input.sectionMergeMode !== 'title') {

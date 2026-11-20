@@ -14,7 +14,7 @@ export interface CustomHomeDefinition {
   id: string
   name: string
   navigationOrder: number
-  bannerSources: string[]
+  bannerSources: BannerReference[]
   categoryShortcuts: CategoryReference[]
   blocks: CustomHomeBlock[]
   sectionMergeMode: 'none' | 'title'
@@ -23,10 +23,20 @@ export interface CustomHomeDefinition {
   updatedAt: number
 }
 
+/** A saved source home or a category's featured collection. */
+export type BannerReference = string | CategoryReference
+
+/** Source-owned lookup path, beginning at load_home. */
+export interface CategoryOrigin {
+  sourceId: string
+  keys: string[]
+}
+
 /** Source-owned category descriptor snapshot, to be rediscovered before execution. */
 export interface CategoryReference {
   sourceId: string
   categoryKey: string
+  ancestorKeys?: string[]
   descriptor: Record<string, string>
   labelSnapshot: string
 }
@@ -35,6 +45,7 @@ export interface CategoryReference {
 export interface SectionReference {
   sourceId: string
   sectionKey: string
+  category?: CategoryReference
   subsectionKey?: string
   labelSnapshot: string | null
 }
@@ -72,15 +83,20 @@ export interface CustomHomeListResult {
   issues: CustomHomeReadIssue[]
 }
 
+export type CustomHomeCategoryMode = 'shortcut' | 'content'
+
 /** UI-only add intent; the destination and references are explicitly chosen before saving. */
 export type CustomHomeAddIntent =
-  | { kind: 'categories'; categories: import('@/types/home').HomeCategory[] }
+  | { kind: 'categories'; categories: import('@/types/home').HomeCategory[]; parent?: import('@/types/home').HomeCategory }
   | { kind: 'banners'; sourceId: string }
-  | { kind: 'category'; category: import('@/types/home').HomeCategory }
+  | { kind: 'category-banners'; category: import('@/types/home').HomeCategory; sourceId: string }
+  | { kind: 'category-section'; category: import('@/types/home').HomeCategory; section: import('@/types/home').HomeSection; subsectionKey?: string }
+  | { kind: 'category'; category: import('@/types/home').HomeCategory; initialMode?: CustomHomeCategoryMode }
   | { kind: 'section'; section: import('@/types/home').HomeSection }
 
 /** Picker selection remains detached from storage until the editor is saved. */
 export type CustomHomeSelection =
   | { kind: 'banners'; sourceId: string }
+  | { kind: 'category-banners'; reference: CategoryReference }
   | { kind: 'shortcut'; reference: CategoryReference }
   | { kind: 'block'; block: CustomHomeBlock }

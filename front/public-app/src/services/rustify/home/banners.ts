@@ -162,13 +162,15 @@ function isBannerVideoPlayable(banner: HomeBanner): boolean {
  *
  * @param source Backend source name that owns the banners.
  * @param link Source-specific banner link or API endpoint.
+ * @param rejectExecutionErrors Whether scraper failures should reject the response (default false).
  * @returns Raw banners payload returned by the backend.
  */
 export async function getBanners(
   source: string,
   link: string,
+  rejectExecutionErrors = false,
 ): Promise<unknown> {
-  return call_api<unknown>('get_banners', { source, link })
+  return call_api<unknown>('get_banners', { source, link }, { rejectExecutionErrors })
 }
 
 /**

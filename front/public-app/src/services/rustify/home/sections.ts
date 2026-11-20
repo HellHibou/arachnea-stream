@@ -54,7 +54,7 @@ export async function loadHomeSectionPage(
         ...source.params,
         page: String(page),
       }],
-    })
+    }, { rejectExecutionErrors: strict })
     const responseRecord: JsonRecord = isJsonRecord(response) ? response : {}
     const responseSection = readRecordList(responseRecord.sections)[0] ?? responseRecord
     const normalizedSection = normalizeHomeSection(

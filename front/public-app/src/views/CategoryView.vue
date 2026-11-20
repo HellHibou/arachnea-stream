@@ -57,6 +57,7 @@ const category = computed<HomeCategory | null>(() => {
     imageUrl: null,
     mergeKey: slug,
     sources: payload.sources,
+    origins: payload.origins,
   }
 })
 

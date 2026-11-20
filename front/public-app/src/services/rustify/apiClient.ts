@@ -49,11 +49,13 @@ function buildEtagCacheKey(fct_name: string, queryString: string): string {
  *
  * @param fct_name Backend function name.
  * @param params Function parameters.
+ * @param options Set rejectExecutionErrors for requests that must succeed before advancing a cursor.
  * @returns Deserialized backend payload.
  */
 export async function call_api<T = unknown>(
   fct_name: string,
   params: Record<string, unknown>,
+  options: { rejectExecutionErrors?: boolean } = {},
 ): Promise<T> {
   const generation = sessionGeneration()
   const tauriWindow = window as TauriWindow
@@ -64,7 +66,7 @@ export async function call_api<T = unknown>(
     if (tauriInvoke) {
       const payload = await tauriInvoke<unknown>(fct_name, params)
       checkSessionReply(payload, generation)
-      return unwrapAggregationPayload<T>(payload, fct_name)
+      return unwrapAggregationPayload<T>(payload, fct_name, options.rejectExecutionErrors)
     }
 
     // Serialize every parameter as JSON so complex values (arrays, objects,
@@ -98,7 +100,7 @@ export async function call_api<T = unknown>(
 
     if (generation !== sessionGeneration()) throw new ReportedApiError('Discarded response from a previous account.')
     if (response.status === 304 && cachedEntry) {
-      return unwrapAggregationPayload<T>(cachedEntry.payload, fct_name)
+      return unwrapAggregationPayload<T>(cachedEntry.payload, fct_name, options.rejectExecutionErrors)
     }
 
     const payload = await parseResponseBody(response)
@@ -118,7 +120,7 @@ export async function call_api<T = unknown>(
       etagCache.delete(cacheKey)
     }
 
-    return unwrapAggregationPayload<T>(payload, fct_name)
+    return unwrapAggregationPayload<T>(payload, fct_name, options.rejectExecutionErrors)
   } catch (error) {
     if (error instanceof ReportedApiError) {
       throw error
@@ -133,7 +135,7 @@ export async function call_api<T = unknown>(
  * Validates a JSON command envelope, emits its errors, and returns its data.
  * Bare payloads remain accepted temporarily during the backend rollout.
  */
-function unwrapAggregationPayload<T>(payload: unknown, operation: string): T {
+function unwrapAggregationPayload<T>(payload: unknown, operation: string, rejectExecutionErrors = false): T {
   const aggregationPayload = readAggregationPayload<T>(payload)
 
   if (aggregationPayload.kind === 'malformed') {
@@ -145,6 +147,9 @@ function unwrapAggregationPayload<T>(payload: unknown, operation: string): T {
   }
 
   reportExecutionErrors(aggregationPayload.value.errors)
+  if (rejectExecutionErrors && aggregationPayload.value.errors.length) {
+    throw new ReportedApiError(aggregationPayload.value.errors.map((error) => error.message).join('\n'))
+  }
   return aggregationPayload.value.data
 }
 

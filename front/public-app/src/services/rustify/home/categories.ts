@@ -1,6 +1,6 @@
 import { t } from '@/i18n'
-import { buildHomeContentIdentity } from '@/services/homeContentIdentity'
-import type { HomeCategory, HomeCategorySource } from '@/types/home'
+import { buildHomeContentIdentity, markAmbiguousHomeIdentities } from '@/services/homeContentIdentity'
+import type { HomeCatalogData, HomeCategory, HomeCategorySource } from '@/types/home'
 
 import {
   buildScopedId,
@@ -74,6 +74,10 @@ export function mergeHomeCategories(categories: HomeCategory[]): HomeCategory[] 
 
     existingCategory.label ||= category.label
     existingCategory.imageUrl ??= category.imageUrl
+    if (category.origins?.length) {
+      const origins = [...(existingCategory.origins ?? []), ...category.origins]
+      existingCategory.origins = [...new Map(origins.map((origin) => [JSON.stringify(origin), origin])).values()]
+    }
     existingCategory.sources = dedupeHomeCategorySources([
       ...existingCategory.sources,
       ...category.sources,
@@ -97,7 +101,7 @@ export function normalizeHomeCategorySource(
   const source = readStringParamMap(record.source)
 
   if (Object.keys(source).length > 0) {
-    return source
+    return !source.name && source.source ? { ...source, name: source.source } : source
   }
 
   if (!inheritedSource) {
@@ -160,4 +164,43 @@ export function serializeHomeCategorySource(source: HomeCategorySource): string 
   return JSON.stringify(
     Object.entries(source).sort(([left], [right]) => left.localeCompare(right)),
   )
+}
+
+/** @param source Source descriptor. @returns Its request identity excluding the page supplied by get_category. */
+export function categoryRequestKey(source: HomeCategorySource): string {
+  const { name, source: alias, page: _page, ...request } = source
+  const sourceId = name || alias
+  return serializeHomeCategorySource({
+    ...request,
+    ...(sourceId ? { name: sourceId } : {}),
+    ...(name && alias && name !== alias ? { source: alias } : {}),
+  })
+}
+
+/**
+ * Coalesces repeated references to the same category and preserves actual identity conflicts.
+ * @param categories Categories published in a single lookup scope.
+ * @returns Unique category entries with identity collisions marked.
+ */
+export function identifyCatalogCategories(categories: HomeCategory[]): HomeCategory[] {
+  const seen = new Set<string>()
+  const unique = categories.filter((category) => {
+    if (!category.identity) return true
+    const { sourceId, key } = category.identity
+    const descriptor = JSON.stringify([sourceId, key, category.sources.map(categoryRequestKey)])
+    if (seen.has(descriptor)) return false
+    seen.add(descriptor)
+    return true
+  })
+  markAmbiguousHomeIdentities(unique)
+  return unique
+}
+
+/** @param catalog Home or category page. @returns Categories explicitly targeted by its inline media cards and banners. */
+export function catalogCategoryCards(catalog: HomeCatalogData): HomeCategory[] {
+  return [
+    ...catalog.banners.entries.flatMap((banner) => banner.target?.category ? [banner.target.category] : []),
+    ...catalog.sections.flatMap((section) => [section, ...(section.subsections ?? [])]
+      .flatMap((rail) => rail.items.flatMap((item) => item.category ? [item.category] : []))),
+  ]
 }

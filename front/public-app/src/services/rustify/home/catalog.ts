@@ -1,3 +1,4 @@
+import { MAX_CATEGORY_ANCESTORS } from '@/services/customHomeReferences'
 import { t } from '@/i18n'
 import { markAmbiguousHomeIdentities } from '@/services/homeContentIdentity'
 import type { HomeSourceDiscovery } from '@/types/customHome'
@@ -13,7 +14,7 @@ import {
   readRecordList,
 } from '../primitives/readers'
 import { isDisplayableHomeBanner, normalizeHomeBanner, readBannerList } from './banners'
-import { mergeHomeCategories, normalizeHomeCategory } from './categories'
+import { catalogCategoryCards, identifyCatalogCategories, mergeHomeCategories, normalizeHomeCategory } from './categories'
 import { mergeHomeSections, normalizeHomeSection } from './sections'
 
 /**
@@ -50,11 +51,6 @@ export async function loadHomeSourceDiscovery(sources: string[]): Promise<HomeSo
       firstNonEmptyString([row.source, readPath(row, 'source', 'name')]) === sourceId,
     )
     const catalog = normalizeHomeCatalog(sourceRows, false)
-    markAmbiguousHomeIdentities(catalog.categories)
-    markAmbiguousHomeIdentities(catalog.sections)
-    for (const section of catalog.sections) {
-      markAmbiguousHomeIdentities(section.subsections ?? [])
-    }
     return { sourceId, available: sourceRows.length > 0, catalog }
   })
 }
@@ -65,9 +61,12 @@ export async function loadHomeSourceDiscovery(sources: string[]): Promise<HomeSo
  * @param category Category descriptor previously returned by `loadHomeCatalog`.
  * @param page 1-based category page requested by the frontend.
  * @param merge Whether to apply legacy semantic merging (default true).
+ * @param rejectExecutionErrors Whether scraper errors should reject the page (default false).
  * @returns Normalized banners, categories, and grouped catalog rails for the selected category.
  */
-export async function getCategoryCatalog(category: HomeCategory, page = 1, merge = true): Promise<HomeCatalogData> {
+export async function getCategoryCatalog(
+  category: HomeCategory, page = 1, merge = true, rejectExecutionErrors = false,
+): Promise<HomeCatalogData> {
   if (category.sources.length === 0) {
     throw new Error(t('errors.categoryMissingBackendSourceDescriptors'))
   }
@@ -79,9 +78,9 @@ export async function getCategoryCatalog(category: HomeCategory, page = 1, merge
       source: source.name,
       page: String(page),
     })),
-  })
+  }, { rejectExecutionErrors })
 
-  const catalog = normalizeHomeCatalog(response, merge)
+  const catalog = normalizeHomeCatalog(response, merge, category)
   const rows = readRecordList(response)
   return { ...catalog, currentPage: page, haveMore: rows.some((row) => readBoolean(row.have_more)) }
 }
@@ -91,9 +90,10 @@ export async function getCategoryCatalog(category: HomeCategory, page = 1, merge
  *
  * @param payload Raw backend home/category payload.
  * @param merge Whether to preserve legacy semantic aggregation (default true).
+ * @param parent Category that owns the response, if applicable.
  * @returns Normalized home catalog data ready for rendering.
  */
-export function normalizeHomeCatalog(payload: unknown, merge = true): HomeCatalogData {
+export function normalizeHomeCatalog(payload: unknown, merge = true, parent?: HomeCategory): HomeCatalogData {
   if (!Array.isArray(payload) && !isJsonRecord(payload)) {
     throw new Error(t('errors.unexpectedHomeResponseFormat'))
   }
@@ -148,8 +148,32 @@ export function normalizeHomeCatalog(payload: unknown, merge = true): HomeCatalo
     })
   })
 
-  const catalog = { banners, deferredBanners, categories, sections }
-  if (!merge) return catalog
+  const catalog = { banners, deferredBanners, categories: identifyCatalogCategories(categories), sections }
+  if (!merge) {
+    markAmbiguousHomeIdentities(sections)
+    for (const section of sections) markAmbiguousHomeIdentities(section.subsections ?? [])
+    return catalog
+  }
+  const categoryCards = catalogCategoryCards(catalog)
+  const identifiedCards = identifyCatalogCategories(categoryCards)
+  for (const category of [...catalog.categories, ...identifiedCards]) {
+    const identity = category.identity
+    if (!identity || identity.ambiguous) continue
+    if (!parent) {
+      category.origins = [{ sourceId: identity.sourceId, keys: [identity.key] }]
+      continue
+    }
+    const origins = parent.origins?.filter((origin) => origin.sourceId === identity.sourceId)
+    const owner = origins?.length === 1 ? origins[0] : undefined
+    if (owner && owner.keys.length <= MAX_CATEGORY_ANCESTORS) {
+      category.origins = [{ sourceId: identity.sourceId, keys: [...owner.keys, identity.key] }]
+    }
+  }
+  const cardOrigins = new Map(identifiedCards.flatMap((category) => category.identity && category.origins
+    ? [[JSON.stringify([category.identity.sourceId, category.identity.key]), category.origins] as const] : []))
+  for (const card of categoryCards) {
+    if (card.identity) card.origins = cardOrigins.get(JSON.stringify([card.identity.sourceId, card.identity.key]))
+  }
   const aggregated = mergeNormalizedCatalogs([catalog])
   for (const category of aggregated.categories) delete category.identity
   for (const section of aggregated.sections) {

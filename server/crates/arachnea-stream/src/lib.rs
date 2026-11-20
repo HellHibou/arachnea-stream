@@ -187,6 +187,9 @@ pub const PROFILES_STORE_NAME: &str = "profiles";
 pub const STREAM_PROFILES_STORE_NAME: &str = "arachnea-stream-profiles";
 /// Initial version of persisted profile documents and coordination intents.
 pub const PROFILE_DOCUMENT_VERSION: i64 = 1;
+
+/// Maximum number of parent categories in a stored custom-home category reference.
+pub(crate) const CUSTOM_HOME_MAX_CATEGORY_ANCESTORS: usize = 8;
 /// Largest revision exactly representable by JavaScript/JSON clients.
 pub const PROFILE_MAX_REVISION: i64 = 9_007_199_254_740_991;
 /// Common onboarding scope stored without service-specific data.

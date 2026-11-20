@@ -1,5 +1,5 @@
 import type { CatalogItem, MediaSelectionTarget, Collection } from '@/types/media'
-import type { HomeContentIdentity } from '@/types/customHome'
+import type { CategoryOrigin, HomeContentIdentity } from '@/types/customHome'
 
 /**
  * YAML-defined source descriptor used to resolve one category payload.
@@ -10,6 +10,8 @@ export type HomeCategorySource = Record<string, string>
  * Clickable category displayed in the home catalog.
  */
 export interface HomeCategory {
+  /** Route hints that must be revalidated through the provider catalog before saving. */
+  origins?: CategoryOrigin[]
   /** Runtime position in the custom definition, including unavailable preceding shortcuts. */
   customShortcutIndex?: number
   /** Source-owned identity before aggregation; not an aggregate selection reference. */

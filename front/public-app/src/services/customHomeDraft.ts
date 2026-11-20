@@ -1,3 +1,4 @@
+import { bannerReferenceKey, categoryOrigin } from '@/services/customHomeReferences'
 import { validateCustomHomeDefinition } from '@/services/customHomeValidation'
 import type { CustomHomeDefinition, CustomHomeSelection } from '@/types/customHome'
 
@@ -14,11 +15,14 @@ export function applyCustomHomeSelection(
   repairBlockId?: string,
 ): CustomHomeDefinition {
   let result = draft
-  if (selection.kind === 'banners') {
-    result = { ...draft, bannerSources: [...new Set([...draft.bannerSources, selection.sourceId])] }
+  if (selection.kind === 'banners' || selection.kind === 'category-banners') {
+    const reference = selection.kind === 'banners' ? selection.sourceId : selection.reference
+    if (!draft.bannerSources.some((entry) => bannerReferenceKey(entry) === bannerReferenceKey(reference))) {
+      result = { ...draft, bannerSources: [...draft.bannerSources, reference] }
+    }
   } else if (selection.kind === 'shortcut') {
-    const duplicate = draft.categoryShortcuts.some((reference) =>
-      reference.sourceId === selection.reference.sourceId && reference.categoryKey === selection.reference.categoryKey)
+    const key = JSON.stringify(categoryOrigin(selection.reference))
+    const duplicate = draft.categoryShortcuts.some((reference) => JSON.stringify(categoryOrigin(reference)) === key)
     result = duplicate ? draft : { ...draft, categoryShortcuts: [...draft.categoryShortcuts, selection.reference] }
   } else if (repairBlockId) {
     if (!draft.blocks.some((block) => block.id === repairBlockId)) throw new Error('Repair target no longer exists')

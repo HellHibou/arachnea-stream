@@ -830,6 +830,12 @@ New homes receive server UUIDs/timestamps; deletion clears a matching default ho
 inside the same streaming transaction. Record/collection revisions are distinct;
 conflicts require reload, never automatic overwrite or maximum-position merging.
 
+Custom-home documents still use schema version 1. Entries of `bannerSources`
+can be service IDs or category references. Category references accept an optional
+`ancestorKeys` array of up to eight parent identities, ordered from the
+service home. A section reference accepts an optional `category` owned by the
+same service. Existing documents are compatible and require no data migration.
+
 The streaming database adds `stream_profile_collections(profile_id, kind)` and
 `stream_profile_operations(operation_id)`. Collections start at revision 1 and
 retain deleted record versions to prevent stale updates after recreation. Local

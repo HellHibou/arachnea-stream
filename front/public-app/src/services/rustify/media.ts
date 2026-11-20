@@ -86,6 +86,9 @@ function normalizeMediaNavigation(
     image: media.imageUrl ?? media.imagePosterUrl ?? media.imagePortraitUrl ?? media.imageLandscapeUrl,
     source: { ...request, name: source },
   }, index, source)
+  if (category.identity) {
+    category.identity = { ...category.identity, key: `card:${category.identity.key}` }
+  }
   const item: MediaItem = {
     ...media,
     source,

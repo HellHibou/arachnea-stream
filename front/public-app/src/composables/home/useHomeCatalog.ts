@@ -191,7 +191,8 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
       currentCatalog.value.banners.entries.length > 0 ||
       currentCatalog.value.deferredBanners.length > 0 ||
       currentCatalog.value.categories.length > 0 ||
-      currentCatalog.value.sections.length > 0,
+      currentCatalog.value.sections.length > 0 ||
+      Boolean(custom?.categoryBlocks.value.length),
   )
   /**
    * Resolved background video URLs by banner id for banners whose trailer
@@ -733,7 +734,7 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
     () =>
       currentCatalog.value.sections
         .map((section) => [
-          `${section.preferenceKey}:${section.items.length}:${section.sources.length}`,
+          `${section.preferenceKey}:${section.items.length}:${section.sources.length}:${Boolean(section.customNeedsInitial)}`,
           ...(section.subsections ?? []).map((subsection) =>
             `${subsection.key}:${subsection.items.length}:${subsection.sources.length}`,
           ),
@@ -746,6 +747,8 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
 
   return {
     customIssues: custom?.issues ?? computed(() => []),
+    categoryBlocks: custom?.categoryBlocks ?? computed(() => []),
+    loadCategoryPage: custom?.loadCategoryPage,
     retryCustomIssue: custom?.retryIssue ?? (async () => { await loadCatalog() }),
     catalog,
     isLoading,

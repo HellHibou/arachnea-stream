@@ -1,6 +1,7 @@
 import { dedupeMediaItems, interleaveLists } from '@/services/rustify'
 import type { CustomHomeDefinition } from '@/types/customHome'
 import type { HomeSection } from '@/types/home'
+import { categorySubsections, hasCategoryRailContent } from '@/services/customHomeCategorySections'
 import { customHomeTitleKey } from '@/services/customHomeBlockGroups'
 export { customHomeTitleKey } from '@/services/customHomeBlockGroups'
 
@@ -9,27 +10,47 @@ export interface CustomHomeContribution {
   id: string
   blockId: string
   section: HomeSection
-  categoryPage: boolean
 }
 
 /**
  * Composes selected members without sharing cursors or using titles as persistent identities.
  * @param definition Validated home definition.
  * @param contributions Members in definition/block/column order.
+ * @param categoryLabels Current labels for resolved category blocks.
  * @returns Render groups positioned at their first contribution, with home-scoped preferences.
  */
 export function composeCustomHomeSections(
   definition: CustomHomeDefinition,
   contributions: CustomHomeContribution[],
+  categoryLabels: ReadonlyMap<string, string>,
 ): HomeSection[] {
   const groups = new Map<string, CustomHomeContribution[]>()
-  for (const contribution of contributions) {
-    const titleKey = customHomeTitleKey(contribution.section.label)
-    const groupKey = definition.sectionMergeMode === 'title' && titleKey &&
-      !contribution.section.subsections?.length
-      ? `title:${titleKey}` : `member:${contribution.id}`
+  const blocks = new Map(definition.blocks.map((block) => [block.id, block]))
+  const categoryCounts = new Map<string, number>()
+  const visible = contributions.flatMap((member) => {
+    const block = blocks.get(member.blockId)
+    if (!block || (block.kind === 'home-section' && !block.reference.category)) return [member]
+    const subsections = categorySubsections(member.section)
+    if (!hasCategoryRailContent(member.section) && !subsections.length) return []
+
+    categoryCounts.set(member.blockId, (categoryCounts.get(member.blockId) ?? 0) + 1)
+    return [{ ...member, section: { ...member.section, subsections,
+      haveMore: member.section.sources.some((source) => source.haveMore) } }]
+  })
+  for (const contribution of visible) {
+    const block = blocks.get(contribution.blockId)
+    const category = block?.kind === 'category-content'
+    const multiSection = (categoryCounts.get(contribution.blockId) ?? 0) > 1
+    const titleOverride = multiSection ? null : block?.titleOverride?.trim()
+    const label = titleOverride || contribution.section.label ||
+      (category ? categoryLabels.get(contribution.blockId) ?? block.reference.labelSnapshot : null)
+    const member = { ...contribution, section: { ...contribution.section, label } }
+    const titleKey = customHomeTitleKey(label)
+    const merge = definition.sectionMergeMode === 'title' && titleKey && !multiSection &&
+      !member.section.subsections?.length
+    const groupKey = merge ? `title:${titleKey}` : `member:${member.id}`
     const group = groups.get(groupKey) ?? []
-    group.push(contribution)
+    group.push(member)
     groups.set(groupKey, group)
   }
   return [...groups.values()].map((members) => {
@@ -37,7 +58,7 @@ export function composeCustomHomeSections(
     const id = JSON.stringify(members.map((member) => member.id))
     return {
       ...first.section,
-      customDisplayOptions: definition.blocks.find((block) => block.id === first.blockId)?.displayOptions,
+      customDisplayOptions: blocks.get(first.blockId)?.displayOptions,
       id,
       preferenceKey: `custom:${encodeURIComponent(definition.id)}:${encodeURIComponent(id)}`,
       items: dedupeMediaItems(interleaveLists(members.map((member) => member.section.items))),

@@ -82,10 +82,16 @@ fn category(v: &Value) -> bool {
     if !fields(
         v,
         &["sourceId", "categoryKey", "descriptor", "labelSnapshot"],
-        &[],
+        &["ancestorKeys"],
     ) || !identifier(&v["sourceId"])
         || !identifier(&v["categoryKey"])
         || !text(&v["labelSnapshot"])
+        || v.get("ancestorKeys").is_some_and(|keys| {
+            keys.as_array().is_none_or(|keys| {
+                keys.len() > crate::CUSTOM_HOME_MAX_CATEGORY_ANCESTORS
+                    || !keys.iter().all(identifier)
+            })
+        })
     {
         return false;
     }
@@ -110,11 +116,13 @@ fn section_reference(v: &Value) -> bool {
     fields(
         v,
         &["sourceId", "sectionKey", "labelSnapshot"],
-        &["subsectionKey"],
+        &["subsectionKey", "category"],
     ) && identifier(&v["sourceId"])
         && identifier(&v["sectionKey"])
         && nullable(&v["labelSnapshot"])
         && v.get("subsectionKey").is_none_or(identifier)
+        && v.get("category")
+            .is_none_or(|owner| category(owner) && owner["sourceId"] == v["sourceId"])
 }
 
 /// Validates a complete custom home without changing references, blocks or display settings.
@@ -163,12 +171,25 @@ pub(super) fn home(v: &Value) -> Result<()> {
     let Some(banners) = v["bannerSources"].as_array() else {
         return Err(invalid("value.definition.bannerSources"));
     };
-    if banners
-        .iter()
-        .enumerate()
-        .any(|(i, v)| !identifier(v) || banners[..i].contains(v))
-    {
-        return Err(invalid("value.definition.bannerSources"));
+    let mut banner_keys = HashSet::new();
+    for banner in banners {
+        let key = if identifier(banner) {
+            serde_json::json!(banner)
+        } else if category(banner) {
+            serde_json::json!([
+                banner["sourceId"],
+                banner["ancestorKeys"]
+                    .as_array()
+                    .cloned()
+                    .unwrap_or_default(),
+                banner["categoryKey"],
+            ])
+        } else {
+            return Err(invalid("value.definition.bannerSources"));
+        };
+        if !banner_keys.insert(key.to_string()) {
+            return Err(invalid("value.definition.bannerSources"));
+        }
     }
     if v["categoryShortcuts"]
         .as_array()
