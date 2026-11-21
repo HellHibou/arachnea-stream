@@ -1,6 +1,6 @@
 import { t } from '@/i18n'
 import { buildHomeContentIdentity, markAmbiguousHomeIdentities } from '@/services/homeContentIdentity'
-import type { HomeCatalogData, HomeCategory, HomeCategorySource } from '@/types/home'
+import type { HomeCatalogData, HomeCategory, HomeCategoryChannel, HomeCategorySource } from '@/types/home'
 
 import {
   buildScopedId,
@@ -8,6 +8,7 @@ import {
   isJsonRecord,
   normalizeString,
   readStringParamMap,
+  resolveAssetUrl,
   slugify,
 } from '../primitives/readers'
 import type { JsonRecord } from '../types'
@@ -30,6 +31,7 @@ export function normalizeHomeCategory(
   const mergeKey = buildHomeCategoryMergeKey(firstNonEmptyString([record.key]), label, index)
 
   return {
+    channel: normalizeHomeCategoryChannel(record.channel, source?.name ?? inheritedSource),
     identity: buildHomeContentIdentity(
       source?.name ?? inheritedSource,
       firstNonEmptyString([record.key, record.id]),
@@ -50,24 +52,84 @@ export function normalizeHomeCategory(
 }
 
 /**
- * Merges categories that share the same semantic key across multiple sources.
+ * Converts the optional backend channel attribution attached to one category.
+ *
+ * @param value Raw `channel` value returned with the category.
+ * @param source Source id used to resolve a relative logo URL, when available.
+ * @returns Normalized channel branding, or null when no display name is usable.
+ */
+function normalizeHomeCategoryChannel(value: unknown, source: string | null): HomeCategoryChannel | null {
+  if (!isJsonRecord(value)) {
+    return null
+  }
+
+  const name = firstNonEmptyString([value.name, value.label])
+
+  const logo = firstNonEmptyString([value.logo, value.logo])
+
+  return name ? { name, logo: resolveAssetUrl(logo, source) } : null
+}
+
+/**
+ * Builds a case-, spacing- and accent-insensitive key from a display label.
+ *
+ * @param label Display label to normalize.
+ * @returns Normalized label key, or an empty string when no label is usable.
+ */
+export function buildCategoryLabelKey(label: string): string {
+  const normalizedLabel = normalizeString(label)
+  if (!normalizedLabel) return ''
+
+  return normalizedLabel
+    .toLocaleLowerCase()
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .replace(/\s+/g, ' ')
+}
+
+/**
+ * Builds the channel part of the category display grouping key.
+ *
+ * @param channel Optional channel attribution carried by a category.
+ * @returns Normalized channel identity, or an empty string when no channel is present.
+ */
+function buildCategoryChannelKey(channel: HomeCategoryChannel | null | undefined): string {
+  if (!channel) return ''
+  return buildCategoryLabelKey(channel.name) || buildCategoryLabelKey(channel.logo ?? '')
+}
+
+/**
+ * Builds the display grouping key of one category across sources.
+ *
+ * @param category Normalized home category.
+ * @returns Key combining the normalized label and channel identity.
+ */
+function buildCategoryDisplayGroupKey(category: HomeCategory): string {
+  const labelKey = buildCategoryLabelKey(category.label) || category.mergeKey.toLocaleLowerCase()
+  return JSON.stringify([labelKey, buildCategoryChannelKey(category.channel)])
+}
+
+/**
+ * Merges categories that share the same display name across multiple sources.
+ * Channel-attributed categories remain distinct when their channel branding differs.
  *
  * @param categories Normalized categories collected from one or more sources.
- * @returns Categories merged by semantic key while preserving first-seen order.
+ * @returns Categories merged by normalized label and channel while preserving first-seen order.
  */
 export function mergeHomeCategories(categories: HomeCategory[]): HomeCategory[] {
-  const categoriesByMergeKey = new Map<string, HomeCategory>()
+  const categoriesByGroupKey = new Map<string, HomeCategory>()
   const mergedCategories: HomeCategory[] = []
 
   categories.forEach((category) => {
-    const existingCategory = categoriesByMergeKey.get(category.mergeKey)
+    const groupKey = buildCategoryDisplayGroupKey(category)
+    const existingCategory = categoriesByGroupKey.get(groupKey)
     if (!existingCategory) {
       const mergedCategory: HomeCategory = {
         ...category,
         sources: dedupeHomeCategorySources(category.sources),
       }
 
-      categoriesByMergeKey.set(category.mergeKey, mergedCategory)
+      categoriesByGroupKey.set(groupKey, mergedCategory)
       mergedCategories.push(mergedCategory)
       return
     }

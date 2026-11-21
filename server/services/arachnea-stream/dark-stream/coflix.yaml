@@ -91,6 +91,69 @@ shared:
             French: vf
             TrueFrench: vf
 
+  # Catalogue grid card shared by the `get_category` first page and the
+  # `get_section` follow-up pages requested from the category section link.
+  entries_coflix_catalog_card: &entries_coflix_catalog_card
+    - name: source
+      type: string
+      actions:
+        - type: format_text
+          argument: "{source}"
+    - name: title
+      type: string
+      select: first
+      selector: "a.name"
+      actions:
+        - type: get_attribut
+          argument: data-jp
+    - name: link
+      type: string
+      select: first
+      selector: "a.ani.poster"
+      actions:
+        - type: get_attribut
+          argument: href
+    - name: web-link
+      type: string
+      select: first
+      selector: "a.ani.poster"
+      actions:
+        - type: get_attribut
+          argument: href
+    - name: img/poster > link
+      type: string
+      select: first
+      selector: "a.ani.poster > img"
+      actions:
+        - type: get_attribut
+          argument: src
+    - name: lang
+      type: string[]
+      select: first
+      selector: "div.version"
+      actions:
+        - type: get_text
+        - type: map
+          argument:
+            VF: vf
+            VOSTFR: vostfr
+            French: vf
+            TrueFrench: vf
+    - name: media-type
+      type: string[]
+      select: first
+      actions:
+        - type: format_text
+          argument: "{query_url}"
+        - type: regex_find_all
+          pattern: "/(movies|series|animes)/"
+          format: "{1}"
+        - type: map
+          argument:
+            movies: "video/movie"
+            series: "video/show/serie"
+            animes: "video/show/anime"
+
   # Player fields read from one `/ajax/episode/player` message row. The owning
   # post-process captures the serialized row as group 1, and every field applies
   # its own regex so the extraction does not depend on the JSON key order.
@@ -549,6 +612,12 @@ queries:
       - name: sections
         type: object[]
         entries:
+          - name: label
+            type: string
+            selector: "h1.title"
+            select: first
+            actions:
+              - type: get_text  
           - name: current_page
             type: number
             actions:
@@ -577,67 +646,7 @@ queries:
             type: object[]
             selector: "aside.main div.ani.items > div.item"
             select: all
-            entries:
-              - name: source
-                type: string
-                actions:
-                  - type: format_text
-                    argument: "{source}"
-              - name: title
-                type: string
-                select: first
-                selector: "a.name"
-                actions:
-                  - type: get_attribut
-                    argument: data-jp
-              - name: link
-                type: string
-                select: first
-                selector: "a.ani.poster"
-                actions:
-                  - type: get_attribut
-                    argument: href
-              - name: web-link
-                type: string
-                select: first
-                selector: "a.ani.poster"
-                actions:
-                  - type: get_attribut
-                    argument: href
-              - name: img/poster > link
-                type: string
-                select: first
-                selector: "a.ani.poster > img"
-                actions:
-                  - type: get_attribut
-                    argument: src
-              - name: lang
-                type: string[]
-                select: first
-                selector: "div.version"
-                actions:
-                  - type: get_text
-                  - type: map
-                    argument:
-                      VF: vf
-                      VOSTFR: vostfr
-                      French: vf
-                      TrueFrench: vf
-
-              - name: media-type
-                type: string[]
-                select: first
-                actions:
-                  - type: format_text
-                    argument: "{query_url}"
-                  - type: regex_find_all
-                    pattern: "/(movies|series|animes)/"
-                    format: "{1}"
-                  - type: map
-                    argument:
-                      movies: "video/movie"
-                      series: "video/show/serie"
-                      animes: "video/show/anime"
+            entries: *entries_coflix_catalog_card
       - name: categories
         type: object[]
         selector: ".genre-list > ul > li > a"
@@ -668,6 +677,54 @@ queries:
     post_process:
       - type: derive_pagination
         source: sections
+        total_pages_field: total_pages
+        remove_fields:
+          - total_pages
+
+  # ---------------------------------------------------------------
+  # Category listing follow-up pages
+  # The frontend paginates `get_category` sections through `get_section`
+  # using the `link` emitted for each section. Without this query the
+  # category grid stops after its first page.
+  # ---------------------------------------------------------------
+  - name: get_section
+    scraper_type: html
+    base_url: "{base_url}"
+    query_url: "{query_url}{query_separator}page={page}"
+    media_types: *media_types_coflix
+    row_selector: "html"
+    entries:
+      - name: source
+        type: string
+        actions:
+          - type: format_text
+            argument: "{source}"
+      - name: link
+        type: string
+        actions:
+          - type: format_text
+            argument: "{query_url}"
+      - name: current_page
+        type: number
+        actions:
+          - type: format_text
+            argument: "{page}"
+      - name: total_pages
+        type: number
+        select: first
+        actions:
+          - type: get_response_body
+          - type: regex_find_all
+            pattern: '(?:/page/|[?&]page=)(\d+)'
+            format: "{1}"
+          - type: max
+      - name: entries
+        type: object[]
+        selector: "aside.main div.ani.items > div.item"
+        select: all
+        entries: *entries_coflix_catalog_card
+    post_process:
+      - type: derive_pagination
         total_pages_field: total_pages
         remove_fields:
           - total_pages

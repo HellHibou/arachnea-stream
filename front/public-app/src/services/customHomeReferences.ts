@@ -43,6 +43,7 @@ export function createCategoryReference(category: HomeCategory, ancestorKeys: st
     ...(ancestorKeys.length ? { ancestorKeys } : {}),
     descriptor: { ...category.sources[0] },
     labelSnapshot: category.label,
+    titleOverride: null,
   }
 }
 

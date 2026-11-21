@@ -324,6 +324,7 @@ queries:
         actions: 
           - type: get_attribut
             argument: src
+          - type: resolve_url
       - name: link
         type: string
         select: first

@@ -1,7 +1,7 @@
 //! Native session broker with OS-backed storage and explicit memory fallback.
 
 use super::credentials;
-use anyhow::{Context, Result};
+use anyhow::Result;
 use std::sync::Mutex;
 use uuid::Uuid;
 

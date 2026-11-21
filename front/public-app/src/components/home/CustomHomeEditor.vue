@@ -8,11 +8,12 @@ import CustomHomeContentPicker from '@/components/home/CustomHomeContentPicker.v
 import CustomHomeBlockList from '@/components/home/CustomHomeBlockList.vue'
 import CustomHomeDraftActions from '@/components/home/CustomHomeDraftActions.vue'
 import { bannerReferenceKey } from '@/services/customHomeReferences'
+import { buildCategoryLabelKey } from '@/services/rustify/home/categories'
 import { validateCustomHomeDefinition } from '@/services/customHomeValidation'
 import { applyCustomHomeSelection, moveCustomHomeItem } from '@/services/customHomeDraft'
 import { moveCustomHomeBlock, updateCustomHomeGroupDisplay } from '@/services/customHomeBlockGroups'
 import { useI18n } from '@/i18n'
-import type { BannerReference, CustomHomeDefinition, CustomHomeSelection } from '@/types/customHome'
+import type { BannerReference, CategoryReference, CustomHomeDefinition, CustomHomeSelection } from '@/types/customHome'
 
 /** Initial detached draft; remount for a different editing session. Busy/errors belong to persistence owner. */
 const props = withDefaults(defineProps<{ definition: CustomHomeDefinition; busy?: boolean; errorMessage?: string | null }>(), {
@@ -26,6 +27,22 @@ const { t } = useI18n()
 const draft = shallowRef(validateCustomHomeDefinition(props.definition))
 const validationError = shallowRef<string | null>(null)
 const canSave = computed(() => Boolean(draft.value.name.trim()) && !props.busy)
+/** @param reference Saved category shortcut. @returns Group key from its custom title, falling back to the source label. */
+function categoryGroupKey(reference: CategoryReference): string {
+  const title = reference.titleOverride?.trim() || reference.labelSnapshot
+  return buildCategoryLabelKey(title) || `${reference.sourceId}:${reference.categoryKey}`
+}
+/** @returns Shortcut groups in first-occurrence order, titled from their first reference's effective label. */
+const categoryGroups = computed(() => {
+  const groups = new Map<string, { key: string; title: string; references: CategoryReference[] }>()
+  for (const reference of draft.value.categoryShortcuts) {
+    const key = categoryGroupKey(reference)
+    const group = groups.get(key) ?? { key, title: reference.titleOverride?.trim() || reference.labelSnapshot, references: [] }
+    group.references.push(reference)
+    groups.set(key, group)
+  }
+  return [...groups.values()]
+})
 
 /** @param patch Declarative draft changes without persistence. */
 function update(patch: Partial<CustomHomeDefinition>): void {
@@ -53,6 +70,30 @@ function bannerLabel(reference: BannerReference): string {
 /** @param id Block identity. @param title User display override (blank removes it). */
 function updateTitle(id: string, title: string): void {
   update({ blocks: draft.value.blocks.map((block) => block.id === id ? { ...block, titleOverride: title.trim() || null } : block) })
+}
+/** @param reference Source-owned shortcut. @param title User display override for that service only. */
+function updateShortcutTitle(reference: CategoryReference, title: string): void {
+  const override = title.trim() || null
+  update({ categoryShortcuts: draft.value.categoryShortcuts.map((item) =>
+    item === reference ? { ...item, titleOverride: override } : item) })
+}
+/** @param key Category group key. @param direction Movement of the whole group. */
+function moveCategoryGroup(key: string, direction: -1 | 1): void {
+  const groups = categoryGroups.value
+  update({ categoryShortcuts: moveCustomHomeItem(groups, groups.findIndex((group) => group.key === key), direction)
+    .flatMap((group) => group.references) })
+}
+/** @param reference Moved shortcut. @param direction Movement within its name group. */
+function moveCategoryShortcut(reference: CategoryReference, direction: -1 | 1): void {
+  const groups = categoryGroups.value.map((group) => ({ ...group, references: [...group.references] }))
+  const group = groups.find((entry) => entry.references.some((item) => item === reference))
+  if (!group) return
+  group.references = moveCustomHomeItem(group.references, group.references.indexOf(reference), direction)
+  update({ categoryShortcuts: groups.flatMap((entry) => entry.references) })
+}
+/** @param reference Shortcut to drop from the detached draft. */
+function removeCategoryShortcut(reference: CategoryReference): void {
+  update({ categoryShortcuts: draft.value.categoryShortcuts.filter((item) => item !== reference) })
 }
 /** @param id Stable block id. @param options Detached display defaults saved only with the definition. */
 function updateDisplay(id: string, options: import('@/types/customHome').CustomHomeDisplayOptions): void {
@@ -103,13 +144,22 @@ defineExpose({ save, canSave })
       <ParametersSection :title="t('customHome.shortcuts')">
       <div class="custom-home-editor__table-wrap">
       <table class="custom-home-editor__table">
-        <thead><tr><th scope="col">{{ t('customHome.serviceColumn') }}</th><th scope="col">{{ t('customHome.contentColumn') }}</th><th scope="col">{{ t('customHome.actionsColumn') }}</th></tr></thead>
-        <tbody><tr v-for="(reference, index) in draft.categoryShortcuts" :key="`${reference.sourceId}:${reference.categoryKey}:${index}`">
+        <thead><tr><th scope="col">{{ t('customHome.serviceColumn') }}</th><th scope="col">{{ t('customHome.contentColumn') }}</th><th scope="col">{{ t('customHome.titleOverride') }}</th><th scope="col">{{ t('customHome.actionsColumn') }}</th></tr></thead>
+        <tbody v-for="(group, groupIndex) in categoryGroups"
+          :key="group.references[0] ? `${group.references[0].sourceId}:${group.references[0].categoryKey}` : group.key">
+        <tr class="custom-home-editor__group">
+          <th colspan="3" scope="rowgroup">{{ group.title }}</th>
+          <td><CustomHomeDraftActions :index="groupIndex" :count="categoryGroups.length" hide-remove
+            @move="moveCategoryGroup(group.key, $event)" /></td>
+        </tr>
+        <tr v-for="(reference, index) in group.references" :key="`${reference.sourceId}:${reference.categoryKey}:${index}`">
         <td>{{ metadata.getService(reference.sourceId)?.title ?? reference.sourceId }}</td><td>{{ reference.labelSnapshot }}</td>
+        <td><input class="custom-home-editor__table-input" type="text" :value="reference.titleOverride ?? ''"
+          :aria-label="`${t('customHome.titleOverride')}: ${metadata.getService(reference.sourceId)?.title ?? reference.sourceId} — ${reference.labelSnapshot}`"
+          @input="updateShortcutTitle(reference, ($event.target as HTMLInputElement).value)"></td>
         <td>
-        <CustomHomeDraftActions :index="index" :count="draft.categoryShortcuts.length"
-          @move="update({ categoryShortcuts: moveCustomHomeItem(draft.categoryShortcuts, index, $event) })"
-          @remove="update({ categoryShortcuts: draft.categoryShortcuts.filter((_, position) => position !== index) })" />
+        <CustomHomeDraftActions :index="index" :count="group.references.length"
+          @move="moveCategoryShortcut(reference, $event)" @remove="removeCategoryShortcut(reference)" />
         </td></tr></tbody>
       </table></div>
       </ParametersSection>
@@ -168,6 +218,26 @@ defineExpose({ save, canSave })
   width: 1%;
   text-align: right;
   white-space: nowrap;
+}
+
+.custom-home-editor__group {
+  background: var(--bg-transparent);
+}
+
+.custom-home-editor__table-input {
+  width: 100%;
+  min-width: 180px;
+  padding: 8px 12px;
+  border: 1px solid var(--border-color-primary);
+  border-radius: var(--radius);
+  background: var(--bg-transparent);
+  color: var(--text-primary);
+  font: inherit;
+}
+
+.custom-home-editor__table-input:focus-visible {
+  outline: var(--common-focus-ring);
+  outline-offset: 2px;
 }
 
 

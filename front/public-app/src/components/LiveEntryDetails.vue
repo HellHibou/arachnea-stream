@@ -196,7 +196,7 @@ const details = computed<EntryDetailsModel | null>(() => {
     imagePortraitUrl: liveItem.imagePortraitUrl,
     imageLandscapeUrl: liveItem.imageLandscapeUrl,
     imageUrl: liveItem.imageUrl,
-    logoUrl: null,
+    logo: null,
     heroImageUrl: liveItem.imageLandscapeUrl ?? liveItem.imagePosterUrl ?? liveItem.imageUrl,
     yearLabel: null,
     releaseDateLabel: liveItem.releaseDateLabel,

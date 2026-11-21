@@ -487,6 +487,7 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- `get_category` now keeps one execution per source descriptor: repeated descriptors for the same provider no longer overwrite each other, so a merged category can load several categories from that provider at once. The category request contract and URL payload are unchanged.
 - Profile home validation accepts category-owned banners and sections plus bounded parent paths in version 1 documents. Existing documents require no migration.
 
 - Public account passwords now accept 4–128 Unicode scalar values instead of 12–128. Account creation takes an optional `must_change_password` flag (mandatory replacement by default); the new administrator operation `admin/set_user_password_change` toggles it without touching credentials or sessions. Password replacement may reuse the current password, leaving the explicit client warning to the UI.
@@ -523,6 +524,10 @@ All notable changes to the server workspace are recorded here.
 
 #### Fixed
 
+- M6Play `get_entry` now lists the real seasons of a programme instead of only "All videos". The previous extractor read `program_subcats`, an editorial taxonomy that is empty for series such as Kally's Mashup (15131); season labels and block identifiers are now read from the anonymous `layout` BFF (`videos_by_program`, `videos_by_subcat_by_program` and `videos_by_season_by_program` blocks), so entries expose one season per published block. `get_season` accepts both the legacy middleware links and the absolute block links, replacing a `PAGE` marker with the requested page and reporting `have_more` from the block pagination. Block episodes keep the existing episode contract (title, description, normalized duration, preview image, web link and `m6play-video` resolver target), with the middleware path unchanged for "All videos".
+- Coflix category grids now paginate. `get_category` emits a section `link`, so the frontend requests follow-up pages through `get_section`; that query was missing and every "load more" attempt failed. `get_section` now scrapes the same catalogue grid with `{query_url}{query_separator}page={page}`, reuses the category card extraction and derives `have_more` from the pagination links. The existing Coflix source-check contract now declares `get_section` as an expected operation.
+
+- `profiles/save_home` now accepts the optional `titleOverride` field on category references, so custom-home category renames persist instead of being rejected as an unsupported field. Definitions saved before the field existed remain valid.
 - RTL Play artwork selection skips overlay URLs and retains eligible cover images in listings and detail pages.
 
 - RTL Play entry details now use the first rating icon for `content-advisor`, avoiding serialization errors when RTL Play returns multiple ratings.
@@ -681,6 +686,7 @@ All notable changes to the server workspace are recorded here.
 - Fixed empty Odysee search results caused by the metadata request sending an unresolved `{search_body}` placeholder. The JavaScript action now emits the JSON-RPC body through `document.write` and strips its output prefix before sending the POST.
 - Odysee video entry players now offer an HLS master playlist before the existing MP4 fallback, enabling the player quality selector to list available transcoded resolutions instead of exposing only the original file.
 - Odysee video entry players now expose chapters from description timestamps, with the next timestamp as each end and the video duration as the final end.
+- Odysee chapter titles no longer keep the dash that some descriptions put between the timestamp and the title: `0:00 - Intro` now yields the title `Intro` instead of `- Intro`, including when no space follows the dash or when an en/em dash is used. Lines without a separator keep their title unchanged.
 
 ### <u>arachnea-scrapyfy</u>
 
@@ -736,6 +742,7 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Repeated source descriptors in one aggregation can now execute the same source collection several times with distinct parameters. Each execution owns its parameter map, cache key, validation entry and ETag fragment, while rows keep the real source attribution. This lets `get_category` combine several categories from one provider without the last descriptor overwriting the others.
 - Exposed the hash of loaded YAML bytes separately from the effective source identity, which continues to include editable parameter overrides for existing Scrapyfy conditional caching.
 
 - Shared canonical HTTP country normalization with Core without requiring Proxy or SQLite in minimal builds; YAML expansion behavior and sorted output are unchanged.
@@ -931,6 +938,7 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Custom homes can rename their category shortcuts from the editor with the same optional title override used for sections. The editor groups categories into one row group with group-level reordering, just like sections; each service row has its own title input, and grouping uses that custom title when present, falling back to the original label otherwise. The displayed card follows the same grouping rule, so sources sharing a custom title are merged into one entry. Existing definitions without the field keep their original labels.
 - Entry details now show an optional channel link directly below the source action, styled like the trailer button. It reuses the collection route with all descriptor parameters, accepts a missing or failed logo without hiding the channel name, and stays hidden when the name or destination is unusable. M6Play channel categories load their programme carousel through the existing deferred banner loader.
 
 - Added quick-add next to the title of discoverable category pages, with Category content preselected. Empty category blocks show their status and offer a shortcut.
@@ -979,6 +987,9 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Home, category and custom-home category strips now render compact tag-style pills instead of image cards: the optional category thumbnails are gone, labels wrap in a single flexible row with white text and a black outline for legibility over background media, and the strip's bottom spacing was tightened to match the smaller footprint.
+- Home, category and custom-home strips now merge categories sharing the same normalized display label (case, spacing and accents ignored) into a single entry and combine their source descriptors, so opening it loads content from every contributing source at once. Custom-home shortcuts added for the sources of one category therefore collapse into one card instead of one per source. Categories with different channel branding stay separate, and per-source discovery in the custom-home picker is unchanged.
+- Category screens no longer render the in-page “Catégorie” eyebrow and category title. The top bar now shows `Arachnéa Stream - <channel logo> <channel name> - <category label>`: a category-level channel attribution (name and optional logo, including the one carried by entry channel links) replaces the owning service identity, otherwise the service metadata is used and the segment is omitted when the category has no single owning source. The category quick-add pin button moved next to this title in the top bar, so the catalog heading is gone.
 - The administration entry point (`/admin/`) and the post-login redirect now open User management (`/admin/users`) instead of the first service group.
 - Admin navigation now lists Users first, Settings second, and the service pages afterwards.
 - Public password replacement now accepts 4–128 characters, shows a shared complexity indicator, and warns before reusing the current password; submitting again after the explicit confirmation applies the unchanged password.

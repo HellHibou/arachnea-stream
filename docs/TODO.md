@@ -64,4 +64,21 @@ Ce fichier suit les tâches DNS, HTTP et proxy prévues qui restent pertinentes 
 - Continuer à valider les composants anti-censure comme fonctionnalités modulaires : serveurs amont Tor, transports enfichables, tunnels externes, expérimentations de padding/jitter, recherche ECH et documentation claire du modèle de menace.
 
 ## Divers
+- Dans les fichier sqlite3: 
+  - A quoi sert stream_profile_operation ? A supprimer ?
+
+- Dans le requetes tel que cette dans entry
+http://192.168.56.1:8080/entry/kally_s_mashup_la_voix_de_la_pop-eyJzb3VyY2UiOiJtNnBsYXktZnIiLCJlbnRyeVVybCI6IjE1MTMxIn0
+  - Il semblerais que bookmark et sections soit chargé 2x
+  - Homes est chargé , pourquoi ? Est-ce utile ?
+
+- Il faut vérifier le chargement de load_home, get_entry, get_season, get_recomendation:
+  - eTag ne sebmle plus être géré correctement.
+  - profile_id est passé en paramètre de l'url. Il faudrait de préférence que cela soit liè à la session (inclure dans cookie arachnea_public_session ou autre).
+
+- Lors du chargement de la page, on a des artefactes qui s'affiches très rapidement alors qu'il ne le devrais pas dont le bouton 'Se déconnecté' et d'autres lié à l'ajout de compte utilisateur et profiles.
+
+- Dans le front, sessions est appelé à intervals réguiler. Pourquoi ?
+
+- L'erreur 'Section missing or ambiguous: provider:rail:20528391 Ouvrez l’éditeur pour remplacer ou retirer cette référence' apparais. A investiger.
 

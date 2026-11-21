@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { useRoute, useRouter } from 'vue-router'
-import { computed } from 'vue'
+import { computed, shallowRef } from 'vue'
 import { useServiceMetadata } from '@/composables/useServiceMetadata'
 import { useCustomHomeDefinition } from '@/composables/home/useCustomHomeDefinition'
 import { useStorage } from '@/services/storage'
 
 import type { SearchFilterOption } from '@/services/rustify'
 import { useI18n } from '@/i18n'
+import { decodeCategoryRoutePayload } from '@/router/routePayloads'
 
 import SearchBar from '../SearchBar.vue'
 import ProfileMenu from '../profiles/ProfileMenu.vue'
@@ -92,6 +93,64 @@ const metadata = useServiceMetadata()
 const activeService = computed(() => route.name === 'source-home' ? metadata.getService(String(route.params.sourceId)) : undefined)
 const customHome = useCustomHomeDefinition(() => route.name === 'custom-home' ? String(route.meta.homeId) : '')
 
+/**
+ * Extracts a string route parameter from a potentially array-valued parameter.
+ *
+ * @param value Route parameter value.
+ * @returns The first string value, or an empty string when unavailable.
+ */
+function readRouteParam(value: string | string[] | undefined): string {
+  return Array.isArray(value) ? value[0] ?? '' : value ?? ''
+}
+
+/** Category payload decoded from the active category route, or null on other screens. */
+const activeCategory = computed(() => {
+  const token = route.name === 'category' ? readRouteParam(route.params.categoryToken) : ''
+  const payload = token ? decodeCategoryRoutePayload(token) : null
+
+  return payload?.label ? payload : null
+})
+
+/** Single source id shared by the active category, used to resolve its display metadata. */
+const activeCategorySourceId = computed(() => {
+  const sourceIds = new Set(
+    (activeCategory.value?.sources ?? [])
+      .map((source) => source.name?.trim())
+      .filter((name): name is string => Boolean(name)),
+  )
+
+  return sourceIds.size === 1 ? [...sourceIds][0]! : null
+})
+
+/** Display metadata of the service owning the active category, or null when unknown. */
+const activeCategoryService = computed(() => metadata.getService(activeCategorySourceId.value))
+
+/** Channel logo URL that failed to load, hidden until another URL replaces it. */
+const failedCategoryLogoUrl = shallowRef<string | null>(null)
+
+/** Identity shown before the category label: channel attribution wins over service metadata. */
+const activeCategoryIdentity = computed(() => {
+  const channel = activeCategory.value?.channel
+  if (channel) {
+    return {
+      label: channel.name,
+      logo: failedCategoryLogoUrl.value === channel.logo ? null : channel.logo,
+    }
+  }
+
+  const service = activeCategoryService.value
+  return service ? { label: service.title, logo: service.logo } : null
+})
+
+/**
+ * Hides a channel logo that cannot be loaded, keeping its name visible.
+ *
+ * @param event Error event emitted by the toolbar channel logo image.
+ */
+function handleCategoryLogoError(event: Event): void {
+  failedCategoryLogoUrl.value = (event.target as HTMLImageElement).currentSrc
+}
+
 /** Browser href for the home route. */
 const homeHref = computed(() => {
   return router.resolve({ name: 'home' }).href
@@ -126,6 +185,22 @@ const homeHref = computed(() => {
         <span class="main-bar__brand" aria-hidden="true">-</span>
         <img v-if="activeService.logo" :src="activeService.logo" alt="" class="main-bar__service-logo" />
         <span class="main-bar__brand">{{ activeService.title }}</span>
+      </span>
+      <span v-else-if="activeCategory" class="main-bar__service">
+        <template v-if="activeCategoryIdentity">
+          <span class="main-bar__brand" aria-hidden="true">-</span>
+          <img
+            v-if="activeCategoryIdentity.logo"
+            :src="activeCategoryIdentity.logo"
+            alt=""
+            class="main-bar__service-logo"
+            @error="handleCategoryLogoError"
+          />
+          <span class="main-bar__brand">{{ activeCategoryIdentity.label }}</span>
+        </template>
+        <span class="main-bar__brand" aria-hidden="true">-</span>
+        <span class="main-bar__brand">{{ activeCategory.label }}</span>
+        <span id="main-bar-category-action" class="main-bar__category-action"></span>
       </span>
       <span v-else-if="customHome.definition.value" class="main-bar__service">
         <span class="main-bar__brand" aria-hidden="true">-</span>
@@ -174,6 +249,8 @@ const homeHref = computed(() => {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
+  overflow: hidden;
   white-space: nowrap;
 }
 
@@ -182,6 +259,16 @@ const homeHref = computed(() => {
   width: auto;
   object-fit: contain;
   flex-shrink: 0;
+}
+
+.main-bar__category-action {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.main-bar__category-action:empty {
+  display: none;
 }
 .logo  {
   width: 32px;

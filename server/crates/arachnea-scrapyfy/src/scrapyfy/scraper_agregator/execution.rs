@@ -4,7 +4,7 @@ use super::*;
 
 /// Borrowed selection, validation and cache policy for one private aggregation pass.
 pub(super) struct QueryPassOptions<'a> {
-    /// Borrowed per-source parameter overrides.
+    /// Borrowed per-source parameter overrides, keyed by execution key when supplied by `get_category`.
     source_params: Option<&'a ScraperSourceParams>,
     /// Borrowed selected-source list, preserving the existing container type.
     scrapper_list: Option<&'a Vec<String>>,
@@ -20,6 +20,14 @@ pub(super) struct QueryPassOptions<'a> {
     client_fragments: Option<&'a HashMap<String, String>>,
     /// Existing cache interaction for this pass.
     server_cache_interaction: ServerCacheInteraction,
+}
+
+/// One execution of a configured source collection inside an aggregation pass.
+struct SourceExecution<'a> {
+    /// Collection backing this execution.
+    collection: &'a ScraperQueryCollection,
+    /// Unique key used for parameters, validation and ETag fragments.
+    key: String,
 }
 
 impl ScraperAgregator {
@@ -159,14 +167,22 @@ impl ScraperAgregator {
             );
         };
 
-        let filtered_queries: Vec<&ScraperQueryCollection> = query_service
+        let filtered_queries: Vec<SourceExecution<'_>> = query_service
             .services
             .iter()
-            .filter(|query_collection| match scrapper_list {
-                Some(scrapper_list) => scrapper_list
-                    .iter()
-                    .any(|scrapper_name| scrapper_name == query_collection.name()),
-                _none => true,
+            .flat_map(|query_collection| {
+                let name = query_collection.name();
+                let keys: Vec<String> = match scrapper_list {
+                    Some(scrapper_list) => scrapper_list
+                        .iter()
+                        .filter(|requested| source_name_for_execution_key(requested) == name)
+                        .cloned()
+                        .collect(),
+                    None => vec![name.to_string()],
+                };
+                keys.into_iter()
+                    .map(|key| SourceExecution { collection: query_collection, key })
+                    .collect::<Vec<_>>()
             })
             .collect();
 
@@ -192,17 +208,20 @@ impl ScraperAgregator {
             );
         }
 
-        let results = join_all(filtered_queries.iter().map(|query_collection| {
+        let results = join_all(filtered_queries.iter().map(|execution| {
+            let query_collection = execution.collection;
             let mut execution_params = params.clone();
 
             if let Some(source_params) = source_params {
-                if let Some(params_for_source) = source_params.get(query_collection.name()) {
+                if let Some(params_for_source) = source_params.get(&execution.key)
+                    .or_else(|| source_params.get(query_collection.name()))
+                {
                     execution_params.extend(params_for_source.clone());
                 }
             }
 
             let client_fragment = client_fragments
-                .and_then(|fragments| fragments.get(query_collection.name()).map(String::as_str))
+                .and_then(|fragments| fragments.get(&execution.key).map(String::as_str))
                 .filter(|fragment| {
                     // Only apply the client fragment when its YAML hash still
                     // matches the current collection; an edited scraper must
@@ -356,7 +375,9 @@ impl ScraperAgregator {
         let mut errors: Vec<ScraperExecutionError> = Vec::new();
         let mut validations: HashMap<String, ScraperSourceValidation> = HashMap::new();
 
-        for (query, (result, fallback_messages)) in filtered_queries.into_iter().zip(results) {
+        for (execution, (result, fallback_messages)) in filtered_queries.into_iter().zip(results) {
+            let query = execution.collection;
+            let source_name = query.name().to_string();
             for message in fallback_messages {
                 let code = ERROR_CODE_GEN.next_code();
                 tracing::warn!(target: "arachnea_scrapyfy::scrapyfy::scraper_agregator",
@@ -378,7 +399,7 @@ impl ScraperAgregator {
                 Ok((entries, outcome)) => {
                     if let Some(outcome) = outcome {
                         validations.insert(
-                            query.name().to_string(),
+                            execution.key.clone(),
                             ScraperSourceValidation {
                                 status: if outcome.not_modified {
                                     ScraperSourceStatus::Stale
@@ -406,7 +427,6 @@ impl ScraperAgregator {
                 }
                 Err(error) => {
                     let code = ERROR_CODE_GEN.next_code();
-                    let source_name = query.name().to_string();
                     tracing::error!(target: "arachnea_scrapyfy::scrapyfy::scraper_agregator",
                         error_code = %code,
                         operation = operation,
@@ -626,7 +646,7 @@ impl ScraperAgregator {
                                     row.insert(
                                         source_field_name.to_string(),
                                         ScraperDataNode::from_values_typed(
-                                            vec![source.clone()],
+                                            vec![source_name_for_execution_key(source).to_string()],
                                             ScraperOutputType::String,
                                         ),
                                     );

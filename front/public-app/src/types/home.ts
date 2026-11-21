@@ -7,9 +7,23 @@ import type { CategoryOrigin, HomeContentIdentity } from '@/types/customHome'
 export type HomeCategorySource = Record<string, string>
 
 /**
+ * Optional channel branding attached to a category.
+ *
+ * When present, it replaces the owning service identity in the category header.
+ */
+export interface HomeCategoryChannel {
+  /** Display name of the channel. */
+  name: string
+  /** URL of the standalone channel logo, or null when unavailable. */
+  logo: string | null
+}
+
+/**
  * Clickable category displayed in the home catalog.
  */
 export interface HomeCategory {
+  /** Optional channel branding taking precedence over the service identity. */
+  channel?: HomeCategoryChannel | null
   /** Route hints that must be revalidated through the provider catalog before saving. */
   origins?: CategoryOrigin[]
   /** Runtime position in the custom definition, including unavailable preceding shortcuts. */
@@ -22,7 +36,7 @@ export interface HomeCategory {
   label: string
   /** The URL for the category image. */
   imageUrl: string | null
-  /** The key used to merge categories with the same identifier. */
+  /** Source-owned semantic identity used to correlate a category across requests; display merging groups by label and channel. */
   mergeKey: string
   /** The list of source descriptors for this category. */
   sources: HomeCategorySource[]
@@ -68,7 +82,7 @@ export interface HomeBanner {
   /** The URL for the background image. */
   imageUrl: string | null
   /** The URL for the logo image. */
-  logoUrl: string | null
+  logo: string | null
   /** Channel logo that replaces the provider logo on this banner. */
   sourceLogoUrl?: string
   /** The URL for the background video, or null when the video requires player resolution. */

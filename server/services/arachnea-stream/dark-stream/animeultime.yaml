@@ -348,6 +348,11 @@ queries:
       - name: sections
         type: object[]
         entries:
+        - name: label
+          type: string
+          selector: div.title:nth-child(4)
+          actions:
+            - type: get_text
         - name: entries
           type: object[]
           selector: tr:not(:first-child)

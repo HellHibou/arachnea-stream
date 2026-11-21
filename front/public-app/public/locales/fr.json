@@ -426,7 +426,6 @@
   "category": {
     "open": "Ouvrir la catégorie",
     "unavailableTitle": "Catégorie indisponible",
-    "label": "Catégorie",
     "defaultLabel": "Catégorie {index}",
     "invalidLink": "Le lien de categorie est invalide."
   },

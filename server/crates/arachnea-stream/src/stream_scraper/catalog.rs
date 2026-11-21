@@ -1,5 +1,7 @@
 //! Catalog queries, source filtering and aggregation.
 
+use arachnea_scrapyfy::source_execution_key;
+
 use super::*;
 
 impl StreamScraper {
@@ -479,7 +481,7 @@ impl StreamScraper {
         let mut source_params = source_params;
         let mut scrapper_list = Vec::new();
 
-        for mut source in sources {
+        for (index, mut source) in sources.into_iter().enumerate() {
             source.insert("page".to_string(), page.to_string());
 
             let query_source = source
@@ -491,8 +493,10 @@ impl StreamScraper {
 
             let existing_params = source_params.remove(&query_source).unwrap_or_default();
             source.extend(existing_params);
-            source_params.insert(query_source.clone(), source);
-            scrapper_list.push(query_source);
+            // Repeated descriptors for one source must remain distinct executions.
+            let execution_key = source_execution_key(&query_source, index);
+            source_params.insert(execution_key.clone(), source);
+            scrapper_list.push(execution_key);
         }
 
         if scrapper_list.is_empty() {

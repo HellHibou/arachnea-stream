@@ -113,7 +113,7 @@ function normalizeEntryDetails(entry: unknown, source: string, entryUrl: string)
     imagePortraitUrl,
     imageLandscapeUrl,
     imageUrl,
-    logoUrl: resolveAssetUrl(readFirstLink(record, 'img/logo', ['img', 'logo']), source),
+    logo: resolveAssetUrl(readFirstLink(record, 'img/logo', ['img', 'logo']), source),
     heroImageUrl: imagePortraitUrl ?? imagePosterUrl ?? imageUrl,
     yearLabel: formatNumberLabel(firstNumber(record.year)),
     releaseDateLabel: formatReleaseDateLabel(firstNonEmptyString([record['release-date']])),
@@ -158,7 +158,7 @@ function normalizeEntryChannel(value: unknown, source: string): EntryChannel | n
 
   return {
     name,
-    logoUrl: resolveAssetUrl(firstNonEmptyString([value.logo]), source),
+    logo: resolveAssetUrl(firstNonEmptyString([value.logo]), source),
     request,
   }
 }

@@ -131,6 +131,36 @@ shared:
         - type: format_text
           argument: "Bearer {_jwt}"
 
+  anonymous_jwt_request_headers: &anonymous_jwt_request_headers
+    - name: X-Auth-Token
+      actions: *recommendation_signature
+    - name: X-Auth-Token-Timestamp
+      actions:
+        - type: format_text
+          argument: 'document.write(Math.floor(Date.now() / 1000));'
+        - type: exec_js
+          timeout_ms: 1000
+        - type: regex_find_all
+          pattern: '^document_write=([0-9]+)$'
+          format: "{1}"
+    - name: X-Customer-Name
+      actions:
+        - type: format_text
+          argument: m6web
+    - name: X-Client-Release
+      actions:
+        - type: format_text
+          argument: "{recommendation_client_release}"
+    - name: x-auth-device-id
+      actions:
+        - type: format_text
+          argument: 'document.write("xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function(c) { var r = Math.floor(Math.random() * 16); return (c === "x" ? r : (r & 3) | 8).toString(16); }));'
+        - type: exec_js
+          timeout_ms: 1000
+        - type: regex_find_all
+          pattern: '^document_write=([a-f0-9-]+)$'
+          format: "{1}"
+
   recommendation_cards: &recommendation_cards
     - name: _next_card_page
       type: number
@@ -237,6 +267,116 @@ shared:
   actions_image_key_to_url: &actions_image_key_to_url
     - type: format_text
       argument: "{image_root}/{}/raw"
+
+  # Season links carry a PAGE marker that get_season replaces with the requested page.
+  layout_season_blocks: &layout_season_blocks
+    - name: seasons
+      type: object[]
+      pointer: /blocks/*[analytics/tealium/from=feature.videos_by_program]
+      select: all
+      entries:
+        - name: label
+          type: string
+          select: first
+          pointer: /analytics/tealium/block_title
+        - name: link
+          type: string
+          select: first
+          pointer: /blockId
+          actions:
+            - type: format_text
+              argument: "https://layout.6cloud.fr/front/v1/m6web/m6group_web/main/token-web-32/program/{query_url}/block/{}?page=PAGE&nbPages=1"
+    - name: seasons
+      type: object[]
+      pointer: /blocks/*[analytics/tealium/from=feature.videos_by_subcat_by_program]
+      select: all
+      entries:
+        - name: label
+          type: string
+          select: first
+          pointer: /analytics/tealium/block_title
+        - name: link
+          type: string
+          select: first
+          pointer: /blockId
+          actions:
+            - type: format_text
+              argument: "https://layout.6cloud.fr/front/v1/m6web/m6group_web/main/token-web-32/program/{query_url}/block/{}?page=PAGE&nbPages=1"
+    - name: seasons
+      type: object[]
+      pointer: /blocks/*[analytics/tealium/from=feature.videos_by_season_by_program]
+      select: all
+      entries:
+        - name: label
+          type: string
+          select: first
+          pointer: /analytics/tealium/block_title
+        - name: link
+          type: string
+          select: first
+          pointer: /blockId
+          actions:
+            - type: format_text
+              argument: "https://layout.6cloud.fr/front/v1/m6web/m6group_web/main/token-web-32/program/{query_url}/block/{}?page=PAGE&nbPages=1"
+
+  season_block_episode_entries: &season_block_episode_entries
+    - name: title
+      type: string
+      select: first
+      pointer: /extraTitle
+    - name: title
+      type: string
+      select: first
+      pointer: /title
+    - name: description
+      type: string
+      select: first
+      pointer: /description
+    - name: duration
+      type: string
+      select: first
+      pointer: /highlight
+      actions:
+        - type: normalize_duration
+    - name: players > name
+      type: string
+      actions:
+        - type: format_text
+          argument: "M6+"
+    - name: players > resolver > kind
+      type: string
+      actions:
+        - type: format_text
+          argument: "m6play-video"
+    - name: players > resolver > target_id
+      type: string
+      select: first
+      pointer: /action/target/value_lock/originalTarget/value_layout/id
+    - name: link
+      type: string
+      select: first
+      actions:
+        - type: build_url
+          base: "https://www.m6.fr/{prg}-p_{pid}/{prg}-c_{cid}"
+          fields:
+            prg: /action/target/value_lock/originalTarget/value_layout/parent/seo
+            pid: /action/target/value_lock/originalTarget/value_layout/parent/id
+            cid: /action/target/value_lock/originalTarget/value_layout/id
+    - name: players > web-link
+      type: string
+      select: first
+      actions:
+        - type: build_url
+          base: "https://www.m6.fr/{prg}-p_{pid}/{prg}-c_{cid}"
+          fields:
+            prg: /action/target/value_lock/originalTarget/value_layout/parent/seo
+            pid: /action/target/value_lock/originalTarget/value_layout/parent/id
+            cid: /action/target/value_lock/originalTarget/value_layout/id
+    - name: img/preview > link
+      type: string
+      select: first
+      pointer: /image/id
+      actions: *actions_image_key_to_url
 
   actions_extract_release_date: &actions_extract_release_date
     - type: get_date
@@ -805,6 +945,40 @@ queries:
                 actions:
                   - type: map
                     argument: { "content": "premium" }
+      - name: _layout_url
+        type: string
+        select: first
+        actions:
+          - type: format_text
+            argument: https://front-auth.6cloud.fr/v2/platforms/m6group_web/getJwt
+        sub_queries:
+          - scraper_type: json
+            target: parent
+            request_headers: *anonymous_jwt_request_headers
+            row_pointer: /
+            entries:
+              - name: _layout_jwt
+                type: string
+                select: first
+                pointer: /token
+              - name: _layout_page_url
+                type: string
+                select: first
+                actions:
+                  - type: format_text
+                    argument: https://layout.6cloud.fr/front/v1/m6web/m6group_web/main/token-web-32/program/{query_url}/layout?nbPages=1&blockPage=1
+                sub_queries:
+                  - scraper_type: json
+                    target: parent
+                    request_headers:
+                      - name: Authorization
+                        actions:
+                          - type: format_text
+                            argument: "Bearer {_layout_jwt}"
+                    http:
+                      empty_on_statuses: [403, 404, 498]
+                    row_pointer: /
+                    entries: *layout_season_blocks
       - name: media-type
         type: string[]
         pointer: /program_type_wording/code
@@ -892,27 +1066,13 @@ queries:
             actions:
               - type: format_text
                 argument: "{query_url}/videos?"
-
-      - name: seasons
-        type: object[]
-        pointer: /program_subcats/*
-        select: all
-        entries:
-           - name: label
-             type: string
-             select: first
-             pointer: /title
-           - name: link
-             type: string
-             select: first
-             pointer: /id
-             actions:
-               - type: format_text
-                 argument: "{query_url}/videos?subcat={}"
     post_process:
       - type: remove_fields
         fields:
           - _premium_videos
+          - _layout_url
+          - _layout_jwt
+          - _layout_page_url
 
   # ---------------------------------------------------------------
   # Deferred recommendations: inspect at most eight layout pages.
@@ -1020,9 +1180,9 @@ queries:
   # ---------------------------------------------------------------
   - name: get_season
     scraper_type: json
-    base_url: "{base_url}"
-    query_url: "{api_root}/6play/programs/{query_url}&csa=6&with=clips,freemiumpacks&type=vi,vc,playlist&sort=episode_asc&limit=100&offset=0"
-    request_headers: *generic_request_headers
+    base_url: https://www.m6.fr
+    query_url: https://front-auth.6cloud.fr/v2/platforms/m6group_web/getJwt
+    request_headers: *anonymous_jwt_request_headers
     media_types: *media_types_6play
     row_pointer: /
     entries:
@@ -1031,117 +1191,167 @@ queries:
         select: first
         actions:
           - type: format_text
-            argument: "1"
-      - name: have_more
-        type: boolean
+            argument: "{page}"
+      - name: _jwt
+        type: string
+        select: first
+        pointer: /token
+      - name: _middleware_url
+        type: string
         select: first
         actions:
           - type: format_text
-            argument: "false"
-      - name: episodes
-        type: object[]
-        pointer: /*
-        entries:
-          - name: title
-            type: string
-            select: first
-            pointer: /title
-          - name: description
-            type: string
-            select: first
-            pointer: /clips/0/description
-          - name: description
-            type: string
-            select: first
-            pointer: /description
-          - name: price
-            type: string
-            select: first
-            pointer: /freemium_products/*[type=content]/type
-            actions:
-              - type: map
-                argument: { "content": "premium" }
-                default: null
-          - name: duration
-            type: string
-            select: first
-            pointer: /clips/0/duration
-          - name: duration
-            type: string
-            select: first
-            pointer: /duration
-          - name: season-name
-            type: string
-            select: first
-            pointer: /clips/0/product/season_title
-          - name: season-name
-            type: string
-            select: first
-            pointer: /product/season_title
-          - name: release-date
-            type: string
-            select: first
-            pointer: /clips/0/product/last_diffusion
-            actions: *actions_extract_release_date
-          - name: release-date
-            type: string
-            select: first
-            pointer: /product/last_diffusion
-            actions: *actions_extract_release_date
-          - name: players > name
-            type: string
-            actions:
-              - type: format_text
-                argument: "M6+"
-
-          - name: players > resolver > kind
-            type: string
-            actions:
-              - type: format_text
-                argument: "m6play-video"
-          - name: players > resolver > target_id
-            type: string
-            select: first
-            pointer: /id
-          - name: players > resolver > proxy > countries
-            type: string[]
-            select: all
-            pointer: /clips/0/areas/*/zone_id
-            actions: *actions_proxy_countries_from_area
-          - name: link
-            type: string
-            actions:
-              - type: build_url
-                base: "https://www.m6.fr/{prg}-p_{query_url}/{prg}-c_{cid}"
-                fields:
-                  prg: /code
-                  cid: /clips/0/id
-          - name: players > web-link
-            type: string
-            actions:
-              - type: build_url
-                base: "https://www.m6.fr/{prg}-p_{query_url}/{prg}-c_{cid}"
-                fields:
-                  prg: /code
-                  cid: /clips/0/id
-              - type: regex_find_all
-                pattern: '^(https://www\.m6\.fr/[^/]+-p_[^/]+)/videos\?/(.+)$'
-                format: "{1}/{2}"
-          - name: img/preview > link
-            type: string
-            select: first
-            pointer: /display_image/external_key
-            actions: *actions_image_key_to_url
-          - name: img/preview > link
-            type: string
-            pointer: /clips/0/images/*/external_key
-            select: first
-            actions: *actions_image_key_to_url
-          - name: img/preview > link
-            type: string
-            pointer: /images/*[role=vignette]/external_key
-            select: first
-            actions: *actions_image_key_to_url
+            argument: "{api_root}/6play/programs/{query_url}&csa=6&with=clips,freemiumpacks&type=vi,vc,playlist&sort=episode_asc&limit=100&offset=0"
+        sub_queries:
+          - scraper_type: json
+            target: parent
+            http:
+              empty_on_statuses: [400, 403, 404]
+            row_pointer: /
+            entries:
+              - name: episodes
+                type: object[]
+                pointer: /*
+                entries:
+                  - name: title
+                    type: string
+                    select: first
+                    pointer: /title
+                  - name: description
+                    type: string
+                    select: first
+                    pointer: /clips/0/description
+                  - name: description
+                    type: string
+                    select: first
+                    pointer: /description
+                  - name: price
+                    type: string
+                    select: first
+                    pointer: /freemium_products/*[type=content]/type
+                    actions:
+                      - type: map
+                        argument: { "content": "premium" }
+                        default: null
+                  - name: duration
+                    type: string
+                    select: first
+                    pointer: /clips/0/duration
+                  - name: duration
+                    type: string
+                    select: first
+                    pointer: /duration
+                  - name: season-name
+                    type: string
+                    select: first
+                    pointer: /clips/0/product/season_title
+                  - name: season-name
+                    type: string
+                    select: first
+                    pointer: /product/season_title
+                  - name: release-date
+                    type: string
+                    select: first
+                    pointer: /clips/0/product/last_diffusion
+                    actions: *actions_extract_release_date
+                  - name: release-date
+                    type: string
+                    select: first
+                    pointer: /product/last_diffusion
+                    actions: *actions_extract_release_date
+                  - name: players > name
+                    type: string
+                    actions:
+                      - type: format_text
+                        argument: "M6+"
+                  - name: players > resolver > kind
+                    type: string
+                    actions:
+                      - type: format_text
+                        argument: "m6play-video"
+                  - name: players > resolver > target_id
+                    type: string
+                    select: first
+                    pointer: /id
+                  - name: players > resolver > proxy > countries
+                    type: string[]
+                    select: all
+                    pointer: /clips/0/areas/*/zone_id
+                    actions: *actions_proxy_countries_from_area
+                  - name: link
+                    type: string
+                    actions:
+                      - type: build_url
+                        base: "https://www.m6.fr/{prg}-p_{query_url}/{prg}-c_{cid}"
+                        fields:
+                          prg: /code
+                          cid: /clips/0/id
+                  - name: players > web-link
+                    type: string
+                    actions:
+                      - type: build_url
+                        base: "https://www.m6.fr/{prg}-p_{query_url}/{prg}-c_{cid}"
+                        fields:
+                          prg: /code
+                          cid: /clips/0/id
+                      - type: regex_find_all
+                        pattern: '^(https://www\.m6\.fr/[^/]+-p_[^/]+)/videos\?/(.+)$'
+                        format: "{1}/{2}"
+                  - name: img/preview > link
+                    type: string
+                    select: first
+                    pointer: /display_image/external_key
+                    actions: *actions_image_key_to_url
+                  - name: img/preview > link
+                    type: string
+                    pointer: /clips/0/images/*/external_key
+                    select: first
+                    actions: *actions_image_key_to_url
+                  - name: img/preview > link
+                    type: string
+                    pointer: /images/*[role=vignette]/external_key
+                    select: first
+                    actions: *actions_image_key_to_url
+      - name: _block_url
+        type: string
+        select: first
+        actions:
+          - type: format_text
+            argument: "{query_url}"
+          - type: regex_find_all
+            pattern: '^(.*)page=PAGE(.*)$'
+            format: '{1}page={page}{2}'
+        sub_queries:
+          - scraper_type: json
+            target: parent
+            request_headers:
+              - name: Authorization
+                actions:
+                  - type: format_text
+                    argument: "Bearer {_jwt}"
+            http:
+              empty_on_statuses: [400, 403, 404, 498]
+            row_pointer: /
+            entries:
+              - name: have_more
+                type: boolean
+                select: first
+                pointer: /content/pagination/nextPage
+                actions:
+                  - type: map
+                    argument: { null: false }
+                    default: true
+              - name: episodes
+                type: object[]
+                pointer: /content/items/*/itemContent
+                select: all
+                entries: *season_block_episode_entries
+    post_process:
+      - type: remove_fields
+        fields:
+          - _jwt
+          - _middleware_url
+          - _block_url
   # ---------------------------------------------------------------
   # List lives
   # ---------------------------------------------------------------

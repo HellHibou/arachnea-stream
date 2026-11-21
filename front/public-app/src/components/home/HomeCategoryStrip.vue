@@ -32,7 +32,7 @@ const emit = defineEmits<{
 const router = useRouter()
 
 /**
- * Resolves the internal category route targeted by a category card.
+ * Resolves the internal category route targeted by a category tag.
  *
  * @param category Category from the strip.
  * @returns Browser href for the category route.
@@ -73,34 +73,11 @@ function handleCategorySelect(category: HomeCategory, event: MouseEvent) {
          role="listitem"
         >
         <a
-          class="home-category-strip__card"
+          class="home-category-strip__tag"
          :href="categoryHref(category)"
          @click="handleCategorySelect(category, $event)"
        >
-         <span
-           class="home-category-strip__media"
-           :class="{ 'home-category-strip__media--empty': !category.imageUrl }"
-           aria-hidden="true"
-         >
-           <img
-             v-if="category.imageUrl"
-             class="home-category-strip__image home-category-strip__image--backdrop"
-             :src="category.imageUrl"
-             loading="lazy"
-             alt=""
-           >
-           <img
-             v-if="category.imageUrl"
-             class="home-category-strip__image home-category-strip__image--foreground"
-             :src="category.imageUrl"
-             loading="lazy"
-             alt=""
-           >
-         </span>
-
-         <span class="home-category-strip__content">
-           <span class="home-category-strip__label">{{ category.label }}</span>
-         </span>
+         {{ category.label }}
        </a>
         </div>
      </div>
@@ -109,15 +86,9 @@ function handleCategorySelect(category: HomeCategory, event: MouseEvent) {
  </template>
 
 <style scoped>
-.home-category-strip__item {
-  position: relative;
-  flex: 0 0 auto;
-  z-index: 2;
-}
-
 .home-category-strip {
    display: grid;
-   gap: 14px;
+   gap: 10px;
  }
 
 .home-category-strip__header {
@@ -135,122 +106,71 @@ function handleCategorySelect(category: HomeCategory, event: MouseEvent) {
  }
 
 .home-category-strip__list {
-   display: grid;
-   grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
-   gap: 14px;
+   display: flex;
+   flex-wrap: wrap;
+   gap: 8px;
  }
 
-.home-category-strip__card {
-   position: relative;
-   display: grid;
-   min-height: 128px;
-   padding: 0;
+.home-category-strip__item {
+   display: inline-flex;
+   flex: 0 0 auto;
+   min-width: 0;
+   max-width: 100%;
+ }
+
+.home-category-strip__tag {
+   display: inline-flex;
+   align-items: center;
+   max-width: 100%;
+   min-height: 26px;
+   padding: 3px 11px;
    border: 1px solid var(--border-color-primary);
-   border-radius: var(--radius);
+   border-radius: 999px;
    overflow: hidden;
-   background:
-     linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.02)),
-     var(--bg-surface);
+   background: var(--bg-surface);
    color: var(--text-primary);
-   text-align: left;
-   cursor: pointer;
+   font-size: 0.8rem;
+   font-weight: 600;
+   line-height: 1.25;
    text-decoration: none;
-   box-shadow:
-     var(--shadow-card),
-     var(--inset-light);
+   text-overflow: ellipsis;
+   white-space: nowrap;
+   text-shadow:
+     -1px -1px 0 #000,
+     0 -1px 0 #000,
+     1px -1px 0 #000,
+     -1px 0 0 #000,
+     1px 0 0 #000,
+     -1px 1px 0 #000,
+     0 1px 0 #000,
+     1px 1px 0 #000;
+   box-shadow: var(--inset-light);
    transition:
-     transform var(--duration-fast) ease,
+     color var(--duration-fast) ease,
      border-color var(--duration-fast) ease,
-     box-shadow var(--duration-fast) ease;
+     background-color var(--duration-fast) ease;
  }
 
-.home-category-strip__card:hover {
-   transform: translateY(-2px);
+.home-category-strip__tag:hover {
    border-color: var(--color-primary);
+   background: var(--bg-surface-strong);
+   color: var(--text-primary);
  }
 
-.home-category-strip__card:focus-visible {
+.home-category-strip__tag:focus-visible {
    outline: var(--common-focus-ring);
    outline-offset: 2px;
  }
 
-.home-category-strip__media {
-   position: absolute;
-   inset: 0;
-   isolation: isolate;
- }
-
-.home-category-strip__media::after {
-   content: '';
-   position: absolute;
-   inset: 0;
-   z-index: 1;
-   pointer-events: none;
- }
-
-.home-category-strip__media--empty {
-   background:
-     radial-gradient(circle at top left, rgba(70, 163, 255, 0.22), transparent 56%),
-     linear-gradient(160deg, rgba(14, 19, 27, 0.94), rgba(24, 33, 47, 0.88));
- }
-
-.home-category-strip__media--empty::after {
-   background:
-     linear-gradient(180deg, rgba(7, 10, 16, 0.06), rgba(7, 10, 16, 0.88)),
-     linear-gradient(135deg, rgba(60, 128, 197, 0.3), rgba(7, 10, 16, 0.12));
- }
-
-.home-category-strip__image {
-   position: absolute;
-   inset: 0;
-   width: 100%;
-   height: 100%;
-   display: block;
-   object-position: center;
- }
-
-.home-category-strip__image--backdrop {
-   z-index: 0;
-   object-fit: cover;
-   filter: var(--filter-media-card-backdrop);
-   transform: scale(1.06);
- }
-
-.home-category-strip__image--foreground {
-   z-index: 2;
-   object-fit: contain;
- }
-
-.home-category-strip__content {
-   position: relative;
-   z-index: 3;
-   display: grid;
-   align-content: end;
-   gap: 8px;
-   min-height: 128px;
-   padding: 18px;
- }
-
-.home-category-strip__label {
-   color: var(--text-primary);
-   font-size: 1.02rem;
-   font-weight: 700;
-   letter-spacing: 0.01em;
-   text-shadow: var(--text-shadow-primary);
- }
-
 @media (max-width: 640px) {
    .home-category-strip__list {
-     grid-template-columns: repeat(2, minmax(0, 1fr));
+     gap: 6px;
    }
 
-   .home-category-strip__card,
-   .home-category-strip__content {
-     min-height: 118px;
-   }
-
-   .home-category-strip__content {
-     padding: 16px 14px;
+   .home-category-strip__tag {
+     min-height: 24px;
+     padding: 2px 10px;
+     font-size: 0.76rem;
    }
 }
 

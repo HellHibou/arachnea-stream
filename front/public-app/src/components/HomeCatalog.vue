@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, shallowRef, toRef, watch } from 'vue'
+import { computed, onMounted, shallowRef, toRef, watch } from 'vue'
 
 import CustomHomeCategoryStatus from '@/components/home/CustomHomeCategoryStatus.vue'
 import HomePinButton from '@/components/home/HomePinButton.vue'
@@ -295,6 +295,21 @@ function addCategories(categories: HomeCategory[]): void {
   requestAdd({ kind: 'categories', categories, ...(parent ? { parent } : {}) })
 }
 
+/** Toolbar target receiving the category quick-add button. */
+const categoryActionTarget = shallowRef<HTMLElement | null>(null)
+onMounted(() => { categoryActionTarget.value = document.getElementById('main-bar-category-action') })
+
+/** Whether the current category can be added to a custom home. */
+const showCategoryPin = computed(() => Boolean(
+  props.mode === 'category' && props.category && editingEnabled && categoryContentSupported && categoryAdd.references.value.length > 0,
+))
+
+/** Opens the quick-add dialog for the displayed category. */
+function addCurrentCategory(): void {
+  if (!props.category) return
+  requestAdd({ kind: 'category', category: props.category, initialMode: 'content' })
+}
+
 /** @param rail Active category section, including an optional selected subsection. */
 function addCategorySection(rail: RenderedHomeSection): void {
   if (!props.category) return
@@ -497,23 +512,15 @@ function handleSelectCollectionItem(item: MediaItem) {
 
 <template>
   <main class="home-catalog">
+    <Teleport v-if="categoryActionTarget && showCategoryPin" :to="categoryActionTarget">
+      <HomePinButton :label="t('customHome.addCategory')" @click="addCurrentCategory" />
+    </Teleport>
     <section class="home-catalog__shell">
       <v-alert v-for="issue in customIssues" :key="issue.id" type="warning" variant="tonal" role="status">
         {{ issue.message }}
         <span v-if="issue.repairRequired">{{ t('customHome.repairRequired') }}</span>
         <v-btn @click="retryCustomIssue(issue.id)">{{ t('sourceHome.retry') }}</v-btn>
       </v-alert>
-      <header v-if="props.mode === 'category' && props.category" class="home-catalog__heading">
-        <p class="home-catalog__eyebrow">{{ t('category.label') }}</p>
-        <div class="home-catalog__title-row">
-          <h1 class="home-catalog__title">{{ props.category.label }}</h1>
-          <HomePinButton
-            v-if="editingEnabled && categoryContentSupported && categoryAdd.references.value.length > 0"
-            :label="t('customHome.addCategory')"
-            @click="requestAdd({ kind: 'category', category: props.category, initialMode: 'content' })"
-          />
-        </div>
-      </header>
       <article v-if="errorMessage" class="home-catalog__empty">
         <h2 class="home-catalog__empty-title">{{ t('catalog.loadingErrorTitle') }}</h2>
         <p class="home-catalog__empty-copy">
@@ -821,39 +828,8 @@ function handleSelectCollectionItem(item: MediaItem) {
   gap: 26px;
 }
 
-.home-catalog__heading {
-  display: grid;
-  gap: 8px;
-  padding: 4px 2px 0;
-}
-
-.home-catalog__eyebrow {
-  color: rgba(207, 220, 235, 0.76);
-  font-size: 0.82rem;
-  font-weight: 700;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-}
-
-.home-catalog__title-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-
-.home-catalog__title {
-  min-width: 0;
-  margin: 0;
-  overflow-wrap: anywhere;
-  color: var(--text-primary);
-  font-size: clamp(1.7rem, 1.36rem + 1.1vw, 2.5rem);
-  font-weight: 800;
-  line-height: 1.04;
-}
-
 .home-catalog__category-strip {
-  margin-bottom: 40px;
+  margin-bottom: 8px;
 }
 
 .home-catalog__sections {

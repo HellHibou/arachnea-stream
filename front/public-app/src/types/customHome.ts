@@ -39,6 +39,8 @@ export interface CategoryReference {
   ancestorKeys?: string[]
   descriptor: Record<string, string>
   labelSnapshot: string
+  /** Optional display title shared by every source contributing to the same category card. */
+  titleOverride: string | null
 }
 
 /** Source-owned section identity, independent of display and preference keys. */

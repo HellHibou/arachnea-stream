@@ -42,8 +42,8 @@ export function normalizeHomeBanner(
     firstNonEmptyString([record.image_url, record.imageUrl, record.image]),
     source,
   )
-  const logoUrl = resolveAssetUrl(
-    firstNonEmptyString([record.logo_url, record.logoUrl, record.logo]),
+  const logo = resolveAssetUrl(
+    firstNonEmptyString([record.logo, record.logo, record.logo]),
     source,
   )
   const videoUrl = resolveAssetUrl(
@@ -62,7 +62,7 @@ export function normalizeHomeBanner(
     subtitle: firstNonEmptyString([record.subtitle]),
     description: firstNonEmptyString([record.description]),
     imageUrl,
-    logoUrl,
+    logo,
     videoUrl,
     player,
     source,
@@ -144,7 +144,7 @@ export function normalizeBannersResponse(
  * @param banner Normalized banner from the home or deferred response.
  */
 export function isDisplayableHomeBanner(banner: HomeBanner): boolean {
-  return Boolean(banner.imageUrl || banner.logoUrl || banner.title || banner.videoUrl || banner.player)
+  return Boolean(banner.imageUrl || banner.logo || banner.title || banner.videoUrl || banner.player)
 }
 
 /**

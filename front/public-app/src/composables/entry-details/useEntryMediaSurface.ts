@@ -87,7 +87,7 @@ export function useEntryMediaSurface(options: EntryMediaSurfaceOptions) {
   /**
    * Exposes the logo overlaid on top of the media poster in the integrated Video.js player.
    */
-  const mediaOverlayLogoUrl = computed(() => resolveImageUrl([details.value?.logoUrl]))
+  const mediaOverlayLogoUrl = computed(() => resolveImageUrl([details.value?.logo]))
 
   return { previousPlayableItem, nextPlayableItem, backgroundVideoSource, initialPlaybackTime, mediaPosterUrl, trailerPosterUrl, mediaOverlayLogoUrl }
 }

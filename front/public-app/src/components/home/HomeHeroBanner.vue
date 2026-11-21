@@ -637,9 +637,9 @@ onBeforeUnmount(() => {
               :label="t('customHome.addBanners')" @click="emit('add-banners', activeBanner.source)" />
           </div>
           <img
-            v-if="activeBanner.logoUrl"
+            v-if="activeBanner.logo"
             class="home-hero-banner__logo"
-            :src="activeBanner.logoUrl"
+            :src="activeBanner.logo"
             :alt="activeBanner.title ?? t('catalog.contentLogo')"
           >
 

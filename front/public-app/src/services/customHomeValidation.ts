@@ -76,7 +76,7 @@ function fields(value: Record<string, unknown>, keys: string[], path: string): v
  */
 function category(value: unknown, path: string): CategoryReference {
   const input = record(value, path)
-  fields(input, ['sourceId', 'categoryKey', 'descriptor', 'labelSnapshot', 'ancestorKeys'], path)
+  fields(input, ['sourceId', 'categoryKey', 'descriptor', 'labelSnapshot', 'ancestorKeys', 'titleOverride'], path)
   const sourceId = identifier(input.sourceId, `${path}.sourceId`)
   const rawDescriptor = record(input.descriptor, `${path}.descriptor`)
   const descriptor: Record<string, string> = {}
@@ -103,6 +103,7 @@ function category(value: unknown, path: string): CategoryReference {
     categoryKey: identifier(input.categoryKey, `${path}.categoryKey`),
     descriptor,
     labelSnapshot: text(input.labelSnapshot, `${path}.labelSnapshot`),
+    titleOverride: input.titleOverride === undefined ? null : nullableText(input.titleOverride, `${path}.titleOverride`),
   }
 }
 

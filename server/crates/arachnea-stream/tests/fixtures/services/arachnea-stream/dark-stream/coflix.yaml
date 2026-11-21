@@ -4,7 +4,7 @@ source: coflix
 source_config: arachnea-stream/dark-stream/coflix.yaml
 
 capabilities:
-  expected: ["service_stream_metadata","load_home","get_category","search","get_entry"]
+  expected: ["service_stream_metadata","load_home","get_category","get_section","search","get_entry"]
   not_expected: []
 
 steps:
@@ -56,6 +56,21 @@ steps:
       required_non_empty:
         - ["link"]
 
+  - id: category_section
+    operation: get_section
+    inputs:
+      query_url:
+        from_step: category
+        items_path: ["sections"]
+        select: first_valid
+        value_path: ["link"]
+    expect:
+      items_path: ["entries"]
+      min_count: 1
+      min_valid_count: 1
+      required_non_empty:
+        - ["title"]
+        - ["link"]
 
   - id: search
     operation: search

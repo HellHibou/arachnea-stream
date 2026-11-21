@@ -57,13 +57,13 @@ export function entryDetailsHeroPresentation(options: UseEntryDetailsHeroPresent
         details?.description?.trim() ||
         t('entry.noDescription'),
       posterFrameImageUrl:
-        details?.logoUrl ??
+        details?.logo ??
         details?.imageLandscapeUrl ??
         details?.imagePosterUrl ??
         details?.imageUrl ??
         details?.heroImageUrl ??
         null,
-      posterFrameUsesContain: Boolean(details?.logoUrl),
+      posterFrameUsesContain: Boolean(details?.logo),
       heroBackgroundUrl: details?.imagePortraitUrl ?? details?.imagePosterUrl ?? details?.heroImageUrl ?? details?.imageUrl ?? null,
       heroBackgroundPortraitUrl: details?.imagePortraitUrl ?? details?.imagePosterUrl ?? details?.imageUrl ?? null,
       heroBackgroundLandscapeUrl: details?.imageLandscapeUrl ?? details?.imageUrl ?? null,

@@ -90,7 +90,12 @@ const channelCategory = computed(() => {
   }
 
   return normalizeHomeCategory(
-    { label: channel.name, key: channel.name, request: channel.request },
+    {
+      label: channel.name,
+      key: channel.name,
+      request: channel.request,
+      channel: { name: channel.name, logo: channel.logo },
+    },
     0,
     props.source,
   )
@@ -105,7 +110,7 @@ const channelRoute = computed(() => {
 
 /** Logo rendered beside the channel name while it loads successfully. */
 const channelLogo = computed(() =>
-  channelLogoAvailable.value ? props.channel?.logoUrl ?? null : null,
+  channelLogoAvailable.value ? props.channel?.logo ?? null : null,
 )
 
 /** Resets source logo availability when source prop changes. */

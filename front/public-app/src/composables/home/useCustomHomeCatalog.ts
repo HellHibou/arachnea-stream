@@ -7,6 +7,7 @@ import { validateCustomHomeDefinition } from '@/services/customHomeValidation'
 import { getCategoryCatalog, loadHomeSectionPage, loadHomeSourceDiscovery, dedupeMediaItems, interleaveLists } from '@/services/rustify'
 import { appendCategorySections, hasMoreCategoryPages } from '@/services/customHomeCategorySections'
 import { composeCustomHomeSections, type CustomHomeContribution } from '@/services/customHomeComposition'
+import { mergeHomeCategories } from '@/services/rustify/home/categories'
 import { loadDeferredBannerPages } from '@/composables/home/deferredBannerLoader'
 import type { BannerReference, CustomHomeBlock, CustomHomeDefinition, HomeSourceDiscovery } from '@/types/customHome'
 import type { HomeBanner, HomeCatalogData, HomeCategory, HomeSection } from '@/types/home'
@@ -244,7 +245,12 @@ export function useCustomHomeCatalog(input: MaybeRefOrGetter<CustomHomeDefinitio
         }
       })).then((shortcuts) => {
         if (revision !== latestRequestId.value) return
-        base = { ...base, categories: shortcuts.filter((item) => item !== undefined) }
+        const categories = mergeHomeCategories(shortcuts.flatMap((category, index) => {
+          if (!category) return []
+          const title = current.categoryShortcuts[index]?.titleOverride?.trim()
+          return title ? [{ ...category, label: title }] : [category]
+        }))
+        base = { ...base, categories }
         publish()
       })
       members.value = current.blocks.flatMap((block): CustomHomeContribution[] => {

@@ -54,6 +54,7 @@ const category = computed<HomeCategory | null>(() => {
   return {
     id: slug,
     label: payload.label,
+    channel: payload.channel ?? null,
     imageUrl: null,
     mergeKey: slug,
     sources: payload.sources,

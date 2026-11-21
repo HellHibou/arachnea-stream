@@ -11,6 +11,31 @@ use std::collections::HashMap;
 
 use super::ScraperSourceParams;
 
+/// Separator between the configured source name and the per-execution index.
+/// Source identifiers are YAML-defined and must not contain this character.
+const SOURCE_EXECUTION_KEY_SEPARATOR: char = '#';
+
+/// Builds the unique execution key of one request against a source.
+///
+/// Repeated descriptors for the same source need distinct keys so the
+/// aggregator executes each of them instead of collapsing them by source name.
+///
+/// # Arguments
+/// * `source` - Configured source name.
+/// * `index` - Position of this descriptor among the requested sources.
+pub fn source_execution_key(source: &str, index: usize) -> String {
+    format!("{source}{SOURCE_EXECUTION_KEY_SEPARATOR}{index}")
+}
+
+/// Resolves the configured source name behind a possibly synthetic execution key.
+///
+/// # Arguments
+/// * `key` - Source name or execution key returned by [`source_execution_key`].
+pub fn source_name_for_execution_key(key: &str) -> &str {
+    key.split_once(SOURCE_EXECUTION_KEY_SEPARATOR)
+        .map_or(key, |(source, _)| source)
+}
+
 /// One per-source runtime parameter entry as received in controller requests.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct ScraperSourceParamsRequestEntry {

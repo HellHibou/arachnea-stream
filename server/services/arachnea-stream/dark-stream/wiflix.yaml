@@ -588,6 +588,12 @@ queries:
       - name: sections
         type: object[]
         entries:
+          - name: label
+            type: string
+            selector: "h2"
+            select: first
+            actions:
+              - type: get_text             
           - name: current_page
             type: number
             actions:

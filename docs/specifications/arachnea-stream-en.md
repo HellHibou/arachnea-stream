@@ -327,6 +327,9 @@ Structure produced by each source:
 | `label` | `string` | Display name (e.g. `M6`, `TF1`, `Full catalogue`) |
 | `link` | `string` | URL or path for subsequent calls |
 | `description` | `string` | Optional description |
+| `channel` | `object` | Optional channel attribution replacing the service identity in the category header |
+| `channel > name` / `label` | `string` | Channel display name |
+| `channel > logo` / `logo_url` | `string` | Optional standalone channel logo URL |
 | `request > query_url` | `string` | API URL for `get_category` |
 | `request > channel` | `string` | Channel identifier for parameters |
 | `request > channel_label` | `string` | Channel name |
@@ -336,6 +339,12 @@ Structure produced by each source:
 For a lazy category, `request > query_url` is the category endpoint consumed by
 `get_category`. `request > name` (or `request > source`) must identify the
 source that owns that endpoint.
+
+`channel` is additive: categories without it keep the owning service identity.
+When present, the client carries its name and logo through the category route and
+shows them instead of the service metadata in the top bar; a missing or failing
+logo leaves the channel name visible. Channel links from entry details build
+their category with this attribution so the header follows the channel.
 
 #### Section
 
@@ -1382,7 +1391,7 @@ another operation:
 |---|---|
 | `service_stream_metadata`, `load_home`, `list_lives` | Collection metadata and defaults; no content URL is required |
 | `search` | `search_query` (raw text), `search_query_json` (JSON string literal including quotes), `search_terms` (URL-encoded text), `media_types` and `themes` (comma-separated), `page` (at least 1), source-specific continuation parameters |
-| `get_category` | Source descriptors containing `name` or `source`; remaining descriptor keys become per-source parameters, including `query_url` when declared; `page` and continuation parameters |
+| `get_category` | Source descriptors containing `name` or `source`; remaining descriptor keys become per-source parameters, including `query_url` when declared; `page` and continuation parameters. Repeated descriptors for one source are executed independently, each with its own parameters |
 | `get_entry` | `query_url` |
 | `get_season` | `query_url`, `page` (at least 1) |
 | `get_section`, `get_recommendations` | Nonblank link as `query_url` and `link`, `page` (at least 1) |

@@ -338,6 +338,9 @@ Structure produite par chaque source :
 | `label` | `string` | Nom affiché (ex: « M6 », « TF1 », « Tout le catalogue ») |
 | `link` | `string` | URL ou chemin pour les appels suivants |
 | `description` | `string` | Description optionnelle |
+| `channel` | `object` | Attribution de chaîne facultative remplaçant l'identité du service dans l'en-tête de catégorie |
+| `channel > name` / `label` | `string` | Nom affiché de la chaîne |
+| `channel > logo` / `logo_url` | `string` | URL du logo autonome de la chaîne, facultative |
 | `request > query_url` | `string` | URL de l'API pour `get_category` |
 | `request > channel` | `string` | Identifiant de chaîne pour les paramètres |
 | `request > channel_label` | `string` | Nom de chaîne |
@@ -347,6 +350,13 @@ Structure produite par chaque source :
 Pour une catégorie chargée paresseusement, `request > query_url` est l'endpoint
 de catégorie consommé par `get_category`. `request > name` (ou
 `request > source`) doit identifier la source propriétaire de cet endpoint.
+
+`channel` est additif : une catégorie sans ce champ conserve l'identité du service.
+Lorsqu'il est présent, le client transporte son nom et son logo dans la route de
+catégorie et les affiche à la place des métadonnées du service dans la barre du
+haut ; un logo absent ou en échec de chargement laisse le nom de la chaîne visible.
+Les liens de chaîne depuis le détail d'une entrée construisent leur catégorie avec
+cette attribution afin que l'en-tête suive la chaîne.
 
 #### Section
 
@@ -1410,7 +1420,7 @@ pas supposer qu'elles existent pour les autres opérations :
 |---|---|
 | `service_stream_metadata`, `load_home`, `list_lives` | Métadonnées et valeurs par défaut ; aucune URL de contenu nécessaire |
 | `search` | `search_query` (texte brut), `search_query_json` (chaîne JSON littérale avec guillemets), `search_terms` (texte encodé URL), `media_types` et `themes` (séparés par des virgules), `page` (au moins 1), paramètres de continuation propres à la source |
-| `get_category` | Descripteurs contenant `name` ou `source` ; les autres clés deviennent des paramètres propres à la source, dont `query_url` s'il est déclaré ; `page` et paramètres de continuation |
+| `get_category` | Descripteurs contenant `name` ou `source` ; les autres clés deviennent des paramètres propres à la source, dont `query_url` s'il est déclaré ; `page` et paramètres de continuation. Les descripteurs répétés d'une même source sont exécutés indépendamment, chacun avec ses propres paramètres |
 | `get_entry` | `query_url` |
 | `get_season` | `query_url`, `page` (au moins 1) |
 | `get_section`, `get_recommendations` | Lien non vide dans `query_url` et `link`, `page` (au moins 1) |

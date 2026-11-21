@@ -78,14 +78,16 @@ fn display(v: &Value) -> bool {
     .iter()
     .all(|(key, choices)| v.get(*key).is_none_or(|v| choice(v, choices)))
 }
+/// Checks a source-owned category reference, including its optional display title override.
 fn category(v: &Value) -> bool {
     if !fields(
         v,
         &["sourceId", "categoryKey", "descriptor", "labelSnapshot"],
-        &["ancestorKeys"],
+        &["ancestorKeys", "titleOverride"],
     ) || !identifier(&v["sourceId"])
         || !identifier(&v["categoryKey"])
         || !text(&v["labelSnapshot"])
+        || !v.get("titleOverride").is_none_or(nullable)
         || v.get("ancestorKeys").is_some_and(|keys| {
             keys.as_array().is_none_or(|keys| {
                 keys.len() > crate::CUSTOM_HOME_MAX_CATEGORY_ANCESTORS

@@ -241,7 +241,7 @@ export interface EntryChannel {
   /** Display name of the channel. */
   name: string
   /** Optional standalone logo URL for the channel. */
-  logoUrl: string | null
+  logo: string | null
   /** Category request parameters forwarded to `get_category` on navigation. */
   request: Record<string, string>
 }
@@ -277,7 +277,7 @@ export interface EntryDetails {
   /** Generic image URL used when no oriented image is available. */
   imageUrl: string | null
   /** The URL for the logo image. */
-  logoUrl: string | null
+  logo: string | null
   /** The URL for the hero banner image. */
   heroImageUrl: string | null
   /** The display label for the year. */

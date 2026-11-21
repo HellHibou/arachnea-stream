@@ -435,6 +435,14 @@ queries:
       - name: sections
         type: object[]
         entries:
+          - name: label
+            type: string
+            selector: "head > title"
+            actions:
+              - type: get_text
+              - type: regex_find_all
+                pattern: '^(.+?)\s*-'
+                format: "{1}"
           - name: current_page
             type: number
             actions:

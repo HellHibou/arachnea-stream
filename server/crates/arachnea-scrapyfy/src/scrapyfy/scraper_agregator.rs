@@ -475,23 +475,26 @@ impl ScraperAgregator {
         query_media_type_filter: Option<&Vec<String>>,
         fields_filters: Option<&HashMap<String, Vec<String>>>,
     ) -> Option<String> {
+        let configured_source = source_name_for_execution_key(source_name);
         let collection = self
             .queries_collection
             .get(group_name)?
             .services
             .iter()
-            .find(|collection| collection.name() == source_name)?;
+            .find(|collection| collection.name() == configured_source)?;
         // Replicates exactly the per-source parameter merge performed by
         // `execute_query_pass` so both sides derive the same key.
         let mut merged_params = params.clone();
         if let Some(source_params) = source_params {
-            if let Some(params_for_source) = source_params.get(source_name) {
+            if let Some(params_for_source) = source_params.get(source_name)
+                .or_else(|| source_params.get(configured_source))
+            {
                 merged_params.extend(params_for_source.clone());
             }
         }
         Some(server_cache_key(
             group_name,
-            source_name,
+            configured_source,
             query_name,
             &merged_params,
             query_media_type_filter,

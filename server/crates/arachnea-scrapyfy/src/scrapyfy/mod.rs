@@ -157,7 +157,10 @@ pub use service_catalog::{
 
 /// Source-scoped request parameter parsing helpers.
 pub mod source_params;
-pub use source_params::{source_params_from_entries, ScraperSourceParamsRequestEntry};
+pub use source_params::{
+    source_execution_key, source_name_for_execution_key, source_params_from_entries,
+    ScraperSourceParamsRequestEntry,
+};
 
 /// Scraper manager trait used by runtime and test harnesses.
 pub mod scraper_manager;
