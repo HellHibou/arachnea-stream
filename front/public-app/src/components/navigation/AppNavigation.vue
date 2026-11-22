@@ -14,7 +14,9 @@ const props = defineProps<{ mobile: boolean; open: boolean; hidden: boolean }>()
 const emit = defineEmits<{ close: []; 'update:width': [width: number] }>()
 const route = useRoute()
 const { t } = useI18n()
-const manager = useCustomHomeManager()
+/** Whether the sidebar is actually visible, including the mobile drawer state. */
+const isSidebarActive = computed(() => !props.hidden && (!props.mobile || props.open))
+const manager = useCustomHomeManager({ shouldRefresh: () => isSidebarActive.value })
 const metadata = useServiceMetadata()
 const editingEnabled = useStorage().getHomePreferences().showSectionEditingButtons
 const surface = useTemplateRef<HTMLElement>('surface')
@@ -69,9 +71,11 @@ function dismissBackdrop(event: MouseEvent): void {
 }
 watch(() => [props.mobile, props.open, props.hidden], () => { void syncDialog() }, { flush: 'post' })
 watch(() => route.fullPath, () => emit('close'))
+watch(isSidebarActive, (active) => { if (active) void manager.refresh() })
 onMounted(() => {
   readExpansion()
-  void manager.refresh()
+  // Defer to the shell's own mount work so a persisted hidden drawer never triggers a load.
+  void nextTick(() => { if (isSidebarActive.value) void manager.refresh() })
   void metadata.load()
   void syncDialog()
 })

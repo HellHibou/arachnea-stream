@@ -49,6 +49,18 @@ pub const HEADER_IF_NONE_MATCH: &str = "if-none-match";
 /// HTTP response header carrying an entity validator.
 pub const HEADER_ETAG: &str = "etag";
 
+/// Reserved Tauri invoke payload field carrying a client ETag when HTTP headers are unavailable.
+///
+/// Native IPC has no request headers, so the transport lifts this field into a
+/// synthetic `If-None-Match` context header and removes it from the command payload.
+pub const NATIVE_ETAG_FIELD: &str = "arachneaEtag";
+
+/// Top-level key of the conditional reply wrapper returned by native IPC.
+///
+/// Wrapping is applied only to replies that carry an ETag or a `304` status, so
+/// commands without conditional validation keep returning their bare payload.
+pub const NATIVE_CONDITIONAL_REPLY_FIELD: &str = "__arachnea_conditional_reply";
+
 /// Placeholder replaced with the runtime mount base in served HTML.
 pub(crate) const HTML_BASE_PLACEHOLDER: &str = "{base}";
 

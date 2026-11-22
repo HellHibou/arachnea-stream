@@ -2,7 +2,7 @@ import { computed, ref, shallowRef, watch, type Ref } from 'vue'
 
 import { getEntryDetails, getSeasonEpisodes } from '@/services/rustify'
 import { t } from '@/i18n'
-import type { EntryDetails, EntryEpisode, EntrySeason } from '@/types/entry'
+import type { EntryDetails, EntryEpisode, EntryEpisodePage, EntrySeason } from '@/types/entry'
 import type { MediaItem } from '@/types/media'
 
 /**
@@ -205,6 +205,35 @@ export function entryDetailsData(options: UseEntryDetailsDataOptions) {
   }
 
   /**
+   * Publishes season pages that were already fetched while probing for a playable episode.
+   *
+   * Reusing those pages avoids re-requesting the same `get_season` pages when cross-season
+   * navigation selects the discovered episode. Any in-flight season request is invalidated.
+   *
+   * @param seasonId Identifier of the season owning the fetched pages.
+   * @param pages Ordered season pages to publish, starting at page one.
+   * @returns `true` when the season was found and the pages were applied.
+   */
+  function applyFetchedSeasonPages(seasonId: string, pages: EntryEpisodePage[]): boolean {
+    const season = (details.value?.seasons ?? []).find((entry) => entry.id === seasonId)
+
+    if (!season || pages.length === 0) {
+      return false
+    }
+
+    latestSeasonRequestId += 1
+    const lastPage = pages[pages.length - 1]!
+    selectedSeasonId.value = season.id
+    seasonEpisodes.value = pages.flatMap((page) => page.episodes)
+    currentSeasonPage.value = lastPage.currentPage
+    hasMoreSeasonEpisodes.value = lastPage.haveMore
+    seasonErrorMessage.value = null
+    isSeasonLoading.value = false
+    isSeasonLoadingMore.value = false
+    return true
+  }
+
+  /**
    * Loads the next available page for the currently selected season.
    * Does nothing if there are no more episodes, no season link, or loading is already in progress.
    */
@@ -290,6 +319,7 @@ export function entryDetailsData(options: UseEntryDetailsDataOptions) {
     hasMoreSeasonEpisodes,
     handleSeasonSelect,
     selectSeasonById,
+    applyFetchedSeasonPages,
     handleLoadMoreSeasonEpisodes,
   }
 }

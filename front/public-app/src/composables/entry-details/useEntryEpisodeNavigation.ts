@@ -1,5 +1,5 @@
 import { computed, shallowRef, watch, type Ref } from 'vue'
-import type { EntryEpisode } from '@/types/entry'
+import type { EntryEpisode, EntryEpisodePage } from '@/types/entry'
 import type { MediaItem } from '@/types/media'
 import type { Parameters } from '@/services/storage'
 import { getSeasonEpisodes } from '@/services/rustify'
@@ -12,7 +12,7 @@ interface EntryEpisodeNavigationOptions {
   source: Ref<string>
   entry: Ref<string>
   webUrl: Ref<string | null>
-  data: Pick<ReturnType<typeof entryDetailsData>, 'details' | 'selectedSeasonId' | 'selectSeasonById' | 'hasMoreSeasonEpisodes' | 'handleLoadMoreSeasonEpisodes' | 'handleSeasonSelect'>
+  data: Pick<ReturnType<typeof entryDetailsData>, 'details' | 'selectedSeasonId' | 'selectSeasonById' | 'applyFetchedSeasonPages' | 'hasMoreSeasonEpisodes' | 'handleLoadMoreSeasonEpisodes' | 'handleSeasonSelect'>
   selection: Pick<ReturnType<typeof entryEpisodeSelection>, 'selectedEpisodeId' | 'hasPreviousEpisode' | 'hasNextEpisode' | 'selectEpisodeById' | 'handleEpisodeSelect' | 'handleEpisodeStep' | 'resetSelectedEpisode'>
   player: Pick<ReturnType<typeof entryVideoPlayer>, 'mediaSource' | 'mediaPlayerErrorMessage' | 'activateMediaPlayer' | 'handleTrailerToggle' | 'activeLanguageKey' | 'activePlayerId'>
   bookmark: Pick<EntryBookmarkController, 'isBookmarked' | 'latestPlaybackTime' | 'resetPlayback' | 'resetEntry' | 'saveSeasonSelection'>
@@ -27,7 +27,7 @@ interface EntryEpisodeNavigationOptions {
  */
 export function useEntryEpisodeNavigation(options: EntryEpisodeNavigationOptions) {
   const { source, entry, webUrl, bookmark, parameters, saveCurrentBookmark } = options
-  const { details, selectedSeasonId, selectSeasonById, hasMoreSeasonEpisodes, handleLoadMoreSeasonEpisodes,
+  const { details, selectedSeasonId, selectSeasonById, applyFetchedSeasonPages, hasMoreSeasonEpisodes, handleLoadMoreSeasonEpisodes,
     handleSeasonSelect: handleDataSeasonSelect } = options.data
   const { selectedEpisodeId, hasPreviousEpisode, hasNextEpisode: hasNextEpisodeInSeason, selectEpisodeById,
     handleEpisodeSelect, handleEpisodeStep, resetSelectedEpisode } = options.selection
@@ -137,36 +137,45 @@ export function useEntryEpisodeNavigation(options: EntryEpisodeNavigationOptions
     saveCurrentBookmark(null)
   }
 
+  /** First playable episode in a season and the lazy pages fetched to discover it. */
+  interface PlayableEpisodeSearchResult {
+    episode: EntryEpisode
+    pages: EntryEpisodePage[]
+  }
+
   /**
    * Loads a season in the background until one playable episode is discovered.
    *
    * @param seasonId Identifier of the season to inspect.
-   * @returns First playable episode found in that season, or `null` when it stays empty.
+   * @returns First playable episode with its fetched pages, or `null` when the season stays empty.
    */
-  async function findFirstPlayableEpisodeInSeason(seasonId: string): Promise<EntryEpisode | null> {
+  async function findFirstPlayableEpisodeInSeason(seasonId: string): Promise<PlayableEpisodeSearchResult | null> {
     const season = (details.value?.seasons ?? []).find((entrySeason) => entrySeason.id === seasonId)
 
     if (!season) {
       return null
     }
 
-    // Check embedded episodes first.
+    // Embedded episodes are already owned by the visible season state and need no fetched pages.
     if (season.episodes.length > 0) {
-      return findFirstPlayableEpisode(season.episodes)
+      const episode = findFirstPlayableEpisode(season.episodes)
+      return episode ? { episode, pages: [] } : null
     }
 
     if (!season.link) {
       return null
     }
 
+    const pages: EntryEpisodePage[] = []
     let nextPage = 1
 
     while (true) {
       const seasonPage = await getSeasonEpisodes(source.value, season.link, nextPage, season.label)
+      pages.push(seasonPage)
       const firstPlayableEpisode = findFirstPlayableEpisode(seasonPage.episodes)
 
       if (firstPlayableEpisode) {
-        return firstPlayableEpisode
+        return { episode: firstPlayableEpisode, pages }
       }
 
       if (!seasonPage.haveMore || seasonPage.currentPage < nextPage) {
@@ -182,13 +191,17 @@ export function useEntryEpisodeNavigation(options: EntryEpisodeNavigationOptions
    *
    * @param seasonId Identifier of the season that should become active.
    * @param episodeId Identifier of the episode that should become active once loaded.
+   * @param pages Lazy pages already fetched while searching for the episode, if any.
    * @returns `true` when the episode could be selected from the visible season list.
    */
   async function loadSeasonEpisodeIntoVisibleState(
     seasonId: string,
     episodeId: string,
+    pages: EntryEpisodePage[],
   ): Promise<boolean> {
-    const seasonLoaded = await selectSeasonById(seasonId)
+    const seasonLoaded = pages.length > 0
+      ? applyFetchedSeasonPages(seasonId, pages)
+      : await selectSeasonById(seasonId)
 
     if (!seasonLoaded) {
       return false
@@ -252,18 +265,19 @@ export function useEntryEpisodeNavigation(options: EntryEpisodeNavigationOptions
           continue
         }
 
-        const firstPlayableEpisode = await findFirstPlayableEpisodeInSeason(season.id)
+        const searchResult = await findFirstPlayableEpisodeInSeason(season.id)
         if (navigationId !== latestEpisodeNavigationId) {
           return false
         }
 
-        if (!firstPlayableEpisode) {
+        if (!searchResult) {
           continue
         }
 
         const episodeSelected = await loadSeasonEpisodeIntoVisibleState(
           season.id,
-          firstPlayableEpisode.id,
+          searchResult.episode.id,
+          searchResult.pages,
         )
         if (navigationId !== latestEpisodeNavigationId) {
           return false

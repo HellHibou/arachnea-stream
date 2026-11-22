@@ -56,15 +56,15 @@ async function openAdmin(): Promise<void> {
 </script>
 
 <template>
-  <div v-if="!accounts.restored.value" class="account-gate" role="status">{{ t('accounts.restoring') }}</div>
+  <div v-if="!accounts.restored.value || (accounts.ready.value && !contentReady && !startupError)" class="account-gate" role="status" />
   <template v-else-if="accounts.ready.value && contentReady">
     <ProfileSessionGate :key="contentKey" />
     <p v-if="accounts.errorCode.value" class="session-warning" role="alert">{{ t(`accounts.errors.${accounts.errorCode.value}`) }}</p>
     <p v-if="!accounts.session.value?.persistent" class="session-warning" role="status">{{ t('accounts.memoryOnly') }}</p>
   </template>
   <div v-else-if="accounts.ready.value" class="account-gate">
-    <p v-if="startupError" role="alert">{{ t('accounts.errors.storage_unavailable') }}</p>
-    <v-btn v-if="startupError" @click="prepareContent">{{ t('accounts.retry') }}</v-btn>
+    <p role="alert">{{ t('accounts.errors.storage_unavailable') }}</p>
+    <v-btn @click="prepareContent">{{ t('accounts.retry') }}</v-btn>
     <v-btn @click="logout">{{ t('accounts.signOut') }}</v-btn>
   </div>
   <div v-else class="account-gate">

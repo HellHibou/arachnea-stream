@@ -130,6 +130,17 @@ Chaque source peut implémenter tout ou partie des requêtes suivantes :
 | `list_lives` | `json` / `html` | Liste des chaînes en direct |
 | `get_live` | `json` / `html` | Détail d'un direct (joueur) |
 
+Les commandes qui produisent un ETag global participent à la validation
+conditionnelle sur les deux transports. REST les renvoie avec
+`Cache-Control: private, no-cache` et `Vary: Cookie` : le cache privé du
+navigateur conserve la réponse, renvoie `If-None-Match` au chargement suivant
+et résout un `304 Not Modified` avec le corps mis en cache sans impliquer
+l'application. Les réponses sans validateur restent en `no-store`. L'IPC Tauri
+n'a pas de cache HTTP : le client natif envoie le validateur dans le champ
+réservé `arachneaEtag` du payload d'invoke et reçoit une réponse conditionnelle
+sous `__arachnea_conditional_reply` avec `etag`, `not_modified` et `value`. Les
+commandes sans validateur conservent leur payload brut.
+
 ---
 
 ## 4. Types de médias

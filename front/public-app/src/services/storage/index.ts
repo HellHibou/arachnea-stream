@@ -53,7 +53,8 @@ export type {
 
 export const useStorage = defineStore('storage', () => {
     let storageInitialized = false
-    window.addEventListener('arachnea-profile-context', () => { sectionRecords.value = []; bookmarkRecords.value = []; void refreshCachedRecords().catch(reportPersonalDataFailure) })
+    // The profile selection flow awaits its own refresh after publishing this event.
+    window.addEventListener('arachnea-profile-context', () => { sectionRecords.value = []; bookmarkRecords.value = [] })
 
     const parameters: Parameters = {} as Parameters
     PARAMETERS_DEF.forEach((param) => {
@@ -214,13 +215,13 @@ export const useStorage = defineStore('storage', () => {
       },
     )
 
-    /**
-     * Reloads the selected profile’s section and bookmark records from the server.
-     *
-     * Used to keep the in-memory cache in sync with writes performed by
-     * another tab, typically when the tab becomes visible again.
-     */
-    async function refreshCachedRecords(): Promise<void> {
+    /** In-flight personal cache read, keyed by the profile generation it started under. */
+    let cachedRefresh: { generation: number; promise: Promise<void> } | null = null
+    /** Whether another refresh arrived while one was already in flight. */
+    let refreshQueued = false
+
+    /** Fetches and publishes one fresh copy of the profile-owned records. */
+    async function runCachedRefresh(): Promise<void> {
       if (!isSessionContentAllowed()) return
       const generation = sessionGeneration()
       const profile = profileGeneration()
@@ -232,6 +233,34 @@ export const useStorage = defineStore('storage', () => {
       if (generation !== sessionGeneration() || profile !== profileGeneration()) return
       sectionRecords.value = sections
       bookmarkRecords.value = reconcileBookmarkRecords(bookmarks)
+    }
+
+    /**
+     * Reloads the selected profile’s section and bookmark records from the server.
+     *
+     * Concurrent calls from the same profile generation share one read; a call arriving
+     * mid-flight schedules exactly one follow-up so no cross-tab change is missed.
+     */
+    function refreshCachedRecords(): Promise<void> {
+      const generation = profileGeneration()
+      const inFlight = cachedRefresh
+
+      if (inFlight && inFlight.generation === generation) {
+        refreshQueued = true
+        return inFlight.promise
+      }
+
+      let promise: Promise<void>
+      promise = runCachedRefresh().finally(() => {
+        if (cachedRefresh?.promise !== promise) return
+        cachedRefresh = null
+        if (refreshQueued) {
+          refreshQueued = false
+          void refreshCachedRecords()
+        }
+      })
+      cachedRefresh = { generation, promise }
+      return promise
     }
 
     /**

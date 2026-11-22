@@ -123,7 +123,7 @@ export function useCustomHomeCatalog(input: MaybeRefOrGetter<CustomHomeDefinitio
       if (revision !== latestRequestId.value) return
       const selected = section ? resolveCatalogSection(result, section) : undefined
       if (section && page === 1 && !selected) {
-        report(id, new Error(`Category section missing or ambiguous: ${section.sectionKey}`), true)
+        report(id, new Error(`Category section missing or ambiguous: ${section.labelSnapshot ?? '(unlabeled)'} (source: ${section.sourceId}, key: ${section.sectionKey})`), true)
         return
       }
       const catalogPage = section ? { ...result, sections: selected ? [selected] : [] } : result
@@ -259,7 +259,7 @@ export function useCustomHomeCatalog(input: MaybeRefOrGetter<CustomHomeDefinitio
           const source = sourceCatalogs.get(block.reference.sourceId)
           if (!source?.available) throw new Error(`Source unavailable: ${block.reference.sourceId}`)
           const section = resolveCatalogSection(source.catalog, block.reference)
-          if (!section) throw new Error(`Section missing or ambiguous: ${block.reference.sectionKey}`)
+          if (!section) throw new Error(`Section missing or ambiguous: ${block.reference.labelSnapshot ?? '(unlabeled)'} (source: ${block.reference.sourceId}, key: ${block.reference.sectionKey})`)
           return [{ id: JSON.stringify([block.id, block.reference.sectionKey, block.reference.subsectionKey ?? null]),
             blockId: block.id, section }]
         } catch (error) {

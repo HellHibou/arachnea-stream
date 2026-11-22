@@ -121,7 +121,9 @@ Pinned records preserve their collection mode, orientation and image fit; the
 former IndexedDB section/bookmark stores are no longer active or imported. Deferred
 banner and section pagination updates are guarded against stale catalog loads.
 Navigation includes a retry action for failed loads and reports errors through the
-shared notification stack. The catalog includes its own retry actions.
+shared notification stack. Catalog and custom-home load/resolution failures also use
+that stack instead of an inline alert; pagination, empty-state and partial-failure
+retries stay next to the affected content.
 Custom homes and source destinations are available through the permanent sidebar.
 
 ## Catalog section layouts
@@ -207,9 +209,10 @@ the shared brand-text offset. Current navigation entries and Lives are bold.
 Navigation groups are Home/Accueil and Video Services/Services Vidéo, with indented single-line children
 and their home/projector icons. Clicking Home/Accueil navigates to the configured
 default home and its children remain visible; only Video Services is collapsible.
-Missing references are reported without same-title substitution; remove and re-add
-the content to repair it. Partial failures leave successful blocks usable, with targeted hydration
-retry. Category-level pagination uses `get_category`; linked rails use `get_section`.
+Missing references are reported through the shared notification stack without
+same-title substitution; remove and re-add the content to repair it. Partial failures
+leave successful blocks usable, with targeted hydration retry. Category-level
+pagination uses `get_category`; linked rails use `get_section`.
 The declared block order takes precedence over global pinning. Bookmarks are shown
 only when enabled. Definitions refresh on focus/visibility; stale responses cannot
 overwrite a newer definition. Browser/Tauri interactive validation remains necessary.

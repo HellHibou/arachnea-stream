@@ -160,10 +160,24 @@ pub(super) fn session_cookie(
     )
 }
 
-/// Keeps content out of public caches; fast session-state heartbeats renew cookies.
+/// Keeps content out of shared caches and lets validated responses revalidate in the browser.
+///
+/// Responses carrying an ETag are stored in the browser's private cache and
+/// revalidated on every use, so the native HTTP cache replays `If-None-Match`
+/// after a refresh. Responses without a validator stay uncached.
 fn protected_headers(headers: &mut HashMap<String, String>) {
     headers.retain(|name, _| !name.eq_ignore_ascii_case("cache-control"));
-    headers.insert("Cache-Control".into(), "private, no-store".into());
+    let cacheable = headers
+        .keys()
+        .any(|name| name.eq_ignore_ascii_case(HEADER_ETAG));
+    headers.insert(
+        "Cache-Control".into(),
+        if cacheable {
+            "private, no-cache".into()
+        } else {
+            "private, no-store".into()
+        },
+    );
     headers.insert("Vary".into(), "Cookie".into());
 }
 

@@ -492,7 +492,12 @@
       "codeCopied": "Copied",
       "origin": "Origin",
       "message": "Technical message",
-      "close": "Dismiss notification"
+      "close": "Dismiss notification",
+      "operations": {
+        "catalogLoad": "loading the home catalog",
+        "customHomeContent": "resolving custom home references",
+        "customHomeDefinition": "loading the custom home"
+      }
     }
   },
   "desktopTabs": {
@@ -518,8 +523,6 @@
     "savePassword": "Save password",
     "signIn": "Sign in",
     "signOut": "Sign out",
-    "restoring": "Restoring your session…",
-    "loading": "Loading your application…",
     "retry": "Retry",
     "memoryOnly": "This device cannot save the session securely. Sign in again after restarting.",
     "errors": {

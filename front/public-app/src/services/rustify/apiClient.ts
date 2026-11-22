@@ -13,6 +13,12 @@ import type { TauriWindow } from './desktop'
 /** Base URL for the REST API. Falls back to the `api` segment under the app base when not configured via environment. */
 const restApiBaseUrl = import.meta.env.VITE_RUSTIFY_API_BASE_URL ?? resolveAppPath('api')
 
+/** Reserved invoke payload field used by native IPC to carry the client ETag. */
+const nativeEtagField = 'arachneaEtag'
+
+/** Top-level key of the conditional reply wrapper returned by native IPC. */
+const nativeConditionalReplyField = '__arachnea_conditional_reply'
+
 /** Cached conditional-validation entry keyed by command name and serialized parameters. */
 interface EtagCacheEntry {
   /** Global ETag returned by the backend for this request. */
@@ -21,31 +27,78 @@ interface EtagCacheEntry {
   payload: unknown
 }
 
-/** In-memory conditional-validation cache shared by every REST GET call. */
+/** In-memory conditional-validation cache shared by REST GET and native invoke calls. */
 const etagCache = new Map<string, EtagCacheEntry>()
 window.addEventListener('arachnea-session-context', () => etagCache.clear())
+window.addEventListener('arachnea-profile-context', () => etagCache.clear())
 
 /**
- * Builds the cache key of one REST GET request from its command and parameters.
+ * Builds the cache key of one backend call from its command and parameters.
  *
  * @param fct_name Backend function name.
- * @param queryString Serialized query string of the request.
+ * @param serializedParams Serialized parameters of the request.
  * @returns Stable cache key scoped to this exact request.
  */
-function buildEtagCacheKey(fct_name: string, queryString: string): string {
-  return `${fct_name}?${queryString}`
+function buildEtagCacheKey(fct_name: string, serializedParams: string): string {
+  return `${fct_name}?${serializedParams}`
+}
+
+/** Conditional reply relayed by native IPC when a command produced a validator. */
+interface NativeConditionalReply {
+  /** Whether the backend answered `304 Not Modified`. */
+  notModified: boolean
+  /** Validator returned by the backend, or null when none was produced. */
+  etag: string | null
+  /** Command payload to cache when the reply was not a `304`. */
+  value: unknown
+}
+
+/**
+ * Recognizes the conditional reply wrapper emitted by the native IPC transport.
+ *
+ * @param payload Deserialized invoke reply.
+ * @returns The conditional reply, or null for a bare command payload.
+ */
+function readNativeConditionalReply(payload: unknown): NativeConditionalReply | null {
+  if (!isJsonRecord(payload)) return null
+  const reply = payload[nativeConditionalReplyField]
+  if (!isJsonRecord(reply) || typeof reply.not_modified !== 'boolean' || !('value' in reply)) return null
+  return {
+    notModified: reply.not_modified,
+    etag: typeof reply.etag === 'string' ? reply.etag : null,
+    value: reply.value,
+  }
+}
+
+/**
+ * Stores or clears the cached validator and payload for one request shape.
+ *
+ * @param cacheKey Stable key of the request shape.
+ * @param etag Raw ETag returned by the backend, or null when none was produced.
+ * @param payload Payload associated with the validator.
+ */
+function storeEtagEntry(cacheKey: string, etag: string | null, payload: unknown): void {
+  if (etag) {
+    etagCache.set(cacheKey, {
+      etag: etag.trim().replace(/^W\//, '').replace(/^"|"$/g, ''),
+      payload,
+    })
+  } else {
+    etagCache.delete(cacheKey)
+  }
 }
 
 /**
  * Calls a backend function through either Tauri or the REST bridge.
  *
- * The REST path issues a GET request whose parameters are JSON-encoded into
- * the query string, and participates in conditional validation: the global
- * ETag returned by the backend is cached per request shape and replayed as
- * `If-None-Match` and `arachneaEtag`. The latter lets Scrapyfy validate the
- * root response before it executes dependent sub-queries; a `304 Not Modified`
- * answer resolves to the cached payload.
- * The Tauri path keeps its original invoke semantics.
+ * The REST path issues a plain GET request whose parameters are JSON-encoded
+ * into the query string: the browser's private HTTP cache stores ETag-bearing
+ * responses and replays `If-None-Match` on the next load, resolving a `304`
+ * with the cached body before this function sees the reply.
+ * The Tauri path has no HTTP cache, so it carries the validator in the reserved
+ * `arachneaEtag` invoke field, receives a conditional reply with the new ETag
+ * and a not-modified flag, and replays its cached payload on `304`.
+ * The native ETag cache is cleared whenever the session or selected profile changes.
  *
  * @param fct_name Backend function name.
  * @param params Function parameters.
@@ -64,9 +117,25 @@ export async function call_api<T = unknown>(
 
   try {
     if (tauriInvoke) {
-      const payload = await tauriInvoke<unknown>(fct_name, params)
-      checkSessionReply(payload, generation)
-      return unwrapAggregationPayload<T>(payload, fct_name, options.rejectExecutionErrors)
+      const cacheKey = buildEtagCacheKey(fct_name, JSON.stringify(params))
+      const cachedEntry = etagCache.get(cacheKey)
+      const invokeParams = cachedEntry
+        ? { ...params, [nativeEtagField]: cachedEntry.etag }
+        : params
+      const reply = await tauriInvoke<unknown>(fct_name, invokeParams)
+      if (generation !== sessionGeneration()) throw new ReportedApiError('Discarded response from a previous account.')
+
+      const conditional = readNativeConditionalReply(reply)
+      if (conditional) {
+        const notModified = conditional.notModified && cachedEntry !== undefined
+        const payload = notModified ? cachedEntry.payload : conditional.value
+        checkSessionReply(payload, generation)
+        if (!notModified) storeEtagEntry(cacheKey, conditional.etag, conditional.value)
+        return unwrapAggregationPayload<T>(payload, fct_name, options.rejectExecutionErrors)
+      }
+
+      checkSessionReply(reply, generation)
+      return unwrapAggregationPayload<T>(reply, fct_name, options.rejectExecutionErrors)
     }
 
     // Serialize every parameter as JSON so complex values (arrays, objects,
@@ -80,44 +149,17 @@ export async function call_api<T = unknown>(
       searchParams.append(key, JSON.stringify(value))
     }
     const queryString = searchParams.toString()
-    const cacheKey = buildEtagCacheKey(fct_name, queryString)
-    const cachedEntry = etagCache.get(cacheKey)
-
-    const headers: Record<string, string> = {}
-    if (cachedEntry) {
-      headers['If-None-Match'] = `"${cachedEntry.etag}"`
-      // Keep the validator out of cacheKey, otherwise every refresh would use
-      // a different cache entry. The backend uses this value to decode the
-      // source fragment before scheduling scraper sub-queries.
-      searchParams.append('arachneaEtag', JSON.stringify(cachedEntry.etag))
-    }
-    const requestQueryString = searchParams.toString()
-
     const response = await fetch(
-      `${restApiBaseUrl}/${fct_name}${requestQueryString ? `?${requestQueryString}` : ''}`,
-      { method: 'GET', headers, credentials: 'same-origin' },
+      `${restApiBaseUrl}/${fct_name}${queryString ? `?${queryString}` : ''}`,
+      { method: 'GET', credentials: 'same-origin' },
     )
 
     if (generation !== sessionGeneration()) throw new ReportedApiError('Discarded response from a previous account.')
-    if (response.status === 304 && cachedEntry) {
-      return unwrapAggregationPayload<T>(cachedEntry.payload, fct_name, options.rejectExecutionErrors)
-    }
-
     const payload = await parseResponseBody(response)
     checkSessionReply(payload, generation)
 
     if (!response.ok) {
       handleFailedRestResponse(payload, fct_name, response.status)
-    }
-
-    const etagHeader = response.headers.get('ETag')
-    if (etagHeader) {
-      etagCache.set(cacheKey, {
-        etag: etagHeader.replace(/^W?"/, '').replace(/"$/, ''),
-        payload,
-      })
-    } else {
-      etagCache.delete(cacheKey)
     }
 
     return unwrapAggregationPayload<T>(payload, fct_name, options.rejectExecutionErrors)

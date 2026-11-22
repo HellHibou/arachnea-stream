@@ -1,12 +1,33 @@
 import { onScopeDispose, shallowRef } from 'vue'
 import { createCustomHomeDraft, deleteCustomHome, listCustomHomes, loadCustomHome, reorderCustomHomes, saveCustomHome } from '@/services/customHomes'
 import { moveCustomHomeItem } from '@/services/customHomeDraft'
-import type { CustomHomeDefinition } from '@/types/customHome'
+import type { CustomHomeDefinition, CustomHomeListResult } from '@/types/customHome'
 import { t } from '@/i18n'
 import { ProfileApiError } from '@/services/profileApi'
 
-/** @returns Home snapshots and persistence actions; failures never close or overwrite an editor draft. */
-export function useCustomHomeManager() {
+interface CustomHomeManagerOptions {
+  /** Gates automatic refreshes so navigation-owned instances stay idle while the sidebar is hidden. */
+  shouldRefresh?: () => boolean
+}
+
+/** In-flight read shared by every manager so simultaneous auto-refreshes issue one profile call. */
+let sharedHomesFetch: Promise<CustomHomeListResult> | null = null
+
+/** @returns The current homes read, reusing any identical in-flight request. */
+function fetchHomes(): Promise<CustomHomeListResult> {
+  if (!sharedHomesFetch) {
+    sharedHomesFetch = listCustomHomes().finally(() => { sharedHomesFetch = null })
+  }
+  return sharedHomesFetch
+}
+
+/** Drops a read started before a confirmed write so the next refresh cannot join a stale reply. */
+function invalidateHomesFetch(): void { sharedHomesFetch = null }
+
+/** @param options Optional gate for automatic refreshes. @returns Home snapshots and persistence actions; failures never close or overwrite an editor draft. */
+export function useCustomHomeManager(options: CustomHomeManagerOptions = {}) {
+  /** Returns whether an automatic refresh is currently allowed. */
+  function canAutoRefresh(): boolean { return options.shouldRefresh?.() ?? true }
   const homes = shallowRef<CustomHomeDefinition[]>([])
   const draft = shallowRef<CustomHomeDefinition | null>(null)
   const expectedRevision = shallowRef<number | null>(null)
@@ -18,7 +39,7 @@ export function useCustomHomeManager() {
   async function refresh(): Promise<void> {
     const revision = ++request
     try {
-      const result = await listCustomHomes()
+      const result = await fetchHomes()
       if (revision !== request) return
       homes.value = result.homes
       if (draft.value && expectedRevision.value !== null &&
@@ -56,6 +77,7 @@ export function useCustomHomeManager() {
     try {
       const result = await saveCustomHome(value, expectedRevision.value)
       draft.value = null
+      invalidateHomesFetch()
       window.dispatchEvent(new Event('custom-homes-changed'))
       await refresh()
       return result
@@ -67,7 +89,7 @@ export function useCustomHomeManager() {
     if (busy.value) return false
     busy.value = true
     errorMessage.value = null
-    try { await deleteCustomHome(home.id, home.updatedAt); window.dispatchEvent(new Event('custom-homes-changed')); await refresh(); return true }
+    try { await deleteCustomHome(home.id, home.updatedAt); invalidateHomesFetch(); window.dispatchEvent(new Event('custom-homes-changed')); await refresh(); return true }
     catch (error) { fail(error); return false }
     finally { busy.value = false }
   }
@@ -76,18 +98,18 @@ export function useCustomHomeManager() {
     if (busy.value) return
     busy.value = true
     errorMessage.value = null
-    try { await reorderCustomHomes(moveCustomHomeItem(homes.value, index, direction)); window.dispatchEvent(new Event('custom-homes-changed')); await refresh() }
+    try { await reorderCustomHomes(moveCustomHomeItem(homes.value, index, direction)); invalidateHomesFetch(); window.dispatchEvent(new Event('custom-homes-changed')); await refresh() }
     catch (error) { fail(error) }
     finally { busy.value = false }
   }
   /** Discards local state without calling any persistence operation. */
   function cancel(): void { if (!busy.value) { draft.value = null; errorMessage.value = null } }
   /** Refreshes available destinations after another view may have saved a home. */
-  function onFocus(): void { void refresh() }
+  function onFocus(): void { if (canAutoRefresh()) void refresh() }
   /** Refreshes snapshots after returning to a visible tab without replacing a draft. */
-  function onVisibility(): void { if (document.visibilityState === 'visible') void refresh() }
+  function onVisibility(): void { if (canAutoRefresh() && document.visibilityState === 'visible') void refresh() }
   /** Drops the previous profile’s drafts and invalidates delayed replies. */
-  function onProfile(): void { request++; homes.value = []; draft.value = null; expectedRevision.value = null; errorMessage.value = null; void refresh() }
+  function onProfile(): void { request++; homes.value = []; draft.value = null; expectedRevision.value = null; errorMessage.value = null; if (canAutoRefresh()) void refresh() }
   window.addEventListener('arachnea-profile-context', onProfile)
   window.addEventListener('focus', onFocus)
   window.addEventListener('custom-homes-changed', onFocus)

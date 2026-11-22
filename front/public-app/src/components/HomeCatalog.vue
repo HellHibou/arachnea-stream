@@ -15,6 +15,7 @@ import { useServiceMetadata } from '@/composables/useServiceMetadata'
 import { useCategoryHomeAdd } from '@/composables/home/useCategoryHomeAdd'
 import { useScrollToTop } from '@/composables/useScrollToTop'
 import { useI18n } from '@/i18n'
+import { reportFrontendErrorOnce } from '@/composables/useErrorNotifications'
 import { useStorage } from '@/services/storage'
 import type { HomeCategory, HomeSection, HomeSectionSubsection } from '@/types/home'
 import type { CustomHomeDefinition, CustomHomeAddIntent } from '@/types/customHome'
@@ -162,7 +163,6 @@ const {
   customIssues,
   categoryBlocks,
   loadCategoryPage,
-  retryCustomIssue,
   /** The catalog data. */
   catalog,
   /** Whether the catalog is currently loading. */
@@ -265,6 +265,17 @@ const { showScrollToTop, scrollToTop } = useScrollToTop({
 })
 /** Internationalization utilities. */
 const { t } = useI18n()
+/** Reports custom-home resolution issues through the shared bottom-right notification stack. */
+watch(customIssues, (issues) => {
+  for (const issue of issues) {
+    const message = issue.repairRequired ? `${issue.message} ${t('customHome.repairRequired')}` : issue.message
+    reportFrontendErrorOnce(t('errors.notifications.operations.customHomeContent'), message)
+  }
+}, { immediate: true })
+/** Reports catalog load failures through the shared notification stack. */
+watch(errorMessage, (message) => {
+  if (message) reportFrontendErrorOnce(t('errors.notifications.operations.catalogLoad'), message)
+}, { immediate: true })
 const addIntent = shallowRef<CustomHomeAddIntent | null>(null)
 const addDialogOpen = shallowRef(false)
 /** @param intent Explicit add action; never selects an implicit destination or writes storage. */
@@ -516,27 +527,15 @@ function handleSelectCollectionItem(item: MediaItem) {
       <HomePinButton :label="t('customHome.addCategory')" @click="addCurrentCategory" />
     </Teleport>
     <section class="home-catalog__shell">
-      <v-alert v-for="issue in customIssues" :key="issue.id" type="warning" variant="tonal" role="status">
-        {{ issue.message }}
-        <span v-if="issue.repairRequired">{{ t('customHome.repairRequired') }}</span>
-        <v-btn @click="retryCustomIssue(issue.id)">{{ t('sourceHome.retry') }}</v-btn>
-      </v-alert>
-      <article v-if="errorMessage" class="home-catalog__empty">
-        <h2 class="home-catalog__empty-title">{{ t('catalog.loadingErrorTitle') }}</h2>
-        <p class="home-catalog__empty-copy">
-          {{ errorMessage }}
-        </p>
-        <v-btn @click="loadCatalog">{{ t('sourceHome.retry') }}</v-btn>
-      </article>
-
-      <article v-else-if="isLoading && (!catalog || props.mode === 'category')" class="home-catalog__empty">
+      <!-- Catalog and custom-home failures are reported through the shared notification stack. -->
+      <article v-if="!errorMessage && isLoading && (!catalog || props.mode === 'category')" class="home-catalog__empty">
         <h2 class="home-catalog__empty-title">{{ t('entry.loadingTitle') }}</h2>
         <p class="home-catalog__empty-copy">
           {{ t('entry.loadingMessage') }}
         </p>
       </article>
 
-      <article v-else-if="hasLoaded && !hasContent" class="home-catalog__empty">
+      <article v-else-if="!errorMessage && hasLoaded && !hasContent" class="home-catalog__empty">
         <h2 class="home-catalog__empty-title">{{ t('search.emptyTitle') }}</h2>
         <p class="home-catalog__empty-copy">
           {{ t('catalog.empty') }}
@@ -544,7 +543,7 @@ function handleSelectCollectionItem(item: MediaItem) {
         <v-btn v-if="props.sourceId !== null" @click="loadCatalog">{{ t('sourceHome.retry') }}</v-btn>
       </article>
 
-      <template v-else>
+      <template v-else-if="!errorMessage">
         <section class="home-catalog__content">
           <HomeHeroBanner
             v-if="currentCatalog.banners.entries.length > 0 || currentCatalog.deferredBanners.length > 0"

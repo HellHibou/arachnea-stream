@@ -38,6 +38,16 @@ export function reportFrontendErrorNotification(operation: string, message: stri
   enqueueErrorNotification(error)
 }
 
+/**
+ * Queues a frontend diagnostic unless an identical one is still visible.
+ * @param operation Operation label displayed in the localized summary.
+ * @param message Technical diagnostic shown in the collapsed details.
+ */
+export function reportFrontendErrorOnce(operation: string, message: string): void {
+  if (notifications.value.some((notification) => notification.origin === 'frontend' && notification.message === message)) return
+  reportFrontendErrorNotification(operation, message)
+}
+
 let lastFrontendErrorMillis = 0
 let frontendErrorSequence = 0
 

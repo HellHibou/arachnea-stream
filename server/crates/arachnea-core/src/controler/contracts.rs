@@ -152,6 +152,19 @@ impl RequestControlerContext {
         self
     }
 
+    /// Attaches a transport-synthesized header to this context.
+    ///
+    /// Native IPC has no HTTP headers; the Tauri transport uses this to lift a
+    /// conditional validator carried by the invoke payload into the context.
+    ///
+    /// # Arguments
+    /// * `name` - Header name to attach.
+    /// * `value` - Header value to attach.
+    pub fn with_header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
+        self.headers.insert(name.into(), value.into());
+        self
+    }
+
     /// Returns the optional value of the given header.
     ///
     /// The lookup is case-insensitive, matching HTTP header semantics.

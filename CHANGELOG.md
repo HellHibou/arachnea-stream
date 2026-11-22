@@ -83,6 +83,7 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Native JSON commands now participate in conditional ETag validation. The Tauri transport lifts the reserved `arachneaEtag` invoke field into a synthetic `If-None-Match` context header (removing it from the command payload) and relays a `304` status or produced ETag back in a `__arachnea_conditional_reply` wrapper with `etag`, `not_modified` and `value`. Replies without conditional metadata stay unchanged, so every existing native caller keeps its bare payload.
 - Added transport-captured native webview identity to JSON/binary controller contexts, HTTP path metadata for mount-scoped cookies, trusted native IPC checks and payload-free native response events. Admin IPC is restricted to the native administration window.
 
 - Added synchronous typed SQLite transactions across table views in one physical database, verified caller-owned composite unique indexes, primary-key upserts that preserve secondary uniqueness, and an in-memory database constructor. The existing SQLite round-trip scenario now checks multi-table rollback, uniqueness, reopening and cross-database rejection.
@@ -487,6 +488,7 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Content responses carrying an ETag are now served with `Cache-Control: private, no-cache` instead of `private, no-store`, while `Vary: Cookie` and the per-session isolation stay in place. The browser's private cache can store those responses and replay `If-None-Match` on refresh, resolving a 304 with the cached body; responses without a validator and authentication failures keep `no-store`.
 - `get_category` now keeps one execution per source descriptor: repeated descriptors for the same provider no longer overwrite each other, so a merged category can load several categories from that provider at once. The category request contract and URL payload are unchanged.
 - Profile home validation accepts category-owned banners and sections plus bounded parent paths in version 1 documents. Existing documents require no migration.
 
@@ -938,6 +940,7 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Backend calls made from the desktop app now reuse the same ETag cache as the browser: the validator is sent in the reserved `arachneaEtag` invoke field and a `304` reply replays the cached payload. The browser path no longer sends the obsolete `arachneaEtag` query parameter, and the cache is cleared when the selected profile changes as well as on session changes.
 - Custom homes can rename their category shortcuts from the editor with the same optional title override used for sections. The editor groups categories into one row group with group-level reordering, just like sections; each service row has its own title input, and grouping uses that custom title when present, falling back to the original label otherwise. The displayed card follows the same grouping rule, so sources sharing a custom title are merged into one entry. Existing definitions without the field keep their original labels.
 - Entry details now show an optional channel link directly below the source action, styled like the trailer button. It reuses the collection route with all descriptor parameters, accepts a missing or failed logo without hiding the channel name, and stays hidden when the name or destination is unusable. M6Play channel categories load their programme carousel through the existing deferred banner loader.
 
@@ -987,6 +990,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Catalog load failures, custom-home resolution issues and custom-home definition errors now surface only through the shared bottom-right notification stack instead of inline alerts at the top of the screen. Notifications are deduplicated by message while still visible and carry a localized operation label; retry stays where it acts on paginated or partial content, not on the removed alerts.
+- REST calls no longer set `If-None-Match` from the application cache: the browser's private HTTP cache now revalidates ETag-bearing responses on refresh and resolves a 304 with its cached body. The application-level ETag cache remains for native Tauri calls, which have no HTTP cache, and is still cleared on session/profile changes.
 - Home, category and custom-home category strips now render compact tag-style pills instead of image cards: the optional category thumbnails are gone, labels wrap in a single flexible row with white text and a black outline for legibility over background media, and the strip's bottom spacing was tightened to match the smaller footprint.
 - Home, category and custom-home strips now merge categories sharing the same normalized display label (case, spacing and accents ignored) into a single entry and combine their source descriptors, so opening it loads content from every contributing source at once. Custom-home shortcuts added for the sources of one category therefore collapse into one card instead of one per source. Categories with different channel branding stay separate, and per-source discovery in the custom-home picker is unchanged.
 - Category screens no longer render the in-page “Catégorie” eyebrow and category title. The top bar now shows `Arachnéa Stream - <channel logo> <channel name> - <category label>`: a category-level channel attribution (name and optional logo, including the one carried by entry channel links) replaces the owning service identity, otherwise the service metadata is used and the segment is omitted when the category has no single owning source. The category quick-add pin button moved next to this title in the top bar, so the catalog heading is gone.
@@ -1043,6 +1048,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Fixed
 
+- Native conditional replies are now unwrapped correctly: the desktop client reads the backend's `not_modified` flag (snake_case) instead of a nonexistent `notModified` field, so `load_home` and the other catalog commands no longer hand the raw IPC envelope to consumers as an empty result ("Source unavailable" for every discovered source).
+- The public session gate no longer flashes the "Sign out" button between session restoration and content readiness on an authenticated page load, and no longer displays its own "Restoring your session…" / "Loading your application…" status. The gate stays visually neutral while storage, theme, metadata and profile content are prepared, so the existing "Chargement en cours" loading screen of the content views remains the only visible loading state; the sign-out and retry controls now appear only for a genuine startup failure such as an unavailable account service.
 - Sidebar errors appear only in the shared notification stack. The sidebar still offers a retry action when loading fails.
 
 - Custom home additions can rediscover categories published as inline collection cards and tolerate identical repeated category declarations. The add dialog distinguishes a missing origin from a failed content load.
@@ -1050,6 +1057,7 @@ All notable changes to the server workspace are recorded here.
 - Pins on category pages now add the category’s own featured collection, a selected media section or subsection, and subcategories as shortcuts or content. Category pins appear with the displayed content. The add dialog resolves the original category before saving and reports resolution failures.
 
 - Custom-home category blocks preserve section titles, order and loaded subsections across pages. Category pages and linked rails have independent pagination and retry controls, including when a category page has no media rails.
+- Missing custom-home section references now report the saved label and source beside the rail key, so a rail whose provider id changed can be identified and repaired in the editor.
 
 - Styled the profile editor heading like preference section headings, with bold typography, the theme accent marker and a bottom divider.
 
@@ -1415,3 +1423,15 @@ All notable changes to the server workspace are recorded here.
 - Vidzy now uses the observed compatible HeadlessChrome User-Agent consistently for embed requests, HLS proxy requests, returned stream headers and subtitles. Both stream extraction paths proxy standalone playlist links and quoted `URI` attributes, including relative, origin-relative, scheme-relative and absolute links, so audio and I-frame renditions retain the inherited proxy options.
 - Vidzy now obtains `gk` through a JSON gate sub-query before proxying either stream format. Adding the token to the master URL lets the CDN propagate it to video/audio playlists and segments, fixing delayed HTTP 403 failures after the first playable segments. Missing gate tokens no longer produce an apparently usable stream URL.
 - The Uqload resolver (`uqload.yaml`) now accepts any `uqload.<2-3 letter TLD>` mirror (case-insensitive) instead of a hardcoded whitelist, so `uqload.cx` and any future `uqload.*` domain are resolved without YAML changes. `resolve_stream` also gained three fallback extraction patterns for unpacked player pages — `file: "...".m3u8` (without requiring a leading scheme), `sources: [{file: "..."}]`, and `hls2`/`hls3`/`hls4: "..."` — in addition to the existing Dean Edwards Packer + `file: "...".m3u8` path. `unpack_packer` drops the entire page text when the embed is not a Packer block, so mirrors serving non-packed pages previously yielded no stream URL at all.
+
+### <u>front-public</u>
+
+#### Changed
+
+- The navigation sidebar now loads the custom-homes list only when it is actually visible: `AppNavigation` refreshes on activation instead of on mount, and its manager's focus/visibility/profile auto-refreshes are gated by the same condition. Entry pages no longer issue a `profiles/homes` request while the sidebar is hidden.
+- Profile cache reads are coalesced: concurrent `refreshCachedRecords()` calls from the same profile generation share one `profiles/sections` + `profiles/bookmarks` round trip, with one follow-up when a call arrives mid-flight. Likewise, every `useCustomHomeManager` instance now shares a single in-flight `profiles/homes` read (invalidated after a confirmed home write), so simultaneous focus/visibility handlers issue one request instead of several. The cross-tab focus/visibility synchronization is kept as-is.
+
+#### Fixed
+
+- Profile activation no longer loads bookmarks and sections twice. The `arachnea-profile-context` listener in the storage store now only clears the cached records, while the selection flow keeps the awaited refresh; this preserves the "preferred season restored before the entry view mounts" behavior that dropping the awaited call would have broken.
+- Cross-season autoplay no longer re-fetches the same `get_season` pages. The playable-episode probe now returns the pages it already loaded, and the data controller publishes them directly into the visible season state before selecting the episode.

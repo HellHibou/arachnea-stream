@@ -123,6 +123,16 @@ Implement only supported capabilities. The catalogue and player-discovery querie
 | `list_lives` | `json` / `html` | List of live channels |
 | `get_live` | `json` / `html` | Live channel detail (player) |
 
+Commands producing a global ETag participate in conditional validation on both
+transports. REST answers them with `Cache-Control: private, no-cache` and
+`Vary: Cookie`, so the browser's private cache stores the response, replays
+`If-None-Match` on the next load and resolves `304 Not Modified` with the cached
+body without involving the application. Responses without a validator keep
+`no-store`. Tauri IPC has no HTTP cache: the native client sends the validator
+in the reserved `arachneaEtag` invoke field and receives a conditional reply
+under `__arachnea_conditional_reply` with `etag`, `not_modified` and `value`.
+Commands without a validator keep returning their bare payload.
+
 ---
 
 ## 4. Media types

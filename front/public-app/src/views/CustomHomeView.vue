@@ -5,6 +5,7 @@ import { useCustomHomeDefinition } from '@/composables/home/useCustomHomeDefinit
 import { useStorage } from '@/services/storage'
 import { APP_TITLE } from '@/constants'
 import { useI18n } from '@/i18n'
+import { reportFrontendErrorOnce } from '@/composables/useErrorNotifications'
 import type { HomeCategory } from '@/types/home'
 import type { BackgroundMediaCandidate, MediaSelectionTarget } from '@/types/media'
 
@@ -15,9 +16,13 @@ const emit = defineEmits<{
   'select-category': [category: HomeCategory]
   'update:background-media-items': [items: BackgroundMediaCandidate[]]
 }>()
-const { definition, errorMessage, isLoading, refresh } = useCustomHomeDefinition(toRef(props, 'homeId'))
+const { definition, errorMessage, isLoading } = useCustomHomeDefinition(toRef(props, 'homeId'))
 const parameters = useStorage().getParameters()
 const { t } = useI18n()
+/** Reports custom-home resolution failures through the shared bottom-right notification stack. */
+watch(computed(() => props.routeError ?? errorMessage.value), (message) => {
+  if (message) reportFrontendErrorOnce(t('errors.notifications.operations.customHomeDefinition'), message)
+}, { immediate: true })
 const pageTitle = computed(() => definition.value ? `${definition.value.name} - ${APP_TITLE}` : APP_TITLE)
 watch(pageTitle, (title) => { document.title = title }, { immediate: true })
 watch(definition, (value) => { if (!value) emit('update:background-media-items', []) })
@@ -25,11 +30,8 @@ onUnmounted(() => { document.title = APP_TITLE })
 </script>
 
 <template>
-  <v-alert v-if="errorMessage || props.routeError" type="warning" role="status">
-    {{ props.routeError ?? errorMessage }}
-    <v-btn @click="refresh">{{ t('sourceHome.retry') }}</v-btn>
-  </v-alert>
-  <p v-else-if="isLoading && !definition" role="status">{{ t('entry.loadingMessage') }}</p>
+  <!-- Definition failures are reported through the shared notification stack. -->
+  <p v-if="isLoading && !definition" role="status">{{ t('entry.loadingMessage') }}</p>
   <template v-else-if="definition">
     <HomeCatalog
       :key="definition.id"

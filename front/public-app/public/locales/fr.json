@@ -492,7 +492,12 @@
       "codeCopied": "Copié",
       "origin": "Origine",
       "message": "Message technique",
-      "close": "Fermer la notification"
+      "close": "Fermer la notification",
+      "operations": {
+        "catalogLoad": "le chargement du catalogue d'accueil",
+        "customHomeContent": "la résolution des références de l'accueil personnalisé",
+        "customHomeDefinition": "le chargement de l'accueil personnalisé"
+      }
     }
   },
   "desktopTabs": {
@@ -518,8 +523,6 @@
     "savePassword": "Enregistrer le mot de passe",
     "signIn": "Se connecter",
     "signOut": "Se déconnecter",
-    "restoring": "Restauration de la session…",
-    "loading": "Chargement de l’application…",
     "retry": "Réessayer",
     "memoryOnly": "Cet appareil ne peut pas enregistrer la session de façon sécurisée. Reconnectez-vous après redémarrage.",
     "errors": {

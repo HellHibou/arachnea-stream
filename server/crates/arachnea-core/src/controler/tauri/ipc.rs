@@ -2,10 +2,11 @@
 
 use super::tabs;
 use crate::controler::{
-    ControlerFunctionInput, ControlerJsonInput, JsonControlerFunction, RequestControlerContext,
-    SerializedControlerFunction,
+    ControlerFunctionInput, ControlerJsonInput, ControlerJsonOutput, JsonControlerFunction,
+    RequestControlerContext, SerializedControlerFunction,
 };
 use crate::{
+    HEADER_ETAG, HEADER_IF_NONE_MATCH, NATIVE_CONDITIONAL_REPLY_FIELD, NATIVE_ETAG_FIELD,
     TAURI_ADMIN_WEB_MOUNT as ADMIN_WEB_MOUNT,
     TAURI_ADMIN_WINDOW_DEFAULT_ROUTE as ADMIN_WINDOW_DEFAULT_ROUTE,
     TAURI_ADMIN_WINDOW_LABEL as ADMIN_WINDOW_LABEL,
@@ -16,7 +17,7 @@ use ::tauri::{
     AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder, Wry,
 };
 use anyhow::anyhow;
-use serde_json::Value;
+use serde_json::{json, Map, Value};
 
 /// Builds the invoke handler while retaining registered callbacks for the runtime.
 ///
@@ -110,10 +111,10 @@ pub(super) fn handler(
             });
             true
         } else if let Some((_cmd, handler)) = json_handlers.iter().find(|(c, _)| *c == command) {
-            // Tauri IPC carries no HTTP headers and no conditional
-            // validation; the desktop frontend never sends ETags.
+            // Native IPC carries no HTTP headers: the conditional validator is
+            // lifted from the reserved payload field into the request context.
             let handler = std::sync::Arc::clone(handler);
-            let payload =
+            let mut payload =
                 match invoke.message.payload() {
                     InvokeBody::Json(payload) => payload.clone(),
                     InvokeBody::Raw(_) => {
@@ -126,20 +127,31 @@ pub(super) fn handler(
                         return true;
                     }
                 };
+            let native_etag = payload
+                .as_object()
+                .and_then(|fields| fields.get(NATIVE_ETAG_FIELD))
+                .and_then(Value::as_str)
+                .map(str::to_string);
+            if let Some(fields) = payload.as_object_mut() {
+                fields.remove(NATIVE_ETAG_FIELD);
+            }
 
             let app = invoke.message.webview().app_handle().clone();
             invoke.resolver.respond_async(async move {
+                let mut context = RequestControlerContext::default().with_native_webview(caller);
+                if let Some(etag) = native_etag {
+                    context = context.with_header(HEADER_IF_NONE_MATCH, etag);
+                }
                 handler(ControlerJsonInput {
                     payload: ControlerFunctionInput::Json(payload),
-                    // Tauri IPC carries no HTTP headers.
-                    context: RequestControlerContext::default().with_native_webview(caller),
+                    context,
                 })
                 .await
                 .map(|output| {
                     if let Some(event) = output.headers.get(crate::CONTROLLER_NATIVE_EVENT_HEADER) {
                         let _ = app.emit(event, ());
                     }
-                    output.value
+                    native_conditional_reply(output)
                 })
                 .map_err(|e| InvokeError::from_anyhow(anyhow!("Handler error: {}", e)))
             });
@@ -153,6 +165,31 @@ pub(super) fn handler(
             false
         }
     }
+}
+
+/// Wraps a conditional native reply so the frontend can cache and replay it.
+///
+/// Replies without an ETag and without a `304` status are returned unchanged,
+/// keeping every existing Tauri command response compatible.
+///
+/// # Arguments
+/// * `output` - Header-aware controller output to relay through IPC.
+fn native_conditional_reply(output: ControlerJsonOutput) -> Value {
+    let etag = output.headers.get(HEADER_ETAG).cloned();
+    if etag.is_none() && output.status != 304 {
+        return output.value;
+    }
+
+    let mut reply = Map::new();
+    reply.insert("not_modified".to_string(), json!(output.status == 304));
+    reply.insert("etag".to_string(), etag.map_or(Value::Null, Value::String));
+    reply.insert("value".to_string(), output.value);
+    let mut wrapper = Map::new();
+    wrapper.insert(
+        NATIVE_CONDITIONAL_REPLY_FIELD.to_string(),
+        Value::Object(reply),
+    );
+    Value::Object(wrapper)
 }
 
 /// Opens the dedicated administration window, reusing it when it still exists.
