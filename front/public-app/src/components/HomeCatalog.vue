@@ -555,6 +555,15 @@ function handleSelectCollectionItem(item: MediaItem) {
             @load-banners="loadDeferredBanners"
           />
 
+          <HomeCategoryStrip
+            :show-add-button="editingEnabled"
+            @add-categories="addCategories"
+            v-if="visibleCategories.length > 0"
+            class="home-catalog__category-strip"
+            :categories="visibleCategories"
+            @select-category="handleSelectCategory"
+          />
+
           <section
             v-if="isHomeMode && renderedPinnedSections.length > 0"
             class="home-catalog__sections"
@@ -631,15 +640,6 @@ function handleSelectCollectionItem(item: MediaItem) {
               </MediaCardCollection>
             </div>
           </section>
-
-          <HomeCategoryStrip
-            :show-add-button="editingEnabled"
-            @add-categories="addCategories"
-            v-if="visibleCategories.length > 0"
-            class="home-catalog__category-strip"
-            :categories="visibleCategories"
-            @select-category="handleSelectCategory"
-          />
         </section>
 
         <section v-if="currentCatalog.sections.length > 0 || categoryBlocks.length > 0" class="home-catalog__sections">
@@ -827,7 +827,7 @@ function handleSelectCollectionItem(item: MediaItem) {
   gap: 26px;
 }
 
-.home-catalog__category-strip {
+.home-catalog__content > :last-child {
   margin-bottom: 8px;
 }
 
