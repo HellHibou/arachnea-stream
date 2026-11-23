@@ -84,6 +84,7 @@ const {
   cancelSubtitleTranslation,
   /** Cancels the request and removes the translated track. */
   resetSubtitleTranslation,
+  setPlaybackPaused,
   /** Dismisses the current translation failure without changing tracks. */
   dismissSubtitleTranslationFailure,
 } = useVideoJsMediaRenderer({
@@ -94,6 +95,7 @@ const {
 })
 
 defineExpose({
+  setPlaybackPaused,
   requestSubtitleTranslation,
   cancelSubtitleTranslation,
   resetSubtitleTranslation,

@@ -382,6 +382,7 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Added the Twitch social streaming source with category sections, channel pages and search, and on-demand HLS playback in the native player. Broadcast dates use `YYYY-MM-DD`.
 - Added an optional `channel` object to `get_entry` responses. Odysee requires a valid signature and a channel claim ID, with the LBRY channel name as a display-name fallback. M6Play derives the attribution from the programme's replay service code and restricts the mapping to its four replay channels. The field is additive and source-owned category parameters stay opaque to the client.
 - M6Play channel categories now expose `banners.link` for M6, W9, 6ter and Gulli, reusing the existing deferred programme carousel from category pages.
 - Odysee and M6Play channel categories expose `banners.source-logo` when a channel image is available.
@@ -533,6 +534,14 @@ All notable changes to the server workspace are recorded here.
 #### Fixed
 
 - Restored macOS compilation for native session storage in Keychain.
+- Twitch entry details now expose the broadcast title and Twitch category as a genre. Active broadcasts show a Live label while retaining catalogue navigation. Channel pages provide Home, Clips and Videos sections and a single playable banner. Twitch HLS playlists and segments stay on the application proxy.
+- Twitch channel navigation now exposes Home, Clips and Videos as categories with independent sections for recent broadcasts, recently streamed games, clip periods and video types.
+- Twitch recordings now expose their chapter markers in entry details and native playback.
+- Twitch recordings now expose timeline thumbnail sprites from Twitch's seek preview index.
+- Twitch video, clip and game sections now return pages of 24 within the first 100 results requested from the public listing.
+- Twitch game categories now expose Live Channels, Videos and Clips tabs with separate listings.
+- Twitch live streams, recordings and clips now expose their declared language on catalogue cards and entry details.
+- Twitch category banners display the channel or game name, including when the banner plays a live broadcast or a recording.
 - M6Play `get_entry` now lists the real seasons of a programme instead of only "All videos". The previous extractor read `program_subcats`, an editorial taxonomy that is empty for series such as Kally's Mashup (15131); season labels and block identifiers are now read from the anonymous `layout` BFF (`videos_by_program`, `videos_by_subcat_by_program` and `videos_by_season_by_program` blocks), so entries expose one season per published block. `get_season` accepts both the legacy middleware links and the absolute block links, replacing a `PAGE` marker with the requested page and reporting `have_more` from the block pagination. Block episodes keep the existing episode contract (title, description, normalized duration, preview image, web link and `m6play-video` resolver target), with the middleware path unchanged for "All videos".
 - Coflix category grids now paginate. `get_category` emits a section `link`, so the frontend requests follow-up pages through `get_section`; that query was missing and every "load more" attempt failed. `get_section` now scrapes the same catalogue grid with `{query_url}{query_separator}page={page}`, reuses the category card extraction and derives `have_more` from the pagination links. The existing Coflix source-check contract now declares `get_section` as an expected operation.
 
@@ -950,6 +959,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Added a play/pause button to banner videos, with the playback preference saved in the browser.
+
 - Backend calls made from the desktop app now reuse the same ETag cache as the browser: the validator is sent in the reserved `arachneaEtag` invoke field and a `304` reply replays the cached payload. The browser path no longer sends the obsolete `arachneaEtag` query parameter, and the cache is cleared when the selected profile changes as well as on session changes.
 - Custom homes can rename their category shortcuts from the editor with the same optional title override used for sections. The editor groups categories into one row group with group-level reordering, just like sections; each service row has its own title input, and grouping uses that custom title when present, falling back to the original label otherwise. The displayed card follows the same grouping rule, so sources sharing a custom title are merged into one entry. Existing definitions without the field keep their original labels.
 - Entry details now show an optional channel link directly below the source action, styled like the trailer button. It reuses the collection route with all descriptor parameters, accepts a missing or failed logo without hiding the channel name, and stays hidden when the name or destination is unusable. M6Play channel categories load their programme carousel through the existing deferred banner loader.
@@ -1004,6 +1015,9 @@ All notable changes to the server workspace are recorded here.
 
 - Reconciled uncertain profile and playback writes with server state and removed operation polling and retry IDs.
 
+- Video banners reserve a left column for the text and logo and a right column for the player, with translucent playback controls that become opaque on hover or keyboard focus.
+- Aligned banner videos with the right edge and centered the carousel navigation across the full banner, above the video in the stacking order.
+- Set a 25px gap between the banner content column and the video player.
 - On the home screen, the category strip is now rendered directly below the featured banner and above the bookmarks (favorites) section. The bottom spacing previously applied to the strip now follows the last item of that top content group, so the gap before the provider rails stays the same whichever block is present.
 - Category tags now use the same `1rem` font size and bold weight as the media card title, including on narrow screens where the smaller mobile override was removed. Their hover background is the same accent gradient as the banner's “Voir la fiche” action.
 - The home category strip now has the same layout controls as media sections: a toggle button switches between a multi-row list and a single scrollable row, with left/right buttons appearing only when that row overflows. The single-row layout is the default; the choice is local to the component and resets on reload.
@@ -1066,6 +1080,7 @@ All notable changes to the server workspace are recorded here.
 #### Fixed
 
 - Custom-home pages reuse the definition resolved by the router in the page and toolbar. Concurrent home reads share one request, and closed management dialogs skip automatic reads. Returning to the window groups focus and visibility refreshes for the active profile, sections, bookmarks and homes.
+- Custom homes resolve pinned categories, banners and sections by URL when the source declares support in YAML. Twitch channel pins work even when the channel is absent from the Twitch home.
 - Category shortcut titles regroup after editing, the toolbar add button respects editing and source availability, and channel logos accept the documented `logo_url` alias. Keyboard focus outlines stay visible in the horizontal category strip.
 - Custom home refreshes are scoped to the selected profile generation, and failures in deferred bookmark or section refreshes reach the personal data notification handler.
 - The category strip's single-row layout now actually disables wrapping: the `--single-row` modifier was declared before the base `.home-category-strip__list` rule, so the equal-specificity `flex-wrap: wrap` won and categories kept wrapping instead of overflowing the scroll viewport. The modifiers now follow the base rules, and the strip/viewport can shrink inside the home grid so the row scrolls instead of widening the page.

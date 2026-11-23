@@ -7,6 +7,7 @@ import {
   firstNonEmptyString,
   isJsonRecord,
   readRecordList,
+  readStringList,
   readStringMap,
 } from '../primitives/readers'
 
@@ -56,6 +57,7 @@ export function normalizeServiceMetadata(payload: unknown): ServiceMetadata | nu
     supportedQueries: Array.isArray(record.supported_queries)
       ? record.supported_queries.filter((query): query is string => typeof query === 'string')
       : [],
+    categoryUrlPatterns: readStringList(record.category_url_patterns),
   }
 }
 

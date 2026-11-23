@@ -24,6 +24,8 @@ export interface ServiceMetadata {
   themes: ServiceThemeMetadata[]
   /** Query names advertised by the loaded backend registry. */
   supportedQueries: string[]
+  /** Full URL patterns supported for direct lookup of pinned categories and their content. */
+  categoryUrlPatterns?: string[]
   /** Optional service-specific tags; country values use ISO 3166-1 alpha-2 codes. */
   metadata?: Record<string, string[]>
 }

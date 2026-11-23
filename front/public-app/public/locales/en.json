@@ -94,6 +94,7 @@
   },
   "mediaTypes": {
     "collection": "Collection",
+    "video":"Vidéo",
     "video/movie": "Movie",
     "video/show/serie": "Series",
     "video/show/anime": "Anime",

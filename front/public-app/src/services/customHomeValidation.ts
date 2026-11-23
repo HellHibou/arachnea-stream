@@ -69,7 +69,7 @@ function fields(value: Record<string, unknown>, keys: string[], path: string): v
 }
 
 /**
- * Validates a YAML-discovered category reference; execution must rediscover its descriptor.
+ * Validates a source-owned category reference before category resolution.
  * @param value Untrusted reference.
  * @param path Field path.
  * @returns Detached category reference without credentials.

@@ -1,8 +1,39 @@
 import { getCategoryCatalog, loadHomeSourceDiscovery } from '@/services/rustify'
+import { useServiceMetadata } from '@/composables/useServiceMetadata'
 import { categoryOrigin, createCategoryReference, createSectionReference, MAX_CATEGORY_ANCESTORS } from '@/services/customHomeReferences'
 import type { CategoryOrigin, CategoryReference, HomeSourceDiscovery, SectionReference } from '@/types/customHome'
-import { catalogCategoryCards, categoryRequestKey, identifyCatalogCategories } from '@/services/rustify/home/categories'
-import type { HomeCatalogData, HomeCategory, HomeSection, HomeSectionSubsection } from '@/types/home'
+import { catalogCategoryCards, categoryRequestKey, identifyCatalogCategories, normalizeHomeCategory } from '@/services/rustify/home/categories'
+import type { HomeCatalogData, HomeCategory, HomeCategorySource, HomeSection, HomeSectionSubsection } from '@/types/home'
+import type { ServiceMetadata } from '@/types/serviceMetadata'
+
+/**
+ * Resolves a category directly when its service declares support for the exact URL.
+ * @param source Category source descriptor.
+ * @param label Category display name.
+ * @param service Metadata for the descriptor's source.
+ * @returns The category with only the validated URL forwarded to the scraper.
+ */
+function directCategory(
+  source: HomeCategorySource, label: string, service: ServiceMetadata | null,
+): HomeCategory | undefined {
+  const name = source.name
+  const url = source.query_url
+  if (!name || !url || service?.id !== name || (source.source && source.source !== name) ||
+    !service.supportedQueries.includes('get_category')) return undefined
+
+  const supported = service.categoryUrlPatterns?.some((pattern) => {
+    try {
+      return new RegExp(pattern).exec(url)?.[0] === url
+    } catch {
+      return false
+    }
+  })
+  if (!supported) return undefined
+
+  const category = normalizeHomeCategory({ label, request: { query_url: url } }, 0, name)
+  if (category.identity) category.identity.key = `card:${category.identity.key}`
+  return category
+}
 
 /**
  * Shares catalog discovery for one navigation or custom-home load. Failed requests remain retryable.
@@ -13,8 +44,19 @@ export function createCategoryCatalogResolver(
   loadSource: (id: string) => Promise<HomeSourceDiscovery | undefined> = async (id) => (await loadHomeSourceDiscovery([id]))[0],
   loadPage: (category: HomeCategory) => Promise<HomeCatalogData> = (category) => getCategoryCatalog(category, 1, false, true),
 ) {
+  const metadata = useServiceMetadata()
   const sources = new Map<string, Promise<HomeCatalogData>>()
   const pages = new Map<string, Promise<HomeCatalogData>>()
+
+  /** @param descriptor Category source descriptor. @param label Display label. @returns Category if its URL is configured for direct lookup. */
+  function fromUrl(descriptor: HomeCategorySource, label: string): HomeCategory | undefined {
+    return directCategory(descriptor, label, metadata.getService(descriptor.name))
+  }
+
+  /** @param reference Saved category. @returns Category if its URL is configured for direct lookup. */
+  function directReference(reference: CategoryReference): HomeCategory | undefined {
+    return fromUrl(reference.descriptor, reference.labelSnapshot)
+  }
 
   /** @param id Source identifier. @returns Its unmerged home or an explicit discovery failure. */
   async function source(id: string): Promise<HomeCatalogData> {
@@ -31,7 +73,7 @@ export function createCategoryCatalogResolver(
 
   /** @param origin Source-owned chain. @param category Rediscovered category. @returns Its unmerged first page. */
   function page(origin: CategoryOrigin, category: HomeCategory): Promise<HomeCatalogData> {
-    const key = JSON.stringify(origin)
+    const key = JSON.stringify([origin, category.sources.map(categoryRequestKey)])
     let request = pages.get(key)
     if (!request) {
       request = loadPage(category).catch((error) => { pages.delete(key); throw error })
@@ -57,10 +99,15 @@ export function createCategoryCatalogResolver(
     throw new Error('Invalid category path')
   }
 
-  /** @param reference Saved category. @returns Its current descriptor and rediscovered first page. */
-  async function load(reference: CategoryReference) {
+  /** @param reference Saved category. @returns Its current direct or rediscovered category. */
+  async function resolveReference(reference: CategoryReference): Promise<HomeCategory> {
+    return directReference(reference) ?? await resolve(categoryOrigin(reference))
+  }
+
+  /** @param reference Saved category. @param resolved Previously resolved category, if available. @returns Its descriptor and first page. */
+  async function load(reference: CategoryReference, resolved?: HomeCategory) {
     const origin = categoryOrigin(reference)
-    const category = await resolve(origin)
+    const category = resolved ?? await resolveReference(reference)
     return { category, catalog: await page(origin, category) }
   }
 
@@ -70,7 +117,7 @@ export function createCategoryCatalogResolver(
     pages.clear()
   }
 
-  return { source, resolve, load, clear }
+  return { source, resolve, resolveReference, fromUrl, directReference, load, clear }
 }
 
 /** @param catalog Unmerged owner catalog. @param reference Selected section or variant. @returns The exact source-owned rail. */

@@ -1,5 +1,6 @@
 import { computed, onScopeDispose, shallowReactive, shallowRef, toValue, watch, type MaybeRefOrGetter } from 'vue'
 import { createCategoryCatalogResolver, resolveCatalogSection } from '@/services/customHomeCategoryResolver'
+import { useServiceMetadata } from '@/composables/useServiceMetadata'
 import { bannerReferenceKey, categoryOrigin } from '@/services/customHomeReferences'
 import { mediaRouteIdentity } from '@/services/mediaRouting'
 import { sessionGeneration } from '@/services/sessionEvents'
@@ -52,6 +53,7 @@ function categoryPage(category: HomeCategory, page: number): Promise<HomeCatalog
  * @returns Catalog loader interface and contribution-owned pagination/retry actions.
  */
 export function useCustomHomeCatalog(input: MaybeRefOrGetter<CustomHomeDefinition | null>) {
+  const metadata = useServiceMetadata()
   const catalog = shallowRef<HomeCatalogData | null>(null)
   const isLoading = shallowRef(false)
   const hasLoaded = shallowRef(false)
@@ -111,14 +113,14 @@ export function useCustomHomeCatalog(input: MaybeRefOrGetter<CustomHomeDefinitio
         sourceCatalogs.delete(reference.sourceId)
         resolver.clear()
       }
-      category ??= await resolver.resolve(categoryOrigin(reference))
+      category ??= await resolver.resolveReference(reference)
       if (revision !== latestRequestId.value) return
       if (!previous) categories.set(block.id, { category, page: 0, haveMore: true })
       const descriptor = category
       const page = (previous?.page ?? 0) + 1
       const result = await limited(() => {
         if (revision !== latestRequestId.value) return Promise.resolve(emptyCatalog())
-        return page === 1 ? resolver.load(reference).then((entry) => entry.catalog) : categoryPage(descriptor, page)
+        return page === 1 ? resolver.load(reference, descriptor).then((entry) => entry.catalog) : categoryPage(descriptor, page)
       })
       if (revision !== latestRequestId.value) return
       const selected = section ? resolveCatalogSection(result, section) : undefined
@@ -208,6 +210,16 @@ export function useCustomHomeCatalog(input: MaybeRefOrGetter<CustomHomeDefinitio
       definition = value === null ? null : validateCustomHomeDefinition(value)
       if (!definition) return
       const current = definition
+      const categoryReferences = [
+        ...current.bannerSources.filter((reference) => typeof reference !== 'string'),
+        ...current.categoryShortcuts,
+        ...current.blocks.flatMap((block) => block.kind === 'category-content' ? [block.reference] :
+          block.reference.category ? [block.reference.category] : []),
+      ]
+      if (categoryReferences.length) {
+        await metadata.load()
+        if (revision !== latestRequestId.value) return
+      }
       categoryResolver = createCategoryCatalogResolver(
         async (id) => {
           const known = sourceCatalogs.get(id)
@@ -218,9 +230,11 @@ export function useCustomHomeCatalog(input: MaybeRefOrGetter<CustomHomeDefinitio
         },
         (category) => categoryPage(category, 1),
       )
-      const ids = [...new Set([...current.bannerSources.map((ref) => typeof ref === 'string' ? ref : ref.sourceId),
-        ...current.categoryShortcuts.map((reference) => reference.sourceId),
-        ...current.blocks.map((block) => block.reference.sourceId)])]
+      const ids = [...new Set([
+        ...current.bannerSources.filter((reference) => typeof reference === 'string'),
+        ...categoryReferences.filter((reference) => !categoryResolver.directReference(reference)).map((reference) => reference.sourceId),
+        ...current.blocks.flatMap((block) => block.kind === 'home-section' && !block.reference.category ? [block.reference.sourceId] : []),
+      ])]
       const discoveries = await Promise.all(ids.map(async (sourceId) => {
         try {
           const rows = await requestOnce(`discovery:${sourceId}`, () => loadHomeSourceDiscovery([sourceId]))
@@ -235,7 +249,7 @@ export function useCustomHomeCatalog(input: MaybeRefOrGetter<CustomHomeDefinitio
       const shortcutLoads = Promise.all(current.categoryShortcuts.map(async (reference, index) => {
         try {
           const origin = categoryOrigin(reference)
-          const category = await categoryResolver.resolve(origin)
+          const category = await categoryResolver.resolveReference(reference)
           return { ...category, customShortcutIndex: index, origins: [origin] }
         } catch (error) {
           if (revision === latestRequestId.value) {

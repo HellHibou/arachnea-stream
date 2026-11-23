@@ -1,3 +1,4 @@
 [
-  { "path": "odysee.yaml", "enabled": true }
+  { "path": "odysee.yaml", "enabled": true },
+  { "path": "twitch.yaml", "enabled": false }
 ]

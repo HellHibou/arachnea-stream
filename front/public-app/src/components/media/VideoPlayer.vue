@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useTemplateRef } from 'vue'
 import { useVideoPlayer } from '@/composables/video/useVideoPlayer'
 import type { VideoPlayerComponentProps, VideoPlayerComponentEmits } from '@/composables/video/playerTypes'
 import VideoJsMediaRenderer from '@/components/media/VideoJsMediaRenderer.vue'
@@ -58,6 +59,14 @@ const props = withDefaults(defineProps<VideoPlayerComponentProps>(), {
 
 const emit = defineEmits<VideoPlayerComponentEmits>()
 const { t } = useI18n()
+const videoRenderer = useTemplateRef<InstanceType<typeof VideoJsMediaRenderer>>('videoRenderer')
+
+/** @param paused Whether to pause or resume the native video renderer. */
+function setPlaybackPaused(paused: boolean) {
+  videoRenderer.value?.setPlaybackPaused(paused)
+}
+
+defineExpose({ setPlaybackPaused })
 
 /** Unified surface refs and handlers; destructuring retains each reactive ref. */
 const {
@@ -181,8 +190,9 @@ const {
       {{ t('player.embeddedBlocked') }}
     </div>
 
-<VideoJsMediaRenderer
+    <VideoJsMediaRenderer
       v-if="activeVideoSource"
+      ref="videoRenderer"
       :key="`video-${activeSurfaceRendererKey}`"
       :class="activeVideoClass"
       :source="(activeVideoSource as ResolvedVideoMediaSource)"

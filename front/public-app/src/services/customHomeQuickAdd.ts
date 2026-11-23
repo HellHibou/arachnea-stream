@@ -1,4 +1,5 @@
 import { categorySectionReferences, createCategoryCatalogResolver, withCategoryOrigins, type CategoryContext } from '@/services/customHomeCategoryResolver'
+import { useServiceMetadata } from '@/composables/useServiceMetadata'
 import { t } from '@/i18n'
 import { catalogCategoryCards, categoryRequestKey, identifyCatalogCategories } from '@/services/rustify/home/categories'
 import { loadHomeSourceDiscovery } from '@/services/rustify'
@@ -11,17 +12,20 @@ import type { CategoryReference, CustomHomeAddIntent, CustomHomeCategoryMode, Cu
 /**
  * @param categories Clicked categories with optional navigation hints.
  * @param resolver Catalog discovery shared by this navigation or add operation.
- * @returns Unambiguous references proved by replaying the category's origin.
+ * @returns Unambiguous references from configured URLs or category discovery.
  */
 export async function discoverCategoryReferences(
   categories: HomeCategory[], resolver = createCategoryCatalogResolver(),
 ): Promise<CategoryReference[]> {
   if (!categories.length) throw new Error('Select at least one category')
+  await useServiceMetadata().load()
   const references = await Promise.all(categories.flatMap((category) => {
     if (!category.sources.length) throw new Error('Selected category has no source contributions')
     return category.sources.map(async (descriptor) => {
       const sourceId = descriptor.name || descriptor.source
       if (!sourceId) throw new Error('Selected category has no source identifier')
+      const byUrl = resolver.fromUrl(descriptor, category.label)
+      if (byUrl) return createCategoryReference(byUrl)
       const descriptorKey = categoryRequestKey(descriptor)
       const matchesDescriptor = (candidate: HomeCategory) =>
         candidate.sources.some((source) => categoryRequestKey(source) === descriptorKey)
@@ -88,6 +92,7 @@ export async function resolveQuickAddSelections(
   categoryMode: CustomHomeCategoryMode,
   supportsCategory: (sourceId: string) => boolean,
 ): Promise<CustomHomeSelection[]> {
+  if ('category' in intent || intent.kind === 'categories') await useServiceMetadata().refresh()
   if (intent.kind === 'category' || intent.kind === 'categories') {
     const categories = intent.kind === 'category' ? [intent.category] : intent.categories
     if (categoryMode === 'content' && categories.some((category) => category.sources.some((source) =>

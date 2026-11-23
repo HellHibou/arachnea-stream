@@ -1,0 +1,1355 @@
+id: twitch
+title: Twitch
+logo: "https://assets.twitch.tv/assets/favicon-32-5c61aa63605bca4f740d.png"
+description:
+  en: "Browse Twitch live streams, categories and channels."
+  fr: "Explorez les directs, les catégories et les chaînes Twitch."
+
+http:
+  mode: direct
+
+constants:
+  - name: base_url
+    value: "https://www.twitch.tv"
+  - name: graphql_url
+    value: "https://gql.twitch.tv/gql"
+  - name: usher_url
+    value: "https://usher.ttvnw.net"
+  - name: web_client_id
+    value: "kimne78kx3ncx6brgo4mv6wki5h1ko"
+    description: Public client identifier sent by the Twitch website.
+  - name: channel_fields
+    value: "login displayName profileImageURL(width: 300)"
+  - name: live_fields
+    value: "title language createdAt previewImageURL(width: 640, height: 360) broadcaster { {channel_fields} } game { displayName }"
+  - name: game_fields
+    value: "displayName slug boxArtURL(width: 285, height: 380)"
+  - name: vod_fields
+    value: "id title language status createdAt duration: lengthSeconds previewImageURL: previewThumbnailURL(width: 640, height: 360) game { displayName }"
+  - name: vod_chapters
+    value: "moments(momentRequestType: VIDEO_CHAPTER_MARKERS) { edges { node { positionMilliseconds durationMilliseconds description } } }"
+  - name: clip_fields
+    value: "id: slug title language createdAt duration: durationSeconds previewImageURL: thumbnailURL game { displayName }"
+  - name: playback_params
+    value: 'platform: "web", playerBackend: "mediaplayer", playerType: "site"'
+  - name: section_page_size
+    value: "24"
+  - name: section_window_size
+    value: "100"
+    description: Maximum number of results requested in the public listing without a Twitch cursor.
+
+shared:
+  live_types: &live_types
+    - video
+
+  catalogue_types: &catalogue_types
+    - collection
+    - video
+
+  live_headers: &live_headers
+    - name: Client-ID
+      actions:
+        - type: format_text
+          argument: "{web_client_id}"
+    - name: Content-Type
+      actions:
+        - type: format_text
+          argument: "text/plain; charset=UTF-8"
+
+  live_cards: &live_cards
+    - name: title
+      type: string
+      pointer: /title
+    - name: title/alt
+      type: string
+      pointer: /broadcaster/displayName
+    - name: link
+      type: string
+      pointer: /broadcaster/login
+      actions: &channel_link
+        - type: format_text
+          argument: "{base_url}/{}"
+    - name: web-link
+      type: string
+      pointer: /broadcaster/login
+      actions: *channel_link
+    - name: media-type
+      type: string
+      actions: &live_media_type
+        - type: format_text
+          argument: video/other/Live
+    - &card_language
+      name: lang
+      type: string[]
+      pointer: /language
+      actions: &language_code
+        - type: regex_find_all
+          pattern: '(?i)^([a-z]{2,3}(?:[-_][a-z0-9]{2,8})*|other)$'
+          format: 'document.write("{1}".toLowerCase().replace(/_/g, "-"));'
+        - type: exec_js
+        - type: regex_find_all
+          pattern: '^document_write=([a-z]{2,3}(?:-[a-z0-9]{2,8})*|other)$'
+          format: "{1}"
+    - name: img/landscape > link
+      type: string
+      pointer: /previewImageURL
+    - name: release-date
+      type: string
+      pointer: /createdAt
+      actions: &release_date
+        - type: get_date
+          format: yyyy_mm_dd
+
+  vod_cards: &vod_cards
+    - &archive_title
+      name: title
+      type: string
+      pointer: /title
+    - name: link
+      type: string
+      pointer: /id
+      actions: &vod_link
+        - type: format_text
+          argument: "{base_url}/videos/{}"
+    - name: web-link
+      type: string
+      pointer: /id
+      actions: *vod_link
+    - &video_type
+      name: media-type
+      type: string
+      select: first
+      actions:
+        - type: format_text
+          argument: video
+    - &archive_image
+      name: img/landscape > link
+      type: string
+      pointer: /previewImageURL
+    - &archive_date
+      name: release-date
+      type: string
+      pointer: /createdAt
+      actions: *release_date
+    - &archive_duration
+      name: duration
+      type: number
+      pointer: /duration
+    - &archive_genre
+      name: genre
+      type: string[]
+      pointer: /game/displayName
+    - *card_language
+
+  clip_cards: &clip_cards
+    - *archive_title
+    - name: link
+      type: string
+      pointer: /id
+      actions: &clip_link
+        - type: format_text
+          argument: "https://clips.twitch.tv/{}"
+    - name: web-link
+      type: string
+      pointer: /id
+      actions: *clip_link
+    - *video_type
+    - *archive_image
+    - *archive_date
+    - *archive_duration
+    - *archive_genre
+    - *card_language
+
+  chapter_entries: &chapter_entries
+    - name: title
+      type: string
+      pointer: /description
+    - name: type
+      type: string
+      actions:
+        - type: format_text
+          argument: chapter
+    - name: start
+      type: number
+      pointer: /positionMilliseconds
+      actions:
+        - type: format_text
+          argument: "{} / 1000.0"
+        - type: math_formula
+    - name: end
+      type: number
+      pointer: /
+      actions:
+        - type: format_text
+          argument: >-
+            const marker = {};
+            if (Number.isFinite(marker.positionMilliseconds) &&
+                Number.isFinite(marker.durationMilliseconds) && marker.durationMilliseconds > 0) {
+              document.write((marker.positionMilliseconds + marker.durationMilliseconds) / 1000);
+            }
+        - type: exec_js
+        - type: regex_find_all
+          pattern: '^document_write=([0-9]+(?:\.[0-9]+)?)$'
+          format: "{1}"
+
+  player: &player
+    - name: name
+      type: string
+      select: first
+      pointer: /id
+      actions: &player_name
+        - type: format_text
+          argument: "{service_title}"
+    - name: name
+      type: string
+      select: first
+      pointer: /stream/broadcaster/login
+      actions: *player_name
+    - name: resolver
+      type: object
+      select: first
+      entries:
+        - &resolver_kind
+          name: kind
+          type: string
+          actions:
+            - type: format_text
+              argument: scraper-query
+        - &resolver_source
+          name: source
+          type: string
+          actions:
+            - type: format_text
+              argument: "{source}"
+        - name: target_id
+          type: string
+          select: first
+          pointer: /id
+          actions: &player_target
+            - type: format_text
+              argument: "{query_url}"
+        - name: target_id
+          type: string
+          select: first
+          pointer: /stream/broadcaster/login
+          actions: *player_target
+        - &resolver_proxy
+          name: proxy > rewrite_manifest_urls
+          type: boolean
+          actions:
+            - type: format_text
+              argument: "true"
+    - name: chapters
+      type: object[]
+      pointer: /moments/edges/*/node
+      entries: *chapter_entries
+    - name: _storyboard_index
+      type: string
+      pointer: /seekPreviewsURL
+      sub_queries: &vod_storyboard
+        - scraper_type: json
+          target: parent
+          http:
+            empty_on_statuses: [403, 404, 410]
+          row_pointer: '/*[quality=low]'
+          entries:
+            - name: storyboard > url
+              type: string
+              pointer: /images/0
+              actions:
+                - type: resolve_url
+            - name: storyboard > width
+              type: number
+              pointer: /width
+            - name: storyboard > height
+              type: number
+              pointer: /height
+            - name: storyboard > columns
+              type: number
+              pointer: /cols
+            - name: storyboard > rows
+              type: number
+              pointer: /rows
+            - name: storyboard > interval
+              type: number
+              pointer: /interval
+
+  recent_game_cards: &recent_game_cards
+    - name: title
+      type: string
+      pointer: /displayName
+    - name: request > query_url
+      type: string
+      pointer: /slug
+      actions: &game_link
+        - type: format_text
+          argument: "{base_url}/directory/category/{}"
+    - name: web-link
+      type: string
+      pointer: /slug
+      actions: *game_link
+    - name: media-type
+      type: string
+      actions:
+        - type: format_text
+          argument: collection
+    - name: img/poster > link
+      type: string
+      pointer: /boxArtURL
+
+  channel_cards: &channel_cards
+    - name: title
+      type: string
+      pointer: /displayName
+    - name: request > query_url
+      type: string
+      pointer: /login
+      actions: *channel_link
+    - name: web-link
+      type: string
+      pointer: /login
+      actions: *channel_link
+    - name: media-type
+      type: string
+      actions:
+        - type: format_text
+          argument: collection
+    - name: img > link
+      type: string
+      pointer: /profileImageURL
+
+queries:
+  - name: service_stream_metadata
+    scraper_type: static
+    entries:
+      - name: id
+        type: string
+        value: "{service_id}"
+      - name: title
+        type: string
+        value: "{service_title}"
+      - name: logo
+        type: string
+        value: "{service_logo}"
+      - name: description
+        type: object
+        value: "{service_description}"
+      - name: category_url_patterns
+        type: string[]
+        value:
+          - '^https://www\.twitch\.tv/[a-zA-Z0-9_]+(?:/(?:home|clips|videos))?/?$'
+
+  - name: load_home
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{graphql_url}"
+    request_method: post
+    request_headers: *live_headers
+    request_body_actions:
+      - type: format_text
+        argument: >-
+          {"query":"query { streams(first: 24) { edges { node { {live_fields} } } }
+          games(first: 12) { edges { node { id displayName slug } } } }"}
+    media_types: *catalogue_types
+    row_pointer: /data
+    entries:
+      - name: sections
+        type: object[]
+        entries:
+          - name: key
+            type: string
+            actions:
+              - type: format_text
+                argument: "rail:all"
+          - name: label
+            type: string
+            actions:
+              - type: format_text
+                argument: Twitch Live
+          - name: entries
+            type: object[]
+            pointer: /streams/edges/*/node
+            entries: *live_cards
+      - name: sections
+        type: object[]
+        entries:
+          - name: key
+            type: string
+            actions:
+              - type: format_text
+                argument: "rail:channels"
+          - name: label
+            type: string
+            actions:
+              - type: format_text
+                argument: Twitch Channels
+          - name: entries
+            type: object[]
+            pointer: /streams/edges/*/node/broadcaster
+            entries: *channel_cards
+      - name: sections
+        type: object[]
+        pointer: /games/edges/*/node
+        entries:
+          - name: key
+            type: string
+            pointer: /id
+            actions:
+              - type: format_text
+                argument: "rail:{}"
+          - name: label
+            type: string
+            pointer: /displayName
+          - name: link
+            type: string
+            pointer: /slug
+            actions:
+              - type: format_text
+                argument: "{base_url}/directory/category/{}"
+
+  - name: get_section
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{graphql_url}"
+    request_method: post
+    request_headers: *live_headers
+    media_types: *catalogue_types
+    request_body_actions:
+      - type: format_text
+        argument: "{query_url}"
+      - type: regex_find_all
+        pattern: '^https://www\.twitch\.tv/(directory/category/[a-z0-9_-]+(?:/(?:videos|clips))?|[a-z0-9_]+/(?:home(?:\?section=recent-categories)?|clips(?:\?range=(?:24hr|7d|30d))?|videos(?:\?filter=(?:archives|highlights|uploads))?))/?$'
+        format: "{1}"
+      - type: format_text
+        argument: >-
+          const [pathname, filter] = "{}".split("?");
+          const path = pathname.split("/");
+          let query;
+          let variables;
+          if (path[0] === "directory") {
+            const tab = path[3];
+            let selection;
+            if (tab === "videos") {
+              selection = "videos(first: {section_window_size}, sort: VIEWS) { edges { node { {vod_fields} } } }";
+            } else if (tab === "clips") {
+              selection = "clips(first: {section_window_size}, criteria: {period: ALL_TIME}) { edges { node { {clip_fields} } } }";
+            } else {
+              selection = "streams(first: {section_window_size}) { edges { node { {live_fields} } } }";
+            }
+            query = "query($slug: String!) { listing: game(slug: $slug) { " + selection + " } }";
+            variables = {slug: path[2]};
+          } else {
+            const tab = path[1];
+            variables = {login: path[0]};
+            if (tab === "clips") {
+              const periods = {"range=24hr": "LAST_DAY", "range=7d": "LAST_WEEK", "range=30d": "LAST_MONTH"};
+              const period = periods[filter] || "ALL_TIME";
+              query = "query($login: String!) { listing: user(login: $login) { clips(first: {section_window_size}, criteria: {period: " +
+                period + "}) { edges { node { {clip_fields} } } } } }";
+            } else if (tab === "home" && filter === "section=recent-categories") {
+              query = "query($login: String!) { listing: user(login: $login) { recent: videos(first: 24, types: [ARCHIVE])" +
+                " { edges { node { status game { {game_fields} } } } } } }";
+            } else if (tab === "home" || tab === "videos") {
+              const types = {"filter=archives": "ARCHIVE", "filter=highlights": "HIGHLIGHT", "filter=uploads": "UPLOAD"};
+              const type = tab === "home" ? "ARCHIVE" : types[filter];
+              const scope = type ? ", types: [" + type + "]" : "";
+              query = "query($login: String!) { listing: user(login: $login) { videos(first: {section_window_size}" +
+                scope + ") { edges { node { {vod_fields} } } } } }";
+            }
+          }
+          if (query) document.write(JSON.stringify({query, variables}));
+      - &exec_js
+        type: exec_js
+      - &unwrap_js
+        type: regex_find_all
+        pattern: '^document_write=(.+)$'
+        format: "{1}"
+    row_pointer: /data
+    entries:
+      - &current_page
+        name: current_page
+        type: number
+        actions:
+          - type: format_text
+            argument: "{page}"
+      # Keep the original item extractors and select the links that belong to this page.
+      - name: _page_selection
+        type: string
+        pointer: /
+        actions:
+          - type: format_text
+            argument: "{page}\n{}"
+          - type: regex_find_all
+            pattern: '^([0-9]+)\n(\{.*\})$'
+            format: >-
+              const page = Number("{1}");
+              const data = {2};
+              const listing = data.listing || {};
+              const candidates = connection => (connection.edges || []).map(edge => edge?.node).filter(Boolean);
+              const recorded = connection => candidates(connection).filter(video => video.status === "RECORDED");
+              let links = [];
+              if (listing.streams) {
+                links = candidates(listing.streams).map(stream => stream.broadcaster?.login)
+                  .filter(Boolean).map(login => "{base_url}/" + login);
+              } else if (listing.videos) {
+                links = recorded(listing.videos).filter(video => video.id).map(video => "{base_url}/videos/" + video.id);
+              } else if (listing.clips) {
+                links = candidates(listing.clips).filter(clip => clip.id).map(clip => "https://clips.twitch.tv/" + clip.id);
+              } else if (listing.recent) {
+                links = recorded(listing.recent).map(video => video.game?.slug)
+                  .filter(Boolean).map(slug => "{base_url}/directory/category/" + slug);
+              }
+              const unique = [...new Set(links)];
+              const size = {section_page_size};
+              const start = (page - 1) * size;
+              const end = start + size;
+              if (page >= 1) document.write([String(end < unique.length), ...unique.slice(start, end)].join("\n"));
+          - *exec_js
+      - name: entries
+        type: object[]
+        pointer: /listing/streams/edges/*/node
+        entries: *live_cards
+      - name: entries
+        type: object[]
+        pointer: /listing/videos/edges/*[node/status=RECORDED]/node
+        entries: *vod_cards
+      - name: entries
+        type: object[]
+        pointer: /listing/clips/edges/*/node
+        entries: *clip_cards
+      - name: entries
+        type: object[]
+        pointer: /listing/recent/edges/*[node/status=RECORDED]/node/game
+        entries: *recent_game_cards
+    post_process:
+      - type: extract_regex_items
+        source: _page_selection
+        target: entries
+        pattern: '(?m)^(https://[^\s]+)$'
+        entries:
+          - name: web-link
+            type: string
+            capture_group: 1
+          - name: _on_page
+            type: boolean
+            actions:
+              - type: format_text
+                argument: "true"
+      - type: merge_items_by_field
+        source: entries
+        field: web-link
+        merge_fields: [_on_page]
+      - type: filter_items
+        source: entries
+        field: _on_page
+        pattern: '^true$'
+      - type: filter_fields
+        source: entries
+        field: _on_page
+        pattern: '^true$'
+        remove: [_on_page]
+      - type: apply_actions_to_field
+        source: _page_selection
+        target: have_more
+        output_type: boolean
+        actions:
+          - type: regex_find_all
+            pattern: '^document_write=(true|false)\b'
+            format: "{1}"
+      - type: remove_fields
+        fields: [_page_selection]
+
+  - name: get_category
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{graphql_url}"
+    request_method: post
+    request_headers: *live_headers
+    media_types: *catalogue_types
+    request_body_actions:
+      - type: format_text
+        argument: "{query_url}"
+      - type: regex_find_all
+        pattern: '^https://www\.twitch\.tv/(directory/category/[a-z0-9_-]+(?:/(?:videos|clips))?|[a-zA-Z0-9_]+(?:/(?:home|clips|videos))?)/?$'
+        format: "{1}"
+      - type: format_text
+        argument: >-
+          const [login, tab, slug, gameTab] = "{}".split("/");
+          let query;
+          let variables;
+          if (login === "directory" && slug) {
+            const selected = gameTab === "videos" ? "gameVideosTab" :
+              gameTab === "clips" ? "gameClipsTab" : "gameLiveTab";
+            query = "query($slug: String!) { game(slug: $slug) { gameSlug: slug displayName" +
+              " bannerImageURL: boxArtURL(width: 570, height: 760) " + selected + ": slug } }";
+            variables = {slug};
+          } else if (/^[a-zA-Z0-9_]+$/.test(login)) {
+            query = "query($login: String!, $home: Boolean!, $clips: Boolean!, $videos: Boolean!) { user(login: $login) {" +
+              " {channel_fields} description bannerImageURL stream { {live_fields} }" +
+              " videos(first: 5) { edges { node { {vod_fields} } } }" +
+              " homeTab: login @include(if: $home) clipsTab: login @include(if: $clips)" +
+              " videosTab: login @include(if: $videos) } }";
+            variables = {login, home: !tab || tab === "home", clips: tab === "clips", videos: tab === "videos"};
+          }
+          if (query) document.write(JSON.stringify({query, variables}));
+      - *exec_js
+      - *unwrap_js
+    row_pointer: /data/*
+    entries:
+      - name: banners > source-logo
+        type: string
+        pointer: /profileImageURL
+      - name: banners > entries
+        type: object[]
+        entries:
+          - name: title
+            type: string
+            pointer: /displayName
+          - name: description
+            type: string
+            pointer: /description
+          # Later select-first fields prefer the current broadcast over the recording.
+          - name: image
+            type: string
+            select: first
+            pointer: /bannerImageURL
+          - name: image
+            type: string
+            select: first
+            pointer: /videos/edges/*[node/status=RECORDED]/node/previewImageURL
+          - name: image
+            type: string
+            select: first
+            pointer: /stream/previewImageURL
+          - name: link
+            type: string
+            select: first
+            pointer: /videos/edges/*[node/status=RECORDED]/node/id
+            actions: *vod_link
+          - name: link
+            type: string
+            select: first
+            pointer: /stream/broadcaster/login
+            actions: *channel_link
+          - name: media-type
+            type: string
+            select: first
+            pointer: /videos/edges/*[node/status=RECORDED]/node/id
+            actions:
+              - type: format_text
+                argument: video
+          - &entry_live_media_type
+            name: media-type
+            type: string
+            select: first
+            pointer: /stream/broadcaster/login
+            actions: *live_media_type
+          - name: players
+            type: object[]
+            entries:
+              - name: resolver
+                type: object
+                select: first
+                entries:
+                  - *resolver_kind
+                  - *resolver_source
+                  - name: target_id
+                    type: string
+                    select: first
+                    pointer: /videos/edges/*[node/status=RECORDED]/node/id
+                    actions: *vod_link
+                  - name: target_id
+                    type: string
+                    select: first
+                    pointer: /stream/broadcaster/login
+                    actions: *channel_link
+                  - *resolver_proxy
+      - name: categories
+        type: object[]
+        entries:
+          - name: key
+            type: string
+            pointer: /login
+            actions:
+              - type: format_text
+                argument: "home"
+          - name: label
+            type: string
+            actions:
+              - type: format_text
+                argument: Accueil
+          - name: request > query_url
+            type: string
+            pointer: /login
+            actions:
+              - type: format_text
+                argument: "{base_url}/{}"
+          - name: request > source
+            type: string
+            actions:
+              - type: format_text
+                argument: "{source}"
+          - name: channel > name
+            type: string
+            pointer: /displayName
+          - name: channel > logo
+            type: string
+            pointer: /profileImageURL
+      - name: categories
+        type: object[]
+        entries:
+          - name: key
+            type: string
+            pointer: /login
+            actions:
+              - type: format_text
+                argument: "clips"
+          - name: label
+            type: string
+            actions:
+              - type: format_text
+                argument: Clips
+          - name: request > query_url
+            type: string
+            pointer: /login
+            actions:
+              - type: format_text
+                argument: "{base_url}/{}/clips"
+          - name: request > source
+            type: string
+            actions:
+              - type: format_text
+                argument: "{source}"
+          - name: channel > name
+            type: string
+            pointer: /displayName
+          - name: channel > logo
+            type: string
+            pointer: /profileImageURL
+      - name: categories
+        type: object[]
+        entries:
+          - name: key
+            type: string
+            pointer: /login
+            actions:
+              - type: format_text
+                argument: "videos"
+          - name: label
+            type: string
+            actions:
+              - type: format_text
+                argument: Vidéos
+          - name: request > query_url
+            type: string
+            pointer: /login
+            actions:
+              - type: format_text
+                argument: "{base_url}/{}/videos"
+          - name: request > source
+            type: string
+            actions:
+              - type: format_text
+                argument: "{source}"
+          - name: channel > name
+            type: string
+            pointer: /displayName
+          - name: channel > logo
+            type: string
+            pointer: /profileImageURL
+      - name: sections
+        type: object[]
+        pointer: /homeTab
+        entries:
+          - name: key
+            type: string
+            actions:
+              - type: format_text
+                argument: "rail:recent-broadcasts"
+          - name: label
+            type: string
+            actions:
+              - type: format_text
+                argument: "Diffusions récentes"
+          - name: link
+            type: string
+            actions:
+              - type: format_text
+                argument: "{base_url}/{}/home"
+      - name: sections
+        type: object[]
+        entries:
+          - name: key
+            type: string
+            pointer: /homeTab
+            actions:
+              - type: format_text
+                argument: "rail:recent-categories"
+          - name: label
+            type: string
+            pointer: /displayName
+            actions:
+              - type: format_text
+                argument: "Catégories récemment streamées de {}"
+          - name: link
+            type: string
+            pointer: /homeTab
+            actions:
+              - type: format_text
+                argument: "{base_url}/{}/home?section=recent-categories"
+      - name: sections
+        type: object[]
+        pointer: /homeTab
+        entries:
+          - name: key
+            type: string
+            actions:
+              - type: format_text
+                argument: "rail:recent-clips"
+          - name: label
+            type: string
+            actions:
+              - type: format_text
+                argument: "Clips récents"
+          - name: link
+            type: string
+            actions:
+              - type: format_text
+                argument: "{base_url}/{}/clips?range=7d"
+      - name: sections
+        type: object[]
+        pointer: /clipsTab
+        entries:
+          - name: key
+            type: string
+            actions:
+              - type: format_text
+                argument: "rail:clips-24h"
+          - name: label
+            type: string
+            actions:
+              - type: format_text
+                argument: "Dernières 24 heures"
+          - name: link
+            type: string
+            actions:
+              - type: format_text
+                argument: "{base_url}/{}/clips?range=24hr"
+      - name: sections
+        type: object[]
+        pointer: /clipsTab
+        entries:
+          - name: key
+            type: string
+            actions:
+              - type: format_text
+                argument: "rail:clips-7d"
+          - name: label
+            type: string
+            actions:
+              - type: format_text
+                argument: "7 derniers jours"
+          - name: link
+            type: string
+            actions:
+              - type: format_text
+                argument: "{base_url}/{}/clips?range=7d"
+      - name: sections
+        type: object[]
+        pointer: /clipsTab
+        entries:
+          - name: key
+            type: string
+            actions:
+              - type: format_text
+                argument: "rail:clips-30d"
+          - name: label
+            type: string
+            actions:
+              - type: format_text
+                argument: "30 derniers jours"
+          - name: link
+            type: string
+            actions:
+              - type: format_text
+                argument: "{base_url}/{}/clips?range=30d"
+      - name: sections
+        type: object[]
+        pointer: /clipsTab
+        entries:
+          - name: key
+            type: string
+            actions:
+              - type: format_text
+                argument: "rail:clips-all"
+          - name: label
+            type: string
+            actions:
+              - type: format_text
+                argument: "Toutes les périodes"
+          - name: link
+            type: string
+            actions:
+              - type: format_text
+                argument: "{base_url}/{}/clips"
+      - name: sections
+        type: object[]
+        pointer: /videosTab
+        entries:
+          - name: key
+            type: string
+            actions:
+              - type: format_text
+                argument: "rail:videos-all"
+          - name: label
+            type: string
+            actions:
+              - type: format_text
+                argument: "Toutes les vidéos"
+          - name: link
+            type: string
+            actions:
+              - type: format_text
+                argument: "{base_url}/{}/videos"
+      - name: sections
+        type: object[]
+        pointer: /videosTab
+        entries:
+          - name: key
+            type: string
+            actions:
+              - type: format_text
+                argument: "rail:videos-archives"
+          - name: label
+            type: string
+            actions:
+              - type: format_text
+                argument: "Diffusions récentes"
+          - name: link
+            type: string
+            actions:
+              - type: format_text
+                argument: "{base_url}/{}/videos?filter=archives"
+      - name: sections
+        type: object[]
+        pointer: /videosTab
+        entries:
+          - name: key
+            type: string
+            actions:
+              - type: format_text
+                argument: "rail:videos-highlights"
+          - name: label
+            type: string
+            actions:
+              - type: format_text
+                argument: "Temps forts"
+          - name: link
+            type: string
+            actions:
+              - type: format_text
+                argument: "{base_url}/{}/videos?filter=highlights"
+      - name: sections
+        type: object[]
+        pointer: /videosTab
+        entries:
+          - name: key
+            type: string
+            actions:
+              - type: format_text
+                argument: "rail:videos-uploads"
+          - name: label
+            type: string
+            actions:
+              - type: format_text
+                argument: "Vidéos mises en ligne"
+          - name: link
+            type: string
+            actions:
+              - type: format_text
+                argument: "{base_url}/{}/videos?filter=uploads"
+      - name: categories
+        type: object[]
+        pointer: /gameSlug
+        entries:
+          - name: key
+            type: string
+            actions:
+              - type: format_text
+                argument: live
+          - name: label
+            type: string
+            actions: &game_live_label
+              - type: format_text
+                argument: "Chaînes en direct"
+          - name: request > query_url
+            type: string
+            actions: *game_link
+          - &game_request_source
+            name: request > source
+            type: string
+            actions:
+              - type: format_text
+                argument: "{source}"
+      - name: categories
+        type: object[]
+        pointer: /gameSlug
+        entries:
+          - name: key
+            type: string
+            actions:
+              - type: format_text
+                argument: videos
+          - name: label
+            type: string
+            actions: &game_videos_label
+              - type: format_text
+                argument: Vidéos
+          - name: request > query_url
+            type: string
+            actions: &game_videos_link
+              - type: format_text
+                argument: "{base_url}/directory/category/{}/videos"
+          - *game_request_source
+      - name: categories
+        type: object[]
+        pointer: /gameSlug
+        entries:
+          - name: key
+            type: string
+            actions:
+              - type: format_text
+                argument: clips
+          - name: label
+            type: string
+            actions: &game_clips_label
+              - type: format_text
+                argument: Clips
+          - name: request > query_url
+            type: string
+            actions: &game_clips_link
+              - type: format_text
+                argument: "{base_url}/directory/category/{}/clips"
+          - *game_request_source
+      - name: sections
+        type: object[]
+        pointer: /gameLiveTab
+        entries:
+          - name: key
+            type: string
+            actions:
+              - type: format_text
+                argument: "rail:category-content"
+          - name: label
+            type: string
+            actions: *game_live_label
+          - name: link
+            type: string
+            actions: *game_link
+      - name: sections
+        type: object[]
+        pointer: /gameVideosTab
+        entries:
+          - name: key
+            type: string
+            actions:
+              - type: format_text
+                argument: "rail:category-videos"
+          - name: label
+            type: string
+            actions: *game_videos_label
+          - name: link
+            type: string
+            actions: *game_videos_link
+      - name: sections
+        type: object[]
+        pointer: /gameClipsTab
+        entries:
+          - name: key
+            type: string
+            actions:
+              - type: format_text
+                argument: "rail:category-clips"
+          - name: label
+            type: string
+            actions: *game_clips_label
+          - name: link
+            type: string
+            actions: *game_clips_link
+    post_process:
+      - type: filter_items
+        source: categories
+        field: key
+        pattern: '.+'
+      - type: filter_items
+        source: sections
+        field: key
+        pattern: '.+'
+
+  - name: search
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{graphql_url}"
+    request_method: post
+    request_headers: *live_headers
+    media_types: *catalogue_types
+    request_body_actions:
+      - type: build_json
+        fields:
+          text: {string_parameter: search_query}
+      - type: format_text
+        argument: >-
+          {"query":"query($text: String!) { searchFor(userQuery: $text, platform: \"web\") {
+          channels { edges { item { ... on User { {channel_fields} stream { {live_fields} } } } } } } }",
+          "variables":{}}
+    row_pointer: /data/searchFor/channels
+    entries:
+      - name: source
+        type: string
+        actions:
+          - type: format_text
+            argument: "{source}"
+      - *current_page
+      - name: have_more
+        type: boolean
+        actions:
+          - type: format_text
+            argument: "false"
+      - name: entries
+        type: object[]
+        pointer: /edges/*/item
+        entries: *channel_cards
+      - name: entries
+        type: object[]
+        pointer: /edges/*/item/stream
+        entries: *live_cards
+    post_process:
+      - type: filter_items
+        source: entries
+        field: web-link
+        pattern: '^https://www\.twitch\.tv/[a-z0-9_]+$'
+
+  - name: get_entry
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{graphql_url}"
+    request_method: post
+    request_headers: *live_headers
+    media_types: *live_types
+    request_body_actions:
+      - &media_target
+        type: format_text
+        argument: "{query_url}"
+      - &media_path
+        type: regex_find_all
+        pattern: '^https://(www\.twitch\.tv/(?:videos/[0-9]+|[a-zA-Z0-9_]+)|clips\.twitch\.tv/[a-zA-Z0-9_-]+)/?$'
+        format: "{1}"
+      - type: format_text
+        argument: >-
+          const path = "{}".split("/");
+          const id = path[path.length - 1];
+          let query;
+          if (path[0] === "clips.twitch.tv") {
+            query = "query($id: ID!) { clip(slug: $id) { {clip_fields} channel: broadcaster { {channel_fields} } } }";
+          } else if (path.length === 3) {
+            query = "query($id: ID!) { video(id: $id) { {vod_fields} {vod_chapters} description seekPreviewsURL channel: owner { {channel_fields} } } }";
+          } else if (path[0] === "www.twitch.tv") {
+            query = "query($id: String!) { user(login: $id) { {channel_fields} description stream { {live_fields} } } }";
+          }
+          if (query) document.write(JSON.stringify({query, variables: {id}}));
+      - *exec_js
+      - *unwrap_js
+    row_pointer: /data/*
+    entries:
+      - name: source
+        type: string
+        actions:
+          - type: format_text
+            argument: "{source}"
+      - name: title
+        type: string
+        select: first
+        pointer: /displayName
+      - name: title
+        type: string
+        select: first
+        pointer: /title
+      - name: title
+        type: string
+        select: first
+        pointer: /stream/title
+      - name: description
+        type: string
+        pointer: /description
+      - *video_type
+      - *entry_live_media_type
+      - name: theme
+        type: string[]
+        pointer: /stream/broadcaster/login
+        actions:
+          - type: format_text
+            argument: Live
+      - name: link
+        type: string
+        actions:
+          - type: format_text
+            argument: "{query_url}"
+      - name: web-link
+        type: string
+        actions:
+          - type: format_text
+            argument: "{query_url}"
+      - *archive_image
+      - name: img/landscape > link
+        type: string
+        pointer: /stream/previewImageURL
+      - *archive_date
+      - name: release-date
+        type: string
+        pointer: /stream/createdAt
+        actions: *release_date
+      - *archive_duration
+      - *archive_genre
+      - name: genre
+        type: string[]
+        pointer: /stream/game/displayName
+      - name: lang/audio
+        type: string[]
+        pointer: /language
+        actions: *language_code
+      - name: lang/audio
+        type: string[]
+        pointer: /stream/language
+        actions: *language_code
+      - name: channel > name
+        type: string
+        pointer: /displayName
+      - name: channel > name
+        type: string
+        pointer: /channel/displayName
+      - name: channel > logo
+        type: string
+        pointer: /profileImageURL
+      - name: channel > logo
+        type: string
+        pointer: /channel/profileImageURL
+      - name: channel > request > query_url
+        type: string
+        pointer: /login
+        actions: *channel_link
+      - name: channel > request > query_url
+        type: string
+        pointer: /channel/login
+        actions: *channel_link
+      - name: players
+        type: object[]
+        entries: *player
+    post_process:
+      - type: filter_items
+        source: players
+        field: name
+        pattern: '.+'
+      - type: filter_fields
+        source: players
+        field: name
+        pattern: '.+'
+        remove: [_storyboard_index]
+
+  - name: resolve_stream
+    scraper_type: json
+    base_url: "{base_url}"
+    query_url: "{graphql_url}"
+    request_method: post
+    request_headers: *live_headers
+    request_body_actions:
+      - *media_target
+      - *media_path
+      - type: format_text
+        argument: >-
+          const path = "{}".split("/");
+          const id = path[path.length - 1];
+          const params = '{playback_params}';
+          let query;
+          if (path[0] === "clips.twitch.tv") {
+            query = "query($id: ID!) { clip(slug: $id) { id: slug videoQualities { sourceURL quality frameRate }" +
+              " playbackAccessToken(params: {" + params + "}) { value signature } } }";
+          } else if (path.length === 3) {
+            query = "query($id: ID!) { video(id: $id) { id {vod_chapters} seekPreviewsURL } vod: videoPlaybackAccessToken(id: $id, params: {" +
+              params + "}) { value signature authorization { isForbidden } } }";
+          } else if (path[0] === "www.twitch.tv") {
+            query = "query PlaybackAccessToken_Template($id: String!) { user(login: $id) { login stream { id } }" +
+              " live: streamPlaybackAccessToken(channelName: $id, params: {" + params +
+              "}) { value signature authorization { isForbidden } } }";
+          }
+          if (query) document.write(JSON.stringify({query, variables: {id}}));
+      - *exec_js
+      - *unwrap_js
+    row_pointer: /
+    entries:
+      - name: error_message
+        type: string
+        pointer: /errors/0/message
+      - name: chapters
+        type: object[]
+        pointer: /data/video/moments/edges/*/node
+        entries: *chapter_entries
+      - name: _storyboard_index
+        type: string
+        pointer: /data/video/seekPreviewsURL
+        sub_queries: *vod_storyboard
+      - name: streams
+        type: object[]
+        entries:
+          - name: type
+            type: string
+            select: first
+            actions:
+              - type: format_text
+                argument: hls
+          - name: type
+            type: string
+            select: first
+            pointer: /data/clip/id
+            actions:
+              - type: format_text
+                argument: mp4
+          - name: url
+            type: string
+            pointer: /data
+            actions:
+              - type: format_text
+                argument: >-
+                  const data = {};
+                  if (data) {
+                    let url;
+                    let access;
+                    if (data.clip) {
+                      access = data.clip.playbackAccessToken;
+                      const qualities = (data.clip.videoQualities || []).filter(quality => quality && quality.sourceURL);
+                      qualities.sort((a, b) => Number(b.quality) - Number(a.quality) || b.frameRate - a.frameRate);
+                      url = qualities.length ? qualities[0].sourceURL : "";
+                    } else if (data.user && data.user.stream) {
+                      access = data.live;
+                      url = "{usher_url}/api/channel/hls/" + encodeURIComponent(data.user.login) + ".m3u8";
+                    } else if (data.video) {
+                      access = data.vod;
+                      url = "{usher_url}/vod/" + encodeURIComponent(data.video.id) + ".m3u8";
+                    }
+                    if (url && access && access.value && access.signature && !access.authorization?.isForbidden) {
+                      const separator = url.includes("?") ? "&" : "?";
+                      const hls = data.clip ? "" : "allow_source=true&allow_audio_only=true&player_backend=mediaplayer&playlist_include_framerate=true&";
+                      document.write(url + separator + hls + "sig=" + encodeURIComponent(access.signature) +
+                        "&token=" + encodeURIComponent(access.value));
+                    }
+                  }
+              - *exec_js
+              - type: regex_find_all
+                pattern: '^document_write=(https://[^\s]+)$'
+                format: "{1}"
+    post_process:
+      - type: filter_items
+        source: streams
+        field: url
+        pattern: '.+'
+      - type: remove_fields
+        fields: [_storyboard_index]

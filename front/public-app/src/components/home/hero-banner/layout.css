@@ -27,6 +27,14 @@
   animation: home-hero-banner-loading 1.2s ease-in-out infinite alternate;
 }
 
+.home-hero-banner.home-hero-banner--with-video {
+  grid-template-columns: minmax(0, 1fr) min(60%, calc(var(--home-hero-banner-height) * var(--banner-video-ratio)));
+  grid-template-rows: auto;
+  column-gap: 25px;
+  min-height: 0;
+  height: auto;
+}
+
 @keyframes home-hero-banner-loading {
   from {
     opacity: 0.65;

@@ -109,6 +109,15 @@ The active indicator is a 23px pill (two 8px dots plus their 7px gap). Indicator
 outside the window are hidden from keyboard navigation and assistive technology;
 scrolling respects reduced-motion preferences. Indicators remain hidden on mobile.
 
+Video banners keep the logo, title and description in a left-hand column. The
+text wraps within that column, with a 25px gap before the player. The player sits
+flush with the right edge. The carousel navigation is centered along the bottom
+of the full banner, above the player in the stacking order. The play and pause
+preference applies to banner videos and is stored in the current browser.
+The carousel keeps the current video banner visible while playback is paused.
+Pausing an embedded player unloads it and shows the banner image when available.
+Resuming an embed loads it again.
+
 `/` keeps the aggregated catalog. `/source/:sourceId` loads only the exact
 backend source selected by the route. The navigation source group uses service
 metadata and registry-derived `supported_queries`, without loading every
@@ -261,7 +270,7 @@ Shortcut/Category content for categories, then Cancel/Add. Add resolves all clic
 contributions and commits one revision-checked definition without opening the editor
 or navigating away. Failure keeps the dialog open; cancellation does not write.
 The category page header opens the same dialog with Category content selected
-when the category can be rediscovered from its service home and the service
+when the category can be resolved and the service
 advertises `get_category`. The hero pin adds the featured collection of the
 current category for the active service. The category strip can add discovered
 children as shortcuts or content. A section pin adds only the chosen rail or
@@ -275,10 +284,15 @@ status and offers to add a shortcut while editing controls are enabled.
 The category block's **Load more from this category** button requests
 `get_category`, even when the current page has no media sections. Linked rails
 continue independently through `get_section`. A failed request can be retried on
-the block or rail that owns its cursor. Category lookups begin with `load_home`
-and replay up to eight parent categories through `get_category`. Existing v1
-documents are read directly. New category contributions use the optional
-category context in the same document version and require the updated server.
+the block or rail that owns its cursor. Category lookups normally begin with
+`load_home` and replay up to eight parent categories through `get_category`.
+Sources can advertise `category_url_patterns` for stable public URLs. Category
+pins, category shortcuts, banners and sections use direct category resolution
+on matching pages. Quick add refreshes service metadata before resolving them.
+Twitch declares its channel and tab URLs so pins work even when the channel is
+absent from the Twitch home. Existing v1 documents are read
+directly. New category contributions use the optional category context in the
+same document version and require the updated server.
 Source-page preference namespaces are stripped only for discovery matching; they are
 never persisted as content identities. When a displayed rail groups several sections
 with the same preference key, all unambiguous source-owned references are added.

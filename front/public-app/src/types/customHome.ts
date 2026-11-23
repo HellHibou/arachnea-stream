@@ -32,7 +32,7 @@ export interface CategoryOrigin {
   keys: string[]
 }
 
-/** Source-owned category descriptor snapshot, to be rediscovered before execution. */
+/** Source-owned category descriptor snapshot used for discovery or configured direct lookup. */
 export interface CategoryReference {
   sourceId: string
   categoryKey: string

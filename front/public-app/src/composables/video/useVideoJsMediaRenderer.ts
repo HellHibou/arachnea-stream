@@ -729,7 +729,23 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
     destroyCurrentPlayer()
   })
 
+  /**
+   * Applies a playback command without reloading the current source.
+   * @param paused Whether to pause or resume playback.
+   */
+  function setPlaybackPaused(paused: boolean) {
+    const player = activePlayer.value
+    if (!player) return
+
+    if (paused) {
+      player.pause()
+    } else {
+      void player.play()?.catch(() => {})
+    }
+  }
+
   return {
+    setPlaybackPaused,
     isPosterOverlayVisible: ui.isPosterOverlayVisible,
     shouldRenderPosterOverlay: ui.shouldRenderPosterOverlay,
     isVideoInitialLoading: ui.isVideoInitialLoading,

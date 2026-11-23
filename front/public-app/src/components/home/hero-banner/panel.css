@@ -23,6 +23,35 @@
   padding-right: 6px;
 }
 
+.home-hero-banner--with-video .home-hero-banner__panel {
+  grid-row: 1;
+  grid-column: 1;
+  grid-template-rows: auto;
+  padding-inline-end: 0;
+}
+
+.home-hero-banner--with-video .home-hero-banner__panel--with-navigation {
+  padding-block-end: 60px;
+}
+
+.home-hero-banner--with-video .home-hero-banner__content {
+  height: auto;
+  max-height: none;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  padding-inline-end: 0;
+}
+
+.home-hero-banner--with-video .source-logo-image {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.home-hero-banner--with-video .home-hero-banner__action {
+  max-width: 100%;
+  white-space: normal;
+}
+
 .home-hero-banner__logo {
   max-width: min(100%, 480px);
   max-height: 130px;

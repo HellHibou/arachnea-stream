@@ -66,7 +66,7 @@
 }
 
 .home-hero-banner__action:focus-visible,
-.home-hero-banner__sound-toggle:focus-visible,
+.home-hero-banner__video-toggle:focus-visible,
 .home-hero-banner__arrow:focus-visible,
 .home-hero-banner__dot:focus-visible {
   outline: var(--common-focus-ring);

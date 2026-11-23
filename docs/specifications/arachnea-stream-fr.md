@@ -99,6 +99,10 @@ description. La durée de la vidéo borne le dernier chapitre. Le lecteur
 public ignore les chapitres dont la fin est absente ou inférieure ou égale au
 début.
 
+La requête Twitch `get_category` utilise le nom de la chaîne ou du jeu comme
+titre de la bannière. Sur une page de chaîne, la bannière lit le direct s’il
+est disponible ou une rediffusion à défaut.
+
 RMC BFM Play sélectionne le rail de catégories de l'accueil par son titre
 « Toutes les catégories », car son identifiant fournisseur peut changer.
 Sa requête différée `get_section` attend une URL de tuile `page_type=mosaique` ;
@@ -228,6 +232,7 @@ Requête statique. Chaque source retourne exactement une ligne.
 | `logo` | `string` | oui | URL du logo |
 | `description` | `object` | oui | Description multilingue (ex: `{ fr: "…", en: "…" }`) |
 | `metadata` | `object` | non | Tags déclarés à la racine du YAML, ou `{}` |
+| `category_url_patterns` | `string[]` | non | Expressions régulières JavaScript qui doivent correspondre à l’URL publique entière pour retrouver directement une catégorie épinglée ou son contenu |
 | `search_themes` | `string[]` | non | Liste des thèmes disponibles pour filtrer la recherche |
 | `themes` | `string[]` | non | Variante de `search_themes` |
 
@@ -237,6 +242,13 @@ ligne, trié depuis le registre chargé et joint par l'identifiant exact
 identifiant de métadonnées sans correspondance reçoit une liste vide ; le
 sélecteur des homes sources liste uniquement les services annonçant `load_home`.
 Ni la découverte ni le filtre ne réactivent une source désactivée/non chargée.
+
+Quand l’URL correspond et que la source annonce `get_category`, l’accueil
+personnalisé utilise l’identifiant de la source et `query_url` pour retrouver la
+catégorie. Le contenu et les bannières passent par `get_category`. Une section
+épinglée reste sélectionnée par son identifiant stable. Déclarer uniquement des
+URL publiques stables que `get_category` accepte sans paramètre supplémentaire.
+En l’absence de correspondance, la recherche suit le chemin depuis `load_home`.
 
 ---
 
@@ -419,6 +431,7 @@ fois, dont le titre combine le libellé de la section et celui de la sous-sectio
 | `image` | `string` | URL de l'image de fond |
 | `logo` | `string` | URL du logo superposé |
 | `video` | `string` | URL de la vidéo d'arrière-plan |
+| `players` | `object[]` | Vidéo d’arrière-plan facultative résolue à la demande avec le premier `resolver` utilisable |
 | `link` | `string` | URL interne vers `get_entry` |
 | `web-link` | `string` | URL publique |
 | `subtitle` | `string` | Sous-titre |

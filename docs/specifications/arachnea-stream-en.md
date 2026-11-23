@@ -94,6 +94,10 @@ ends at the next timestamp in description order. The video duration supplies
 the final end. The public player skips chapters with a missing end or an end
 at or before the start.
 
+Twitch `get_category` uses the channel or game display name as the banner title.
+On channel pages, the banner plays the live broadcast when available or falls
+back to a recording.
+
 RMC BFM Play selects the home category rail by its "Toutes les catégories" title,
 since its provider-generated ID can change. Its deferred `get_section` query
 expects a `page_type=mosaique` tile URL; an editorial `fip-edito` page with content
@@ -219,6 +223,7 @@ Static query. Each source returns exactly one row.
 | `logo` | `string` | yes | Logo URL |
 | `description` | `object` | yes | Multilingual description (e.g. `{ fr: "…", en: "…" }`) |
 | `metadata` | `object` | no | YAML-root service tags, or `{}` |
+| `category_url_patterns` | `string[]` | no | JavaScript regex patterns that must match an entire public URL for direct lookup of a pinned category or its content |
 | `search_themes` | `string[]` | no | List of available search filter themes |
 | `themes` | `string[]` | no | Alias for `search_themes` |
 
@@ -228,6 +233,13 @@ metadata row, sorted from the loaded query registry and joined by the exact
 metadata id receives an empty list; the source-home selector only lists rows
 advertising `load_home`. Administratively disabled/unloaded sources are not
 reactivated by discovery or request filters.
+
+For a matching URL on a source that advertises `get_category`, custom homes
+resolve the category by its source ID and `query_url`. Category content and
+banners use `get_category`. A pinned section still resolves by its stable
+section identity. Only declare patterns for stable public URLs that
+`get_category` accepts without additional parameters. With no matching pattern,
+the lookup follows the category path from `load_home`.
 
 ---
 
@@ -403,6 +415,7 @@ subsection labels.
 | `image` | `string` | Background image URL |
 | `logo` | `string` | Overlay logo URL |
 | `video` | `string` | Background video URL |
+| `players` | `object[]` | Optional background video resolved on demand using the first usable `resolver` |
 | `link` | `string` | Internal URL to `get_entry` |
 | `web-link` | `string` | Public URL |
 | `subtitle` | `string` | Subtitle |

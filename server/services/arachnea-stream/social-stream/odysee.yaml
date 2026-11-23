@@ -105,7 +105,7 @@ shared:
       type: string
       actions:
         - type: format_text
-          argument: "video/other"
+          argument: "video"
     - name: theme
       type: string[]
       pointer: /value/tags
@@ -835,7 +835,7 @@ queries:
         type: string
         actions:
           - type: format_text
-            argument: "video/other"
+            argument: "video"
       - name: theme
         type: string[]
         pointer: /result/items/0/value/tags

@@ -11,6 +11,7 @@ import {
 } from '@/services/players'
 import { getStream } from '@/services/rustify'
 import { useStorage } from '@/services/storage'
+import { STORE_PREFIX } from '@/services/storage/keys'
 import { isMediaSourceAllowedBySecurity } from '@/services/videoSourceAllowlist'
 import { mediaPresentation, mediaRoute } from '@/services/mediaRouting'
 import VideoPlayer from '@/components/media/VideoPlayer.vue'
@@ -58,6 +59,7 @@ const AUTO_ROTATION_DELAY_MS = 20000
 const MAX_VISIBLE_INDICATORS = 10
 /** Default aspect ratio for banner videos. */
 const DEFAULT_BANNER_VIDEO_ASPECT_RATIO = 16 / 9
+const BANNER_VIDEO_PAUSED_KEY = `${STORE_PREFIX}home.bannerVideo.paused`
 
 /** Identifier used to ignore stale banner stream resolutions. */
 let bannerStreamRequestId = 0
@@ -77,16 +79,12 @@ const visibleIndicators = computed(() => props.banners
   .map((banner, offset) => ({ banner, index: indicatorWindowStart.value + offset })))
 /** Timer ID for the automatic rotation. */
 const autoRotationTimer = shallowRef<ReturnType<typeof window.setTimeout> | null>(null)
-/** Template reference to the banner element. */
-const bannerElement = useTemplateRef<HTMLElement>('bannerElement')
-/** Resize observer for the banner element. */
-const bannerResizeObserver = shallowRef<ResizeObserver | null>(null)
-/** Current size of the banner element. */
-const bannerSize = shallowRef({ width: 0, height: 0 })
+const bannerVideoPlayer = useTemplateRef<InstanceType<typeof VideoPlayer>>('bannerVideoPlayer')
 /** Current video aspect ratio for the active banner. */
 const bannerVideoAspectRatio = shallowRef(DEFAULT_BANNER_VIDEO_ASPECT_RATIO)
 /** Whether the banner video is muted. */
 const isBannerVideoMuted = shallowRef(true)
+const isBannerVideoPaused = shallowRef(readBannerVideoPaused())
 /** Internationalization utilities. */
 const { t } = useI18n()
 
@@ -164,9 +162,9 @@ watch(activeBanner, async (banner) => {
     return
   }
 
+  resolvedBannerMediaSource.value = null
   const player = banner ? createBannerPlayer(banner) : null
   if (!player) {
-    resolvedBannerMediaSource.value = null
     return
   }
 
@@ -189,17 +187,10 @@ watch(activeBanner, async (banner) => {
 }, { immediate: true })
 
 /**
- * Returns the resolved video source displayed behind the active banner.
- */
-const activeBannerVideoSource = computed<ResolvedPlayerMediaSource | null>(() =>
-  resolvedBannerMediaSource.value,
-)
-
-/**
  * Returns the banner video source configured with the current banner-only sound preference.
  */
 const activeBannerPlayableVideoSource = computed<ResolvedPlayerMediaSource | null>(() => {
-  const source = activeBannerVideoSource.value
+  const source = resolvedBannerMediaSource.value
 
   if (!source || source.renderer !== 'iframe') {
     return source
@@ -208,6 +199,7 @@ const activeBannerPlayableVideoSource = computed<ResolvedPlayerMediaSource | nul
   try {
     const url = new URL(source.src)
     url.searchParams.set('mute', isBannerVideoMuted.value ? '1' : '0')
+    url.searchParams.set('autoplay', '1')
 
     return {
       ...source,
@@ -222,16 +214,21 @@ const activeBannerPlayableVideoSource = computed<ResolvedPlayerMediaSource | nul
 const bannerSecurityMode = useStorage().getParameters().securityMode
 
 /**
- * Returns whether the active banner video may render under the security mode.
+ * Returns the active video if the current security mode permits its source.
  *
- * Only embedded iframe sources are constrained: they play in `unsafe` mode or
- * when allowlisted. Native banner videos always play.
+ * Only embedded iframe sources are constrained: they are allowed in `unsafe`
+ * mode or when allowlisted.
  */
-const activeBannerVideoAllowed = computed(() =>
-  isMediaSourceAllowedBySecurity(
-    activeBannerPlayableVideoSource.value,
+const activeBannerVideo = computed(() => {
+  const source = activeBannerPlayableVideoSource.value
+  return source && isMediaSourceAllowedBySecurity(
+    source,
     bannerSecurityMode.value,
-  ),
+  ) ? source : null
+})
+
+const shouldRenderBannerVideo = computed(() =>
+  activeBannerVideo.value?.renderer === 'video' || !isBannerVideoPaused.value,
 )
 
 /**
@@ -239,51 +236,13 @@ const activeBannerVideoAllowed = computed(() =>
  */
 const activeBannerMediaKey = computed(() => {
   const banner = activeBanner.value
-  const source = activeBannerPlayableVideoSource.value
+  const source = activeBannerVideo.value
 
   if (!banner || !source) {
     return null
   }
 
   return `${banner.id}:${source.renderer}:${source.src}`
-})
-
-/**
- * Returns the banner video dimensions that keep the loaded source fully visible.
- */
-const activeBannerVideoStyle = computed(() => {
-  const bannerWidth = bannerSize.value.width
-  const bannerHeight = bannerSize.value.height
-  const aspectRatio = bannerVideoAspectRatio.value
-
-  if (
-    bannerWidth <= 0 ||
-    bannerHeight <= 0 ||
-    !Number.isFinite(aspectRatio) ||
-    aspectRatio <= 0
-  ) {
-    return {
-      width: '100%',
-      height: '100%',
-      aspectRatio: String(DEFAULT_BANNER_VIDEO_ASPECT_RATIO),
-    }
-  }
-
-  const heightLimitedWidth = bannerHeight * aspectRatio
-
-  if (heightLimitedWidth <= bannerWidth) {
-    return {
-      width: `${heightLimitedWidth}px`,
-      height: `${bannerHeight}px`,
-      aspectRatio: String(aspectRatio),
-    }
-  }
-
-  return {
-    width: `${bannerWidth}px`,
-    height: `${bannerWidth / aspectRatio}px`,
-    aspectRatio: String(aspectRatio),
-  }
 })
 
 /**
@@ -307,14 +266,16 @@ const bannerVideoSoundLabel = computed(() =>
  */
 const shouldRotateActiveBannerOnVideoEnd = computed(() =>
   props.banners.length > 1 &&
-  activeBannerPlayableVideoSource.value?.renderer === 'video',
+  activeBannerVideo.value?.renderer === 'video',
 )
 
 /**
- * Indicates whether the active banner should keep the fixed image rotation delay.
+ * Indicates whether the active banner should rotate on a timer.
  */
 const shouldUseTimedAutoRotation = computed(() =>
-  props.banners.length > 1 && !shouldRotateActiveBannerOnVideoEnd.value,
+  props.banners.length > 1 &&
+  !shouldRotateActiveBannerOnVideoEnd.value &&
+  !(activeBannerVideo.value && isBannerVideoPaused.value),
 )
 
 /**
@@ -378,7 +339,7 @@ watch(
 )
 
 watch(
-  () => props.banners,
+  [() => props.banners, shouldUseTimedAutoRotation],
   () => {
     restartAutoRotation()
   },
@@ -388,24 +349,6 @@ watch(
 watch(activeBannerMediaKey, () => {
   bannerVideoAspectRatio.value = DEFAULT_BANNER_VIDEO_ASPECT_RATIO
 })
-
-/**
- * Stores the current rendered banner size used to contain the decorative video.
- *
- * @param entry Resize observer entry received for the banner root.
- */
-function updateBannerSize(entry?: ResizeObserverEntry) {
-  const rect = entry?.contentRect ?? bannerElement.value?.getBoundingClientRect()
-
-  if (!rect) {
-    return
-  }
-
-  bannerSize.value = {
-    width: rect.width,
-    height: rect.height,
-  }
-}
 
 /**
  * Captures the intrinsic video ratio once the decorative banner video metadata is loaded.
@@ -431,11 +374,33 @@ function toggleBannerVideoSound() {
   isBannerVideoMuted.value = !isBannerVideoMuted.value
 }
 
+/** Reads the banner playback preference from this browser. */
+function readBannerVideoPaused() {
+  try {
+    return localStorage.getItem(BANNER_VIDEO_PAUSED_KEY) === 'true'
+  } catch {
+    return false
+  }
+}
+
+/** Pauses or resumes the banner and remembers the choice in this browser. */
+function toggleBannerVideoPlayback() {
+  const paused = !isBannerVideoPaused.value
+  isBannerVideoPaused.value = paused
+  bannerVideoPlayer.value?.setPlaybackPaused(paused)
+
+  try {
+    localStorage.setItem(BANNER_VIDEO_PAUSED_KEY, String(paused))
+  } catch {
+    // Playback remains controllable when storage is unavailable.
+  }
+}
+
 /**
  * Moves to the next banner once the active native banner video reaches its end.
  */
 function handleBannerVideoPlaybackEnded() {
-  if (!shouldRotateActiveBannerOnVideoEnd.value) {
+  if (isBannerVideoPaused.value || !shouldRotateActiveBannerOnVideoEnd.value) {
     return
   }
 
@@ -503,7 +468,7 @@ function stopAutoRotation() {
 }
 
 /**
- * Restarts the automatic banner rotation when the active banner uses the fixed image delay.
+ * Restarts the timer when the active banner uses timed rotation.
  */
 function restartAutoRotation() {
   stopAutoRotation()
@@ -525,34 +490,7 @@ onMounted(() => {
   }
 })
 
-/**
- * Observes the currently rendered hero surface, including the deferred loading placeholder.
- *
- * This watcher reconnects when the placeholder is replaced by the populated banner.
- */
-watch(bannerElement, (element) => {
-  bannerResizeObserver.value?.disconnect()
-  bannerResizeObserver.value = null
-  updateBannerSize()
-
-  if (!element || typeof ResizeObserver === 'undefined') {
-    return
-  }
-
-  const resizeObserver = new ResizeObserver((entries) => {
-    updateBannerSize(entries[0])
-  })
-
-  resizeObserver.observe(element)
-  bannerResizeObserver.value = resizeObserver
-}, { flush: 'post' })
-
-/** Cleans up rotation timer and resize observer when component unmounts. */
-onBeforeUnmount(() => {
-  stopAutoRotation()
-  bannerResizeObserver.value?.disconnect()
-  bannerResizeObserver.value = null
-})
+onBeforeUnmount(stopAutoRotation)
 </script>
 
 <template>
@@ -565,51 +503,18 @@ onBeforeUnmount(() => {
 
   <section
     v-else-if="activeBanner"
-    ref="bannerElement"
     class="home-hero-banner"
+    :class="{ 'home-hero-banner--with-video': activeBannerVideo }"
+    :style="{ '--banner-video-ratio': bannerVideoAspectRatio }"
     :aria-label="activeBanner.title ?? t('catalog.featuredContent')"
   >
-      <img
-      v-if="activeBanner.imageUrl && (!activeBannerVideoSource || !activeBannerVideoAllowed)"
-        class="home-hero-banner__image"
-        :src="activeBanner.imageUrl"
-        alt=""
-        aria-hidden="true"
-      >
-
-    <VideoPlayer
-      v-if="activeBannerPlayableVideoSource && activeBannerVideoAllowed"
-      :key="activeBannerMediaKey ?? undefined"
-      :source="activeBannerPlayableVideoSource"
-      :class="[
-        'home-hero-banner__video',
-        activeBannerPlayableVideoSource.renderer === 'iframe' ? 'home-hero-banner__video--frame' : null,
-      ]"
-      :style="activeBannerVideoStyle"
-        :iframe-title="t('media.decorativeBannerVideo')"
-        :poster="activeBanner.imageUrl ?? undefined"
-        autoplay
-        :muted="isBannerVideoMuted"
-        :loop="shouldLoopActiveBannerVideo"
-        playsinline
-        preload="auto"
-        allow="autoplay; encrypted-media; picture-in-picture"
-        :aria-hidden="true"
-        :tab-index="-1"
-        @playback-ended="handleBannerVideoPlaybackEnded"
-        @video-metadata-loaded="handleBannerVideoMetadataLoaded"
-      />
-
-    <button
-      v-if="activeBannerPlayableVideoSource && activeBannerVideoAllowed"
-      class="home-hero-banner__sound-toggle"
-      type="button"
-      :aria-label="bannerVideoSoundLabel"
-      :aria-pressed="!isBannerVideoMuted"
-      @click="toggleBannerVideoSound"
+    <img
+      v-if="!activeBannerVideo && activeBanner.imageUrl"
+      class="home-hero-banner__image"
+      :src="activeBanner.imageUrl"
+      alt=""
+      aria-hidden="true"
     >
-      <v-icon :icon="bannerVideoSoundIcon" size="22" aria-hidden="true" />
-    </button>
 
     <img
       v-if="activeBanner.imageUrl"
@@ -621,7 +526,10 @@ onBeforeUnmount(() => {
 
     <div class="home-hero-banner__backdrop" aria-hidden="true" />
 
-    <div class="home-hero-banner__panel">
+    <div
+      class="home-hero-banner__panel"
+      :class="{ 'home-hero-banner__panel--with-navigation': activeBannerVideo && props.banners.length > 1 }"
+    >
       <div class="home-hero-banner__content">
         <div class="home-hero-banner__text">
           <div class="home-hero-banner__service">
@@ -664,51 +572,102 @@ onBeforeUnmount(() => {
         >
           {{ t(bannerActionLabel) }}
         </a>
-       </div>
-     </div>
+      </div>
+    </div>
 
-<div v-if="props.banners.length > 1" class="home-hero-banner__controls">
-       <button
-         class="home-hero-banner__arrow"
-         type="button"
-         :aria-label="t('catalog.previousBanner')"
-         @click="showPreviousBanner"
-       >
-         <v-icon icon="$NavigateBefore" size="24" aria-hidden="true" />
-       </button>
+    <div
+      v-if="activeBannerVideo"
+      class="home-hero-banner__video-area"
+    >
+      <VideoPlayer
+        v-if="shouldRenderBannerVideo"
+        ref="bannerVideoPlayer"
+        :key="activeBannerMediaKey ?? undefined"
+        :source="activeBannerVideo"
+        class="home-hero-banner__video"
+        :iframe-title="t('media.decorativeBannerVideo')"
+        :poster="activeBanner.imageUrl ?? undefined"
+        :autoplay="!isBannerVideoPaused"
+        :muted="isBannerVideoMuted"
+        :loop="shouldLoopActiveBannerVideo"
+        playsinline
+        preload="auto"
+        allow="autoplay; encrypted-media; picture-in-picture"
+        :aria-hidden="true"
+        :tab-index="-1"
+        @playback-ended="handleBannerVideoPlaybackEnded"
+        @video-metadata-loaded="handleBannerVideoMetadataLoaded"
+      />
+      <img
+        v-else-if="activeBanner.imageUrl"
+        class="home-hero-banner__video-poster"
+        :src="activeBanner.imageUrl"
+        alt=""
+      >
 
-       <div
-         class="home-hero-banner__dots"
-         :aria-label="t('catalog.bannerNavigation')"
-         :style="{ '--indicator-count': visibleIndicatorCount }"
-       >
-         <div class="home-hero-banner__dots-viewport">
-           <div class="home-hero-banner__dots-track">
-             <button
-               v-for="{ banner, index } in visibleIndicators"
-               :key="JSON.stringify([banner.source, banner.id, index])"
-               class="home-hero-banner__dot"
-               :class="{
-                 'home-hero-banner__dot--active': index === activeIndex,
-               }"
-               type="button"
-               :aria-label="t('catalog.showBanner', { index: index + 1 })"
-               :aria-pressed="index === activeIndex"
-               @click="showBanner(index)"
-             />
-           </div>
-         </div>
-       </div>
+      <div class="home-hero-banner__video-controls">
+        <button
+          class="home-hero-banner__video-toggle"
+          type="button"
+          :aria-label="t(isBannerVideoPaused ? 'player.controls.play' : 'player.controls.pause')"
+          @click="toggleBannerVideoPlayback"
+        >
+          <v-icon :icon="isBannerVideoPaused ? 'mdi-play' : 'mdi-pause'" size="22" aria-hidden="true" />
+        </button>
+        <button
+          class="home-hero-banner__video-toggle"
+          type="button"
+          :aria-label="bannerVideoSoundLabel"
+          :aria-pressed="!isBannerVideoMuted"
+          @click="toggleBannerVideoSound"
+        >
+          <v-icon :icon="bannerVideoSoundIcon" size="22" aria-hidden="true" />
+        </button>
+      </div>
+    </div>
 
-       <button
-         class="home-hero-banner__arrow"
-         type="button"
-         :aria-label="t('catalog.nextBanner')"
-         @click="showNextBanner"
-       >
-         <v-icon icon="$NavigateNext" size="24" aria-hidden="true" />
-       </button>
-     </div>
+    <div v-if="props.banners.length > 1" class="home-hero-banner__controls">
+      <button
+        class="home-hero-banner__arrow"
+        type="button"
+        :aria-label="t('catalog.previousBanner')"
+        @click="showPreviousBanner"
+      >
+        <v-icon icon="$NavigateBefore" size="24" aria-hidden="true" />
+      </button>
+
+      <div
+        class="home-hero-banner__dots"
+        :aria-label="t('catalog.bannerNavigation')"
+        :style="{ '--indicator-count': visibleIndicatorCount }"
+      >
+        <div class="home-hero-banner__dots-viewport">
+          <div class="home-hero-banner__dots-track">
+            <button
+              v-for="{ banner, index } in visibleIndicators"
+              :key="JSON.stringify([banner.source, banner.id, index])"
+              class="home-hero-banner__dot"
+              :class="{
+                'home-hero-banner__dot--active': index === activeIndex,
+              }"
+              type="button"
+              :aria-label="t('catalog.showBanner', { index: index + 1 })"
+              :aria-pressed="index === activeIndex"
+              @click="showBanner(index)"
+            />
+          </div>
+        </div>
+      </div>
+
+      <button
+        class="home-hero-banner__arrow"
+        type="button"
+        :aria-label="t('catalog.nextBanner')"
+        @click="showNextBanner"
+      >
+        <v-icon icon="$NavigateNext" size="24" aria-hidden="true" />
+      </button>
+    </div>
   </section>
 </template>
 

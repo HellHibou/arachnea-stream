@@ -1,8 +1,13 @@
-.home-hero-banner__sound-toggle {
+.home-hero-banner__video-controls {
   position: absolute;
   top: 14px;
   right: 14px;
   z-index: 11;
+  display: flex;
+  gap: 8px;
+}
+
+.home-hero-banner__video-toggle {
   display: inline-grid;
   place-items: center;
   width: 44px;
@@ -10,20 +15,24 @@
   padding: 0;
   border: 1px solid rgba(255, 255, 255, 0.22);
   border-radius: 50%;
-  background: rgba(10, 14, 20, 0.50);
+  background: rgba(10, 14, 20, 0.32);
   color: var(--text-primary);
   cursor: pointer;
   box-shadow: var(--inset-light);
+  opacity: 0.65;
   transition:
     transform var(--duration-fast) ease,
     border-color var(--duration-fast) ease,
-    background-color var(--duration-fast) ease;
+    background-color var(--duration-fast) ease,
+    opacity var(--duration-fast) ease;
 }
 
-.home-hero-banner__sound-toggle:hover {
+.home-hero-banner__video-toggle:hover,
+.home-hero-banner__video-toggle:focus-visible {
   transform: translateY(-1px);
   border-color: var(--color-primary);
   background: rgba(10, 14, 20, 0.72);
+  opacity: 1;
 }
 
 .home-hero-banner__arrow {
