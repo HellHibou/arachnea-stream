@@ -1,5 +1,5 @@
 import { readonly, shallowRef } from 'vue'
-import { hasProfile, profileCall, profileWrite, type StreamingSnapshot } from '@/services/profileApi'
+import { hasProfile, isUncertainProfileWrite, profileCall, profileWrite, type StreamingSnapshot } from '@/services/profileApi'
 import { requireProfileContext, type ProfileContext } from '@/services/profileContext'
 
 const current = shallowRef<string | null>(null)
@@ -19,7 +19,13 @@ export async function saveDefaultHome(id: string | null): Promise<void> {
   const context = requireProfileContext()
   if (!snapshot) await loadDefaultHome(context)
   if (!snapshot) throw new Error('Initialize streaming preferences before choosing a default home.')
-  await profileWrite('save_preferences', { streaming: { expected_revision: snapshot.revision, values: { ...snapshot.values, defaultHomeId: id } } }, 'settings:default-home', context)
+  try {
+    await profileWrite('save_preferences', { streaming: { expected_revision: snapshot.revision, values: { ...snapshot.values, defaultHomeId: id } } }, 'settings', context)
+  } catch (error) {
+    snapshot = null
+    if (isUncertainProfileWrite(error) && await loadDefaultHome(context).catch(() => undefined) === id) return
+    throw error
+  }
   await loadDefaultHome(context)
 }
 window.addEventListener('arachnea-profile-context', () => { current.value = null; snapshot = null })

@@ -51,8 +51,6 @@ pub(super) struct Login {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct ChangePassword {
-    /// Stable retry UUID.
-    pub operation_id: Uuid,
     /// Current password used for verification only.
     pub current_password: String,
     /// Replacement password used in memory only.
@@ -63,8 +61,6 @@ pub(super) struct ChangePassword {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct CreateUser {
-    /// Stable retry UUID.
-    pub operation_id: Uuid,
     /// Normalized login identifier.
     pub login: String,
     /// Administrator-supplied temporary password, never persisted in plaintext.
@@ -78,8 +74,6 @@ pub(super) struct CreateUser {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct SetPasswordChange {
-    /// Stable retry UUID.
-    pub operation_id: Uuid,
     /// Target account UUID.
     pub user_id: Uuid,
     /// Whether the account must replace its password at the next sign-in.
@@ -95,20 +89,16 @@ fn require_password_change() -> bool {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct ResetPassword {
-    /// Stable retry UUID.
-    pub operation_id: Uuid,
     /// Target account UUID.
     pub user_id: Uuid,
     /// Administrator-supplied temporary password, never persisted in plaintext.
     pub temporary_password: String,
 }
 
-/// Administrator account deletion with durable operation identity.
+/// Administrator account deletion.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct DeleteUser {
-    /// Stable retry UUID.
-    pub operation_id: Uuid,
     /// Target account UUID.
     pub user_id: Uuid,
 }
@@ -116,7 +106,4 @@ pub(super) struct DeleteUser {
 /// Session logout request.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct Logout {
-    /// Stable retry UUID.
-    pub operation_id: Uuid,
-}
+pub(super) struct Logout {}

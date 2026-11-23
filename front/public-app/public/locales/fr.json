@@ -260,8 +260,6 @@
     },
     "draft": {
       "loading": "Chargement des préférences actuelles…",
-      "partial": "Les préférences d’interface sont confirmées sur le serveur. L’enregistrement complet reste à confirmer. Réessayez pour terminer ; les modifications seront appliquées ensemble après confirmation.",
-      "pending": "L’enregistrement n’est pas entièrement confirmé. Réessayez pour terminer la même opération avant de fermer.",
       "discard": "Abandonner les modifications non enregistrées ?",
       "continue": "Continuer la modification",
       "discardAction": "Abandonner les modifications",
@@ -524,6 +522,7 @@
     "signIn": "Se connecter",
     "signOut": "Se déconnecter",
     "retry": "Réessayer",
+    "reloadPage": "Recharger la page",
     "memoryOnly": "Cet appareil ne peut pas enregistrer la session de façon sécurisée. Reconnectez-vous après redémarrage.",
     "errors": {
       "invalid_credentials": "Identifiant ou mot de passe incorrect.",
@@ -531,12 +530,12 @@
       "session_required": "Connectez-vous pour continuer.",
       "session_expired": "Votre session a expiré.",
       "session_revoked": "Votre session n’est plus valide.",
+      "session_changed": "La session du compte a changé dans un autre onglet.",
       "password_change_required": "Choisissez un nouveau mot de passe pour continuer.",
       "storage_unavailable": "Le service des comptes est indisponible. Réessayez.",
       "origin_rejected": "Cette requête a été refusée.",
       "login_rate_limited": "Trop de tentatives échouées. Réessayez plus tard.",
-      "method_not_allowed": "Cette opération n’a pas pu être envoyée.",
-      "operation_id_conflict": "Cette opération a déjà été utilisée. Reconnectez-vous."
+      "method_not_allowed": "Cette opération n’a pas pu être envoyée."
     },
     "administration": "Administration",
     "adminOpenError": "La fenêtre d’administration n’a pas pu être ouverte."
@@ -553,6 +552,7 @@
     "quota": "{used} profil(s) sur {max} utilisé(s)",
     "quotaReached": "La limite de profils est atteinte.",
     "noProfiles": "Aucun profil n’est disponible.",
+    "showProfiles": "Afficher les profils",
     "preparing": "Préparation de votre profil…",
     "retry": "Réessayer",
     "createTitle": "Créer un profil",
@@ -583,7 +583,6 @@
       "profile_inaccessible": "Ce profil n’est plus disponible. Choisissez-en un autre.",
       "resource_not_found": "Les données demandées du profil sont introuvables.",
       "revision_conflict": "Le profil a été modifié sur un autre appareil. Rechargez-le avant d’enregistrer.",
-      "operation_id_conflict": "Cette identité d’opération a déjà été utilisée.",
       "operation_in_progress": "Une opération précédente du profil est encore en cours. Réessayez bientôt.",
       "storage_unavailable": "Le service des profils est indisponible. Réessayez.",
       "session_required": "Connectez-vous pour gérer vos profils.",
@@ -594,16 +593,14 @@
       "unsupported_schema_version": "Cette version des données du profil n’est pas prise en charge.",
       "admin_required": "Une autorisation administrateur est requise.",
       "origin_rejected": "Cette requête a été refusée."
-    },
-    "deletionPending": "Certaines suppressions de profils ne sont pas entièrement confirmées. Réessayez pour terminer le nettoyage de leurs données.",
-    "retryDeletions": "Reprendre les suppressions"
+    }
   },
   "personalData": {
     "operation": "la synchronisation des données personnelles",
     "pending": "Certaines modifications restent en attente d’enregistrement.",
-    "failed": "Vos modifications n’ont pas pu être enregistrées. Rechargez les données concernées en cas de conflit.",
+    "failed": "L’enregistrement de vos modifications n’a pas pu être confirmé. Rechargez les données concernées en cas de conflit.",
     "saving": "Enregistrement de vos modifications…",
-    "retry": "Réessayer les sauvegardes en attente",
+    "retry": "Vérifier les sauvegardes en attente",
     "dismiss": "Fermer"
   },
   "passwordStrength": {

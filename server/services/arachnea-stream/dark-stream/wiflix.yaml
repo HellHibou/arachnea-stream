@@ -593,7 +593,7 @@ queries:
             selector: "h2"
             select: first
             actions:
-              - type: get_text             
+              - type: get_text
           - name: current_page
             type: number
             actions:

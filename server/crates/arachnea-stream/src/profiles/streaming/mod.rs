@@ -6,6 +6,6 @@ mod repository;
 pub use repository::StreamingRepository;
 
 mod operations;
-/// Transactional collection revisions, tombstones and streaming mutation receipts.
+/// Transactional collection revisions and tombstones.
 pub(crate) mod state;
 mod validation;

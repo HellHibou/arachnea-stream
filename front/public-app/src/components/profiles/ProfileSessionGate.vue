@@ -13,7 +13,7 @@ const creating = ref(false)
 const additionalCreation = ref(false)
 const needsOnboarding = computed(() => {
   const list = profiles.list.value
-  return Boolean(list && list.used_slots === 0 && !profiles.pendingOnly.value)
+  return Boolean(list && list.used_slots === 0)
 })
 watch(() => profiles.activeProfile.value, (profile) => {
   if (profile) {
@@ -39,7 +39,7 @@ function startCreation(): void {
   </div>
   <App v-else-if="profiles.activeProfile.value" :key="profiles.activeId.value ?? undefined" />
   <div v-else-if="creating || needsOnboarding" class="profile-gate">
-    <ProfileOnboarding :additional="additionalCreation" />
+    <ProfileOnboarding :additional="additionalCreation" @show-profiles="creating = false" />
   </div>
   <div v-else-if="profiles.busy.value" class="profile-gate" role="status">
     {{ t('profiles.loading') }}

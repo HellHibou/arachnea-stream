@@ -10,9 +10,9 @@ const draft = usePreferenceDraft()
 const confirmingDiscard = ref(false)
 onMounted(() => { void draft.load() })
 
-/** Protects dirty drafts and prevents closing while a write has an uncertain outcome. */
+/** Confirms before discarding a dirty draft. */
 function requestClose(): void {
-  if (draft.saving.value || draft.blocked.value) return
+  if (draft.saving.value) return
   if (draft.dirty.value) confirmingDiscard.value = true
   else emit('close')
 }
@@ -31,9 +31,6 @@ async function save(): Promise<void> {
       <v-card-text>
         <p v-if="draft.loading.value" role="status">{{ t('settings.draft.loading') }}</p>
         <p v-if="draft.errorCode.value" role="alert">{{ t(`profiles.errors.${draft.errorCode.value}`) }}</p>
-        <p v-if="draft.blocked.value" role="status">
-          {{ t(draft.operation.value?.step === 'common_applied' ? 'settings.draft.partial' : 'settings.draft.pending') }}
-        </p>
         <fieldset v-if="draft.ready.value" class="parameters-dialog__fields"
           :disabled="draft.loading.value || draft.saving.value || draft.blocked.value || confirmingDiscard">
           <Parameters :parameters="draft.parameters" :home-preferences="draft.homePreferences" />
@@ -45,16 +42,16 @@ async function save(): Promise<void> {
         </div>
       </v-card-text>
       <v-card-actions v-if="!confirmingDiscard" class="parameters-dialog__actions">
-        <v-btn :disabled="draft.saving.value || draft.blocked.value" @click="requestClose">{{ t('profiles.cancel') }}</v-btn>
-        <template v-if="draft.errorCode.value === 'revision_conflict'">
+        <v-btn :disabled="draft.saving.value" @click="requestClose">{{ t('profiles.cancel') }}</v-btn>
+        <template v-if="draft.blocked.value || draft.errorCode.value === 'revision_conflict'">
           <p>{{ t('settings.draft.conflict') }}</p>
           <v-btn :disabled="draft.loading.value" @click="draft.load()">{{ t('settings.draft.reload') }}</v-btn>
           <v-btn :disabled="draft.loading.value" @click="draft.load(true)">{{ t('settings.draft.reapply') }}</v-btn>
         </template>
-        <v-btn v-else-if="!draft.ready.value || (draft.blocked.value && !draft.dirty.value)"
+        <v-btn v-else-if="!draft.ready.value"
           :disabled="draft.loading.value" @click="draft.load()">{{ t('profiles.retry') }}</v-btn>
         <v-btn v-else :disabled="draft.loading.value || draft.saving.value" @click="save">
-          {{ t(draft.saving.value ? 'profiles.saving' : draft.blocked.value ? 'profiles.retry' : 'customHome.save') }}
+          {{ t(draft.saving.value ? 'profiles.saving' : 'customHome.save') }}
         </v-btn>
       </v-card-actions>
     </v-card>

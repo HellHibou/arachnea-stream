@@ -93,18 +93,7 @@ async function signOut(): Promise<void> {
         </button>
       </li>
     </ul>
-    <div v-else-if="profiles.pendingOnly.value" class="profile-switcher__pending" role="status">
-      <p>{{ t('profiles.preparing') }}</p>
-      <button v-if="!profiles.hasPendingDeletions.value" type="button" :disabled="profiles.loading.value || profiles.busy.value" @click="profiles.retry()">{{ t('profiles.retry') }}</button>
-    </div>
     <p v-else class="profile-switcher__notice">{{ t('profiles.noProfiles') }}</p>
-
-    <div v-if="profiles.hasPendingDeletions.value" class="profile-switcher__pending" role="status">
-      <p>{{ t('profiles.deletionPending') }}</p>
-      <button type="button" :disabled="profiles.busy.value || profiles.loading.value" @click="profiles.retryDeletions()">
-        {{ t('profiles.retryDeletions') }}
-      </button>
-    </div>
 
     <footer v-if="!props.manage" class="profile-switcher__actions">
       <button class="profile-switcher__signout" type="button" :disabled="accounts.busy.value" @click="signOut">{{ t('accounts.signOut') }}</button>
@@ -194,8 +183,7 @@ async function signOut(): Promise<void> {
 }
 
 .profile-switcher__quota,
-.profile-switcher__notice,
-.profile-switcher__pending p {
+.profile-switcher__notice {
   margin: 0;
 }
 
@@ -244,8 +232,7 @@ async function signOut(): Promise<void> {
 .profile-switcher__create,
 .profile-switcher__edit,
 .profile-switcher__delete,
-.profile-switcher__signout,
-.profile-switcher__pending button {
+.profile-switcher__signout {
   min-height: 36px;
   padding: 8px 14px;
   border: 1px solid var(--border-color-primary);
@@ -286,8 +273,7 @@ async function signOut(): Promise<void> {
 .profile-switcher__edit:focus-visible,
 .profile-switcher__delete:focus-visible,
 .profile-switcher__signout:focus-visible,
-.profile-switcher__name:focus-visible,
-.profile-switcher__pending button:focus-visible {
+.profile-switcher__name:focus-visible {
   outline: var(--common-focus-ring);
   outline-offset: 2px;
 }
@@ -298,12 +284,6 @@ async function signOut(): Promise<void> {
 .profile-switcher__name:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-}
-
-.profile-switcher__pending {
-  display: flex;
-  align-items: center;
-  gap: 12px;
 }
 
 @media (max-width: 720px) {

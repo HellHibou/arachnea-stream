@@ -2,6 +2,7 @@ import type { Ref } from 'vue'
 import { deleteSection, getAllSections, reorderSections, saveSection, type HomeSectionRecord } from '@/services/homeSections'
 import { BOOKMARKS_SECTION_PREFERENCE_KEY } from '@/services/entryBookmarks'
 import { isCurrentProfile, requireProfileContext, type ProfileContext } from '@/services/profileContext'
+import { isUncertainProfileWrite, ProfileApiError } from '@/services/profileApi'
 import { reportPersonalDataFailure } from '@/services/personalDataStatus'
 import type { MediaCardCollectionMode, ThumbnailImageFit, ThumbnailOrientation } from '@/types/media'
 import type { SectionRecordDefaults } from './types'
@@ -20,6 +21,7 @@ export interface SectionRecordsBridge {
  */
 export function createSectionRecordsBridge(sectionRecords: Ref<HomeSectionRecord[]>): SectionRecordsBridge {
   let queue = Promise.resolve()
+  let uncertainGeneration: number | null = null
   /** Serializes actions and refuses stale profile callbacks. @param work Mutation to execute. */
   function run(work: (context: ProfileContext) => Promise<void>): Promise<void> {
     let context
@@ -27,10 +29,29 @@ export function createSectionRecordsBridge(sectionRecords: Ref<HomeSectionRecord
     const result = queue.then(async () => {
       if (!isCurrentProfile(context)) return
       try {
+        if (uncertainGeneration === context.generation) {
+          const records = await getAllSections(context)
+          if (!isCurrentProfile(context)) return
+          sectionRecords.value = records
+          uncertainGeneration = null
+        }
         await work(context)
         const records = await getAllSections(context)
         if (isCurrentProfile(context)) sectionRecords.value = records
-      } catch (error) { if (isCurrentProfile(context)) reportPersonalDataFailure(error); throw error }
+      } catch (error) {
+        if (isCurrentProfile(context)) {
+          if (isUncertainProfileWrite(error) || (error instanceof ProfileApiError && error.code === 'revision_conflict')) {
+            uncertainGeneration = context.generation
+            const confirmed = await getAllSections(context).catch(() => null)
+            if (confirmed && isCurrentProfile(context)) {
+              sectionRecords.value = confirmed
+              uncertainGeneration = null
+            }
+          }
+          if (isCurrentProfile(context)) reportPersonalDataFailure(error)
+        }
+        throw error
+      }
     })
     queue = result.catch(() => {})
     return result

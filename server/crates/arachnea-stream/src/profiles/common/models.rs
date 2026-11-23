@@ -242,8 +242,6 @@ pub struct CommonSettings {
     pub revision: i64,
     /// Common UI settings only.
     pub values: CommonPreferences,
-    /// Durable marker identifying the last applied operation.
-    pub last_operation_id: Uuid,
 }
 
 impl PersistentEntity for CommonSettings {
@@ -257,14 +255,12 @@ impl PersistentEntity for CommonSettings {
             .field(Field::integer("schema_version"))
             .field(Field::integer("revision"))
             .field(Field::json("values"))
-            .field(Field::string("last_operation_id"))
     }
     fn write_to(&self, writer: &mut EntityWriter) -> Result<()> {
         writer.string("profile_id", self.profile_id.to_string())?;
         writer.integer("schema_version", self.schema_version)?;
         writer.integer("revision", self.revision)?;
         writer.json("values", serde_json::to_value(&self.values)?)?;
-        writer.string("last_operation_id", self.last_operation_id.to_string())?;
         Ok(())
     }
     fn read_from(reader: &EntityReader<'_>) -> Result<Self> {
@@ -273,7 +269,6 @@ impl PersistentEntity for CommonSettings {
             schema_version: reader.integer("schema_version")?,
             revision: reader.integer("revision")?,
             values: serde_json::from_value(reader.json("values")?.clone())?,
-            last_operation_id: Uuid::parse_str(reader.string("last_operation_id")?)?,
         })
     }
 }

@@ -12,10 +12,13 @@ interface BookmarkRow { source_id: string; entry: string; modified_at: number; r
 export function buildBookmarkKey(source: string, entry: string): string { return encodeEntryRoutePayload({ source: source.trim(), entryUrl: entry.trim() }) }
 /** @param row Server-owned identity and timestamp. @returns Existing frontend record shape. */
 function record(row: BookmarkRow): EntryBookmarkRecord { return { ...row.bookmark, key: buildBookmarkKey(row.source_id, row.entry), source: row.source_id, entry: row.entry, modifiedAt: row.modified_at, revision: row.revision } }
-/** @returns Confirmed bookmarks for the selected profile, without reading IndexedDB. */
-export async function getAllBookmarks(): Promise<EntryBookmarkRecord[]> {
-  if (!hasProfile()) return []
-  const collection = await profileCall<ProfileCollection<BookmarkRow>>('bookmarks')
+/**
+ * Reads the confirmed bookmarks from the server.
+ * @param context Captured profile for an ongoing write, if applicable.
+ */
+export async function getAllBookmarks(context?: ProfileContext): Promise<EntryBookmarkRecord[]> {
+  if (!context && !hasProfile()) return []
+  const collection = await profileCall<ProfileCollection<BookmarkRow>>('bookmarks', {}, false, context)
   return collection.items.map(record)
 }
 /** @param source Provider identity. @param entry Exact entry URL. @returns Confirmed bookmark or null. */

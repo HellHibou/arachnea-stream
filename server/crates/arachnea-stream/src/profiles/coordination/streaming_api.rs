@@ -25,7 +25,7 @@ pub(super) fn is_streaming_command(command: &str) -> bool {
 }
 
 impl ProfileCoordinator {
-    /// Revalidates session, ownership and pending work inside lifecycle guards before streaming access.
+    /// Revalidates session and ownership in the transaction handling the streaming request.
     ///
     /// # Arguments
     /// * `user_id` - Transport-authenticated account.
@@ -56,29 +56,8 @@ impl ProfileCoordinator {
                     ));
                 }
                 common.active_profile(tx, user_id, profile_id)?;
-                if payload.get("operation_id").is_some() {
-                    inner.no_pending(tx, profile_id)?;
-                    let operation_id = payload
-                        .get("operation_id")
-                        .and_then(Value::as_str)
-                        .and_then(|id| Uuid::parse_str(id).ok())
-                        .ok_or_else(|| {
-                            reject("invalid_data", 422, "Operation UUID is required.")
-                        })?;
-                    if tx
-                        .get(&common.operations, &operation_id.to_string())?
-                        .is_some()
-                    {
-                        return Err(reject(
-                            "operation_id_conflict",
-                            409,
-                            "Operation ID is already in use.",
-                        ));
-                    }
-                }
-                Ok(())
-            })?;
-            inner.stores.streaming.request(&command, payload)
+                inner.stores.streaming.request(tx, &command, payload)
+            })
         })
         .await
         .map_err(super::api::api_error)

@@ -181,11 +181,9 @@ pub const DEFAULT_TRANSLATION_BUDGET_WINDOW_SECONDS: u64 = 2_592_000;
 
 // Account/profile persistence.
 
-/// Physical store name for common public accounts and profile identities.
+/// Physical store name for accounts and all profile data.
 pub const PROFILES_STORE_NAME: &str = "profiles";
-/// Physical store name for streaming data attached to common profile UUIDs.
-pub const STREAM_PROFILES_STORE_NAME: &str = "arachnea-stream-profiles";
-/// Initial version of persisted profile documents and coordination intents.
+/// Initial version of persisted profile documents.
 pub const PROFILE_DOCUMENT_VERSION: i64 = 1;
 
 /// Maximum number of parent categories in a stored custom-home category reference.
@@ -207,6 +205,10 @@ pub const PUBLIC_PASSWORD_MIN_LENGTH: usize = 4;
 pub const PUBLIC_PASSWORD_MAX_LENGTH: usize = 128;
 /// Public session idle expiration, 30 days in milliseconds.
 pub const PUBLIC_SESSION_IDLE_TTL_MS: i64 = 30 * 24 * 60 * 60 * 1000;
+/// Minimum interval between persisted session activity updates, in milliseconds.
+const PUBLIC_SESSION_ACTIVITY_INTERVAL_MS: i64 = 60 * 60 * 1000;
+/// Browser cookie lifetime in seconds. The server enforces the shorter idle deadline.
+const PUBLIC_SESSION_COOKIE_MAX_AGE_SECONDS: i64 = 365 * 24 * 60 * 60;
 /// Public session cookie name, separate from the administrator cookie.
 pub const PUBLIC_SESSION_COOKIE: &str = "arachnea_public_session";
 
@@ -248,6 +250,3 @@ pub(crate) const PROFILE_TEXT_TRACK_KEYS: &[&str] = &[
     "windowColor",
     "windowOpacity",
 ];
-
-/// Additional configuration receipts committed atomically with quota updates.
-pub(crate) const PROFILE_QUOTA_RECEIPTS_KEY: &str = "profile_quota_operations";

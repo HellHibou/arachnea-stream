@@ -4,7 +4,7 @@ use super::{
     blocking, credentials,
     dto::*,
     reject,
-    service::{now_ms, receipt, replay, revoke_user},
+    service::{now_ms, revoke_user},
     AccountService,
 };
 use crate::profiles::common::{
@@ -13,7 +13,6 @@ use crate::profiles::common::{
 };
 use anyhow::Result;
 use arachnea_core::persistence::{EntityQuery, Field, SqliteTransaction};
-use serde_json::json;
 use uuid::Uuid;
 
 /// Internal authenticated context; never serialized with secrets/hashes.
@@ -25,7 +24,7 @@ pub(crate) struct Authenticated {
 }
 
 impl AccountService {
-    /// Authenticates and renews a persisted session on every protected request.
+    /// Authenticates each protected request and renews persisted activity at most hourly.
     ///
     /// # Arguments
     /// * `token` - Opaque session secret used only in memory.
@@ -164,14 +163,6 @@ impl AccountService {
             .account_task(auth.user.id, move |common| {
                 common.database.transaction(|tx| {
                     let mut auth = validate(common, tx, &token)?;
-                    let body = json!({"user_id":auth.user.id,"session_id":auth.session.id});
-                    if replay(common, tx, input.operation_id, "change_password", &body)?.is_some() {
-                        return Err(reject(
-                            "session_revoked",
-                            401,
-                            "Sign in with the new password.",
-                        ));
-                    }
                     if !credentials::verify(&input.current_password, &auth.user.password_hash) {
                         return Err(reject(
                             "invalid_credentials",
@@ -187,15 +178,6 @@ impl AccountService {
                     let new_token = credentials::token();
                     auth.session = new_session(auth.user.id, &new_token)?;
                     tx.put(&common.sessions, &auth.session)?;
-                    receipt(
-                        common,
-                        tx,
-                        input.operation_id,
-                        auth.user.id,
-                        "change_password",
-                        body,
-                        json!({"changed":true}),
-                    )?;
                     Ok((new_token, auth))
                 })
             })
@@ -203,7 +185,7 @@ impl AccountService {
     }
 }
 
-/// Validates account/session state and extends the 30-day inactivity window.
+/// Validates account/session state and extends the 30-day inactivity window at most hourly.
 ///
 /// # Arguments
 /// * `common` - Authoritative account/session repository.
@@ -241,11 +223,13 @@ pub(crate) fn validate(
         .get(&common.users, &session.user_id.to_string())?
         .filter(|u| u.state == AccountState::Active)
         .ok_or_else(|| reject("session_revoked", 401, "Session is no longer valid."))?;
-    session.last_activity_at = now;
-    session.expires_at = now
-        .checked_add(crate::PUBLIC_SESSION_IDLE_TTL_MS)
-        .ok_or_else(|| anyhow::anyhow!("session expiry overflow"))?;
-    tx.put(&common.sessions, &session)?;
+    if now.saturating_sub(session.last_activity_at) >= crate::PUBLIC_SESSION_ACTIVITY_INTERVAL_MS {
+        session.last_activity_at = now;
+        session.expires_at = now
+            .checked_add(crate::PUBLIC_SESSION_IDLE_TTL_MS)
+            .ok_or_else(|| anyhow::anyhow!("session expiry overflow"))?;
+        tx.put(&common.sessions, &session)?;
+    }
     Ok(Authenticated { user, session })
 }
 

@@ -1,11 +1,10 @@
-//! Collection revisions, deletion tombstones and atomic streaming mutation receipts.
+//! Collection revisions and deletion tombstones.
 
 use crate::profiles::keys::PairKey;
 use anyhow::Result;
 use arachnea_core::persistence::{
     EntityReader, EntitySchema, EntityWriter, Field, PersistentEntity,
 };
-use serde_json::Value;
 use std::collections::BTreeMap;
 use uuid::Uuid;
 
@@ -49,52 +48,6 @@ impl PersistentEntity for Collection {
             kind: reader.string("kind")?.into(),
             revision: reader.integer("revision")?,
             deleted_revisions: serde_json::from_value(reader.json("deleted_revisions")?.clone())?,
-        })
-    }
-}
-
-/// Completed mutation and result committed with its streaming data, never across stores.
-#[derive(Clone)]
-pub(crate) struct Mutation {
-    /// Stable client retry UUID.
-    pub operation_id: Uuid,
-    /// Authoritative common profile UUID; ownership is rechecked before replay.
-    pub profile_id: Uuid,
-    /// Registered operation kind.
-    pub kind: String,
-    /// Complete normalized non-secret request including expected revisions.
-    pub request: Value,
-    /// Original confirmed result.
-    pub result: Value,
-}
-
-impl PersistentEntity for Mutation {
-    type Key = String;
-    fn key(&self) -> String {
-        self.operation_id.to_string()
-    }
-    fn schema() -> EntitySchema {
-        EntitySchema::new()
-            .primary_key(Field::string("operation_id"))
-            .field(Field::string("profile_id").indexed())
-            .field(Field::string("kind"))
-            .field(Field::json("request"))
-            .field(Field::json("result"))
-    }
-    fn write_to(&self, writer: &mut EntityWriter) -> Result<()> {
-        writer.string("operation_id", self.operation_id.to_string())?;
-        writer.string("profile_id", self.profile_id.to_string())?;
-        writer.string("kind", self.kind.clone())?;
-        writer.json("request", self.request.clone())?;
-        writer.json("result", self.result.clone())
-    }
-    fn read_from(reader: &EntityReader<'_>) -> Result<Self> {
-        Ok(Self {
-            operation_id: Uuid::parse_str(reader.string("operation_id")?)?,
-            profile_id: Uuid::parse_str(reader.string("profile_id")?)?,
-            kind: reader.string("kind")?.into(),
-            request: reader.json("request")?.clone(),
-            result: reader.json("result")?.clone(),
         })
     }
 }

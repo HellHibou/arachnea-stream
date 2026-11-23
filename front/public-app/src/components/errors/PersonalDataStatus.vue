@@ -7,7 +7,7 @@ import { useI18n } from '@/i18n'
 
 const { t } = useI18n()
 const storage = useStorage()
-/** Retries immutable pending writes without replacing a newer server revision. */
+/** Checks pending writes against the server before continuing. */
 async function retry(): Promise<void> {
   const previousIssue = personalDataIssue.value
   await Promise.all([storage.flushEntryBookmarks(), flushPlayerPreferences()])

@@ -8,6 +8,7 @@ import { reportFrontendErrorNotification } from '@/composables/useErrorNotificat
 import { useServiceMetadata } from '@/composables/useServiceMetadata'
 import { useI18n } from '@/i18n'
 import { useStorage } from '@/services/storage'
+import { resolvedCustomHome } from '@/services/customHomeRoute'
 
 /** Shell-owned responsive state; this component owns navigation records, not content resolution. */
 const props = defineProps<{ mobile: boolean; open: boolean; hidden: boolean }>()
@@ -35,7 +36,7 @@ const createRequested = shallowRef(false)
 const expansionKey = 'arachnea.navigation.sourcesExpanded'
 const sourcesExpanded = shallowRef(true)
 const sources = computed(() => metadata.services.value.filter((source) => source.supportedQueries.includes('load_home')))
-const activeHomeId = computed(() => route.name === 'custom-home' ? String(route.meta.homeId) : null)
+const activeHomeId = computed(() => resolvedCustomHome(route.meta)?.id ?? null)
 const activeSourceId = computed(() => route.name === 'source-home' ? String(route.params.sourceId) : null)
 
 watch(manager.errorMessage, (message) => {

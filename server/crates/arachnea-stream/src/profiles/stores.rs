@@ -1,4 +1,4 @@
-//! Two independent physical profile stores and their typed views.
+//! Common and streaming table views on one physical profile database.
 
 use super::{common::CommonRepository, streaming::StreamingRepository};
 use anyhow::{Context, Result};
@@ -21,45 +21,57 @@ pub struct ProfileStores {
 }
 
 impl ProfileStores {
-    /// Opens and initializes the two new stores under the application data root.
+    /// Opens and initializes the profile database under the application data root.
     ///
     /// # Arguments
     /// * `application_path` - Directory containing the conventional `data/` root.
     ///
     /// # Errors
-    /// Returns contextual database/schema/unique-index initialization errors.
+    /// Rejects the legacy two-file format and reports initialization errors.
     pub fn open(application_path: impl AsRef<Path>) -> Result<Self> {
         let root = application_path.as_ref().join(crate::PERSISTENCE_DATA_ROOT);
-        let common = SqliteDatabase::open(
+        let path = root.join(format!("{}.sqlite3", crate::PROFILES_STORE_NAME));
+        if path.try_exists()? {
+            let connection = rusqlite::Connection::open_with_flags(
+                &path,
+                rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+            )
+            .context("checking profile database format")?;
+            let legacy: bool = connection.query_row(
+                "SELECT EXISTS (SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'profile_operations')",
+                [],
+                |row| row.get(0),
+            )?;
+            anyhow::ensure!(
+                !legacy,
+                "legacy profile database at {}; stop the application and move it aside or remove it before starting this version",
+                path.display()
+            );
+        }
+        let database = SqliteDatabase::open(
             arachnea_core::persistence::SqliteStoreConfig::new(crate::PROFILES_STORE_NAME)?,
             &root,
         )
-        .context("opening common profiles database")?;
-        let streaming = SqliteDatabase::open(
-            arachnea_core::persistence::SqliteStoreConfig::new(crate::STREAM_PROFILES_STORE_NAME)?,
-            &root,
-        )
-        .context("opening streaming profiles database")?;
-        Self::from_databases(common, streaming)
+        .context("opening profile database")?;
+        Self::from_database(database)
     }
 
-    /// Builds isolated in-memory stores with identical transaction semantics.
+    /// Builds an isolated in-memory database with both domains' tables.
     ///
     /// # Errors
     /// Returns SQLite allocation/schema errors; no filesystem is accessed.
     pub fn memory() -> Result<Self> {
-        Self::from_databases(SqliteDatabase::memory()?, SqliteDatabase::memory()?)
+        Self::from_database(SqliteDatabase::memory()?)
     }
 
-    /// Initializes independent typed views without writing business entities.
+    /// Initializes both typed repositories on the same connection.
     ///
     /// # Arguments
-    /// * `common` - Common domain database.
-    /// * `streaming` - Separate service domain database.
-    fn from_databases(common: SqliteDatabase, streaming: SqliteDatabase) -> Result<Self> {
+    /// * `database` - Shared physical database for both domains.
+    fn from_database(database: SqliteDatabase) -> Result<Self> {
         Ok(Self {
-            common: Arc::new(CommonRepository::new(common)?),
-            streaming: Arc::new(StreamingRepository::new(streaming)?),
+            common: Arc::new(CommonRepository::new(database.clone())?),
+            streaming: Arc::new(StreamingRepository::new(database)?),
             guards: Arc::default(),
         })
     }

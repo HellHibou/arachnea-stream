@@ -1,14 +1,16 @@
 import { onScopeDispose, shallowRef, toValue, watch, type MaybeRefOrGetter } from 'vue'
 import { loadCustomHome } from '@/services/customHomes'
+import { onWindowForeground } from '@/services/windowForeground'
 import type { CustomHomeDefinition } from '@/types/customHome'
 import { t } from '@/i18n'
 
 /**
  * Reads persisted definitions and refreshes on focus/visibility across browser/native views.
  * @param homeId Stable route id.
+ * @param resolvedHome Reads the definition already fetched by the route guard, when available.
  * @returns Current definition, read failure and refresh action guarded against stale reads.
  */
-export function useCustomHomeDefinition(homeId: MaybeRefOrGetter<string>) {
+export function useCustomHomeDefinition(homeId: MaybeRefOrGetter<string>, resolvedHome: () => CustomHomeDefinition | undefined) {
   const definition = shallowRef<CustomHomeDefinition | null>(null)
   const errorMessage = shallowRef<string | null>(null)
   const isLoading = shallowRef(false)
@@ -37,19 +39,19 @@ export function useCustomHomeDefinition(homeId: MaybeRefOrGetter<string>) {
       errorMessage.value = error instanceof Error ? error.message : String(error)
     } finally { if (request === revision) isLoading.value = false }
   }
-  /** Refreshes only when the document becomes visible. */
-  function onVisibility(): void { if (document.visibilityState === 'visible') void refresh() }
-  /** Reloads after another window may have saved a definition. */
-  function onFocus(): void { void refresh() }
-  watch(() => toValue(homeId), () => { definition.value = null; void refresh() }, { immediate: true })
-  window.addEventListener('focus', onFocus)
-  window.addEventListener('custom-homes-changed', onFocus)
-  document.addEventListener('visibilitychange', onVisibility)
+  watch([() => toValue(homeId), resolvedHome], ([id, resolved]) => {
+    revision++
+    errorMessage.value = null
+    isLoading.value = false
+    definition.value = resolved?.id === id ? resolved : null
+    if (id && !definition.value) void refresh()
+  }, { immediate: true })
+  const stopForeground = onWindowForeground(() => { void refresh() })
+  window.addEventListener('custom-homes-changed', refresh)
   onScopeDispose(() => {
     revision++
-    window.removeEventListener('focus', onFocus)
-    window.removeEventListener('custom-homes-changed', onFocus)
-    document.removeEventListener('visibilitychange', onVisibility)
+    stopForeground()
+    window.removeEventListener('custom-homes-changed', refresh)
   })
   return { definition, errorMessage, isLoading, refresh }
 }

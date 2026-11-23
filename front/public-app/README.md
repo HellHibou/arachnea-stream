@@ -214,8 +214,11 @@ same-title substitution; remove and re-add the content to repair it. Partial fai
 leave successful blocks usable, with targeted hydration retry. Category-level
 pagination uses `get_category`; linked rails use `get_section`.
 The declared block order takes precedence over global pinning. Bookmarks are shown
-only when enabled. Definitions refresh on focus/visibility; stale responses cannot
-overwrite a newer definition. Browser/Tauri interactive validation remains necessary.
+only when enabled. The view and toolbar reuse the home definition resolved by the
+router. Concurrent home reads share one request for the selected profile, and
+closed management dialogs stay idle. Definitions refresh when the window returns
+to the foreground or a local home change is confirmed. Stale responses cannot
+overwrite a newer definition.
 
 ### Persistence and source identities
 
@@ -480,7 +483,7 @@ replace the assets embedded in an already running server.
 
 `AccountSessionGate` restores the server session before mounting content and starting metadata, allowlist and personal-cache loading. Public login uses a dedicated POST JSON/GET state transport, with HttpOnly cookies in browsers and the native session broker in Tauri. Administrator-created/reset accounts must replace their temporary password before content can render. The login gate exposes the independent administration entry for first-account setup; the navigation menu signs out by revoking the session.
 
-Account changes clear in-memory catalogue validation, metadata, section/bookmark and notification caches; late replies are discarded by generation. BroadcastChannel/native events and focus/visibility/session polling revalidate other tabs. Credential drafts stay in component memory, and neither password nor token is written to localStorage/IndexedDB. An unavailable native OS vault is reported as memory-only persistence. Home/section/bookmark services now persist only through the selected profile API. Legacy personal preference paths are removed in step 8; no local import is performed, and the onboarding/selection UI is delivered by the step 6 gate below.
+Account changes clear in-memory catalogue validation, metadata, section/bookmark and notification caches; late replies are discarded by generation. The gate reads `accounts/session` once per document load. Account operations update the initiating tab from their responses. Browser BroadcastChannel and native events clear stale account state in other tabs, where users can reload to restore the shared session. Protected API session errors close the current account context. Credential drafts stay in component memory, and neither password nor token is written to localStorage/IndexedDB. An unavailable native OS vault is reported as memory-only persistence. Home/section/bookmark services now persist only through the selected profile API. Legacy personal preference paths are removed in step 8; no local import is performed, and the onboarding/selection UI is delivered by the step 6 gate below.
 
 
 ## Profile-backed personal collections (step 5)
@@ -499,10 +502,9 @@ the full set of section/home IDs with a collection revision. Bookmark snapshots
 update in memory immediately. Their queue coalesces ordinary progress into one
 write per 10 seconds, serializes by entry and waits for the previous revision before
 sending the next. Pause/end/media changes and hidden/unmounted views attempt an
-immediate flush. An uncertain reply retains the immutable request/operation UUID,
-then retries it before sending newer progress. Failures and unconfirmed writes are
-visible; explicit retry never silently overwrites a newer server revision. Reload
-and reapply after a revision conflict. Pending state is memory-only, and abrupt
+immediate flush. After an uncertain reply, the client reads the confirmed bookmark before
+sending newer progress. When it differs from the attempted change, the client
+uses the current server value and reports the conflict. Pending state is memory-only, and abrupt
 closure can lose approximately the last 10 seconds on a healthy connection, more
 during network failures. Profile switching attempts a bounded 5-second flush.
 
@@ -515,34 +517,40 @@ window/vault checks remain later work; no new test infrastructure is introduced.
 
 `ProfileSessionGate` now mounts inside `AccountSessionGate` with the account/session key. It owns one `useProfiles()` controller per authenticated session and provides it to the onboarding, switcher and `App`. Content mounts only after a server-validated profile is active, so profile-bound caches and personal writes never start under an anonymous selection.
 
-Initialization lists profiles and the embedded avatar catalogue in parallel. The last profile is restored from a local key scoped by server identity and account id when the server still reports it active; otherwise the reusable onboarding or the selector is shown. Loading a profile waits for any durable pending operation, completes the `common` guide, initializes streaming with `{}` server defaults at first service use, completes the `arachnea-stream` guide and then publishes the context. Interrupted creation retries the same operation id, and interrupted initialization/guide operations are resumed before activation. Concurrent completion by another tab is tolerated.
+Initialization lists profiles and the embedded avatar catalogue in parallel. The last profile is restored from a local key scoped by server identity and account id when the server still reports it active; otherwise the reusable onboarding or the selector is shown. Loading a profile completes the `common` guide, initializes streaming with `{}` server defaults at first service use, completes the `arachnea-stream` guide and then publishes the context. After an uncertain creation response, the client refreshes the profile list. Concurrent completion by another tab is tolerated.
 
 The avatar selector offers flat man, woman, boy and girl portraits in all seven theme colors (28 variants, four colors per image), four streaming icons (cinema clapperboard, popcorn, television and headphones), six animals (cat, dog, fox, panda, owl and rabbit), and seven neutral silhouettes in the theme colors, each using exactly two colors. The neutral `blue`, `green` and `purple` IDs are preserved for existing profiles. Streaming and animal icons each use a fixed palette of at most four colors, without theme variants. The server embeds the catalogue from `server/crates/arachnea-stream/resources/avatars/`; recompile it to publish updated images. Avatar color is chosen independently of the interface theme and remains part of the stored avatar ID.
 
-`ProfileOnboarding`/`ProfileForm` collect name, avatar, language and theme, then show the guide's service step. `ProfileSwitcher` lists active profiles, reports quota/preparation/errors, creates an additional profile and deletes with confirmation. In management mode, each profile has an Edit action opening a detached name/avatar draft with Save/Cancel. Saving calls the existing revision-checked `profiles/update` endpoint, updates the list and active identity without changing the profile context, and invalidates other windows. Unchanged retries after uncertain responses reuse the operation UUID. Conflicts preserve the draft and offer an explicit reload of the latest server identity before saving again. The navigation exposes the same switcher in a dialog. Deletion of the active profile unmounts content; deleting the last profile returns to the guide.
+`ProfileOnboarding`/`ProfileForm` collect name, avatar, language and theme, then show the guide's service step. `ProfileSwitcher` lists active profiles, reports quota and errors, creates an additional profile and deletes with confirmation. In management mode, each profile has an Edit action opening a detached name/avatar draft with Save/Cancel. Saving calls the existing revision-checked `profiles/update` endpoint, updates the list and active identity without changing the profile context, and invalidates other windows. An uncertain update refreshes the profile list. Conflicts preserve the draft and offer an explicit reload of the latest server identity before saving again. The navigation exposes the same switcher in a dialog. Deletion of the active profile unmounts content; deleting the last profile returns to the guide.
 
 Browser tabs use a per-server `BroadcastChannel`, desktop webviews use the native `arachnea-profiles-changed` event, and focus/visibility revalidate list/revision state without forcing another window's selection. A profile deleted or revoked elsewhere clears the local context. Device keys contain no secret; old local personal preferences are not imported, and new profiles start with automatic language and the `arachnea-blue` theme.
+
+Focus and visibility events from the same return to the foreground are grouped
+before refreshing the profile, sections, bookmarks and custom homes. Concurrent
+section and bookmark refreshes for one profile share their pending reads.
 
 Validated with `npm run type-check`, `npm run build-only` and `npm run lint:css`. No tests or test infrastructure were added. Graphical first-login/interruption/resume, real Tauri windows/vaults and playback with coalesced writes remain manual validation work.
 
 
-Step 6 review fixes: the native mobile drawer closes before opening the profile dialog. Selecting the active profile revalidates it without renewing its generation, preserving mounted bookmark/progress callbacks. Uncertain deletions retain their original operation UUID and expected revision in the session controller's memory; the selector offers explicit retries even when a profile has left the active list. A deletion error invalidates only its target. After a transport error, refreshing the list also excludes an active profile whose deletion has already started. Closing the page/session loses the local request, while accepted server operations remain durable and recover on server restart. No new endpoint or browser storage is introduced. Validation: public type-check/build/CSS lint and targeted scenarios with simulated transport; mobile handler ordering is verified, while the graphical flow remains to be checked.
+The native mobile drawer closes before opening the profile dialog. Selecting the
+active profile revalidates it without renewing its generation, preserving mounted
+bookmark/progress callbacks. If a deletion reply is lost, the switcher reloads
+the list and checks whether the target UUID is still present.
 
 ## Settings drafts (step 7)
 
-The dialog loads current server revisions and edits detached refs. Language and theme reuse the onboarding form. Save sends only changed domains to `profiles/save_preferences` with their expected revisions, preserving fields outside the form. Global preferences change only after the operation completes and an authoritative refresh succeeds. Profile selection and refresh also apply confirmed streaming form preferences, without resetting track preferences when values are unchanged. Partial operations are not applied to runtime state.
-
-Cancel confirms discarding edits when needed and performs no write. Saving or an uncertain outcome disables editing and ordinary dismissal; lost replies and partial operations retain the exact request and UUID for Retry. The UI distinguishes already committed common preferences from a fully confirmed save. Drafts remain in memory; forced closure loses unsent edits. Accepted operations remain durable on the server and resume on restart. The dialog can refresh an operation owned by another window but cannot reconstruct its intent: the originating window must finish it, or the server must recover it on restart.
-
-Conflicts preserve the draft. The user explicitly chooses to load server values or reapply only their changed fields to the latest snapshot, then reviews and saves with the new revisions. No automatic overwrite occurs. Legacy local access removal and ancillary player preferences are delivered in step 8.
-
-Validation: public type-check, build, CSS lint and targeted execution of the actual composable with Vue and simulated transport (cancel, double click, mixed revisions, lost replies, partial saves, conflict/reapplication and obsolete replies). No tests added to the repository. Graphical/Tauri flows, restart and a real between-store failure from this dialog still require manual validation. Existing server coordination is unchanged.
+The dialog edits detached refs. Save submits changed domains with their expected
+revisions in a single transaction. Global preferences use the confirmed server
+snapshot. If a response is lost, the client checks whether the requested values
+are present. The draft stays available for review if server values differ. The
+user can load server values or reapply the changed fields to the latest snapshot
+before saving. Cancel discards the local draft after confirmation.
 
 ## Personal storage retirement (step 8)
 
 Delivered: no active IndexedDB or legacy personal `localStorage` access. Parameters start from detached defaults and then the server snapshot; context changes reset them, including language/theme. Volume, mute, navigation and account/server-scoped resume remain local; cookie/native vault handling is unchanged. Old data is neither imported nor deleted.
 
-Quality, manual tracks and subtitle appearance are restored from confirmed streaming settings and saved through revision-checked `save_preferences`. Player changes are serialized; installing a snapshot performs no write. Lost replies retain the exact body and UUID for Retry in the personal-data banner. Conflicts block player writes until server settings are applied again (reload/selection/refresh), without automatic overwrite. Saving changed track rules also clears persisted manual track choices. Profile-switch flushing is bounded to five seconds; stale callbacks are rejected. No offline storage is introduced; forced closure may lose unconfirmed requests.
+Quality, manual tracks and subtitle appearance are restored from confirmed streaming settings and saved through revision-checked `save_preferences`. Player changes are serialized; installing a snapshot performs no write. After a lost reply, the client checks confirmed streaming preferences before continuing. Conflicts block player writes until server settings are applied again (reload/selection/refresh), without automatic overwrite. Saving changed track rules also clears persisted manual track choices. Profile-switch flushing is bounded to five seconds; stale callbacks are rejected. No offline storage is introduced; forced closure may lose unconfirmed requests.
 
 Validation: public type-check, build, CSS lint and targeted checks of real modules with simulated transport. Graphical flows in fresh/previously used browsers, a real provider and Tauri windows/vaults remain to be qualified (see the step 9 record).
 
@@ -552,5 +560,5 @@ Public and admin type-check/build, public CSS lint, backend workspace check and
 existing Core/Stream local suites pass on macOS ARM64. The step 8 targeted
 storage/player checks were rerun successfully. These checks do not qualify native
 window/vault lifecycle, graphical Save/Cancel and fault-recovery flows, or real
-provider playback across devices. See the [validation record and remaining scenarios](../../docs/dev-tracking/server-user-profiles-analysis.md#étape-9--vérifier-et-documenter-la-livraison).
+provider playback across devices. See the [profile transaction analysis](../../docs/dev-tracking/analyse-tables-operations-profils.md#validation-à-prévoir) for the current validation scenarios.
 For coherent backups/restores, use the [backend operations procedure](../../server/crates/arachnea-stream/README.md#profile-backup-and-restore).

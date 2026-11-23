@@ -2,25 +2,39 @@ import { createUuid } from '@/utils'
 import { validateCustomHomeDefinition } from '@/services/customHomeValidation'
 import type { CustomHomeDefinition, CustomHomeListResult } from '@/types/customHome'
 import { profileCall, profileWrite, hasProfile, type ProfileCollection } from '@/services/profileApi'
-import { requireProfileContext } from '@/services/profileContext'
+import { profileGeneration, requireProfileContext } from '@/services/profileContext'
 import { loadDefaultHome } from '@/services/profileDefaultHome'
 
 export { validateCustomHomeDefinition } from '@/services/customHomeValidation'
 interface HomeRow { home_id: string; revision: number; definition: CustomHomeDefinition }
 let collection: ProfileCollection<HomeRow> = { items: [], revision: 1 }
 const versions = new Map<string, number>()
+let pendingHomes: { generation: number; promise: Promise<CustomHomeListResult> } | null = null
 /** Remembers confirmed revisions separately from immutable editor snapshots. @param row Server home record. */
 function remember(row: HomeRow): CustomHomeDefinition {
   const home = validateCustomHomeDefinition(row.definition)
   versions.set(`${home.id}:${home.updatedAt}`, row.revision)
   return home
 }
-/** @returns Server homes in navigation order; no browser data is imported. */
-export async function listCustomHomes(): Promise<CustomHomeListResult> {
-  if (!hasProfile()) return { homes: [], issues: [] }
+/** Reads and records the confirmed list and its revisions. */
+async function fetchCustomHomes(): Promise<CustomHomeListResult> {
   collection = await profileCall<ProfileCollection<HomeRow>>('homes')
   return { homes: collection.items.map(remember), issues: [] }
 }
+/** @returns Server homes in navigation order, sharing concurrent reads for the selected profile. */
+export function listCustomHomes(): Promise<CustomHomeListResult> {
+  if (!hasProfile()) return Promise.resolve({ homes: [], issues: [] })
+  const generation = profileGeneration()
+  if (pendingHomes?.generation === generation) return pendingHomes.promise
+
+  const promise = fetchCustomHomes().finally(() => {
+    if (pendingHomes?.promise === promise) pendingHomes = null
+  })
+  pendingHomes = { generation, promise }
+  return promise
+}
+/** Drops a read before requesting a list that reflects a completed or uncertain write. */
+export function invalidateHomesFetch(): void { pendingHomes = null }
 /** @param id Common-profile-local home UUID. @returns Confirmed home or undefined. */
 export async function loadCustomHome(id: string): Promise<CustomHomeDefinition | undefined> {
   return (await listCustomHomes()).homes.find((home) => home.id === id)

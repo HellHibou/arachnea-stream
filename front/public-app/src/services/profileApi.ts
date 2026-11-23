@@ -1,7 +1,6 @@
 import { resolveAppPath } from '@/services/baseUrl'
-import { isSessionContentAllowed, reportSessionFailure, sessionGeneration } from '@/services/sessionEvents'
+import { captureSessionFailureReporter, isSessionContentAllowed, sessionGeneration } from '@/services/sessionEvents'
 import { getProfileContext, isCurrentProfile, requireProfileContext, type ProfileContext } from '@/services/profileContext'
-import { createOperationId } from '@/services/operationId'
 import type { TauriWindow } from '@/services/rustify/desktop'
 
 /** Safe profile-service error, retaining the code for explicit conflict/retry handling. */
@@ -20,10 +19,8 @@ export interface CommonPreferences { language: string | null; theme: string }
 export interface VersionedSettings<T> { schema_version: number; revision: number; values: T }
 /** Per-domain onboarding state. */
 export interface OnboardingView { profile_id: string; scope: string; state: 'pending' | 'completed'; revision: number }
-/** Durable operation state used to resume interrupted guides. */
-export interface OperationView { operation_id: string; kind: string; profile_id: string | null; state: 'pending' | 'running' | 'retry_pending' | 'completed'; step: string; retryable: boolean; result: Record<string, unknown> | null }
 /** Complete profile snapshot consumed before mounting content views. */
-export interface ProfileSnapshot { profile: ProfileView; common: VersionedSettings<CommonPreferences>; streaming: VersionedSettings<Record<string, unknown>> | null; onboarding: OnboardingView[]; pending_operation: OperationView | null }
+export interface ProfileSnapshot { profile: ProfileView; common: VersionedSettings<CommonPreferences>; streaming: VersionedSettings<Record<string, unknown>> | null; onboarding: OnboardingView[] }
 /** Account profile list with the live quota. */
 export interface ProfileList { profiles: ProfileView[]; max_profiles_per_user: number; used_slots: number }
 /** Embedded avatar catalogue reference. */
@@ -41,8 +38,9 @@ export interface AvatarCatalogue { schema_version: number; fallback_avatar_id: s
  */
 export async function profileCall<T>(operation: string, values: object = {}, write = false, context: ProfileContext = requireProfileContext()): Promise<T> {
   if (!isCurrentProfile(context)) throw new ProfileApiError('profile_context_changed', 'The selected profile changed.')
+  const reportSessionFailure = captureSessionFailureReporter()
   const epoch = mutationEpoch
-  const payload: Record<string, unknown> = operation === 'operation' ? { ...values } : { ...values, profile_id: context.profileId }
+  const payload: Record<string, unknown> = { ...values, profile_id: context.profileId }
   const tauri = window as TauriWindow
   const invoke = tauri.__TAURI__?.core?.invoke ?? tauri.__TAURI__?.invoke
   let envelope: { data: T; error: { code: string; message: string } | null }
@@ -74,38 +72,50 @@ export async function profileCall<T>(operation: string, values: object = {}, wri
 }
 
 let mutationEpoch = 0
-const pending = new Map<string, { operation: string; body: string; id: string }>()
+const inFlight = new Set<string>()
+
+/** Identifies a network or storage failure whose write outcome requires a fresh read. */
+export function isUncertainProfileWrite(error: unknown): boolean {
+  return !(error instanceof ProfileApiError) || error.code === 'storage_unavailable'
+}
+
+/** Compares JSON preference values independently of object key order. */
+export function sameProfileValues(left: unknown, right: unknown): boolean {
+  if (left === right) return true
+  if (!left || !right || typeof left !== 'object' || typeof right !== 'object') return false
+  if (Array.isArray(left) !== Array.isArray(right)) return false
+  const first = left as Record<string, unknown>
+  const second = right as Record<string, unknown>
+  const keys = Object.keys(first)
+  return keys.length === Object.keys(second).length
+    && keys.every((key) => Object.prototype.hasOwnProperty.call(second, key) && sameProfileValues(first[key], second[key]))
+}
+
 /**
- * Retains retry identity after uncertain writes and refuses replacing an unacknowledged request.
+ * Serializes mutations for one resource and invalidates overlapping reads.
  * @param operation Profile mutation name.
- * @param body Complete mutation body excluding operation/profile identifiers.
- * @param identity Profile-local resource identity for serialization and uncertain retries.
+ * @param body Complete mutation body excluding the profile UUID.
+ * @param identity Profile-local resource identity.
  * @param context Captured profile context.
  */
 export async function profileWrite<T>(operation: string, body: object, identity: string, context = requireProfileContext()): Promise<T> {
   const key = `${context.generation}:${identity}`
-  const serialized = JSON.stringify(body)
-  let request = pending.get(key)
-  if (request && (request.operation !== operation || request.body !== serialized)) throw new ProfileApiError('operation_in_progress', 'Retry the pending change before applying another edit.')
-  if (!request) { request = { operation, body: serialized, id: createOperationId() }; pending.set(key, request) }
+  if (inFlight.has(key)) throw new ProfileApiError('operation_in_progress', 'A change is already in progress.')
+  inFlight.add(key)
   mutationEpoch += 1
   try {
-    const result = await profileCall<T>(operation, { ...body, operation_id: request.id }, true, context)
-    if (pending.get(key) === request) pending.delete(key)
+    return await profileCall<T>(operation, body, true, context)
+  } finally {
     mutationEpoch += 1
-    return result
-  } catch (error) {
-    if (error instanceof ProfileApiError && !['storage_unavailable', 'profile_context_changed'].includes(error.code) && pending.get(key) === request) pending.delete(key)
-    throw error
+    inFlight.delete(key)
   }
 }
 
 /**
  * Calls a profile operation that only needs the public account session.
  *
- * Used by profile listing, creation, snapshots, onboarding and operation
- * polling, before an active profile exists. Values are sent unchanged; the
- * caller supplies `profile_id` and `operation_id` when the operation needs them.
+ * Used by profile listing, creation, snapshots and onboarding before an active
+ * profile exists. The caller supplies `profile_id` when required.
  *
  * @param operation Command suffix under `profiles/`.
  * @param values Query values or complete mutation body.
@@ -114,6 +124,7 @@ export async function profileWrite<T>(operation: string, body: object, identity:
  */
 export async function profileSessionCall<T>(operation: string, values: object = {}, write = false): Promise<T> {
   if (!isSessionContentAllowed()) throw new ProfileApiError('session_required', 'Sign in before managing profiles.')
+  const reportSessionFailure = captureSessionFailureReporter()
   const session = sessionGeneration()
   const payload = { ...values }
   const tauri = window as TauriWindow
@@ -145,40 +156,10 @@ export async function profileSessionCall<T>(operation: string, values: object = 
   return envelope.data
 }
 
-/**
- * Sends one profile mutation with a stable client operation identity.
- *
- * @param operation Command suffix under `profiles/`.
- * @param body Complete mutation body excluding the operation UUID.
- * @param operationId Reused UUID for retrying an uncertain write.
- * @returns Confirmed operation view or endpoint-specific data.
- */
-export function profileSessionWrite<T>(operation: string, body: object, operationId = createOperationId()): Promise<T> {
-  return profileSessionCall<T>(operation, { ...body, operation_id: operationId }, true)
-}
-
-/**
- * Waits for a durable operation to reach a terminal state.
- *
- * @param operationId Client operation UUID returned by a mutation.
- * @param attempts Maximum status reads.
- * @returns Completed operation, or the last observed state.
- */
-export async function pollProfileOperation(operationId: string, attempts = 20): Promise<OperationView | null> {
-  let last: OperationView | null = null
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
-    try {
-      last = await profileSessionCall<OperationView>('operation', { operation_id: operationId })
-    } catch (error) {
-      const transient = !(error instanceof ProfileApiError) || ['storage_unavailable', 'operation_in_progress'].includes(error.code)
-      if (!transient) throw error
-    }
-    if (last?.state === 'completed') return last
-    await new Promise((resolve) => setTimeout(resolve, Math.min(250 + attempt * 100, 1_500)))
-  }
-  return last
+/** Sends a profile mutation using the current account session. */
+export function profileSessionWrite<T>(operation: string, body: object): Promise<T> {
+  return profileSessionCall<T>(operation, body, true)
 }
 
 /** Returns an empty collection only when no profile has been selected yet. */
 export function hasProfile(): boolean { return getProfileContext() !== null }
-window.addEventListener('arachnea-profile-context', () => pending.clear())

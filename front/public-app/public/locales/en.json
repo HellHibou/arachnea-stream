@@ -260,8 +260,6 @@
     },
     "draft": {
       "loading": "Loading current preferences…",
-      "partial": "Interface preferences are confirmed on the server. The complete save is still pending confirmation. Retry to finish; changes will be applied together once confirmed.",
-      "pending": "The save has not been fully confirmed. Retry to finish the same operation before closing.",
       "discard": "Discard unsaved changes?",
       "continue": "Continue editing",
       "discardAction": "Discard changes",
@@ -524,6 +522,7 @@
     "signIn": "Sign in",
     "signOut": "Sign out",
     "retry": "Retry",
+    "reloadPage": "Reload page",
     "memoryOnly": "This device cannot save the session securely. Sign in again after restarting.",
     "errors": {
       "invalid_credentials": "Invalid login or password.",
@@ -531,12 +530,12 @@
       "session_required": "Please sign in.",
       "session_expired": "Your session has expired.",
       "session_revoked": "Your session is no longer valid.",
+      "session_changed": "The account session changed in another tab.",
       "password_change_required": "Choose a new password before continuing.",
       "storage_unavailable": "The account service is unavailable. Please retry.",
       "origin_rejected": "This request was refused.",
       "login_rate_limited": "Too many failed attempts. Try again later.",
-      "method_not_allowed": "This operation could not be submitted.",
-      "operation_id_conflict": "This operation has already been used. Please sign in again."
+      "method_not_allowed": "This operation could not be submitted."
     },
     "administration": "Administration",
     "adminOpenError": "The administration window could not be opened."
@@ -553,6 +552,7 @@
     "quota": "{used} of {max} profiles used",
     "quotaReached": "The profile limit has been reached.",
     "noProfiles": "No profile is available.",
+    "showProfiles": "Show profiles",
     "preparing": "Preparing your profile…",
     "retry": "Retry",
     "createTitle": "Create a profile",
@@ -583,7 +583,6 @@
       "profile_inaccessible": "This profile is no longer available. Choose another one.",
       "resource_not_found": "The requested profile data could not be found.",
       "revision_conflict": "The profile was changed on another device. Reload it before saving.",
-      "operation_id_conflict": "This operation identity has already been used.",
       "operation_in_progress": "A previous profile operation is still being completed. Retry shortly.",
       "storage_unavailable": "The profile service is unavailable. Please retry.",
       "session_required": "Sign in to manage your profiles.",
@@ -594,16 +593,14 @@
       "unsupported_schema_version": "This profile data version is not supported.",
       "admin_required": "Administrator authorization is required.",
       "origin_rejected": "This request was refused."
-    },
-    "deletionPending": "Some profile deletions are not fully confirmed. Retry to finish cleaning up their data.",
-    "retryDeletions": "Retry pending deletions"
+    }
   },
   "personalData": {
     "operation": "personal data synchronization",
     "pending": "Some changes are still waiting to be saved.",
     "failed": "Your changes could not be saved. Reload the affected data after a conflict.",
     "saving": "Saving your changes…",
-    "retry": "Retry pending saves",
+    "retry": "Check pending saves",
     "dismiss": "Dismiss"
   },
   "passwordStrength": {

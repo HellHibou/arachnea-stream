@@ -588,21 +588,21 @@ export async function fetchPublicUsers(): Promise<PublicUser[]> {
   const reply = await apiCall<{ data: { users: PublicUser[] } }>('users')
   return reply.data.users
 }
-/** Creates a public account. @param operation_id Stable retry identity. @param login Canonical login. @param temporary_password Non-persisted temporary password. @param must_change_password Whether the next sign-in must replace it. */
-export async function createPublicUser(operation_id: string, login: string, temporary_password: string, must_change_password: boolean): Promise<void> {
-  await apiCall('create_user', { method: 'POST', body: { operation_id, login, temporary_password, must_change_password } })
+/** Creates a public account. @param login Canonical login. @param temporary_password Non-persisted temporary password. @param must_change_password Whether the next sign-in must replace it. */
+export async function createPublicUser(login: string, temporary_password: string, must_change_password: boolean): Promise<void> {
+  await apiCall('create_user', { method: 'POST', body: { login, temporary_password, must_change_password } })
 }
-/** Resets credentials and revokes sessions. @param operation_id Stable retry identity. @param user_id Target account. @param temporary_password Non-persisted temporary password. */
-export async function resetPublicUserPassword(operation_id: string, user_id: string, temporary_password: string): Promise<void> {
-  await apiCall('reset_user_password', { method: 'POST', body: { operation_id, user_id, temporary_password } })
+/** Resets credentials and revokes sessions. @param user_id Target account. @param temporary_password Non-persisted temporary password. */
+export async function resetPublicUserPassword(user_id: string, temporary_password: string): Promise<void> {
+  await apiCall('reset_user_password', { method: 'POST', body: { user_id, temporary_password } })
 }
-/** Updates the mandatory password replacement flag without touching credentials. @param operation_id Stable retry identity. @param user_id Target account. @param must_change_password New flag value. */
-export async function setPublicUserPasswordChange(operation_id: string, user_id: string, must_change_password: boolean): Promise<void> {
-  await apiCall('set_user_password_change', { method: 'POST', body: { operation_id, user_id, must_change_password } })
+/** Updates the mandatory password replacement flag without touching credentials. @param user_id Target account. @param must_change_password New flag value. */
+export async function setPublicUserPasswordChange(user_id: string, must_change_password: boolean): Promise<void> {
+  await apiCall('set_user_password_change', { method: 'POST', body: { user_id, must_change_password } })
 }
-/** Deletes the confirmed account and its profile data. @param operation_id Stable retry identity. @param user_id Target account. */
-export async function deletePublicUser(operation_id: string, user_id: string): Promise<void> {
-  await apiCall('delete_user', { method: 'POST', body: { operation_id, user_id } })
+/** Deletes the confirmed account and its profile data. @param user_id Target account. */
+export async function deletePublicUser(user_id: string): Promise<void> {
+  await apiCall('delete_user', { method: 'POST', body: { user_id } })
 }
 
 /** Reads the current application-wide profile quota. */
@@ -611,12 +611,11 @@ export async function fetchProfileQuota(): Promise<number> {
   return reply.data.max_profiles_per_user
 }
 /** Persists and applies the profile quota without reloading content services.
- * @param operation_id Stable identity retained when retrying an unchanged draft.
  * @param max_profiles_per_user Positive safe integer.
  */
-export async function saveProfileQuota(operation_id: string, max_profiles_per_user: number): Promise<number> {
+export async function saveProfileQuota(max_profiles_per_user: number): Promise<number> {
   const reply = await apiCall<{ data: { max_profiles_per_user: number } }>('save_profile_settings', {
-    method: 'POST', body: { operation_id, max_profiles_per_user },
+    method: 'POST', body: { max_profiles_per_user },
   })
   return reply.data.max_profiles_per_user
 }

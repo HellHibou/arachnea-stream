@@ -7,7 +7,7 @@ pub mod accounts;
 
 /// Common account/profile identities and preferences.
 pub mod common;
-/// Durable coordination and recovery of operations spanning the two stores.
+/// Authorization and atomic writes across the profile repositories.
 pub mod coordination;
 /// Composite key implementations for profile resources.
 pub mod keys;

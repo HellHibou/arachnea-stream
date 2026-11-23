@@ -1,5 +1,6 @@
 /** Monotonic context used to discard replies from a previous public account. */
 let generation = 0
+let credentialGeneration = 0
 let contentAllowed = false
 
 /** Returns the current request context generation. */
@@ -12,9 +13,15 @@ export function changeSessionContext(allowed: boolean): void {
   generation += 1
   window.dispatchEvent(new Event('arachnea-session-context'))
 }
-/** Requests reauthentication after a protected API rejection. @param code Stable backend error code. */
-export function reportSessionFailure(code: string): void {
-  if (['session_required', 'session_expired', 'session_revoked', 'password_change_required'].includes(code)) {
-    window.dispatchEvent(new CustomEvent('arachnea-session-invalid', { detail: code }))
+/** Records a successful account operation that replaced or cleared the transport credential. */
+export function changeSessionCredential(): void { credentialGeneration += 1 }
+
+/** Captures a reporter that ignores rejections for credentials replaced since the request started. */
+export function captureSessionFailureReporter(): (code: string) => void {
+  const credential = credentialGeneration
+  return (code) => {
+    if (credential === credentialGeneration && ['session_required', 'session_expired', 'session_revoked', 'password_change_required'].includes(code)) {
+      window.dispatchEvent(new CustomEvent('arachnea-session-invalid', { detail: code }))
+    }
   }
 }

@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { createOperationId } from '@/services/operationId'
 import { useI18n } from '@/i18n'
 import { fetchProfileQuota, saveProfileQuota } from '@/services/adminApi'
 
@@ -10,7 +9,6 @@ const loaded = ref(false)
 const busy = ref(false)
 const error = ref('')
 const success = ref(false)
-let pending: { id: string; value: number } | null = null
 
 async function load(): Promise<void> {
   busy.value = true
@@ -34,13 +32,14 @@ async function save(): Promise<void> {
     return
   }
   busy.value = true
-  pending = pending?.value === value ? pending : { id: createOperationId(), value }
   try {
-    draft.value = await saveProfileQuota(pending.id, value)
-    pending = null
+    draft.value = await saveProfileQuota(value)
     success.value = true
   } catch (cause) {
-    error.value = cause instanceof Error ? cause.message : String(cause)
+    const confirmed = await fetchProfileQuota().catch(() => null)
+    if (confirmed !== null) draft.value = confirmed
+    if (confirmed === value) success.value = true
+    else error.value = cause instanceof Error ? cause.message : String(cause)
   } finally {
     busy.value = false
   }

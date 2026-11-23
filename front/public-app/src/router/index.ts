@@ -6,7 +6,7 @@ import { getProfileContext } from '@/services/profileContext'
 import { getAppBasePath } from '@/services/baseUrl'
 import { resolveDefaultHomeRoute } from '@/services/defaultHome'
 import { listCustomHomes, loadCustomHome } from '@/services/customHomes'
-import { customHomeRoute, customHomeSlug } from '@/services/customHomeRoute'
+import { customHomeRoute, customHomeSlug, resolvedCustomHome } from '@/services/customHomeRoute'
 
 /** Application route definitions. */
 const routes: RouteRecordRaw[] = [
@@ -14,7 +14,10 @@ const routes: RouteRecordRaw[] = [
     path: '/home/:homeSlug',
     name: 'custom-home',
     component: () => import('@/views/CustomHomeView.vue'),
-    props: (route) => ({ homeId: String(route.meta.homeId ?? ''), routeError: route.meta.homeRouteError ?? null }),
+    props: (route) => {
+      const resolvedHome = resolvedCustomHome(route.meta)
+      return { homeId: resolvedHome?.id ?? '', resolvedHome, routeError: route.meta.homeRouteError ?? null }
+    },
   },
   {
     path: '/homes/:homeId',
@@ -84,7 +87,8 @@ const router = createRouter({
 })
 
 router.beforeEach(async (to) => {
-  if (!isSessionContentAllowed() || !getProfileContext()) return true
+  const context = getProfileContext()
+  if (!isSessionContentAllowed() || !context) return true
   if (to.name === 'legacy-custom-home') {
     const home = await loadCustomHome(readRouteParam(to.params.homeId))
     if (home) return { ...customHomeRoute(home), query: to.query, hash: to.hash, replace: true }
@@ -93,7 +97,8 @@ router.beforeEach(async (to) => {
     const slug = readRouteParam(to.params.homeSlug)
     const { homes } = await listCustomHomes()
     const matches = homes.filter((home) => customHomeSlug(home.name) === slug)
-    to.meta.homeId = matches.length === 1 ? matches[0]!.id : ''
+    const definition = matches.length === 1 ? matches[0] : undefined
+    to.meta.customHome = definition ? { definition, generation: context.generation } : undefined
     to.meta.homeRouteError = matches.length === 1 ? null : matches.length
       ? 'Multiple accueils share this URL; rename them in management' : 'Accueil not found'
   }

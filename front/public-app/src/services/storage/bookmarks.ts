@@ -1,5 +1,6 @@
+import { ProfileApiError, sameProfileValues } from '@/services/profileApi'
 import { shallowRef, type Ref } from 'vue'
-import { buildBookmarkKey, removeBookmark, setBookmark, type EntryBookmarkRecord } from '@/services/entryBookmarks'
+import { buildBookmarkKey, getAllBookmarks, removeBookmark, setBookmark, type EntryBookmarkRecord } from '@/services/entryBookmarks'
 import { isCurrentProfile, registerProfileFlusher, requireProfileContext, type ProfileContext } from '@/services/profileContext'
 import { reportPersonalDataFailure } from '@/services/personalDataStatus'
 import { sanitizeEntryBookmark } from './sanitizers'
@@ -50,17 +51,29 @@ export function createEntryBookmarksBridge(bookmarkRecords: Ref<EntryBookmarkRec
   async function send(key: string, q: Queue): Promise<void> {
     if (q.flight) return q.flight
     if (!isCurrentProfile(q.context)) return
-    const change = q.retry ?? q.pending
+    const uncertain = q.retry
+    const change = uncertain ?? q.pending
     if (!change) return
     if (q.timer) { clearTimeout(q.timer); q.timer = undefined }
-    if (!q.retry) q.pending = undefined
+    if (!uncertain) q.pending = undefined
     q.retry = undefined
     q.lastSent = Date.now()
     const work = async () => {
       try {
-        const record = change.bookmark
-          ? await setBookmark(q.source, q.entry, change.bookmark, q.revision, q.context)
-          : (q.revision === 0 ? null : await removeBookmark(q.source, q.entry, q.revision, q.context), null)
+        let record: EntryBookmarkRecord | null
+        if (uncertain) {
+          record = (await getAllBookmarks(q.context)).find((entry) => entry.key === key) ?? null
+          if (!isCurrentProfile(q.context)) return
+          const matches = sameProfileValues(record ? sanitizeEntryBookmark(record) : null, change.bookmark)
+          if (!matches) {
+            q.pending = undefined
+            reportPersonalDataFailure(new ProfileApiError('revision_conflict', 'The server bookmark differs from the unsaved change.'))
+          }
+        } else {
+          record = change.bookmark
+            ? await setBookmark(q.source, q.entry, change.bookmark, q.revision, q.context)
+            : (q.revision === 0 ? null : await removeBookmark(q.source, q.entry, q.revision, q.context), null)
+        }
         if (!isCurrentProfile(q.context)) return
         q.revision = record?.revision ?? 0
         if (q.pending) optimistic(key, q, q.pending)
@@ -69,7 +82,9 @@ export function createEntryBookmarksBridge(bookmarkRecords: Ref<EntryBookmarkRec
           if (record) bookmarkRecords.value.push(record)
         }
       } catch (error) {
-        if (isCurrentProfile(q.context)) { q.retry = change; reportPersonalDataFailure(error) }
+        if (!isCurrentProfile(q.context)) return
+        q.retry = change
+        reportPersonalDataFailure(error)
       } finally {
         q.flight = undefined
         count()
@@ -97,7 +112,7 @@ export function createEntryBookmarksBridge(bookmarkRecords: Ref<EntryBookmarkRec
       count()
     } catch (error) { reportPersonalDataFailure(error) }
   }
-  /** Retries failed immutable requests first, then sends the latest queued progress. */
+  /** Checks failed writes against the server before sending any further progress. */
   async function flushEntryBookmarks(): Promise<void> {
     await Promise.all([...queues].map(async ([key, q]) => {
       if (q.timer) { clearTimeout(q.timer); q.timer = undefined }

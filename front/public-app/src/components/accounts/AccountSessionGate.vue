@@ -45,6 +45,8 @@ async function submit(login: string, password: string, replacement: string): Pro
 }
 /** Revokes the server session; errors leave the current state visible. */
 async function logout(): Promise<void> { try { await accounts.logout() } catch { /* Visible shared error. */ } }
+/** Loads the current account in a new document. */
+function reloadPage(): void { window.location.reload() }
 /** Opens the independent administrator UI so the first public account can be created. */
 async function openAdmin(): Promise<void> {
   adminOpenError.value = false
@@ -73,7 +75,7 @@ async function openAdmin(): Promise<void> {
     <v-btn v-if="accounts.session.value?.authenticated" :disabled="accounts.busy.value" @click="logout">{{ t('accounts.signOut') }}</v-btn>
     <v-btn variant="text" @click="openAdmin">{{ t('accounts.administration') }}</v-btn>
     <p v-if="adminOpenError" role="alert">{{ t('accounts.adminOpenError') }}</p>
-    <v-btn v-if="accounts.errorCode.value === 'storage_unavailable'" @click="accounts.restore">{{ t('accounts.retry') }}</v-btn>
+    <v-btn v-if="accounts.reloadRequired.value" :disabled="accounts.busy.value" @click="reloadPage">{{ t('accounts.reloadPage') }}</v-btn>
   </div>
 </template>
 

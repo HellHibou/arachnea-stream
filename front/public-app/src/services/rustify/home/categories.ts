@@ -65,7 +65,7 @@ function normalizeHomeCategoryChannel(value: unknown, source: string | null): Ho
 
   const name = firstNonEmptyString([value.name, value.label])
 
-  const logo = firstNonEmptyString([value.logo, value.logo])
+  const logo = firstNonEmptyString([value.logo, value.logo_url])
 
   return name ? { name, logo: resolveAssetUrl(logo, source) } : null
 }

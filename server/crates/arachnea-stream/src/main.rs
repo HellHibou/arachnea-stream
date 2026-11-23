@@ -176,7 +176,7 @@ async fn main() -> Result<()> {
         arachnea_stream::profiles::ProfileStores::open(application::get_application_data_path(""))?;
     let profile_coordinator =
         arachnea_stream::profiles::ProfileCoordinator::new(profile_stores.clone());
-    profile_coordinator.recover().await?;
+    profile_coordinator.verify().await?;
     let accounts = Arc::new(arachnea_stream::profiles::accounts::AccountService::new(
         &profile_stores,
         profile_coordinator.clone(),

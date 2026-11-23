@@ -3,17 +3,16 @@ import { useAccountSession } from '@/composables/useAccountSession'
 import { useStorage } from '@/services/storage'
 import { applyProfilePreferences } from '@/services/profilePreferences'
 import { isSessionContentAllowed, sessionGeneration } from '@/services/sessionEvents'
-import { createOperationId } from '@/services/operationId'
 import { reportPersonalDataFailure } from '@/services/personalDataStatus'
+import { onWindowForeground } from '@/services/windowForeground'
 import { requireProfileContext, isCurrentProfile, type ProfileContext, setActiveProfileContext } from '@/services/profileContext'
 import {
-  pollProfileOperation,
+  isUncertainProfileWrite,
   profileSessionCall,
   profileSessionWrite,
   ProfileApiError,
   type AvatarCatalogue,
   type OnboardingView,
-  type OperationView,
   type ProfileList,
   type ProfileSnapshot,
   type ProfileView,
@@ -29,10 +28,6 @@ import {
 const COMMON_SCOPE = 'common'
 /** Streaming onboarding scope initialized on first service use. */
 const STREAMING_SCOPE = 'arachnea-stream'
-/** Delay before retrying an uncertain creation request. */
-const CREATE_RETRY_DELAY_MS = 400
-/** Maximum attempts for one creation request/operation identity. */
-const CREATE_ATTEMPTS = 3
 /** Native desktop event used to invalidate profiles across separate webviews. */
 const PROFILE_CHANGED_EVENT = 'arachnea-profiles-changed'
 
@@ -54,8 +49,6 @@ export interface ProfilesStore {
   errorCode: Readonly<Ref<string | null>>
   initialized: Readonly<Ref<boolean>>
   hasProfiles: Readonly<Ref<boolean>>
-  pendingOnly: Readonly<Ref<boolean>>
-  hasPendingDeletions: Readonly<Ref<boolean>>
   initialize: () => Promise<void>
   retry: () => Promise<void>
   acceptSnapshot: (value: ProfileSnapshot, context: ProfileContext) => Promise<void>
@@ -64,7 +57,6 @@ export interface ProfilesStore {
   createProfile: (input: CreateProfileInput) => Promise<CreateProfileResult | null>
   updateProfile: (profile: ProfileView, name: string, avatarId: string) => Promise<boolean>
   deleteProfile: (profile: ProfileView) => Promise<boolean>
-  retryDeletions: () => Promise<void>
 }
 
 /** Values collected by the common guide. */
@@ -99,9 +91,6 @@ export function useProfiles(): ProfilesStore {
   let unlistenNative: (() => void) | undefined
   let disposed = false
   let revalidation = 0
-  let pendingCreate: { operationId: string; body: string } | null = null
-  const pendingUpdates = new Map<string, { operationId: string; body: string }>()
-  const pendingDeletions = shallowRef(new Map<string, { operationId: string; profile: ProfileView }>())
   const native = (window as unknown as { __TAURI__?: { event?: NativeProfileEvents } }).__TAURI__?.event
 
   const activeProfile = computed<ProfileView | null>(() => {
@@ -109,8 +98,6 @@ export function useProfiles(): ProfilesStore {
     return snapshot.value.profile.profile_id === activeId.value ? snapshot.value.profile : null
   })
   const hasProfiles = computed(() => Boolean(list.value?.profiles.some((profile) => profile.state === 'active')))
-  const pendingOnly = computed(() => Boolean(list.value && list.value.used_slots > 0 && !hasProfiles.value))
-  const hasPendingDeletions = computed(() => pendingDeletions.value.size > 0)
 
   /** Checks whether one async selection still owns the session and current lifecycle. @param token Lifecycle token. @param session Captured session generation. */
   function current(token: number, session: number): boolean {
@@ -127,12 +114,12 @@ export function useProfiles(): ProfilesStore {
     return profileSessionCall<ProfileSnapshot>('get', { profile_id: profileId })
   }
 
-  /** Marks one guide scope complete, reusing an interrupted operation and tolerating a concurrent completion. @param profileId Profile UUID. @param scope Guide namespace. @param revision Current guide revision. @param operationId Existing operation identity to resume. */
-  async function completeGuide(profileId: string, scope: string, revision: number, operationId?: string): Promise<void> {
+  /** Marks one guide scope complete, tolerating a concurrent completion or a lost acknowledgement. @param profileId Profile UUID. @param scope Guide namespace. @param revision Current guide revision. */
+  async function completeGuide(profileId: string, scope: string, revision: number): Promise<void> {
     try {
-      await profileSessionWrite<OnboardingView>('complete_onboarding', { profile_id: profileId, scope, expected_revision: revision }, operationId)
+      await profileSessionWrite<OnboardingView>('complete_onboarding', { profile_id: profileId, scope, expected_revision: revision })
     } catch (error) {
-      if (error instanceof ProfileApiError && ['revision_conflict', 'operation_id_conflict'].includes(error.code)) {
+      if (isUncertainProfileWrite(error) || (error instanceof ProfileApiError && error.code === 'revision_conflict')) {
         const confirmed = await fetchSnapshot(profileId).catch(() => null)
         const guide = confirmed?.onboarding.find((entry) => entry.scope === scope)
         if (confirmed && (!guide || guide.state === 'completed')) return
@@ -144,8 +131,7 @@ export function useProfiles(): ProfilesStore {
   /** Initializes the streaming document with server defaults at first use. @param profileId Profile UUID. */
   async function initializeStreaming(profileId: string): Promise<void> {
     try {
-      const operation = await profileSessionWrite<OperationView>('initialize_streaming', { profile_id: profileId, values: {} })
-      await settleOperation(operation)
+      await profileSessionWrite('initialize_streaming', { profile_id: profileId, values: {} })
     } catch (error) {
       // Another tab may have initialized the document between the snapshot read and this write.
       const confirmed = await fetchSnapshot(profileId).catch(() => null)
@@ -154,35 +140,9 @@ export function useProfiles(): ProfilesStore {
     }
   }
 
-  /** Waits for a durable operation, failing with a retryable code instead of publishing a partial profile. @param operation Initial operation view. */
-  async function settleOperation(operation: OperationView): Promise<OperationView> {
-    if (operation.state === 'completed') return operation
-    const settled = await pollProfileOperation(operation.operation_id)
-    if (settled?.state === 'completed') return settled
-    throw new ProfileApiError('operation_in_progress', 'The profile operation is still pending.')
-  }
-
-  /** Finishes interrupted initialization and guide markers before activation. @param source Snapshot read from the server. @param token Lifecycle token. @param session Captured session generation. */
+  /** Completes initialization and pending guides before activation. @param source Snapshot read from the server. @param token Lifecycle token. @param session Captured session generation. */
   async function ensureReady(source: ProfileSnapshot, token: number, session: number): Promise<ProfileSnapshot> {
     let next = source
-    const pending = next.pending_operation
-    if (pending && pending.state !== 'completed') {
-      if (pending.kind === 'initialize_streaming') {
-        const resumed = await profileSessionWrite<OperationView>('initialize_streaming', { profile_id: next.profile.profile_id, values: {} }, pending.operation_id)
-        await settleOperation(resumed)
-      } else if (pending.kind === 'complete_onboarding') {
-        const guide = next.onboarding.find((entry) => entry.state === 'pending')
-        if (!guide) throw new ProfileApiError('operation_in_progress', 'The interrupted guide operation is incomplete.')
-        await completeGuide(next.profile.profile_id, guide.scope, guide.revision, pending.operation_id)
-      } else {
-        const settled = await pollProfileOperation(pending.operation_id)
-        if (settled?.state !== 'completed') throw new ProfileApiError('operation_in_progress', 'The profile operation is still pending.')
-      }
-      if (!current(token, session)) return next
-      next = await fetchSnapshot(next.profile.profile_id)
-      if (!current(token, session)) return next
-    }
-
     const commonGuide = next.onboarding.find((guide) => guide.scope === COMMON_SCOPE)
     if (commonGuide?.state === 'pending') {
       await completeGuide(next.profile.profile_id, COMMON_SCOPE, commonGuide.revision)
@@ -341,8 +301,7 @@ export function useProfiles(): ProfilesStore {
 
   /** Reloads the account state after an explicit error or interrupted start. */
   async function retry(): Promise<void> {
-    if (hasPendingDeletions.value) await retryDeletions()
-    else await initialize()
+    await initialize()
   }
 
   /** Clears the last visible profile error when opening a fresh guide. */
@@ -375,7 +334,7 @@ export function useProfiles(): ProfilesStore {
     const session = sessionGeneration()
     const token = lifecycle
     const accountId = userId.value
-    if (!accountId) return null
+    if (!accountId || busy.value) return null
     let createdId: string | null = null
     busy.value = true
     errorCode.value = null
@@ -385,43 +344,32 @@ export function useProfiles(): ProfilesStore {
         avatar_id: input.avatarId,
         common_values: { language: input.language, theme: input.theme },
       }
-      const serialized = JSON.stringify(body)
-      if (!pendingCreate || pendingCreate.body !== serialized) {
-        pendingCreate = { operationId: createOperationId(), body: serialized }
-      }
-      const operationId = pendingCreate.operationId
-      let operation: OperationView | null = null
-      for (let attempt = 0; attempt < CREATE_ATTEMPTS; attempt += 1) {
-        try {
-          operation = await profileSessionWrite<OperationView>('create', body, operationId)
-          break
-        } catch (error) {
-          const transient = !(error instanceof ProfileApiError) || error.code === 'storage_unavailable'
-          if (!transient || attempt === CREATE_ATTEMPTS - 1) throw error
-          await new Promise((resolve) => setTimeout(resolve, CREATE_RETRY_DELAY_MS * (attempt + 1)))
-          if (!current(token, session)) return null
-        }
-      }
-      if (!operation) throw new ProfileApiError('storage_unavailable', 'Profile creation is unavailable.')
-      const settled = await settleOperation(operation)
+      const { profile_id: profileId } = await profileSessionWrite<{ profile_id: string }>('create', body)
       if (!current(token, session)) return null
-      const profileId = typeof settled.result?.profile_id === 'string' ? settled.result.profile_id : null
-      if (!profileId) throw new ProfileApiError('storage_unavailable', 'Profile creation did not return an identity.')
       createdId = profileId
-      list.value = await fetchList()
+      const confirmedList = await fetchList()
+      if (!current(token, session)) return null
+      list.value = confirmedList
       let next = await fetchSnapshot(profileId)
+      if (!current(token, session)) return null
       const commonGuide = next.onboarding.find((guide) => guide.scope === COMMON_SCOPE)
       if (commonGuide?.state === 'pending') {
         await completeGuide(profileId, COMMON_SCOPE, commonGuide.revision)
         next = await fetchSnapshot(profileId)
       }
+      if (!current(token, session)) return null
       rememberLastProfileId(accountId, profileId)
       broadcast()
-      pendingCreate = null
       return { profileId, snapshot: next }
     } catch (error) {
-      if (error instanceof ProfileApiError && !['storage_unavailable', 'operation_in_progress'].includes(error.code)) pendingCreate = null
-      if (current(token, session)) await handleError(error, createdId ?? undefined)
+      if (current(token, session)) {
+        if (createdId || isUncertainProfileWrite(error)) {
+          const confirmed = await fetchList().catch(() => null)
+          if (!current(token, session)) return null
+          if (confirmed) list.value = confirmed
+        }
+        await handleError(error, createdId ?? undefined)
+      }
       return null
     } finally {
       busy.value = false
@@ -439,19 +387,23 @@ export function useProfiles(): ProfilesStore {
     const session = sessionGeneration()
     const token = lifecycle
     const body = { profile_id: profile.profile_id, expected_revision: profile.revision, name: name.trim(), avatar_id: avatarId }
-    const serialized = JSON.stringify(body)
-    let request = pendingUpdates.get(profile.profile_id)
-    if (!request || request.body !== serialized) {
-      request = { operationId: createOperationId(), body: serialized }
-      pendingUpdates.set(profile.profile_id, request)
-    }
     busy.value = true
     errorCode.value = null
     revalidation += 1
     try {
-      const updated = await profileSessionWrite<ProfileView>('update', body, request.operationId)
+      let updated: ProfileView
+      try {
+        updated = await profileSessionWrite<ProfileView>('update', body)
+      } catch (error) {
+        if (!isUncertainProfileWrite(error)) throw error
+        const next = await fetchList().catch(() => null)
+        if (!current(token, session)) return false
+        if (next) list.value = next
+        const confirmed = next?.profiles.find((entry) => entry.profile_id === profile.profile_id)
+        if (!confirmed || confirmed.name !== body.name || confirmed.avatar_id !== avatarId) throw error
+        updated = confirmed
+      }
       if (!current(token, session)) return false
-      pendingUpdates.delete(profile.profile_id)
       revalidation += 1
       if (list.value) list.value = { ...list.value, profiles: list.value.profiles.map((entry) => entry.profile_id === updated.profile_id ? updated : entry) }
       if (snapshot.value?.profile.profile_id === updated.profile_id) snapshot.value = { ...snapshot.value, profile: updated }
@@ -459,7 +411,6 @@ export function useProfiles(): ProfilesStore {
       return true
     } catch (error) {
       if (!current(token, session)) return false
-      if (error instanceof ProfileApiError && error.code !== 'storage_unavailable') pendingUpdates.delete(profile.profile_id)
       await handleError(error, profile.profile_id)
       if (error instanceof ProfileApiError && error.code === 'revision_conflict') {
         const nextList = await fetchList().catch(() => null)
@@ -476,87 +427,39 @@ export function useProfiles(): ProfilesStore {
     if (busy.value || disposed || !isSessionContentAllowed()) return false
     const session = sessionGeneration()
     const token = lifecycle
-    const request = pendingDeletions.value.get(profile.profile_id)
-      ?? { operationId: createOperationId(), profile: { ...profile } }
-    pendingDeletions.value = new Map(pendingDeletions.value).set(profile.profile_id, request)
     busy.value = true
     errorCode.value = null
     try {
-      const operation = await profileSessionWrite<OperationView>('delete', {
-        profile_id: request.profile.profile_id, expected_revision: request.profile.revision,
-      }, request.operationId)
-      if (!current(token, session)) return false
-      // The server blocks the identity as soon as the deletion is accepted.
-      if (activeId.value === profile.profile_id) {
-        activeId.value = null
-        snapshot.value = null
-        await setActiveProfileContext(null)
-      }
-      if (!current(token, session)) return false
-      if (userId.value && readLastProfileId(userId.value) === profile.profile_id) forgetLastProfileId(userId.value)
-      let settleError: unknown = null
       try {
-        await settleOperation(operation)
+        await profileSessionWrite('delete', { profile_id: profile.profile_id, expected_revision: profile.revision })
       } catch (error) {
-        settleError = error
-      }
-      if (!current(token, session)) return false
-      list.value = await fetchList()
-      if (!current(token, session)) return false
-      broadcast()
-      if (settleError) {
-        await handleError(settleError, profile.profile_id)
-        return false
-      }
-      forgetDeletion(profile.profile_id)
-      return true
-    } catch (error) {
-      if (!current(token, session)) return false
-      if (error instanceof ProfileApiError && ['revision_conflict', 'invalid_data', 'profile_inaccessible', 'resource_not_found', 'operation_id_conflict', 'unsupported_schema_version'].includes(error.code)) {
-        forgetDeletion(profile.profile_id)
-      }
-      await handleError(error, profile.profile_id)
-      if (!current(token, session)) return false
-      const nextList = await fetchList().catch(() => null)
-      if (!current(token, session)) return false
-      if (nextList) {
-        list.value = nextList
-        if (activeId.value === profile.profile_id && !nextList.profiles.some((entry) => entry.profile_id === profile.profile_id && entry.state === 'active')) {
-          await clearActive(profile.profile_id)
+        if (!current(token, session)) return false
+        const next = await fetchList().catch(() => null)
+        if (!current(token, session)) return false
+        if (next) list.value = next
+        if (!next || next.profiles.some((entry) => entry.profile_id === profile.profile_id)) {
+          await handleError(error, profile.profile_id)
+          return false
         }
       }
-      return false
+      if (!current(token, session)) return false
+      if (activeId.value === profile.profile_id) await clearActive(profile.profile_id)
+      if (!current(token, session)) return false
+      if (userId.value && readLastProfileId(userId.value) === profile.profile_id) forgetLastProfileId(userId.value)
+      if (list.value) {
+        const profiles = list.value.profiles.filter((entry) => entry.profile_id !== profile.profile_id)
+        list.value = { ...list.value, profiles, used_slots: profiles.length }
+      }
+      broadcast()
+      return true
     } finally {
       busy.value = false
     }
   }
 
-  /** Removes only a definitively resolved deletion from the in-memory retry queue. @param profileId Target profile UUID. */
-  function forgetDeletion(profileId: string): void {
-    const next = new Map(pendingDeletions.value)
-    next.delete(profileId)
-    pendingDeletions.value = next
-  }
-
-  /** Replays pending deletions with their original UUID and revision, even after profiles leave the list. */
-  async function retryDeletions(): Promise<void> {
-    if (busy.value) return
-    const token = lifecycle
-    const session = sessionGeneration()
-    for (const request of pendingDeletions.value.values()) {
-      if (!current(token, session)) return
-      if (!await deleteProfile(request.profile)) return
-    }
-  }
-
-  /** Revalidates on window focus or when the document becomes visible. */
-  function refresh(): void {
-    if (document.visibilityState === 'visible') void revalidate()
-  }
-
+  let stopForeground: (() => void) | undefined
   onMounted(() => {
-    window.addEventListener('focus', refresh)
-    document.addEventListener('visibilitychange', refresh)
+    stopForeground = onWindowForeground(() => { void revalidate() })
     if ('BroadcastChannel' in window) {
       channel = new BroadcastChannel(`arachnea.profiles.${profileServerIdentity()}`)
       channel.addEventListener('message', () => { void revalidate() })
@@ -576,8 +479,7 @@ export function useProfiles(): ProfilesStore {
     channel = null
     unlistenNative?.()
     unlistenNative = undefined
-    window.removeEventListener('focus', refresh)
-    document.removeEventListener('visibilitychange', refresh)
+    stopForeground?.()
   })
 
   return {
@@ -591,8 +493,6 @@ export function useProfiles(): ProfilesStore {
     errorCode,
     initialized,
     hasProfiles,
-    pendingOnly,
-    hasPendingDeletions,
     initialize,
     retry,
     acceptSnapshot,
@@ -601,7 +501,6 @@ export function useProfiles(): ProfilesStore {
     createProfile,
     updateProfile,
     deleteProfile,
-    retryDeletions,
   }
 }
 

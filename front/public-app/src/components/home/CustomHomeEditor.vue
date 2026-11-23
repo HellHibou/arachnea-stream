@@ -71,7 +71,10 @@ function bannerLabel(reference: BannerReference): string {
 function updateTitle(id: string, title: string): void {
   update({ blocks: draft.value.blocks.map((block) => block.id === id ? { ...block, titleOverride: title.trim() || null } : block) })
 }
-/** @param reference Source-owned shortcut. @param title User display override for that service only. */
+/** Regroups a shortcut after the title field commits its change.
+ * @param reference Source-owned shortcut.
+ * @param title User display override for that service only.
+ */
 function updateShortcutTitle(reference: CategoryReference, title: string): void {
   const override = title.trim() || null
   update({ categoryShortcuts: draft.value.categoryShortcuts.map((item) =>
@@ -156,7 +159,7 @@ defineExpose({ save, canSave })
         <td>{{ metadata.getService(reference.sourceId)?.title ?? reference.sourceId }}</td><td>{{ reference.labelSnapshot }}</td>
         <td><input class="custom-home-editor__table-input" type="text" :value="reference.titleOverride ?? ''"
           :aria-label="`${t('customHome.titleOverride')}: ${metadata.getService(reference.sourceId)?.title ?? reference.sourceId} — ${reference.labelSnapshot}`"
-          @input="updateShortcutTitle(reference, ($event.target as HTMLInputElement).value)"></td>
+          @change="updateShortcutTitle(reference, ($event.target as HTMLInputElement).value)"></td>
         <td>
         <CustomHomeDraftActions :index="index" :count="group.references.length"
           @move="moveCategoryShortcut(reference, $event)" @remove="removeCategoryShortcut(reference)" />

@@ -95,6 +95,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Native controller state-change events target listening webviews other than the command issuer.
+
 - Tauri binary routes now resolve the longest registered command on a segment boundary, preserving the remaining path and query for handlers. This permits nested command names while retaining existing single-segment routes.
 
 - `ControlerStreamInput` now carries the optional trusted peer address exposed by the transport. REST fills it from the supervisor-injected connection address (falling back to `warp::addr::remote()`) and Tauri leaves it empty for local IPC; internal proxy and subtitle retrieval constructors set it to `None`. Existing stream handlers are otherwise unchanged.
@@ -488,6 +490,10 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Authenticated requests renew the 30-day idle deadline at most once per hour per session. The browser cookie has a longer lifetime, with expiry and revocation enforced by the server.
+
+- Consolidated profiles in one SQLite database and removed persistent operation receipts. Upgrading from the two-file layout requires a fresh profile database.
+
 - Content responses carrying an ETag are now served with `Cache-Control: private, no-cache` instead of `private, no-store`, while `Vary: Cookie` and the per-session isolation stay in place. The browser's private cache can store those responses and replay `If-None-Match` on refresh, resolving a 304 with the cached body; responses without a validator and authentication failures keep `no-store`.
 - `get_category` now keeps one execution per source descriptor: repeated descriptors for the same provider no longer overwrite each other, so a merged category can load several categories from that provider at once. The category request contract and URL payload are unchanged.
 - Profile home validation accepts category-owned banners and sections plus bounded parent paths in version 1 documents. Existing documents require no migration.
@@ -526,6 +532,7 @@ All notable changes to the server workspace are recorded here.
 
 #### Fixed
 
+- Restored macOS compilation for native session storage in Keychain.
 - M6Play `get_entry` now lists the real seasons of a programme instead of only "All videos". The previous extractor read `program_subcats`, an editorial taxonomy that is empty for series such as Kally's Mashup (15131); season labels and block identifiers are now read from the anonymous `layout` BFF (`videos_by_program`, `videos_by_subcat_by_program` and `videos_by_season_by_program` blocks), so entries expose one season per published block. `get_season` accepts both the legacy middleware links and the absolute block links, replacing a `PAGE` marker with the requested page and reporting `have_more` from the block pagination. Block episodes keep the existing episode contract (title, description, normalized duration, preview image, web link and `m6play-video` resolver target), with the middleware path unchanged for "All videos".
 - Coflix category grids now paginate. `get_category` emits a section `link`, so the frontend requests follow-up pages through `get_section`; that query was missing and every "load more" attempt failed. `get_section` now scrapes the same catalogue grid with `{query_url}{query_separator}page={page}`, reuses the category card extraction and derives `have_more` from the pagination links. The existing Coflix source-check contract now declares `get_section` as an expected operation.
 
@@ -665,6 +672,7 @@ All notable changes to the server workspace are recorded here.
 
 #### Fixed
 
+- Guard Windows Credential Manager reads against null credential and blob pointers, and release the returned buffer even when the blob is invalid.
 - Restrict TF1 content inspection to requested/effective mediainfo URLs. CDN responses retain status-based classification without waiting for a prefix, while their historical reception window is preserved in collection. Keep delivery-code rejection, incomplete-evidence handling, routing and global search budgets unchanged.
 
 - TF1+ replay and live negotiation no longer keep a localized proxy that TF1 rejects only inside the `mediainfocombo` JSON body. TF1 answers geo-restricted requests with HTTP `200` and `delivery.code >= 400`, so the status-only proxy classifier accepted the proxy and made it the preferred endpoint for `mediainfo.tf1.fr`; every later negotiation reused it and failed with the geo-restriction message. The resolver now installs a mediainfo response classifier that inspects the JSON prefix, rejects the proxy for the destination when `delivery.code >= 400`, and lets the localized search retry another eligible candidate. Non-mediainfo TF1 requests keep the previous status policy, and the diagnostics now also log `delivery.country`.
@@ -928,6 +936,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Refreshed account and profile quota state after uncertain writes and removed operation IDs from administration requests.
+
 - Doubled the bulk service checkbox cell width while keeping the checkbox centered.
 
 - Renamed the Web settings block to “Serveur Web - Arachnéa Stream” in French, with the corresponding English label.
@@ -990,6 +1000,10 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Read the public account session once per page load. Remove periodic and focus-triggered checks, and invalidate stale account views when a protected request fails or another tab changes the shared account.
+
+- Reconciled uncertain profile and playback writes with server state and removed operation polling and retry IDs.
+
 - On the home screen, the category strip is now rendered directly below the featured banner and above the bookmarks (favorites) section. The bottom spacing previously applied to the strip now follows the last item of that top content group, so the gap before the provider rails stays the same whichever block is present.
 - Category tags now use the same `1rem` font size and bold weight as the media card title, including on narrow screens where the smaller mobile override was removed. Their hover background is the same accent gradient as the banner's “Voir la fiche” action.
 - The home category strip now has the same layout controls as media sections: a toggle button switches between a multi-row list and a single scrollable row, with left/right buttons appearing only when that row overflows. The single-row layout is the default; the choice is local to the component and resets on reload.
@@ -1051,6 +1065,9 @@ All notable changes to the server workspace are recorded here.
 
 #### Fixed
 
+- Custom-home pages reuse the definition resolved by the router in the page and toolbar. Concurrent home reads share one request, and closed management dialogs skip automatic reads. Returning to the window groups focus and visibility refreshes for the active profile, sections, bookmarks and homes.
+- Category shortcut titles regroup after editing, the toolbar add button respects editing and source availability, and channel logos accept the documented `logo_url` alias. Keyboard focus outlines stay visible in the horizontal category strip.
+- Custom home refreshes are scoped to the selected profile generation, and failures in deferred bookmark or section refreshes reach the personal data notification handler.
 - The category strip's single-row layout now actually disables wrapping: the `--single-row` modifier was declared before the base `.home-category-strip__list` rule, so the equal-specificity `flex-wrap: wrap` won and categories kept wrapping instead of overflowing the scroll viewport. The modifiers now follow the base rules, and the strip/viewport can shrink inside the home grid so the row scrolls instead of widening the page.
 - Native conditional replies are now unwrapped correctly: the desktop client reads the backend's `not_modified` flag (snake_case) instead of a nonexistent `notModified` field, so `load_home` and the other catalog commands no longer hand the raw IPC envelope to consumers as an empty result ("Source unavailable" for every discovered source).
 - The public session gate no longer flashes the "Sign out" button between session restoration and content readiness on an authenticated page load, and no longer displays its own "Restoring your session…" / "Loading your application…" status. The gate stays visually neutral while storage, theme, metadata and profile content are prepared, so the existing "Chargement en cours" loading screen of the content views remains the only visible loading state; the sign-out and retry controls now appear only for a genuine startup failure such as an unavailable account service.

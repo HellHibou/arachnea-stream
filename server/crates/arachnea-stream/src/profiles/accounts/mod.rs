@@ -83,7 +83,7 @@ pub(crate) fn failure(error: &anyhow::Error) -> (u16, Value) {
         .unwrap_or_else(|| serde_json::json!({}));
     (
         status,
-        serde_json::json!({"data":null,"error":{"code":code,"message":message,"field_errors":fields,"operation_id":null}}),
+        serde_json::json!({"data":null,"error":{"code":code,"message":message,"field_errors":fields}}),
     )
 }
 

@@ -794,41 +794,49 @@ request. Saved custom-home formats remain compatible. Actual authorized playback
 
 ## Server accounts and profile persistence
 
-`profiles::ProfileStores::open(application_path)` opens `data/profiles.sqlite3` and `data/arachnea-stream-profiles.sqlite3`. Common accounts, session digests, profiles, UI preferences, onboarding and operation receipts belong to the former; streaming preferences, homes, section preferences and bookmarks belong to the latter. Both use Core typed schemas. The common repository generates profile UUIDs and streaming reuses them unchanged. Existing service, Cloudflare and proxy databases remain separate and unchanged; no browser data is imported. `ProfileStores::memory()` uses two isolated in-memory SQLite databases; existing scraper memory constructors remain available.
-
-`main.rs` composes these stores and runs `ProfileCoordinator::recover()` before controller startup. Local transactions reserve quota/name/identity together and keep writes atomic within each database. Durable intents and applied-operation markers coordinate common creation, first streaming initialization, mixed preference saves and account/profile deletion. Deletion blocks identities first, supersedes earlier pending operations, purges streaming data, then removes common records. Receipts survive cleanup. Account/profile guards stay held inside blocking tasks even if a request future is cancelled. Cloned store handles share guards; mutations within one account are serialized in this first implementation.
-
-Run only one application writer per data directory. Back up both stores at the same quiescent boundary; after restore, startup recovery checks references and stops on orphaned/incompatible data without silently deleting it. Failed operations retain their intent for retry; a recovery failure stops startup. Do not restore just one profile database independently.
-
-Public accounts/sessions, catalogue/media authorization, profile/preferences APIs, embedded avatars and live administrator profile quota are implemented. Server-backed homes/sections/bookmarks APIs and frontend adapters are delivered. Public profile selection, per-account/server resume, common/service onboarding and explicit Save/Cancel drafts are delivered. Remaining local personal preference paths are removed. Streaming preferences and personal documents are validated and versioned.
+`profiles::ProfileStores::open(application_path)` opens `data/profiles.sqlite3`.
+The common and streaming repositories share one SQLite connection with typed
+tables for accounts, session digests, profiles, preferences, onboarding, homes,
+sections and bookmarks. `ProfileStores::memory()` creates the same layout in
+memory. SQLite transactions cover both domains, including mixed preference saves,
+first streaming initialization and account/profile deletion. Revision checks,
+quota and uniqueness checks, session authorization and lifecycle guards still
+apply. Startup checks profile references before exposing the API.
 
 
 Accounts are created only in the independent administration UI (`admin/`, Users). Creation/reset accepts an administrator-chosen temporary password (4–128 Unicode scalar values). Creation defaults to requiring its replacement before any content access, but the administrator may clear that option at creation or later from the users table; administrator reset always requires replacement. Login names normalize to lowercase ASCII and must contain 3–64 letters/digits/dots/underscores/hyphens. Public credentials and sessions are separate from administrator and provider identities. Existing admin policy still permits loopback/desktop-admin access and requires administrator authentication for remote server clients. The login screen links to administration so the first public account can be created without a public session.
 
-`accounts/login`, `accounts/session`, `accounts/change_password`, `accounts/logout` share REST/Tauri handlers. Browser mutations require POST JSON and a same-origin Origin/Referer matching Host. REST uses an HttpOnly SameSite=Lax cookie scoped to the configured API mount; HTTPS login uses Secure. Serve frontend and API on the same origin (or use the existing Vite same-origin proxy); direct cross-origin credentialed account calls are not supported. Behind a reverse proxy, preserve consistent Host and Origin/Referer and configure the application root. Authenticated uses renew the persistent server session's 30-day idle deadline. Visible clients query session state every 30 seconds to revalidate access and renew the browser cookie; slow catalogue/media replies never reissue an old account cookie. Session-state reads without Origin/Referer leave cookie attributes unchanged. Reset revokes all prior sessions; password replacement rotates the current secret and revokes the others. If a password-change response is lost before receiving the rotated cookie, sign in with the new password.
+`accounts/login`, `accounts/session`, `accounts/change_password`, `accounts/logout` share REST/Tauri handlers. Browser mutations require POST JSON and a same-origin Origin/Referer matching Host. REST uses an HttpOnly SameSite=Lax cookie scoped to the configured API mount; HTTPS login uses Secure. Serve frontend and API on the same origin (or use the existing Vite same-origin proxy); direct cross-origin credentialed account calls are not supported. Behind a reverse proxy, preserve consistent Host and Origin/Referer and configure the application root. Authenticated requests validate the server session and persist a new 30-day idle deadline at most once per hour per session. The persisted deadline can be less than an hour earlier than 30 days after the last authenticated request. The front reads session state once per document load. The browser cookie has a 365-day Max-Age on issuance and eligible session-state reads. The server enforces the shorter idle deadline and revocation. Catalogue and media replies leave the cookie untouched. Session-state reads without Origin/Referer leave cookie attributes unchanged. Reset revokes all prior sessions; password replacement rotates the current secret and revokes the others. If a password-change response is lost before receiving the rotated cookie, sign in with the new password.
 
 All scraper JSON and binary registrations are protected before callbacks/cache validation: catalogue/search/details/players/streams, the complete proxy subtree including range/manifest/segments/subtitles/images, DRM license forwarding and subtitle translation. Personal/authenticated replies cannot enter a public cache. Only login/session bootstrap assets and the separately authorized administration remain accessible initially. Already delivered bytes or direct provider URLs cannot be recalled.
 
 Desktop secrets never reach JavaScript or browser storage. Core captures the real invoking webview for IPC/custom-protocol calls; remote documents cannot acquire the native account context and admin IPC requires the admin window. Native persistence uses macOS Keychain, Windows Credential Manager or Linux Secret Service (`secret-tool`, commonly supplied by `libsecret-tools`). An unavailable/locked vault produces an explicit memory-only session notice; no plaintext file fallback. Native events and browser BroadcastChannel invalidate session views; focus/visibility polling revalidates them. Interactive native tab, vault and platform packaging checks remain manual validation work.
 
-Account deletion blocks the account and revokes sessions before coordinated profile cleanup. Pending cleanup can be retried from administration, including after refreshing the user list; completed deletion receipts survive removal. Password plaintext and password-derived request digests never enter durable operation receipts. Step 3 introduced no import or server profile guide. From step 5, homes/sections/bookmarks no longer use browser persistence; selection/onboarding, preference drafts and retirement of remaining local personal persistence are delivered in steps 6–8.
+Account deletion removes sessions, profiles and their personal data in one
+transaction. After an uncertain write, clients refresh the relevant account or
+profile state. An administrator password reset with a lost reply may require
+explicit confirmation before submitting another reset.
 
-
-Profile API operations (`profiles/list`, `create`, `get`, `update`, `delete`, `initialize_streaming`, `save_preferences`, `complete_onboarding`, `operation`) share authenticated REST/Tauri contracts and revalidate sessions under lifecycle guards. Creation atomically enforces Unicode-normalized account-local names and quota; common profiles have no streaming rows until explicit initialization. Preferences use revisions and mixed saves use durable forward recovery. New profiles never read browser data. Deleting the last profile returns an empty list; the public guide/selection UI is delivered in step 6.
+Profile endpoints share authenticated REST/Tauri handlers. Creation enforces
+Unicode-normalized account-local names and quota in the database transaction.
+Profiles acquire streaming settings on first use. Mutations return their result
+directly and use revisions for concurrent edits. Reload open browsers after
+upgrading the server and its frontend bundles.
 
 The authenticated `profiles/avatars` catalogue and `profiles/avatar/<id>` images use the active controller's API prefix. The manifest and PNGs under crate-owned `resources/avatars/` are checked and embedded at build time; runtime needs no avatar files. The catalogue offers four flat portraits (man, woman, boy and girl) in each of the seven frontend theme colors, four streaming icons (cinema clapperboard, popcorn, television and headphones), six animals (cat, dog, fox, panda, owl and rabbit), plus seven two-color neutral silhouettes in the frontend theme colors. The neutral `blue`, `green`, `purple` and fallback IDs are preserved for existing profiles. New images use at most four colors each; streaming and animal icons have no theme variants. Editable SVG originals and PNG export instructions are documented in [the avatar resources](resources/avatars/README.md). Avatar color is selected independently of the profile theme. IDs, paths, MIME signatures, missing files and fallback are checked; removed IDs remain persisted and consumers render the catalogue fallback. Recompile to change the catalogue. Keep server locale/theme keys, language aliases/limits and streaming defaults aligned with frontend catalogues.
 
-Admin Settings has a separate **Maximum profiles per account** form (`admin/profile_settings` / `admin/save_profile_settings`). The default is 3. `max_profiles_per_user` is stored in `data/config.json` through Core's additional options, alongside `profile_quota_operations` retry receipts. Updates share the existing admin configuration lock, persist before becoming effective, and do not rebuild the scraper. A failed JSON save preserves the old active quota; lowering below current usage leaves existing profiles usable and blocks further creation. Invalid persisted quotas abort startup. Back up `config.json` alongside the coherent database pair.
+Admin Settings stores `max_profiles_per_user` in `data/config.json` and defaults
+to 3. Updates hold the administration configuration lock and become effective
+after persistence. Lowering the limit below current usage keeps existing profiles
+usable and blocks further creation. Invalid persisted quotas stop startup.
 
+The personal streaming endpoints expose homes, sections and bookmarks and
+require an initialized profile to write. New homes receive server UUIDs and
+timestamps. Deleting a home clears the matching default in the same transaction.
+Individual records and collections have separate revisions. The collection
+table keeps deleted record versions so stale updates cannot target subsequently
+recreated records.
 
-Step 5 exposes `profiles/homes`, `profiles/sections`, `profiles/bookmarks`, their
-`save_*`/`delete_*` mutations and complete `reorder_homes`/`reorder_sections` operations.
-Every request rechecks the active common owner/session under lifecycle guards;
-mutations require initialized streaming and reject pending coordinated work.
-Documents, revisions and retries retain existing home/content/episode semantics.
-New homes receive server UUIDs/timestamps; deletion clears a matching default home
-inside the same streaming transaction. Record/collection revisions are distinct;
-conflicts require reload, never automatic overwrite or maximum-position merging.
 
 Custom-home documents still use schema version 1. Entries of `bannerSources`
 can be service IDs or category references. Category references accept an optional
@@ -836,23 +844,12 @@ can be service IDs or category references. Category references accept an optiona
 service home. A section reference accepts an optional `category` owned by the
 same service. Existing documents are compatible and require no data migration.
 
-The streaming database adds `stream_profile_collections(profile_id, kind)` and
-`stream_profile_operations(operation_id)`. Collections start at revision 1 and
-retain deleted record versions to prevent stale updates after recreation. Local
-mutations store their normalized body/result receipt together with data and
-collection increments; a lost reply replays exactly once. Both metadata tables
-belong to the profile, participate in startup reference checks and are purged on
-profile/account deletion. Back up the same two physical stores together; no new
-database or migration of technical scraper stores is introduced.
-
-Frontend personal collection services use these REST/Tauri operations and require
-an explicit profile context, activated by the step 6 selector. Old browser
-collections remain present but inactive, with no import. Progress writes are
-coalesced per bookmark at 10-second intervals plus explicit flushes, with visible
-errors and pending changes only in memory. Step 5 manual checks cover concurrent
-revisions, rollback on receipt failure, default clearing, populated cascades,
-restart/replay and real frontend adapters. Native UI/provider playback remains to
-be checked manually in the later integration steps.
+Clients coalesce progress per bookmark at ten-second intervals and attempt a
+flush on pause, end, backgrounding and profile switching. If a write reply is
+lost, the client reads the server record before sending queued progress. A
+different server value requires a fresh edit against the confirmed state.
+Unsent changes remain in memory, so abrupt shutdown or connection loss can lose
+recent progress.
 
 ### Public preference lifecycle
 
@@ -863,21 +860,12 @@ theme start from defaults, then use confirmed common settings. Old local homes,
 sections, bookmarks, language, theme and player preferences are ignored without
 import or deletion. Volume/mute, navigation and resume hints remain on the device.
 
-Settings use detached drafts: Cancel discards them, Save sends changed domains
-with expected revisions and one stable operation UUID. Mixed saves commit common
-then streaming values through durable forward recovery; partial state is visible
-but is not applied globally. Retry repeats the same body/UUID after an uncertain
-reply. Conflicts require explicit reload/reapplication and review; no automatic
-last-writer-wins merge exists. Manual player quality/track/subtitle-appearance
-changes also use revision-checked streaming settings, with visible failures and
-immutable retries. Editing track rules clears persisted manual choices.
-
-Personal data has no offline mode. Unsent drafts and unconfirmed write requests
-exist only in memory. Bookmark positions are coalesced at 10-second intervals;
-pause/end/background transitions attempt a flush, and explicit profile switching
-attempts a bounded flush under the old profile. Forced closure or connectivity
-failure may lose recent progress and pending edits. Accepted durable operations
-are recovered on restart. No external-player authorization is included.
+Settings use detached drafts with Save and Cancel. Save sends the changed
+domains and their expected revisions in a single request. After an uncertain
+response, the client reads the committed preferences. A different server state
+leaves the draft available for review and explicit reapplication. Manual player
+preferences use the same streaming revision checks. Editing track rules clears
+persisted manual track choices.
 
 ### Profile backup and restore
 
@@ -889,44 +877,22 @@ Packaged installations use the OS user-data directory (macOS
 Windows `%APPDATA%\hell-hibou.arachnea`). Container deployments use their persisted
 `/app/data` volume. Prefer backing up the complete resolved `data/` directory.
 
-| File | Required profile data |
+The previous two-file format requires a fresh start. With the application
+stopped, move `data/profiles.sqlite3` and any matching SQLite `-wal` or `-shm`
+files out of the data directory before upgrading. Keep
+`data/arachnea-stream-profiles.sqlite3` with the old backup if you want to retain
+the option of starting an older release. Set up public accounts and profiles
+again after the upgrade. The application recognizes the old common schema and
+stops before writing to it.
+
+| File | Contents |
 | --- | --- |
-| `data/profiles.sqlite3` | Accounts, password hashes, session digests, common profiles/settings/onboarding, durable coordination intents/receipts |
-| `data/arachnea-stream-profiles.sqlite3` | Streaming settings, homes, sections, bookmarks/progress, collection revisions and mutation receipts |
-| `data/config.json` | Server configuration, `max_profiles_per_user` and durable `profile_quota_operations` receipts |
+| `data/profiles.sqlite3` | Accounts, sessions, profile settings and all streaming profile data |
+| `data/config.json` | Server configuration and the account profile quota |
 
-1. Stop the application/container and all processes writing this data directory;
-   close desktop windows as well. A single application writer per directory is
-   supported. Copying live databases sequentially does not create a consistent
-   cross-store backup.
-2. Copy the stopped `data/` directory as one snapshot, preserving permissions and
-   any SQLite `-wal`/`-shm` sidecars still present. Never discard sidecars or copy
-   only one profile database. Keep the application version with the backup.
-3. To restore, stop the destination application, retain its current directory as
-   a separate rollback copy, and restore the entire saved directory. Do not overlay
-   old SQLite sidecars onto a different database pair. Use a compatible application
-   version; keep ownership/write permissions appropriate for its process.
-4. Start one instance. Before exposing profile writes, `ProfileCoordinator::recover()`
-   replays incomplete intents idempotently and validates common/streaming
-   references and supported document versions. Missing owners, orphaned data or
-   recovery failure stop startup. Preserve the failing snapshot and logs; restore
-   a coherent backup rather than deleting rows or recreating one empty database.
-5. Verify administrator account listing/quota, public sign-in, profile selection,
-   homes/bookmarks and a saved preference. A relocated desktop installation uses
-   a different native vault namespace and may require sign-in again.
-
-Transactions are local to each SQLite file. Shared UUIDs do not provide a
-cross-file transaction, and startup integrity checks cannot prove that two
-otherwise valid files were captured at the same moment. They complement a
-coherent backup, rather than replacing it. Restore also restores account/session
-state from that snapshot; sessions remain subject to server validation and idle
-expiry. Native vault secrets are outside the database backup; no plaintext
-session secret is stored in browser personal keys.
-
-### Delivery validation
-
-See [step 9 in the implementation record](../../../docs/dev-tracking/server-user-profiles-analysis.md#étape-9--vérifier-et-documenter-la-livraison)
-for exact commands, results and remaining manual checks. Existing local checks
-cover the host build and suites; native window/vault lifecycle on all platforms,
-real provider playback and graphical fault/recovery flows require separate
-qualification. No new tests or test infrastructure were added for this delivery.
+To back up, stop the application and copy the whole `data/` directory, including
+any SQLite WAL and SHM sidecars. To restore, stop the destination and replace its
+data directory with the saved one. Keep the application version with the backup.
+After restoring, verify account listing, sign-in, profile selection and saved
+preferences. A relocated desktop installation may require sign-in again because
+the native vault is scoped separately from the database.

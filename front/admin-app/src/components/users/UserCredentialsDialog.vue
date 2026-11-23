@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from '@/i18n'
-import { createOperationId } from '@/services/operationId'
 import { PASSWORD_INPUT_MAX_LENGTH, PASSWORD_MIN_LENGTH } from '@/services/password'
 import PasswordStrengthMeter from './PasswordStrengthMeter.vue'
 
@@ -19,7 +18,7 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
   close: []
-  submit: [operationId: string, login: string, password: string, mustChangePassword: boolean]
+  submit: [login: string, password: string, mustChangePassword: boolean]
 }>()
 
 const { t } = useI18n()
@@ -27,16 +26,12 @@ const login = ref('')
 const password = ref('')
 const mustChangePassword = ref(true)
 const showPassword = ref(false)
-const operationId = ref(createOperationId())
 const activeResetLogin = ref('')
 
 const isReset = computed(() => Boolean(activeResetLogin.value))
 /** Warns only while a non-empty password is below the server's scalar-value minimum. */
 const passwordTooShort = computed(() => password.value.length > 0 && Array.from(password.value).length < PASSWORD_MIN_LENGTH)
 const canSave = computed(() => (isReset.value || login.value.trim().length >= 3) && Array.from(password.value).length >= PASSWORD_MIN_LENGTH)
-
-/** Regenerates the retry identity whenever the submitted draft changes. */
-watch([login, password, mustChangePassword], () => { operationId.value = createOperationId() })
 
 /** Starts every opening from an empty draft and freezes its create/reset mode. */
 watch(() => props.modelValue, (open) => {
@@ -51,7 +46,6 @@ function resetForm(): void {
   password.value = ''
   mustChangePassword.value = true
   showPassword.value = false
-  operationId.value = createOperationId()
 }
 
 /** Closes the dialog unless a submitted operation is still running. */
@@ -59,12 +53,11 @@ function close(): void {
   if (!props.busy) emit('close')
 }
 
-/** Emits the credential draft with a stable retry UUID, never persisting the secret. */
+/** Emits the credential draft without persisting the secret. */
 function submit(): void {
   if (!canSave.value || props.busy) return
   emit(
     'submit',
-    operationId.value,
     isReset.value ? activeResetLogin.value : login.value.trim(),
     password.value,
     isReset.value ? true : mustChangePassword.value,

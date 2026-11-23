@@ -1,6 +1,8 @@
 //! Native session broker with OS-backed storage and explicit memory fallback.
 
 use super::credentials;
+#[cfg(target_os = "macos")]
+use anyhow::Context;
 use anyhow::Result;
 use std::sync::Mutex;
 use uuid::Uuid;

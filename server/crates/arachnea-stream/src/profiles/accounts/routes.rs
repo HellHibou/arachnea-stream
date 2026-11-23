@@ -37,22 +37,11 @@ pub fn register(
                 let admin = admin.clone();
                 Box::pin(async move {
                     let mut headers = HashMap::from([("Cache-Control".into(), "no-store".into())]);
-                    let operation_id = match &input.payload {
-                        ControlerFunctionInput::Json(value) => value
-                            .get("operation_id")
-                            .and_then(Value::as_str)
-                            .and_then(|id| uuid::Uuid::parse_str(id).ok()),
-                        _ => None,
-                    };
                     let response =
                         dispatch(name, write, &accounts, &admin, input, &mut headers).await;
                     let (status, value) = match response {
                         Ok((status, data)) => (status, json!({"data":data,"error":null})),
-                        Err(error) => {
-                            let (status, mut value) = failure(&error);
-                            value["error"]["operation_id"] = json!(operation_id);
-                            (status, value)
-                        }
+                        Err(error) => failure(&error),
                     };
                     Ok(ControlerJsonOutput {
                         value,
@@ -180,8 +169,7 @@ async fn dispatch(
             ))
         }
         "accounts/logout" => {
-            let request: Logout = parse(input.payload)?;
-            let _ = request.operation_id;
+            let _: Logout = parse(input.payload)?;
             if let Some(token) = current {
                 accounts.revoke(token.clone()).await?;
                 let native = accounts.native.clone();

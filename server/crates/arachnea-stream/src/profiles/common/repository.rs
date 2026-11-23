@@ -1,11 +1,9 @@
 //! Common-only repository: no streaming dependencies.
 
 use super::models::*;
-use crate::profiles::{by_id, common::operations::Operation, stores::table};
+use crate::profiles::{by_id, stores::table};
 use anyhow::{Context, Result};
-use arachnea_core::persistence::{
-    EntityQuery, SqliteDatabase, SqliteEntityStore, SqliteTransaction,
-};
+use arachnea_core::persistence::{SqliteDatabase, SqliteEntityStore, SqliteTransaction};
 use uuid::Uuid;
 
 /// Common typed tables and local transaction boundary.
@@ -25,8 +23,6 @@ pub struct CommonRepository {
     pub(crate) settings: SqliteEntityStore<CommonSettings>,
     /// Common/service guide completion states.
     pub(crate) onboarding: SqliteEntityStore<Onboarding>,
-    /// Opaque durable intents and idempotency receipts.
-    pub(crate) operations: SqliteEntityStore<Operation>,
 }
 
 impl CommonRepository {
@@ -44,7 +40,6 @@ impl CommonRepository {
             profiles: table(&database, "profiles")?,
             settings: table(&database, "profile_settings")?,
             onboarding: table(&database, "profile_onboarding")?,
-            operations: table(&database, "profile_operations")?,
             database,
         };
         repository.database.transaction(|tx| {
@@ -58,7 +53,7 @@ impl CommonRepository {
     /// Reserves quota/name and generates the UUID inside the common transaction.
     ///
     /// # Arguments
-    /// * `tx` - Common transaction also persisting the caller's durable intent.
+    /// * `tx` - Transaction creating the profile and its initial settings.
     /// * `user_id` - Active account already checked by the caller.
     /// * `draft` - Validated common identity request.
     /// * `max_profiles` - Effective server quota.
@@ -66,7 +61,7 @@ impl CommonRepository {
     ///
     /// # Errors
     /// Rejects exhausted quotas, duplicate names and storage failures.
-    pub(crate) fn reserve_profile(
+    pub(crate) fn create_profile(
         &self,
         tx: &SqliteTransaction<'_>,
         user_id: Uuid,
@@ -85,10 +80,7 @@ impl CommonRepository {
         );
         let profile_id = Uuid::new_v4();
         anyhow::ensure!(
-            tx.get(&self.profiles, &profile_id.to_string())?.is_none()
-                && tx
-                    .find(&self.operations, &by_id("profile_id", profile_id))?
-                    .is_empty(),
+            tx.get(&self.profiles, &profile_id.to_string())?.is_none(),
             "generated profile identity already used"
         );
         let order = profiles
@@ -105,7 +97,7 @@ impl CommonRepository {
             normalized_name: draft.normalized_name.clone(),
             avatar_id: draft.avatar_id.clone(),
             order,
-            state: ProfileState::Creating,
+            state: ProfileState::Active,
             revision: 1,
             created_at: timestamp,
             updated_at: timestamp,
@@ -128,11 +120,6 @@ impl CommonRepository {
                     tx.get(&self.users, &user.id.to_string())?.is_none(),
                     "account identity already exists"
                 );
-                anyhow::ensure!(
-                    tx.find(&self.operations, &by_id("user_id", user.id))?
-                        .is_empty(),
-                    "account identity was previously used"
-                );
                 tx.put(&self.users, user)
             })
             .context("inserting public account")
@@ -150,7 +137,7 @@ impl CommonRepository {
             .transaction(|tx| tx.get(&self.users, &user_id.to_string()))
     }
 
-    /// Lists common profile identities, including unfinished lifecycle states.
+    /// Lists common profile identities for one account.
     ///
     /// # Arguments
     /// * `user_id` - Account whose identities are requested; service checks authorization.
@@ -160,18 +147,6 @@ impl CommonRepository {
     pub fn profiles(&self, user_id: Uuid) -> Result<Vec<Profile>> {
         self.database
             .transaction(|tx| tx.find(&self.profiles, &by_id("user_id", user_id)))
-    }
-
-    /// Reads the durable operation receipt without authorizing its caller.
-    ///
-    /// # Arguments
-    /// * `operation_id` - Stable idempotency/recovery identity.
-    ///
-    /// # Errors
-    /// Returns a storage/decoding error.
-    pub fn operation(&self, operation_id: Uuid) -> Result<Option<Operation>> {
-        self.database
-            .transaction(|tx| tx.get(&self.operations, &operation_id.to_string()))
     }
 
     /// Revalidates active account ownership inside the caller's transaction.
@@ -201,14 +176,5 @@ impl CommonRepository {
             "profile is inaccessible"
         );
         Ok(profile)
-    }
-
-    /// Lists durable operations for startup recovery, without streaming knowledge.
-    ///
-    /// # Errors
-    /// Returns a storage/decoding error.
-    pub(crate) fn operations(&self) -> Result<Vec<Operation>> {
-        self.database
-            .transaction(|tx| tx.find(&self.operations, &EntityQuery::new()))
     }
 }

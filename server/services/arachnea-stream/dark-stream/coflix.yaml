@@ -617,7 +617,7 @@ queries:
             selector: "h1.title"
             select: first
             actions:
-              - type: get_text  
+              - type: get_text
           - name: current_page
             type: number
             actions:

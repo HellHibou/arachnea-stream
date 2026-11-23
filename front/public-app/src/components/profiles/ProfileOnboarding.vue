@@ -8,6 +8,7 @@ import ProfileCommonPreferences from './ProfileCommonPreferences.vue'
 
 /** @property additional - Whether this guide creates an additional profile instead of the first one. */
 const props = withDefaults(defineProps<{ additional?: boolean }>(), { additional: false })
+const emit = defineEmits<{ showProfiles: [] }>()
 const profiles = injectProfiles()
 const { t } = useI18n()
 
@@ -66,6 +67,10 @@ async function start(): Promise<void> {
           @update:theme="theme = $event"
         />
       </ProfileForm>
+      <button v-if="!props.additional && profiles.hasProfiles.value && profiles.errorCode.value"
+        class="profile-onboarding__start" type="button" @click="emit('showProfiles')">
+        {{ t('profiles.showProfiles') }}
+      </button>
     </template>
 
     <template v-else>

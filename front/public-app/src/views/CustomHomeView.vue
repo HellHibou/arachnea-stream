@@ -8,15 +8,16 @@ import { useI18n } from '@/i18n'
 import { reportFrontendErrorOnce } from '@/composables/useErrorNotifications'
 import type { HomeCategory } from '@/types/home'
 import type { BackgroundMediaCandidate, MediaSelectionTarget } from '@/types/media'
+import type { CustomHomeDefinition } from '@/types/customHome'
 
-/** Stable internal id resolved by the title-based route guard. */
-const props = withDefaults(defineProps<{ homeId: string; routeError?: string | null }>(), { routeError: null })
+/** The home ID, optional definition already read by the route guard, and route error (null by default). */
+const props = withDefaults(defineProps<{ homeId: string; resolvedHome?: CustomHomeDefinition; routeError?: string | null }>(), { routeError: null })
 const emit = defineEmits<{
   'select-item': [target: MediaSelectionTarget]
   'select-category': [category: HomeCategory]
   'update:background-media-items': [items: BackgroundMediaCandidate[]]
 }>()
-const { definition, errorMessage, isLoading } = useCustomHomeDefinition(toRef(props, 'homeId'))
+const { definition, errorMessage, isLoading } = useCustomHomeDefinition(toRef(props, 'homeId'), () => props.resolvedHome)
 const parameters = useStorage().getParameters()
 const { t } = useI18n()
 /** Reports custom-home resolution failures through the shared bottom-right notification stack. */

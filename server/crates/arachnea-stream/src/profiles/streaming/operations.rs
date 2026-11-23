@@ -1,10 +1,6 @@
-//! Profile-authorized local streaming transactions and repeatable CRUD/reorder operations.
+//! Profile-authorized local streaming transactions and revision-checked CRUD and reorder operations.
 
-use super::{
-    models::*,
-    state::{Collection, Mutation},
-    validation, StreamingRepository,
-};
+use super::{models::*, state::Collection, validation, StreamingRepository};
 use crate::profiles::{
     accounts::reject,
     by_id,
@@ -21,7 +17,6 @@ use uuid::Uuid;
 #[serde(deny_unknown_fields)]
 struct Request {
     profile_id: Uuid,
-    operation_id: Option<Uuid>,
     expected_revision: Option<i64>,
     value: Option<Value>,
     identity: Option<Value>,
@@ -62,12 +57,18 @@ impl StreamingRepository {
     /// Executes a strict streaming operation after the coordinator has locked and authorized its profile.
     ///
     /// # Arguments
+    /// * `tx` - Shared transaction holding the authorization checks.
     /// * `command` - Registered collection/read/write operation.
     /// * `payload` - Transport DTO; ownership never comes from the payload.
     ///
     /// # Errors
-    /// Rejects invalid data, stale revisions and changed retries; rolls back writes and receipts together.
-    pub(crate) fn request(&self, command: &str, mut payload: Value) -> Result<Value> {
+    /// Rejects invalid data and stale revisions; the caller rolls back on error.
+    pub(crate) fn request(
+        &self,
+        tx: &SqliteTransaction<'_>,
+        command: &str,
+        mut payload: Value,
+    ) -> Result<Value> {
         let action = command.strip_prefix("profiles/").ok_or_else(invalid)?;
         let kind = if action.ends_with("home") || action == "homes" || action == "reorder_homes" {
             "homes"
@@ -85,16 +86,11 @@ impl StreamingRepository {
         let allowed = if !write {
             vec!["profile_id"]
         } else if action.starts_with("reorder_") {
-            vec!["profile_id", "operation_id", "expected_revision", "ids"]
+            vec!["profile_id", "expected_revision", "ids"]
         } else if action.starts_with("save_") {
-            vec!["profile_id", "operation_id", "expected_revision", "value"]
+            vec!["profile_id", "expected_revision", "value"]
         } else {
-            vec![
-                "profile_id",
-                "operation_id",
-                "expected_revision",
-                "identity",
-            ]
+            vec!["profile_id", "expected_revision", "identity"]
         };
         if !exact(&payload, &allowed) {
             return Err(invalid());
@@ -115,81 +111,45 @@ impl StreamingRepository {
         }
         let request: Request = serde_json::from_value(payload.clone()).map_err(|_| invalid())?;
         let id = request.profile_id;
-        self.database
-            .transaction(|tx| {
-                if tx.get(&self.settings, &id.to_string())?.is_none() {
-                    return Err(reject(
-                        "invalid_data",
-                        422,
-                        "Streaming profile is not initialized.",
-                    ));
-                }
-                let key = PairKey([id.to_string(), kind.into()]);
-                let mut collection = tx.get(&self.collections, &key)?.unwrap_or(Collection {
-                    profile_id: id,
-                    kind: kind.into(),
-                    revision: 1,
-                    deleted_revisions: Default::default(),
-                });
-                if !write {
-                    return self.list(tx, &collection);
-                }
-                let operation_id = request.operation_id.ok_or_else(invalid)?;
-                if let Some(op) = tx.get(&self.mutations, &operation_id.to_string())? {
-                    if op.profile_id != id || op.kind != action || op.request != payload {
-                        return Err(reject(
-                            "operation_id_conflict",
-                            409,
-                            "Operation ID is already in use.",
-                        ));
-                    }
-                    return Ok(op.result);
-                }
-                let revision = request.expected_revision.ok_or_else(invalid)?;
-                let result = if action.starts_with("reorder_") {
-                    if collection.revision != revision {
-                        return Err(conflict());
-                    }
-                    self.reorder(tx, &collection, request.ids.ok_or_else(invalid)?)?
-                } else {
-                    self.mutate(
-                        tx,
-                        &mut collection,
-                        action,
-                        revision,
-                        request.value.or(request.identity).ok_or_else(invalid)?,
-                        operation_id,
-                    )?
-                };
-                collection.revision = next(collection.revision)?;
-                tx.put(&self.collections, &collection)?;
-                let result = if action.starts_with("reorder_") {
-                    self.list(tx, &collection)?
-                } else {
-                    result
-                };
-                tx.put(
-                    &self.mutations,
-                    &Mutation {
-                        operation_id,
-                        profile_id: id,
-                        kind: action.into(),
-                        request: payload,
-                        result: result.clone(),
-                    },
-                )?;
-                Ok(result)
-            })
-            .with_context(|| format!("executing profile streaming operation {action}"))
-    }
-
-    /// Reads one completed streaming receipt without granting access to its owner.
-    ///
-    /// # Arguments
-    /// * `id` - Client operation UUID; the caller must validate active ownership before exposing it.
-    pub(crate) fn mutation(&self, id: Uuid) -> Result<Option<Mutation>> {
-        self.database
-            .transaction(|tx| tx.get(&self.mutations, &id.to_string()))
+        if tx.get(&self.settings, &id.to_string())?.is_none() {
+            return Err(reject(
+                "invalid_data",
+                422,
+                "Streaming profile is not initialized.",
+            ));
+        }
+        let key = PairKey([id.to_string(), kind.into()]);
+        let mut collection = tx.get(&self.collections, &key)?.unwrap_or(Collection {
+            profile_id: id,
+            kind: kind.into(),
+            revision: 1,
+            deleted_revisions: Default::default(),
+        });
+        if !write {
+            return self.list(tx, &collection);
+        }
+        let revision = request.expected_revision.ok_or_else(invalid)?;
+        let result = if action.starts_with("reorder_") {
+            if collection.revision != revision {
+                return Err(conflict());
+            }
+            self.reorder(tx, &collection, request.ids.ok_or_else(invalid)?)?
+        } else {
+            self.mutate(
+                tx,
+                &mut collection,
+                action,
+                revision,
+                request.value.or(request.identity).ok_or_else(invalid)?,
+            )?
+        };
+        collection.revision = next(collection.revision)?;
+        tx.put(&self.collections, &collection)?;
+        if action.starts_with("reorder_") {
+            self.list(tx, &collection)
+        } else {
+            Ok(result)
+        }
     }
 
     /// Projects a complete collection in deterministic display order without internal metadata.
@@ -223,7 +183,7 @@ impl StreamingRepository {
         Ok(json!({"items":items,"revision":collection.revision}))
     }
 
-    /// Validates and applies one record mutation in the same transaction as its caller’s receipt.
+    /// Validates and applies one record mutation in the caller’s transaction.
     fn mutate(
         &self,
         tx: &SqliteTransaction<'_>,
@@ -231,7 +191,6 @@ impl StreamingRepository {
         action: &str,
         revision: i64,
         mut value: Value,
-        operation_id: Uuid,
     ) -> Result<Value> {
         let id = collection.profile_id;
         let save = action.starts_with("save_");
@@ -340,7 +299,6 @@ impl StreamingRepository {
                     if settings.values["defaultHomeId"] == home_id.to_string() {
                         settings.values["defaultHomeId"] = Value::Null;
                         settings.revision = next(settings.revision)?;
-                        settings.last_operation_id = operation_id;
                         tx.put(&self.settings, &settings)?;
                     }
                     Ok(json!({"deleted":true}))

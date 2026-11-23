@@ -154,7 +154,7 @@ pub(super) fn session_cookie(
         if token.is_empty() {
             0
         } else {
-            crate::PUBLIC_SESSION_IDLE_TTL_MS / 1000
+            crate::PUBLIC_SESSION_COOKIE_MAX_AGE_SECONDS
         },
         if secure { "; Secure" } else { "" }
     )

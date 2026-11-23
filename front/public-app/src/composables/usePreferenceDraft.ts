@@ -1,12 +1,11 @@
 import { computed, onScopeDispose, ref, shallowRef, type Ref } from 'vue'
 import { injectProfiles } from '@/composables/useProfiles'
-import { createOperationId } from '@/services/operationId'
-import { profileCall, ProfileApiError, type OperationView, type ProfileSnapshot } from '@/services/profileApi'
+import { isUncertainProfileWrite, profileCall, profileWrite, ProfileApiError, sameProfileValues, type ProfileSnapshot } from '@/services/profileApi'
 import { isCurrentProfile, requireProfileContext } from '@/services/profileContext'
 import { copyPreferences } from '@/services/profilePreferences'
 import type { HomePreferences, Parameters } from '@/services/storage'
 
-/** Creates detached settings refs and retains one immutable save request until its outcome is known. */
+/** Creates detached settings refs and reconciles uncertain writes against confirmed settings. */
 export function usePreferenceDraft() {
   const profiles = injectProfiles()
   const context = requireProfileContext()
@@ -16,12 +15,10 @@ export function usePreferenceDraft() {
   const loading = ref(false)
   const saving = ref(false)
   const errorCode = ref<string | null>(null)
-  const pending = shallowRef<{ id: string; body: object } | null>(null)
-  const operation = shallowRef<OperationView | null>(null)
+  const blocked = ref(false)
   let disposed = false
   const current = () => !disposed && isCurrentProfile(context)
   const ready = computed(() => baseline.value !== null)
-  const blocked = computed(() => pending.value !== null || Boolean(baseline.value?.pending_operation))
 
   /** Builds complete replacement documents, retaining fields outside this form. */
   function documents() {
@@ -64,14 +61,13 @@ export function usePreferenceDraft() {
     }
     homePreferences.showSectionEditingButtons.value = source.streaming!.values['arachnea.home.showSectionEditingButtons'] as boolean
     baseline.value = source
-    operation.value = source.pending_operation
   }
 
   /** Reads current revisions; optional explicit reapplication merges only the user's changed fields.
    * @param reapply Whether the user chose to reapply their edits after a conflict.
    */
   async function load(reapply = false): Promise<void> {
-    if (loading.value || saving.value || pending.value) return
+    if (loading.value || saving.value) return
     loading.value = true
     errorCode.value = null
     const previous = baseline.value
@@ -91,52 +87,46 @@ export function usePreferenceDraft() {
         const key = 'arachnea.home.showSectionEditingButtons'
         if (edited.streaming[key] !== previous.streaming!.values[key]) homePreferences.showSectionEditingButtons.value = edited.streaming[key] as boolean
       }
-      if (next.pending_operation) errorCode.value = 'operation_in_progress'
+      blocked.value = false
     } catch (error) {
       if (current()) errorCode.value = error instanceof ProfileApiError ? error.code : 'storage_unavailable'
     } finally { loading.value = false }
   }
 
-  /** Saves changed domains once, or repeats the identical request after an uncertain/partial result. */
+  /** Saves changed domains atomically and verifies the outcome with a fresh snapshot. */
   async function save(): Promise<boolean> {
-    if (!current() || saving.value || loading.value || !baseline.value || baseline.value.pending_operation) return false
-    if (!pending.value && !dirty.value) return true
-    if (!pending.value) {
-      const values = documents()
-      const body: Record<string, unknown> = {}
-      if (JSON.stringify(values.common) !== JSON.stringify(baseline.value.common.values)) body.common = { expected_revision: baseline.value.common.revision, values: values.common }
-      if (JSON.stringify(values.streaming) !== JSON.stringify(baseline.value.streaming!.values)) body.streaming = { expected_revision: baseline.value.streaming!.revision, values: values.streaming }
-      pending.value = { id: createOperationId(), body }
-    }
+    if (!current() || saving.value || loading.value || blocked.value || !baseline.value) return false
+    if (!dirty.value) return true
+    const source = baseline.value
+    const values = documents()
+    const common = sameProfileValues(values.common, source.common.values) ? undefined
+      : { expected_revision: source.common.revision, values: values.common }
+    const streaming = sameProfileValues(values.streaming, source.streaming!.values) ? undefined
+      : { expected_revision: source.streaming!.revision, values: values.streaming }
+    if (!common && !streaming) return true
     saving.value = true
     errorCode.value = null
     try {
-      const request = pending.value
-      operation.value = await profileCall<OperationView>('save_preferences', { ...request.body, operation_id: request.id }, true, context)
-      if (!current()) return false
-      if (operation.value.state !== 'completed') {
-        errorCode.value = 'operation_in_progress'
-        return false
+      try {
+        await profileWrite('save_preferences', { common, streaming }, 'settings', context)
+      } catch (error) {
+        if (!current()) return false
+        if (!isUncertainProfileWrite(error)) throw error
       }
+      blocked.value = true
       const confirmed = await profileCall<ProfileSnapshot>('get', {}, false, context)
       if (!current()) return false
-      if (confirmed.pending_operation) { errorCode.value = 'operation_in_progress'; return false }
+      if ((common && !sameProfileValues(confirmed.common.values, common.values))
+        || (streaming && !sameProfileValues(confirmed.streaming?.values, streaming.values))) {
+        throw new ProfileApiError('revision_conflict', 'Reload settings before applying the draft.')
+      }
       await profiles.acceptSnapshot(confirmed, context)
       if (!current()) return false
       install(confirmed)
-      pending.value = null
+      blocked.value = false
       return true
     } catch (error) {
-      if (current()) {
-        errorCode.value = error instanceof ProfileApiError ? error.code : 'storage_unavailable'
-        if (error instanceof ProfileApiError && ['revision_conflict', 'invalid_data', 'unsupported_schema_version', 'operation_id_conflict'].includes(error.code)) pending.value = null
-        if (pending.value) {
-          try {
-            const status = await profileCall<OperationView>('operation', { operation_id: pending.value.id }, false, context)
-            if (current()) operation.value = status
-          } catch { /* The retained request remains safe to repeat even when status is unavailable. */ }
-        }
-      }
+      if (current()) errorCode.value = error instanceof ProfileApiError ? error.code : 'storage_unavailable'
       return false
     } finally { saving.value = false }
   }
@@ -147,5 +137,5 @@ export function usePreferenceDraft() {
   }
   window.addEventListener('beforeunload', protectUnload)
   onScopeDispose(() => { disposed = true; window.removeEventListener('beforeunload', protectUnload) })
-  return { parameters, homePreferences, ready, dirty, blocked, loading, saving, errorCode, operation, load, save }
+  return { parameters, homePreferences, ready, dirty, blocked, loading, saving, errorCode, load, save }
 }

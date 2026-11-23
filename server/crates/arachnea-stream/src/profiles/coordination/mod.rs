@@ -1,19 +1,16 @@
-//! Durable forward recovery across independently committed profile stores.
+//! Atomic account and profile mutations across shared database tables.
 
 mod api;
 mod apply;
 mod integrity;
-/// Validated request shapes and application-owned recovery intents.
+/// Validated profile request shapes.
 pub mod models;
-mod prepare;
 mod streaming_api;
 
 use super::common::models::CommonPreferences;
-use super::{
-    common::operations::{Operation, OperationState, OperationStep},
-    ProfileStores,
-};
+use super::{accounts::reject, by_id, ProfileStores};
 use anyhow::{Context, Result};
+use arachnea_core::persistence::SqliteTransaction;
 use models::{CreateProfile, SettingsChange};
 use serde_json::{json, Value};
 use std::{
@@ -61,10 +58,10 @@ struct Inner {
 pub struct ProfileCoordinator(Arc<Inner>);
 
 impl ProfileCoordinator {
-    /// Composes the two stores; recovery must run before accepting profile writes.
+    /// Composes the repositories sharing the profile database.
     ///
     /// # Arguments
-    /// * `stores` - Unique application-owned pair of profile stores.
+    /// * `stores` - Application-owned common and streaming table views.
     pub fn new(stores: ProfileStores) -> Self {
         Self(Arc::new(Inner {
             guards: stores.guards.clone(),
@@ -89,165 +86,44 @@ impl ProfileCoordinator {
             .await
     }
 
-    /// Reserves quota/name and generates the authoritative common profile UUID.
+    /// Deletes an administrator-authorized account, all its profiles and sessions atomically.
     ///
     /// # Arguments
-    /// * `user_id` - Existing account UUID, authorized by the calling service.
-    /// * `operation_id` - Stable non-secret idempotency UUID.
-    /// * `draft` - Name/avatar/preferences validated by the future API service.
-    /// * `max_profiles` - Effective persisted application quota, never a client option.
+    /// * `user_id` - Target account UUID.
     ///
     /// # Errors
-    /// Rejects inactive accounts, quota/name conflicts, ID reuse or storage errors.
-    pub async fn create_profile(
-        &self,
-        user_id: Uuid,
-        operation_id: Uuid,
-        draft: CreateProfile,
-        max_profiles: usize,
-    ) -> Result<Operation> {
+    /// Returns a missing-account or storage error.
+    pub(crate) async fn delete_user(&self, user_id: Uuid) -> Result<Value> {
         self.run(user_id, None, move |inner| {
-            let op = inner.prepare_create(user_id, operation_id, draft, max_profiles)?;
-            inner.finish(op)
+            let common = &inner.stores.common;
+            common.database.transaction(|tx| {
+                if tx.get(&common.users, &user_id.to_string())?.is_none() {
+                    return Err(reject(
+                        "resource_not_found",
+                        404,
+                        "Account is inaccessible.",
+                    ));
+                }
+                for profile in tx.find(&common.profiles, &by_id("user_id", user_id))? {
+                    inner.purge_profile(tx, profile.id)?;
+                }
+                tx.delete_where(&common.sessions, &by_id("user_id", user_id))?;
+                tx.delete_where(&common.users, &by_id("id", user_id))?;
+                Ok(json!({"user_id":user_id, "deleted":true}))
+            })
         })
         .await
     }
 
-    /// Initializes streaming data at the same UUID without creating homes/signets.
-    ///
-    /// # Arguments
-    /// * `user_id` - Authorized account identity.
-    /// * `profile_id` - Active common profile UUID.
-    /// * `operation_id` - Stable operation UUID for retries.
-    /// * `values` - Validated streaming preference defaults.
+    /// Checks profile references before application routes become available.
     ///
     /// # Errors
-    /// Refuses foreign/inactive profiles, repeat initialization or pending work.
-    pub async fn initialize_streaming(
-        &self,
-        user_id: Uuid,
-        profile_id: Uuid,
-        operation_id: Uuid,
-        values: Value,
-    ) -> Result<Operation> {
-        self.run(user_id, Some(profile_id), move |inner| {
-            let op = inner.prepare_initialize(user_id, profile_id, operation_id, values)?;
-            inner.finish(op)
-        })
-        .await
-    }
-
-    /// Saves validated common/streaming documents with durable forward recovery.
-    ///
-    /// # Arguments
-    /// * `user_id` - Authorized account identity.
-    /// * `profile_id` - Active common profile UUID.
-    /// * `operation_id` - Stable UUID reused after a lost response.
-    /// * `common` - Optional full common replacement and expected revision.
-    /// * `streaming` - Optional initialized streaming replacement and revision.
-    ///
-    /// # Errors
-    /// Rejects stale revisions before the first write; partial commits remain
-    /// discoverable/recoverable by operation ID after storage failure.
-    pub async fn save_preferences(
-        &self,
-        user_id: Uuid,
-        profile_id: Uuid,
-        operation_id: Uuid,
-        common: Option<SettingsChange<CommonPreferences>>,
-        streaming: Option<SettingsChange<Value>>,
-    ) -> Result<Operation> {
-        self.run(user_id, Some(profile_id), move |inner| {
-            let op = inner.prepare_save(user_id, profile_id, operation_id, common, streaming)?;
-            inner.finish(op)
-        })
-        .await
-    }
-
-    /// Immediately blocks a profile and coordinates complete local cleanup.
-    ///
-    /// # Arguments
-    /// * `user_id` - Authorized account identity.
-    /// * `profile_id` - Owned profile to delete after UI confirmation.
-    /// * `operation_id` - Stable deletion UUID.
-    /// * `expected_revision` - Confirmed identity revision.
-    ///
-    /// # Errors
-    /// Returns an ownership/revision error or a recoverable cleanup error.
-    pub async fn delete_profile(
-        &self,
-        user_id: Uuid,
-        profile_id: Uuid,
-        operation_id: Uuid,
-        expected_revision: i64,
-    ) -> Result<Operation> {
-        self.run(user_id, Some(profile_id), move |inner| {
-            let op = inner.prepare_delete(user_id, profile_id, operation_id, expected_revision)?;
-            inner.finish(op)
-        })
-        .await
-    }
-
-    /// Blocks an account, revokes its sessions and deletes both domains' data.
-    ///
-    /// # Arguments
-    /// * `user_id` - Target account; the calling administrator service authorizes it.
-    /// * `operation_id` - Stable deletion receipt UUID.
-    ///
-    /// # Errors
-    /// Returns missing-account errors or durable recoverable cleanup failures.
-    pub async fn delete_user(&self, user_id: Uuid, operation_id: Uuid) -> Result<Operation> {
-        self.run(user_id, None, move |inner| {
-            let op = inner.prepare_delete_user(user_id, operation_id)?;
-            inner.finish(op)
-        })
-        .await
-    }
-
-    /// Resumes unfinished operations, prioritizing account/profile deletions.
-    ///
-    /// # Errors
-    /// Attempts all pending operations and reports failures; application startup
-    /// must not accept profile writes if recovery fails. Completed receipts remain.
-    pub async fn recover(&self) -> Result<usize> {
-        let inner = self.0.clone();
-        let mut operations = tokio::task::spawn_blocking(move || inner.stores.common.operations())
-            .await
-            .context("loading profile recovery tasks")??;
-        operations.retain(|op| op.state != OperationState::Completed);
-        operations.sort_by_key(|op| match op.kind.as_str() {
-            "delete_user" => 0,
-            "delete_profile" => 1,
-            _ => 2,
-        });
-        let mut failures = Vec::new();
-        let count = operations.len();
-        for operation in operations {
-            let id = operation.operation_id;
-            if let Err(error) = self
-                .run(operation.user_id, operation.profile_id, move |inner| {
-                    let current = inner
-                        .stores
-                        .common
-                        .operation(id)?
-                        .context("recovery operation disappeared")?;
-                    inner.finish(current)
-                })
-                .await
-            {
-                failures.push(format!("{id}: {error:#}"));
-            }
-        }
-        anyhow::ensure!(
-            failures.is_empty(),
-            "profile recovery incomplete: {}",
-            failures.join("; ")
-        );
+    /// Returns a storage or profile consistency error.
+    pub async fn verify(&self) -> Result<()> {
         let inner = self.0.clone();
         tokio::task::spawn_blocking(move || inner.verify_links())
             .await
-            .context("checking recovered profile references")??;
-        Ok(count)
+            .context("checking profile references")?
     }
 
     /// Runs one entire mutation while retaining guards through blocking commits.
@@ -281,67 +157,6 @@ impl ProfileCoordinator {
     }
 }
 
-impl Inner {
-    /// Executes/retries a durable intent and records contextual failures.
-    fn finish(&self, mut operation: Operation) -> Result<Operation> {
-        if operation.state == OperationState::Completed {
-            return Ok(operation);
-        }
-        anyhow::ensure!(
-            operation.schema_version == crate::PROFILE_DOCUMENT_VERSION,
-            "unsupported profile operation schema"
-        );
-        operation.state = OperationState::Running;
-        self.store_operation(&operation)?;
-        if let Err(error) = self.apply(&mut operation) {
-            operation.state = OperationState::RetryPending;
-            operation.last_error = format!("{error:#}");
-            // Reload the last checkpoint: a domain commit may precede a later failure.
-            let mut saved = self
-                .stores
-                .common
-                .operation(operation.operation_id)?
-                .context("operation receipt missing")?;
-            saved.state = OperationState::RetryPending;
-            saved.last_error = operation.last_error;
-            self.store_operation(&saved)
-                .context("recording profile recovery failure")?;
-            return Err(error).with_context(|| {
-                format!(
-                    "profile operation {} remains pending",
-                    operation.operation_id
-                )
-            });
-        }
-        self.stores
-            .common
-            .operation(operation.operation_id)?
-            .context("completed operation receipt missing")
-    }
-
-    /// Persists a receipt without touching service tables.
-    fn store_operation(&self, operation: &Operation) -> Result<()> {
-        let common = &self.stores.common;
-        common
-            .database
-            .transaction(|tx| tx.put(&common.operations, operation))
-    }
-
-    /// Marks a receipt complete in its caller's common transaction.
-    fn complete(
-        &self,
-        tx: &arachnea_core::persistence::SqliteTransaction<'_>,
-        operation: &mut Operation,
-        result: Value,
-    ) -> Result<()> {
-        operation.state = OperationState::Completed;
-        operation.step = OperationStep::Completed;
-        operation.last_error.clear();
-        operation.result = result;
-        tx.put(&self.stores.common.operations, operation)
-    }
-}
-
 /// Returns epoch milliseconds without panicking on a pre-epoch/overflow clock.
 fn now_ms() -> Result<i64> {
     Ok(i64::try_from(
@@ -349,26 +164,11 @@ fn now_ms() -> Result<i64> {
     )?)
 }
 
-/// Builds a versioned, non-secret recovery record before domain writes.
-fn operation(
-    operation_id: Uuid,
-    user_id: Uuid,
-    profile_id: Option<Uuid>,
-    kind: &str,
-    request: Value,
-    intent: models::Intent,
-) -> Result<Operation> {
-    Ok(Operation {
-        operation_id,
-        user_id,
-        profile_id,
-        schema_version: crate::PROFILE_DOCUMENT_VERSION,
-        kind: kind.to_string(),
-        state: OperationState::Pending,
-        step: OperationStep::Prepared,
-        request,
-        payload: serde_json::to_value(intent)?,
-        result: json!(null),
-        last_error: String::new(),
-    })
+/// Advances a revision without exceeding the exact JSON integer range.
+fn next_revision(revision: i64) -> Result<i64> {
+    anyhow::ensure!(
+        (1..crate::PROFILE_MAX_REVISION).contains(&revision),
+        "profile revision exhausted"
+    );
+    Ok(revision + 1)
 }

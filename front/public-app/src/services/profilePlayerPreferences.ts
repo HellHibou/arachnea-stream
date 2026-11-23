@@ -1,13 +1,12 @@
 import { readonly, ref } from 'vue'
-import { profileCall, ProfileApiError, type OperationView, type ProfileSnapshot } from '@/services/profileApi'
+import { isUncertainProfileWrite, profileCall, profileWrite, ProfileApiError, sameProfileValues, type ProfileSnapshot } from '@/services/profileApi'
 import { isCurrentProfile, registerProfileFlusher, type ProfileContext } from '@/services/profileContext'
-import { createOperationId } from '@/services/operationId'
 import { reportPersonalDataFailure } from '@/services/personalDataStatus'
 
 let baseline: ProfileSnapshot['streaming'] = null
 let owner: ProfileContext | null = null
 let queued: Record<string, unknown> = {}
-let pending: { id: string; body: object } | null = null
+let pending: { expected_revision: number; values: Record<string, unknown> } | null = null
 let running: Promise<void> | null = null
 let blocked = false
 const dirty = ref(false)
@@ -36,26 +35,35 @@ export function queuePlayerPreferences(values: Record<string, unknown>, context:
   if (!pending && !running) void flushPlayerPreferences()
 }
 
-/** Serializes player writes and retries uncertain requests with the exact same body and UUID. */
+/** Serializes player writes and reads back uncertain outcomes before continuing. */
 export async function flushPlayerPreferences(): Promise<void> {
   if (running) return running
   const context = owner
   if (!context || !baseline || blocked || !isCurrentProfile(context)) return
   const task = async () => {
     try {
-      while (isCurrentProfile(context) && (pending || Object.keys(queued).length)) {
+      while (isCurrentProfile(context) && baseline && (pending || Object.keys(queued).length)) {
+        let revision: number | null = null
         if (!pending) {
-          const values = { ...JSON.parse(JSON.stringify(baseline!.values)), ...queued }
+          pending = { expected_revision: baseline.revision, values: { ...baseline.values, ...queued } }
           queued = {}
-          pending = { id: createOperationId(), body: { streaming: { expected_revision: baseline!.revision, values } } }
+          try {
+            const result = await profileWrite<{ streaming_revision: number }>('save_preferences', { streaming: pending }, 'settings', context)
+            revision = result.streaming_revision
+          } catch (error) {
+            if (!isUncertainProfileWrite(error)) throw error
+          }
         }
         const request = pending
-        const result = await profileCall<OperationView>('save_preferences', { ...request.body, operation_id: request.id }, true, context)
-        if (result.state !== 'completed') throw new ProfileApiError('operation_in_progress', 'Player preferences are awaiting confirmation.')
+        if (!request || !isCurrentProfile(context)) return
         const confirmed = await profileCall<ProfileSnapshot>('get', {}, false, context)
-        if (confirmed.pending_operation) throw new ProfileApiError('operation_in_progress', 'Player preferences are awaiting confirmation.')
-        if (Object.keys(queued).length && confirmed.streaming?.revision !== result.result?.streaming_revision) {
-          throw new ProfileApiError('revision_conflict', 'Player preferences changed elsewhere. Reload server settings before making another choice.')
+        if (!isCurrentProfile(context)) return
+        const matches = revision === null
+          ? sameProfileValues(confirmed.streaming?.values, request.values)
+          : confirmed.streaming?.revision === revision
+        if (!matches && (revision === null || Object.keys(queued).length)) {
+          baseline = confirmed.streaming
+          throw new ProfileApiError('revision_conflict', 'Player preferences differ from the server state.')
         }
         baseline = confirmed.streaming
         pending = null
@@ -63,7 +71,7 @@ export async function flushPlayerPreferences(): Promise<void> {
       if (isCurrentProfile(context)) dirty.value = false
     } catch (error) {
       if (!isCurrentProfile(context)) return
-      if (error instanceof ProfileApiError && ['revision_conflict', 'invalid_data', 'unsupported_schema_version', 'operation_id_conflict'].includes(error.code)) {
+      if (!isUncertainProfileWrite(error)) {
         pending = null
         queued = {}
         dirty.value = false

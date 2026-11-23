@@ -14,7 +14,7 @@ use crate::{
 };
 use ::tauri::{
     ipc::{Invoke, InvokeBody, InvokeError},
-    AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder, Wry,
+    AppHandle, Emitter, EventTarget, Manager, WebviewUrl, WebviewWindowBuilder, Wry,
 };
 use anyhow::anyhow;
 use serde_json::{json, Map, Value};
@@ -138,6 +138,7 @@ pub(super) fn handler(
 
             let app = invoke.message.webview().app_handle().clone();
             invoke.resolver.respond_async(async move {
+                let source_label = caller.label.clone();
                 let mut context = RequestControlerContext::default().with_native_webview(caller);
                 if let Some(etag) = native_etag {
                     context = context.with_header(HEADER_IF_NONE_MATCH, etag);
@@ -149,7 +150,9 @@ pub(super) fn handler(
                 .await
                 .map(|output| {
                     if let Some(event) = output.headers.get(crate::CONTROLLER_NATIVE_EVENT_HEADER) {
-                        let _ = app.emit(event, ());
+                        let _ = app.emit_filter(event, (), |target| {
+                            matches!(target, EventTarget::Webview { label } if label != &source_label)
+                        });
                     }
                     native_conditional_reply(output)
                 })

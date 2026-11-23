@@ -52,6 +52,11 @@ shared:
       argument: {}
       default: "video/show/other/{}"
 
+  rating: &rating
+    - type: format_text
+      argument: "{} * 2.0"
+    - type: math_formula
+
   actions_search_genre_news: &actions_search_genre_news
     - type: regex_find_all
       pattern: "^(Infos|INFOS|Info|d'actualité|Journal|MAGAZINE|Magazine d'actualité|Magazine d'information|Magazine de reportages|Magazine de société|Magazine scientifique|Magazine régional|Magazine de l'automobile)$"
@@ -173,8 +178,9 @@ shared:
       type: string[]
       pointer: /directMetadata/AD_LIGENRES
     - name: rating
-      type: number
       pointer: /directMetadata/AD_SCORPUBL
+      type: number
+      actions: *rating
     - name: morality
       type: number
       pointer: /moralityLevel
@@ -280,7 +286,6 @@ shared:
             - name: target_id
               type: string
               pointer: /idAsset
-
 queries:
   - name: service_stream_metadata
     scraper_type: static
@@ -528,8 +533,9 @@ queries:
                   image_type: /content/0/tags/imageType
                   item_id: /content/0/idItem
           - name: rating
-            type: number
             pointer: /content/0/content/directMetadata/AD_SCORPUBL
+            type: number
+            actions: *rating
           - name: morality
             type: number
             pointer: /content/0/content/moralityLevel
@@ -884,11 +890,13 @@ queries:
             name: '@slug'
             value: '{1}'
       - name: rating
-        type: number
         pointer: /payload/directMetadata/AD_SCORPUBL
-      - name: rating
         type: number
+        actions: *rating
+      - name: rating
         pointer: /directMetadata/AD_SCORPUBL
+        type: number
+        actions: *rating
       - name: morality
         type: number
         pointer: /payload/moralityLevel

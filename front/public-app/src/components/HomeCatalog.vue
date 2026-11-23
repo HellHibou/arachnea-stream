@@ -312,7 +312,7 @@ onMounted(() => { categoryActionTarget.value = document.getElementById('main-bar
 
 /** Whether the current category can be added to a custom home. */
 const showCategoryPin = computed(() => Boolean(
-  props.mode === 'category' && props.category && editingEnabled && categoryContentSupported && categoryAdd.references.value.length > 0,
+  props.mode === 'category' && props.category && editingEnabled.value && categoryContentSupported.value && categoryAdd.references.value.length > 0,
 ))
 
 /** Opens the quick-add dialog for the displayed category. */

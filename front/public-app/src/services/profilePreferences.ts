@@ -18,7 +18,7 @@ export function copyPreferences<T>(value: T): T {
  * @param context Profile generation that requested the snapshot.
  */
 export async function applyProfilePreferences(snapshot: ProfileSnapshot, context: ProfileContext): Promise<void> {
-  if (!isCurrentProfile(context) || (snapshot.pending_operation && snapshot.pending_operation.state !== 'completed')) return
+  if (!isCurrentProfile(context)) return
   const request = ++application
   const storage = useStorage()
   const parameters = storage.getParameters()

@@ -61,11 +61,3 @@ Ce fichier suit les tâches DNS, HTTP et proxy prévues qui restent pertinentes 
 - Garder l'interception TLS hors du comportement proxy normal ; ajouter seulement un futur mode de debug explicite si le modèle de sécurité est documenté.
 - Continuer à valider les composants anti-censure comme fonctionnalités modulaires : serveurs amont Tor, transports enfichables, tunnels externes, expérimentations de padding/jitter, recherche ECH et documentation claire du modèle de menace.
 
-## Divers
-- Dans les fichier sqlite3: 
-  - A quoi sert stream_profile_operation ? A supprimer ?
-
-- Lier le profil actif à `arachnea_public_session` : `profile_id` reste porté par l'URL des opérations `profiles/*` et le profil sélectionné n'existe que côté client. Les quatre commandes de catalogue (`load_home`, `get_entry`, `get_season`, `get_recommendations`) ne prennent pas `profile_id` et sont authentifiées uniquement par le cookie de session.
-
-- Dans le front, sessions est appelé à intervals réguiler. Pourquoi ?
-

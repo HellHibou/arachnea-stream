@@ -29,18 +29,14 @@ temporary passwords require replacement before content access. Sessions persist
 with a 30-day idle timeout. Administrator Settings controls the global profile
 limit (default 3) in `data/config.json`.
 
-Common identities/sessions/UI preferences live in `data/profiles.sqlite3`;
-streaming preferences/homes/sections/bookmarks live in
-`data/arachnea-stream-profiles.sqlite3`, using the same common profile UUID.
-These paths are relative to the resolved application data root, which differs
-between source, portable and packaged installations. Neither old scraper stores
-nor old browser personal data are migrated. Profiles use server defaults and
-embedded avatars; personal writes have no offline mode.
+Public accounts, sessions, profiles, preferences, homes, sections and bookmarks
+share `data/profiles.sqlite3` under the resolved application data root. The new
+layout starts with a fresh database. For an existing installation, stop the
+application and move the old `profiles.sqlite3` and its SQLite sidecars out of
+`data/` before restarting. Set up the public accounts and profiles again.
 
-Follow the [Stream backup/restore procedure](crates/arachnea-stream/README.md#profile-backup-and-restore)
-for a coherent stopped-application snapshot, configuration, startup recovery and
-known limits. The [implementation/validation record](../docs/dev-tracking/server-user-profiles-analysis.md#étape-9--vérifier-et-documenter-la-livraison)
-records the final checks and remaining platform scenarios.
+Follow the [Stream backup and restore procedure](crates/arachnea-stream/README.md#profile-backup-and-restore)
+for the configuration and database files to keep together.
 
 ## Install Prerequisites
 

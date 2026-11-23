@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { customHomeRoute } from '@/services/customHomeRoute'
+import { customHomeRoute, resolvedCustomHome } from '@/services/customHomeRoute'
 import { computed, defineAsyncComponent, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useServiceMetadata } from '@/composables/useServiceMetadata'
@@ -30,8 +30,8 @@ const editingEnabled = useStorage().getHomePreferences().showSectionEditingButto
 const defaultHomeId = profileDefaultHomeId
 const router = useRouter()
 const route = useRoute()
-const manager = useCustomHomeManager()
 const visible = shallowRef(false)
+const manager = useCustomHomeManager({ shouldRefresh: () => visible.value })
 const destination = shallowRef('')
 const newHomeName = shallowRef('')
 const categoryMode = shallowRef<CustomHomeCategoryMode>('shortcut')
@@ -131,7 +131,7 @@ async function save(draft: CustomHomeDefinition): Promise<void> {
   const saved = await manager.save(draft)
   if (!saved) return
   emit('saved', saved)
-  if (route.name === 'custom-home' && route.meta.homeId === saved.id) await router.replace(customHomeRoute(saved))
+  if (resolvedCustomHome(route.meta)?.id === saved.id) await router.replace(customHomeRoute(saved))
   if (returnToList) { editingFromList.value = false; return }
   close()
   await router.push(customHomeRoute(saved))
@@ -141,7 +141,7 @@ async function confirmDelete(): Promise<void> {
   const home = deletion.value
   if (!home || !await manager.remove(home)) return
   deletion.value = null
-  if (route.name === 'custom-home' && route.meta.homeId === home.id) {
+  if (resolvedCustomHome(route.meta)?.id === home.id) {
     close(); await router.push({ name: 'home' })
   }
 }

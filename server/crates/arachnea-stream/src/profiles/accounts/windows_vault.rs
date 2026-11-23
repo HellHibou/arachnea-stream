@@ -18,27 +18,38 @@ fn wide(value: &str) -> Vec<u16> {
 /// * `account` - Account UUID or the active-account reference.
 ///
 /// # Errors
-/// Returns unavailable/not-found/invalid-encoding errors without exposing secrets.
+/// Returns an error if the entry cannot be read, has an invalid buffer, or is not UTF-8.
 pub(super) fn read(service: &str, account: &str) -> Result<String> {
     let target = wide(&format!("{service}/{account}"));
     let mut credential = std::ptr::null_mut();
-    // SAFETY: Windows owns the returned allocation until CredFree; target is NUL terminated.
-    let bytes = unsafe {
-        anyhow::ensure!(
-            CredReadW(target.as_ptr(), CRED_TYPE_GENERIC, 0, &mut credential) != 0,
-            "Credential Manager read failed"
-        );
-        let entry = &*credential;
-        let value = if entry.CredentialBlobSize == 0 {
-            Vec::new()
-        } else {
+    // SAFETY: The target is NUL terminated and credential is a writable output pointer.
+    anyhow::ensure!(
+        unsafe { CredReadW(target.as_ptr(), CRED_TYPE_GENERIC, 0, &mut credential) } != 0,
+        "Credential Manager read failed"
+    );
+    if credential.is_null() {
+        return Err(anyhow::anyhow!(
+            "Credential Manager returned a null credential"
+        ));
+    }
+    // SAFETY: CredReadW succeeded and the non-null credential is valid until CredFree.
+    let entry = unsafe { &*credential };
+    let bytes = if entry.CredentialBlobSize == 0 {
+        Ok(Vec::new())
+    } else if entry.CredentialBlob.is_null() {
+        Err(anyhow::anyhow!(
+            "Credential Manager returned a null credential blob"
+        ))
+    } else {
+        // SAFETY: The non-null blob points to CredentialBlobSize bytes in the Win32 allocation.
+        let blob = unsafe {
             std::slice::from_raw_parts(entry.CredentialBlob, entry.CredentialBlobSize as usize)
-                .to_vec()
         };
-        CredFree(credential.cast());
-        value
+        Ok(blob.to_vec())
     };
-    Ok(String::from_utf8(bytes)?)
+    // SAFETY: The allocation came from CredReadW and is no longer borrowed.
+    unsafe { CredFree(credential.cast()) };
+    Ok(String::from_utf8(bytes?)?)
 }
 
 /// Writes one user-scoped Credential Manager entry.

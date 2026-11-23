@@ -318,6 +318,10 @@ function handleCategorySelect(category: HomeCategory, event: MouseEvent) {
    outline-offset: 2px;
  }
 
+.home-category-strip__viewport--single-row .home-category-strip__tag:focus-visible {
+   outline-offset: -3px;
+ }
+
 @media (max-width: 640px) {
    .home-category-strip__list {
      gap: 6px;

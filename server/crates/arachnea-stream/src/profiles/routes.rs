@@ -46,7 +46,7 @@ pub fn quota(admin: &arachnea_scrapyfy::admin::AdminState) -> Result<usize> {
 /// # Arguments
 /// * `controller` - Underlying REST/Tauri transport controller.
 /// * `accounts` - Shared session service and native secret broker.
-/// * `coordinator` - Recovered profile lifecycle coordinator.
+/// * `coordinator` - Shared profile lifecycle coordinator.
 /// * `admin` - Independent administrator authorization/configuration boundary.
 ///
 /// # Errors
@@ -104,7 +104,6 @@ pub fn register(
         ("profiles/initialize_streaming", true),
         ("profiles/save_preferences", true),
         ("profiles/complete_onboarding", true),
-        ("profiles/operation", false),
         ("profiles/homes", false),
         ("profiles/sections", false),
         ("profiles/bookmarks", false),
@@ -132,10 +131,6 @@ pub fn register(
                 let admin = admin.clone();
                 let catalogue = catalogue.clone();
                 Box::pin(async move {
-                    let operation_id = match &input.payload {
-                        ControlerFunctionInput::Json(v) => v.get("operation_id").cloned(),
-                        _ => None,
-                    };
                     let result = dispatch(
                         name,
                         write,
@@ -147,23 +142,8 @@ pub fn register(
                     )
                     .await;
                     let (status, value) = match result {
-                        Ok(data) => {
-                            let pending =
-                                data.get("state")
-                                    .and_then(Value::as_str)
-                                    .is_some_and(|state| {
-                                        matches!(state, "pending" | "running" | "retry_pending")
-                                    });
-                            (
-                                if pending { 202 } else { 200 },
-                                json!({"data":data,"error":null}),
-                            )
-                        }
-                        Err(error) => {
-                            let (status, mut value) = failure(&error);
-                            value["error"]["operation_id"] = operation_id.unwrap_or(Value::Null);
-                            (status, value)
-                        }
+                        Ok(data) => (200, json!({"data":data,"error":null})),
+                        Err(error) => failure(&error),
                     };
                     Ok(ControlerJsonOutput {
                         status,
@@ -215,31 +195,11 @@ async fn dispatch(
         }
         return admin
             .update_application_options(move |config| {
-                let mut receipts: std::collections::BTreeMap<uuid::Uuid, u64> =
-                    serde_json::from_str(
-                        config
-                            .additional_option(crate::PROFILE_QUOTA_RECEIPTS_KEY)
-                            .unwrap_or("{}"),
-                    )?;
-                if let Some(previous) = receipts.get(&request.operation_id) {
-                    if *previous != request.max_profiles_per_user {
-                        return Err(reject(
-                            "operation_id_conflict",
-                            409,
-                            "Operation ID is already in use.",
-                        ));
-                    }
-                    return Ok(json!({"max_profiles_per_user":previous}));
-                }
-                receipts.insert(request.operation_id, request.max_profiles_per_user);
                 config.set_additional_option(
                     crate::MAX_PROFILES_PER_USER_KEY,
                     Some(request.max_profiles_per_user.to_string()),
                 );
-                config.set_additional_option(
-                    crate::PROFILE_QUOTA_RECEIPTS_KEY,
-                    Some(serde_json::to_string(&receipts)?),
-                );
+                config.set_additional_option("profile_quota_operations", None);
                 Ok(json!({"max_profiles_per_user":request.max_profiles_per_user}))
             })
             .await;
@@ -259,6 +219,5 @@ async fn dispatch(
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct QuotaUpdate {
-    operation_id: uuid::Uuid,
     max_profiles_per_user: u64,
 }

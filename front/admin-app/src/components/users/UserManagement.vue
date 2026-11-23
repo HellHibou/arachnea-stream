@@ -2,7 +2,6 @@
 import { onMounted, ref } from 'vue'
 import { useI18n } from '@/i18n'
 import { useUserManagement } from '@/composables/useUserManagement'
-import { createOperationId } from '@/services/operationId'
 import type { PublicUser } from '@/services/adminApi'
 import UserCredentialsDialog from './UserCredentialsDialog.vue'
 import UserList from './UserList.vue'
@@ -13,36 +12,32 @@ const { users, busy, errorCode, load, create, reset, remove, setPasswordChange, 
 const createOpen = ref(false)
 const resetTarget = ref<PublicUser | null>(null)
 const deleteTarget = ref<PublicUser | null>(null)
-const deleteId = ref('')
 
 onMounted(() => void load())
 
 /**
  * Creates an account and closes the dialog only once the server confirmed it.
  *
- * @param id - Stable retry identity for this submission.
  * @param login - Canonical login chosen by the administrator.
  * @param password - Temporary password kept in memory only.
  * @param mustChange - Whether the next sign-in must replace the password.
  */
 async function submitCreate(
-  id: string,
   login: string,
   password: string,
   mustChange: boolean,
 ): Promise<void> {
-  if (await create(id, login, password, mustChange)) createOpen.value = false
+  if (await create(login, password, mustChange)) createOpen.value = false
 }
 
 /**
  * Resets the selected account without retaining the submitted password.
  *
- * @param id - Stable retry identity for this submission.
  * @param _login - Display-only login echoed by the dialog.
  * @param password - Temporary password kept in memory only.
  */
-async function submitReset(id: string, _login: string, password: string): Promise<void> {
-  if (resetTarget.value && (await reset(id, resetTarget.value.user_id, password))) {
+async function submitReset(_login: string, password: string): Promise<void> {
+  if (resetTarget.value && (await reset(resetTarget.value.user_id, password))) {
     resetTarget.value = null
   }
 }
@@ -54,7 +49,7 @@ async function submitReset(id: string, _login: string, password: string): Promis
  * @param mustChange - New value of the flag.
  */
 async function togglePasswordChange(user: PublicUser, mustChange: boolean): Promise<void> {
-  await setPasswordChange(createOperationId(), user.user_id, mustChange)
+  await setPasswordChange(user.user_id, mustChange)
 }
 
 /** Opens account creation from a clean form state. */
@@ -80,12 +75,11 @@ function openReset(user: PublicUser): void {
  */
 function confirmDelete(user: PublicUser): void {
   deleteTarget.value = user
-  deleteId.value = createOperationId()
 }
 
-/** Deletes the confirmed account, reusing its UUID for safe retries. */
+/** Deletes the confirmed account by UUID. */
 async function submitDelete(): Promise<void> {
-  if (deleteTarget.value && (await remove(deleteId.value, deleteTarget.value.user_id))) {
+  if (deleteTarget.value && (await remove(deleteTarget.value.user_id))) {
     deleteTarget.value = null
   }
 }

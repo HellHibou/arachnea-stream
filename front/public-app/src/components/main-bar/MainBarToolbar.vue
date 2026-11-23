@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { resolvedCustomHome } from '@/services/customHomeRoute'
 import { useRoute, useRouter } from 'vue-router'
 import { computed, shallowRef } from 'vue'
 import { useServiceMetadata } from '@/composables/useServiceMetadata'
@@ -91,7 +92,8 @@ const router = useRouter()
 const route = useRoute()
 const metadata = useServiceMetadata()
 const activeService = computed(() => route.name === 'source-home' ? metadata.getService(String(route.params.sourceId)) : undefined)
-const customHome = useCustomHomeDefinition(() => route.name === 'custom-home' ? String(route.meta.homeId) : '')
+const resolvedHome = computed(() => resolvedCustomHome(route.meta))
+const customHome = useCustomHomeDefinition(() => resolvedHome.value?.id ?? '', () => resolvedHome.value)
 
 /**
  * Extracts a string route parameter from a potentially array-valued parameter.

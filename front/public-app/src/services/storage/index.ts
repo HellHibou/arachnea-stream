@@ -43,6 +43,7 @@ import type { EntryBookmark, HomePreferences, Parameters, VideoPlayerPreferences
 import { createVideoPlayerPreferencesBridge } from './videoPreferences'
 import { applyTheme, findThemePreset, themePresets } from '@/services/theme'
 import { queuePlayerPreferences } from '@/services/profilePlayerPreferences'
+import { onWindowForeground } from '@/services/windowForeground'
 
 export type {
   EntryBookmark,
@@ -217,8 +218,6 @@ export const useStorage = defineStore('storage', () => {
 
     /** In-flight personal cache read, keyed by the profile generation it started under. */
     let cachedRefresh: { generation: number; promise: Promise<void> } | null = null
-    /** Whether another refresh arrived while one was already in flight. */
-    let refreshQueued = false
 
     /** Fetches and publishes one fresh copy of the profile-owned records. */
     async function runCachedRefresh(): Promise<void> {
@@ -238,26 +237,14 @@ export const useStorage = defineStore('storage', () => {
     /**
      * Reloads the selected profile’s section and bookmark records from the server.
      *
-     * Concurrent calls from the same profile generation share one read; a call arriving
-     * mid-flight schedules exactly one follow-up so no cross-tab change is missed.
+     * Concurrent calls from the same profile generation share one read.
      */
     function refreshCachedRecords(): Promise<void> {
       const generation = profileGeneration()
-      const inFlight = cachedRefresh
+      if (cachedRefresh?.generation === generation) return cachedRefresh.promise
 
-      if (inFlight && inFlight.generation === generation) {
-        refreshQueued = true
-        return inFlight.promise
-      }
-
-      let promise: Promise<void>
-      promise = runCachedRefresh().finally(() => {
-        if (cachedRefresh?.promise !== promise) return
-        cachedRefresh = null
-        if (refreshQueued) {
-          refreshQueued = false
-          void refreshCachedRecords()
-        }
+      const promise: Promise<void> = runCachedRefresh().finally(() => {
+        if (cachedRefresh?.promise === promise) cachedRefresh = null
       })
       cachedRefresh = { generation, promise }
       return promise
@@ -269,18 +256,13 @@ export const useStorage = defineStore('storage', () => {
      * Must be called once before the store is used, typically from the app bootstrap.
      */
     async function initStorage(): Promise<void> {
-      if (storageInitialized) { await refreshCachedRecords(); return }
       await refreshCachedRecords()
+      if (storageInitialized) return
       storageInitialized = true
 
       // Resynchronize the cache whenever the tab becomes visible again,
       // so changes made from another tab are reflected in this one.
-      document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible') {
-          void refreshCachedRecords().catch(reportPersonalDataFailure)
-        }
-      })
-      window.addEventListener('focus', () => {
+      onWindowForeground(() => {
         void refreshCachedRecords().catch(reportPersonalDataFailure)
       })
     }
