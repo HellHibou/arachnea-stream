@@ -2,6 +2,7 @@ import { MAX_CATEGORY_ANCESTORS } from '@/services/customHomeReferences'
 import { t } from '@/i18n'
 import { markAmbiguousHomeIdentities } from '@/services/homeContentIdentity'
 import type { HomeSourceDiscovery } from '@/types/customHome'
+import type { ChannelAttribution } from '@/types/entry'
 import type { Collection } from '@/types/media'
 import type { HomeBanner, HomeCatalogData, HomeCategory, HomeSection } from '@/types/home'
 
@@ -9,10 +10,10 @@ import { call_api } from '../apiClient'
 import {
   firstNonEmptyString,
   isJsonRecord,
+  normalizeChannelAttribution,
   readBoolean,
   readPath,
   readRecordList,
-  resolveAssetUrl,
 } from '../primitives/readers'
 import { isDisplayableHomeBanner, normalizeHomeBanner, readBannerList } from './banners'
 import { catalogCategoryCards, identifyCatalogCategories, mergeHomeCategories, normalizeHomeCategory } from './categories'
@@ -104,14 +105,16 @@ export function normalizeHomeCatalog(payload: unknown, merge = true, parent?: Ho
   const deferredBanners: HomeCatalogData['deferredBanners'] = []
   const categories: HomeCategory[] = []
   const sections: HomeSection[] = []
+  const channels: (ChannelAttribution | null)[] = []
 
   rows.forEach((row) => {
     const rowSource = firstNonEmptyString([row.source, readPath(row, 'source', 'name')])
+    const channel = normalizeChannelAttribution(row.channel, rowSource)
+    channels.push(channel)
     const bannerCollection = isJsonRecord(row.banners) ? row.banners : null
     const bannerSource = firstNonEmptyString([bannerCollection?.source, rowSource])
     const bannerLink = firstNonEmptyString([bannerCollection?.link])
-    const sourceLogoUrl = resolveAssetUrl(firstNonEmptyString([bannerCollection?.['source-logo']]), bannerSource)
-    const branding = sourceLogoUrl ? { sourceLogoUrl } : {}
+    const branding = channel?.logo ? { channelLogoUrl: channel.logo } : {}
 
     const bannerEntries: HomeBanner[] = []
     readBannerList(bannerCollection?.entries ?? row.banners).forEach((banner) => {
@@ -132,7 +135,7 @@ export function normalizeHomeCatalog(payload: unknown, merge = true, parent?: Ho
     }
 
     readRecordList(row.categories).forEach((category) => {
-      const normalizedCategory = normalizeHomeCategory(category, categories.length, rowSource)
+      const normalizedCategory = normalizeHomeCategory(category, categories.length, rowSource, channel?.name)
       if (normalizedCategory.sources.length > 0) {
         categories.push(normalizedCategory)
       }
@@ -151,7 +154,11 @@ export function normalizeHomeCatalog(payload: unknown, merge = true, parent?: Ho
     })
   })
 
-  const catalog = { banners, deferredBanners, categories: identifyCatalogCategories(categories), sections }
+  const firstChannel = channels[0]
+  const channel = firstChannel && channels.every((item) =>
+    item?.name === firstChannel.name && item.logo === firstChannel.logo,
+  ) ? firstChannel : null
+  const catalog = { channel, banners, deferredBanners, categories: identifyCatalogCategories(categories), sections }
   if (!merge) {
     markAmbiguousHomeIdentities(sections)
     for (const section of sections) markAmbiguousHomeIdentities(section.subsections ?? [])
@@ -183,7 +190,7 @@ export function normalizeHomeCatalog(payload: unknown, merge = true, parent?: Ho
     delete section.identity
     for (const subsection of section.subsections ?? []) delete subsection.identity
   }
-  return aggregated
+  return { ...aggregated, channel }
 }
 
 /**

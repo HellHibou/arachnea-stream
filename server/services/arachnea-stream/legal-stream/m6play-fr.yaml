@@ -20,6 +20,18 @@ http:
 # Constants
 # ############################################################################
 constants:
+  - name: home_url
+    value: https://www.m6.fr/
+    description: Public M6+ navigation page.
+  - name: channel_label
+    value: ""
+    description: Optional channel name from the home menu.
+  - name: channel_logo
+    value: ""
+    description: Optional channel logo from the home menu.
+  - name: category_label
+    value: ""
+    description: Optional thematic category name from the home menu.
   - name: base_url
     value: https://www.6play.fr
     description: Public website base URL for the 6play service.
@@ -382,8 +394,14 @@ shared:
     - type: get_date
       format: yyyy_mm_dd_hh_mm_ss
 
-  actions_channel_name: &actions_channel_name
+  actions_live_channel: &actions_live_channel
     - type: map
+      argument:
+        leliveby6play: event1
+
+  actions_channel_name: &actions_channel_name
+    - &action_channel_name
+      type: map
       argument:
         m6replay: M6
         w9replay: W9
@@ -408,6 +426,24 @@ shared:
       type: regex_find_all
       pattern: '^([0-9]+)$'
       format: "{image_root}/{1}/raw"
+
+  folder_sections: &folder_sections
+    name: sections
+    type: object[]
+    pointer: /*
+    select: all
+    entries:
+      - name: label
+        type: string
+        select: first
+        pointer: /name
+      - name: link
+        type: string
+        select: first
+        pointer: /id
+        actions:
+          - type: format_text
+            argument: "{api_root}/6play/folders/{}/programs?csa=6&with=parentcontext"
 
   premium_program_price: &premium_program_price
     name: price
@@ -461,124 +497,125 @@ queries:
   # Home page
   # ---------------------------------------------------------------
   - name: load_home
-    scraper_type: json
-    base_url: "{base_url}"
-    query_url: "{api_root}/m6replay/folders?limit=10&offset=0"
-    request_headers: *generic_request_headers
+    scraper_type: html
+    base_url: "{home_url}"
+    query_url: "{home_url}"
     media_types: *media_types_6play
-    row_pointer: /
+    row_selector: html
     entries:
       - name: categories
         type: object[]
-        entries:
-          - name: key
-            type: string
-            select: first
-            actions:
-              - type: format_text
-                argument: "m6"
-          - name: label
-            type: string
-            select: first
-            actions:
-              - type: format_text
-                argument: "M6"
-          - name: request > query_url
-            type: string
-            select: first
-            actions:
-              - type: format_text
-                argument: "{api_root}/m6replay/folders?limit=999&offset=0"
-
-      - name: categories
-        type: object[]
-        entries:
-          - name: key
-            type: string
-            select: first
-            actions:
-              - type: format_text
-                argument: "w9"
-          - name: label
-            type: string
-            select: first
-            actions:
-              - type: format_text
-                argument: "W9"
-          - name: request > query_url
-            type: string
-            select: first
-            actions:
-              - type: format_text
-                argument: "{api_root}/w9replay/folders?limit=999&offset=0"
-
-      - name: categories
-        type: object[]
-        entries:
-          - name: key
-            type: string
-            select: first
-            actions:
-              - type: format_text
-                argument: "6ter"
-          - name: label
-            type: string
-            select: first
-            actions:
-              - type: format_text
-                argument: "6ter"
-          - name: request > query_url
-            type: string
-            select: first
-            actions:
-              - type: format_text
-                argument: "{api_root}/6terreplay/folders?limit=999&offset=0"
-
-      - name: categories
-        type: object[]
-        entries:
-          - name: key
-            type: string
-            select: first
-            actions:
-              - type: format_text
-                argument: "gulli"
-          - name: label
-            type: string
-            select: first
-            actions:
-              - type: format_text
-                argument: "Gulli"
-          - name: request > query_url
-            type: string
-            select: first
-            actions:
-              - type: format_text
-                argument: "{api_root}/gulli/folders?limit=999&offset=0"
-
-      - name: sections
-        type: object[]
-        pointer: /*
+        selector: "nav div#chaine a:has(img[aria-hidden=true][src*='.svg#'][alt])"
         select: all
         entries:
+          - name: key
+            type: string
+            select: first
+            actions:
+              - type: get_attribut
+                argument: href
+              - type: regex_find_all
+                pattern: '^/([^/?#]+)/?$'
+                format: "{1}"
           - name: label
             type: string
+            selector: &channel_icon "img[aria-hidden=true][src*='.svg#'][alt]"
             select: first
-            pointer: /name
-          - name: link
+            actions: &channel_menu_label
+              - type: get_attribut
+                argument: alt
+          - name: image
+            type: string
+            selector: *channel_icon
+            select: first
+            actions: &menu_image
+              - &menu_image_action
+                type: get_attribut
+                argument: src
+          - name: request > channel_label
+            type: string
+            selector: *channel_icon
+            select: first
+            actions: *channel_menu_label
+          - name: request > channel_logo
+            type: string
+            selector: *channel_icon
+            select: first
+            actions: *menu_image
+          - name: request > query_url
+            type: string
+            selector: *channel_icon
+            select: first
+            actions:
+              - *menu_image_action
+              - type: regex_find_all
+                pattern: '\.svg#([a-z0-9_]+)$'
+                format: "{api_root}/{1}/folders?limit=999&offset=0"
+      - name: categories
+        type: object[]
+        selector: "nav div#categories a[href*='-f_']:has(img[alt])"
+        select: all
+        entries:
+          - name: key
             type: string
             select: first
-            pointer: /id
             actions:
-              - type: format_text
-                argument: "{api_root}/6play/folders/{}/programs?csa=6&with=parentcontext"
+              - type: get_attribut
+                argument: href
+              - type: regex_find_all
+                pattern: '-f_([0-9]+)/?$'
+                format: "folder:{1}"
+          - name: label
+            type: string
+            selector: img[alt]
+            select: first
+            actions: &category_menu_label
+              - type: get_attribut
+                argument: alt
+              - type: map
+                argument:
+                  Jeunesse v: Jeunesse
+          - name: image
+            type: string
+            selector: img[alt]
+            select: first
+            actions: *menu_image
+          - name: request > category_label
+            type: string
+            selector: img[alt]
+            select: first
+            actions: *category_menu_label
+          - name: request > query_url
+            type: string
+            select: first
+            actions:
+              - type: get_attribut
+                argument: href
+              - type: regex_find_all
+                pattern: '-f_([0-9]+)/?$'
+                format: "{api_root}/6play/folders/{1}/programs?csa=6&with=parentcontext"
+      - name: _home_folders
+        type: string
+        select: first
+        actions:
+          - type: format_text
+            argument: "{api_root}/m6replay/folders?limit=10&offset=0"
+        sub_queries:
+          - scraper_type: json
+            target: parent
+            request_headers: *generic_request_headers
+            row_pointer: /
+            entries:
+              - *folder_sections
       - name: banners > link
         type: string
         select: first
         actions:
           - type: format_text
             argument: "{api_root}/m6replay/programs?limit={max_banners}&offset=0&csa=6&sort=last_video_publication&with=layout"
-  
+    post_process:
+      - type: remove_fields
+        fields: [_home_folders]
 
   # ---------------------------------------------------------------
   # Banners listing
@@ -654,47 +691,140 @@ queries:
     scraper_type: json
     base_url: "{base_url}"
     query_url: "{query_url}"
+    request_url_actions:
+      # Continuous channels have a live schedule and no replay folders.
+      - type: regex_replace_all
+        pattern: '/services/(fast[0-9]+)/folders\?.*$'
+        replacement: '/services/6play/live?channel=$1&with=service_display_images'
+      - type: regex_replace_all
+        pattern: '/services/100foot/folders\?.*$'
+        replacement: '/services/6play/live?channel=event1&with=service_display_images'
+      - type: regex_replace_all
+        pattern: '(/folders/[0-9]+/programs\?.*)$'
+        replacement: '$1&limit=1'
     request_headers: *generic_request_headers
     media_types: *media_types_6play
     row_pointer: /
     entries:
+      - *folder_sections
       - name: sections
         type: object[]
-        pointer: /*
-        select: all
         entries:
-          - name: label
+          - name: key
             type: string
-            select: first
-            pointer: /name
-          - name: link
-            type: string
-            select: first
-            pointer: /id
             actions:
               - type: format_text
-                argument: "{api_root}/6play/folders/{}/programs?csa=6&with=parentcontext"
+                argument: "rail:category-content"
+          - name: label
+            type: string
+            actions:
+              - type: format_text
+                argument: "{category_label}"
+          - name: link
+            type: string
+            actions:
+              - type: format_text
+                argument: "{query_url}"
+              - type: regex_find_all
+                pattern: '^(.*/services/6play/folders/[0-9]+/programs\?.+)$'
+                format: "{1}"
+      - name: sections
+        type: object[]
+        select: all
+        pointer: /*/0
+        entries:
+          - name: key
+            type: string
+            pointer: /live/channel/code_url
+            actions:
+              - type: regex_find_all
+                pattern: '^([a-z0-9_]+)$'
+                format: "rail:live:{1}"
+          - name: label
+            type: string
+            pointer: /live/channel/code_url
+            actions:
+              - type: regex_find_all
+                pattern: '^[a-z0-9_]+$'
+                format: "En direct"
+          - name: entries
+            type: object[]
+            entries:
+              - name: title
+                type: string
+                select: first
+                pointer: /title
+              - name: description
+                type: string
+                select: first
+                pointer: /description
+              - name: link
+                type: string
+                select: first
+                pointer: /live/channel/code_url
+                actions: *actions_live_channel
+              - name: media-type
+                type: string
+                actions:
+                  - type: format_text
+                    argument: video/live
+              - name: img/landscape > link
+                type: string
+                select: first
+                pointer: /display_image/external_key
+                actions: *actions_image_key_to_url
       - name: banners > link
         type: string
         select: first
         actions:
-          - type: format_text
-            argument: "{query_url}"
+          - type: get_request_url
           - type: regex_find_all
-            pattern: '/services/(m6replay|w9replay|6terreplay|gulli)/folders\?'
+            pattern: '/services/([a-z0-9_]+)/folders\?'
             format: "{api_root}/{1}/programs?limit={max_banners}&offset=0&csa=6&sort=last_video_publication&with=layout"
-      - name: banners > source-logo
+      - name: channel > name
         type: string
         select: first
         actions:
           - type: format_text
-            argument: "{query_url}"
+            argument: "{channel_label}"
           - type: regex_find_all
+            pattern: '^(.+)$'
+            format: "{1}"
+      - name: channel > name
+        type: string
+        select: first
+        actions:
+          - &category_channel_url
+            type: format_text
+            argument: "{query_url}"
+          - &category_channel_code
+            type: regex_find_all
             pattern: '/services/(m6replay|w9replay|6terreplay|gulli)/folders\?'
             format: "{1}"
+          - *action_channel_name
+      - name: channel > logo
+        type: string
+        select: first
+        actions:
+          - type: format_text
+            argument: "{channel_logo}"
+          - type: regex_find_all
+            pattern: '^(https://assets-bundle\.6cloud\.fr/[^#]+\.svg#[a-z0-9_]+)$'
+            format: "{1}"
+      - name: channel > logo
+        type: string
+        select: first
+        actions:
+          - *category_channel_url
+          - *category_channel_code
           - *action_channel_logo_key
           - *action_channel_logo_url
-
+    post_process:
+      - type: filter_items
+        source: sections
+        field: label
+        pattern: '.+'
+        keep_matching: true
 
   # ---------------------------------------------------------------
   # Sections listing
@@ -1456,3 +1586,4 @@ queries:
                 type: string
                 select: first
                 pointer: /live/channel/code_url
+                actions: *actions_live_channel

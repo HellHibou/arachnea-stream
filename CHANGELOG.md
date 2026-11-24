@@ -386,6 +386,7 @@ All notable changes to the server workspace are recorded here.
 - Added an optional `channel` object to `get_entry` responses. Odysee requires a valid signature and a channel claim ID, with the LBRY channel name as a display-name fallback. M6Play derives the attribution from the programme's replay service code and restricts the mapping to its four replay channels. The field is additive and source-owned category parameters stay opaque to the client.
 - M6Play channel categories now expose `banners.link` for M6, W9, 6ter and Gulli, reusing the existing deferred programme carousel from category pages.
 - Odysee and M6Play channel categories expose `banners.source-logo` when a channel image is available.
+- Twitch, Odysee and M6Play now return `channel.name` and `channel.logo` on the category response row.
 - Odysee video details now expose a deferred recommendations rail backed by Odysee's related-video API.
 
 - Added 28 flat, four-color profile avatars: man, woman, boy and girl in all seven frontend theme colors, with editable SVG sources and 512 × 512 PNG exports. The embedded catalogue preserves the three original avatar IDs and fallback for existing profiles.
@@ -491,6 +492,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- M6Play discovers channels, logos and thematic categories from the public M6+ navigation. Replay channel pages expose their programme rails, continuous channels show the current live programme, and thematic categories open paged programme lists.
+
 - Authenticated requests renew the 30-day idle deadline at most once per hour per session. The browser cookie has a longer lifetime, with expiry and revocation enforced by the server.
 
 - Consolidated profiles in one SQLite database and removed persistent operation receipts. Upgrading from the two-file layout requires a fresh profile database.
@@ -534,6 +537,8 @@ All notable changes to the server workspace are recorded here.
 #### Fixed
 
 - Restored macOS compilation for native session storage in Keychain.
+- The Twitch playback proxy removes `twitch-ad-quartile` date-range tags from HLS playlists.
+- The Twitch playback proxy marks `Amazon|…` ad segments as HLS gaps and replaces their URLs with empty data URIs while preserving media sequence numbers.
 - Twitch entry details now expose the broadcast title and Twitch category as a genre. Active broadcasts show a Live label while retaining catalogue navigation. Channel pages provide Home, Clips and Videos sections and a single playable banner. Twitch HLS playlists and segments stay on the application proxy.
 - Twitch channel navigation now exposes Home, Clips and Videos as categories with independent sections for recent broadcasts, recently streamed games, clip periods and video types.
 - Twitch recordings now expose their chapter markers in entry details and native playback.
@@ -1015,6 +1020,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Category tags show a compact icon beside the label when the source supplies an image.
+
 - Read the public account session once per page load. Remove periodic and focus-triggered checks, and invalidate stale account views when a protected request fails or another tab changes the shared account.
 
 - Reconciled uncertain profile and playback writes with server state and removed operation polling and retry IDs.
@@ -1083,7 +1090,9 @@ All notable changes to the server workspace are recorded here.
 
 #### Fixed
 
+- Category headers now use the channel returned by `get_category`, including on direct links. Category banners use the same channel logo for inline and deferred playback.
 - The trailer background setting now uses only banner trailers. Full videos, including Twitch live broadcasts and recordings, play only in the banner, even when loaded from an older cached Twitch response.
+- Category backgrounds use video thumbnails only when no banner image is available.
 - Banner artwork remains visible during playback. The player uses the separate poster from `video-kind` while waiting for playback.
 - Custom-home pages reuse the definition resolved by the router in the page and toolbar. Concurrent home reads share one request, and closed management dialogs skip automatic reads. Returning to the window groups focus and visibility refreshes for the active profile, sections, bookmarks and homes.
 - Custom homes resolve pinned categories, banners and sections by URL when the source declares support in YAML. Twitch channel pins work even when the channel is absent from the Twitch home.
@@ -1304,6 +1313,9 @@ All notable changes to the server workspace are recorded here.
 - Documented the shared Scrapyfy loopback proxy server, configurable port, per-connection routing contexts, and browser profile negotiation. Recorded user approval of approach B and the `407` challenge; delivery and validation details are recorded in the development analysis.
 
 #### Changed
+
+- Removed provider-specific details from the French and English Stream, hoster and source-check specifications. Shared examples use fictional sources.
+- Documented the shared banner payload, playback modes, navigation fields and chapter schema in both Stream specifications.
 
 - Removed the standalone English/French user-profile specifications and their links from the remaining documentation.
 - Revised the subtitle translation analysis to keep translated files exclusively in the browser and revalidate a composite source-validator/YAML/target-language ETag before translation. Audited commits `7c9208d3`, `49b96042` and `8bd1dff4`, recorded the required contract corrections for delivered lots 1–4, and updated the remaining implementation plan; runtime code is unchanged.

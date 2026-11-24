@@ -18,6 +18,7 @@ import { useI18n } from '@/i18n'
 import { reportFrontendErrorOnce } from '@/composables/useErrorNotifications'
 import { useStorage } from '@/services/storage'
 import type { HomeCategory, HomeSection, HomeSectionSubsection } from '@/types/home'
+import type { ChannelAttribution } from '@/types/entry'
 import type { CustomHomeDefinition, CustomHomeAddIntent } from '@/types/customHome'
 import type {
   MediaCardCollectionMode,
@@ -156,6 +157,8 @@ const emit = defineEmits<{
   'select-category': [category: HomeCategory]
   /** Emitted when background media items should be updated. */
   'update:background-media-items': [mediaItems: BackgroundMediaCandidate[]]
+  /** Emits the channel identity returned by the active category request. */
+  'update:category-channel': [channel: ChannelAttribution | null]
 }>()
 
 /** Home catalog composable results. */
@@ -209,6 +212,10 @@ const {
   onBackgroundMediaItemsChange: (mediaItems) => {
     emit('update:background-media-items', mediaItems)
   },
+})
+
+watch(() => props.mode === 'category' ? catalog.value?.channel ?? null : null, (channel) => {
+  emit('update:category-channel', channel)
 })
 
 /**

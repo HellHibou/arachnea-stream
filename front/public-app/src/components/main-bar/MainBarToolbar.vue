@@ -7,6 +7,7 @@ import { useCustomHomeDefinition } from '@/composables/home/useCustomHomeDefinit
 import { useStorage } from '@/services/storage'
 
 import type { SearchFilterOption } from '@/services/rustify'
+import type { ChannelAttribution } from '@/types/entry'
 import { useI18n } from '@/i18n'
 import { decodeCategoryRoutePayload } from '@/router/routePayloads'
 
@@ -19,6 +20,8 @@ import { APP_TITLE } from '../../constants'
  * Props accepted by the main toolbar row rendered above the current screen.
  */
 interface Props {
+  /** Channel returned for the active category. @default null */
+  categoryChannel?: ChannelAttribution | null
   /** Navigation trigger availability and controlled expansion. @default false */
   showNavigationButton?: boolean
   /** Whether the navigation sidebar or drawer is expanded. @default false */
@@ -56,7 +59,8 @@ interface Props {
 }
 
 /** Component props with applied defaults. */
-withDefaults(defineProps<Props>(), {
+const props = withDefaults(defineProps<Props>(), {
+  categoryChannel: null,
   showBackButton: false,
   showNavigationButton: false,
   isNavigationOpen: false,
@@ -132,7 +136,7 @@ const failedCategoryLogoUrl = shallowRef<string | null>(null)
 
 /** Identity shown before the category label: channel attribution wins over service metadata. */
 const activeCategoryIdentity = computed(() => {
-  const channel = activeCategory.value?.channel
+  const channel = props.categoryChannel
   if (channel) {
     return {
       label: channel.name,

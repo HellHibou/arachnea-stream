@@ -272,7 +272,15 @@ queries:
             row_filters:
               /value_type: [channel]
             entries:
-              - name: banners > source-logo
+              - name: channel > name
+                type: string
+                select: first
+                pointer: /name
+              - name: channel > name
+                type: string
+                select: first
+                pointer: /value/title
+              - name: channel > logo
                 type: string
                 select: first
                 pointer: /value/thumbnail/url
@@ -291,6 +299,9 @@ queries:
                     type: string
                     select: first
                     pointer: /value/title
+                  - name: description
+                    type: string
+                    pointer: /value/description
                   - name: image
                     type: string
                     pointer: /value/cover/url

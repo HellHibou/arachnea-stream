@@ -188,6 +188,15 @@ function handleCategorySelect(category: HomeCategory, event: MouseEvent) {
          :href="categoryHref(category)"
          @click="handleCategorySelect(category, $event)"
        >
+         <img
+           v-if="category.imageUrl"
+           :key="category.imageUrl"
+           class="home-category-strip__image"
+           :src="category.imageUrl"
+           alt=""
+           loading="lazy"
+           @error="($event.target as HTMLImageElement).hidden = true"
+         >
          {{ category.label }}
        </a>
         </div>
@@ -286,6 +295,7 @@ function handleCategorySelect(category: HomeCategory, event: MouseEvent) {
 .home-category-strip__tag {
    display: inline-flex;
    align-items: center;
+   gap: 8px;
    max-width: 100%;
    min-height: 26px;
    padding: 10px 20px;
@@ -305,6 +315,13 @@ function handleCategorySelect(category: HomeCategory, event: MouseEvent) {
      color var(--duration-fast) ease,
      border-color var(--duration-fast) ease,
      background-color var(--duration-fast) ease;
+ }
+
+.home-category-strip__image {
+   width: 32px;
+   height: 20px;
+   flex: 0 0 auto;
+   object-fit: contain;
  }
 
 .home-category-strip__tag:hover {

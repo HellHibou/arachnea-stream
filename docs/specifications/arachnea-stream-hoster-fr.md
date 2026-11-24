@@ -271,15 +271,6 @@ Pour reconnaître le contenu avec des sélecteurs, utiliser une requête HTML av
 `base_url: "{url}"`, `query_url: "{url}"`, `input_html: "{html}"`, un
 `row_selector` précis et un champ `resolver` construit avec `format_text`.
 
-### Exemples de services existants
-
-Ces exemples facultatifs illustrent des modèles propres aux fournisseurs. Le
-contrat complet reste dans ce guide et la spécification commune ; ne pas copier
-une URL, un identifiant ou un sélecteur sans vérifier la réponse de la cible.
-
-- [sibnet.yaml](../../server/services/arachnea-stream-hoster/sibnet.yaml) — Reconnaissance d’URL et extraction HTML du flux.
-- [voe.yaml](../../server/services/arachnea-stream-hoster/voe.yaml) — Reconnaissance du contenu et réutilisation du HTML fourni.
-
 ## 7. Liste de contrôle de rédaction
 
 1. Confirmer que la cible est une page de lecteur, pas un catalogue ou un manifeste.

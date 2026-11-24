@@ -2,7 +2,7 @@ import { MAX_CATEGORY_ANCESTORS } from '@/services/customHomeReferences'
 import type { CategoryOrigin } from '@/types/customHome'
 import { buildUrlSlug } from '@/services/textUtils'
 import type { LiveSelectionTarget } from '@/types/media'
-import type { HomeCategory, HomeCategoryChannel, HomeCategorySource } from '@/types/home'
+import type { HomeCategory, HomeCategorySource } from '@/types/home'
 
 /** Base interface for versioned route payloads. */
 interface VersionedRoutePayload {
@@ -33,8 +33,6 @@ export interface EntryRouteTarget extends EntryRoutePayload {
 export interface CategoryRoutePayload extends VersionedRoutePayload {
   /** Display label of the category. */
   label: string
-  /** Optional channel branding that replaces the service identity in the header. */
-  channel?: HomeCategoryChannel | null
   /** Source descriptors required to load the category catalog. */
   sources: HomeCategorySource[]
   /** Optional source-owned paths to replay before saving a navigated category. */
@@ -128,7 +126,6 @@ export function encodeCategoryRouteParam(category: HomeCategory): string {
   const payload: CategoryRoutePayload = {
     v: 1,
     label: category.label,
-    ...(category.channel ? { channel: category.channel } : {}),
     sources: category.sources,
     ...(category.origins?.length ? { origins: category.origins } : {}),
   }
@@ -158,7 +155,6 @@ export function decodeCategoryRoutePayload(segment: string): CategoryRoutePayloa
   return {
     v: 1,
     label: readNonEmptyString(payload.label) ?? '',
-    channel: readCategoryChannel(payload.channel),
     sources: payload.sources.flatMap(readHomeCategorySource),
     ...(Array.isArray(payload.origins) ? { origins: payload.origins.flatMap(readCategoryOrigin) } : {}),
   }
@@ -171,21 +167,6 @@ function readCategoryOrigin(value: unknown): CategoryOrigin[] {
   const sourceId = readNonEmptyString(value.sourceId)
   if (!sourceId || !value.keys.every((key) => typeof key === 'string' && key.trim() === key && key)) return []
   return [{ sourceId, keys: value.keys }]
-}
-
-/**
- * Sanitizes one decoded channel attribution from a category route payload.
- *
- * @param value Decoded channel value.
- * @returns Valid channel branding, or null when it has no display name.
- */
-function readCategoryChannel(value: unknown): HomeCategoryChannel | null {
-  if (!isRouteRecord(value)) {
-    return null
-  }
-
-  const name = readNonEmptyString(value.name)
-  return name ? { name, logo: readNonEmptyString(value.logo) } : null
 }
 
 /**

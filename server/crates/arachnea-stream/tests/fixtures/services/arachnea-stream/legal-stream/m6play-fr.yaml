@@ -29,7 +29,9 @@ steps:
       min_count: 1
       min_valid_count: 1
       required_non_empty:
+        - ["key"]
         - ["label"]
+        - ["image"]
         - ["request","query_url"]
 
   - id: category
@@ -40,6 +42,17 @@ steps:
         items_path: ["categories"]
         select: first_valid
         value_path: ["request","query_url"]
+    source_params:
+      channel_label:
+        from_step: home
+        items_path: ["categories"]
+        select: first_valid
+        value_path: ["request", "channel_label"]
+      channel_logo:
+        from_step: home
+        items_path: ["categories"]
+        select: first_valid
+        value_path: ["request", "channel_logo"]
     expect:
       items_path: ["sections"]
       min_count: 1
@@ -58,7 +71,8 @@ steps:
       min_valid_count: 1
       required_non_empty:
         - ["banners", "link"]
-        - ["banners", "source-logo"]
+        - ["channel", "name"]
+        - ["channel", "logo"]
 
   - id: category_banners_w9
     operation: get_category
@@ -70,7 +84,8 @@ steps:
       min_valid_count: 1
       required_non_empty:
         - ["banners", "link"]
-        - ["banners", "source-logo"]
+        - ["channel", "name"]
+        - ["channel", "logo"]
 
   - id: category_banners_6ter
     operation: get_category
@@ -82,7 +97,8 @@ steps:
       min_valid_count: 1
       required_non_empty:
         - ["banners", "link"]
-        - ["banners", "source-logo"]
+        - ["channel", "name"]
+        - ["channel", "logo"]
 
   - id: category_banners_gulli
     operation: get_category
@@ -94,6 +110,7 @@ steps:
       min_valid_count: 1
       required_non_empty:
         - ["banners", "link"]
+        - ["channel", "name"]
 
   - id: section
     operation: get_section

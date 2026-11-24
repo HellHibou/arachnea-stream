@@ -20,18 +20,18 @@ complet. `ARACHNEA_TEST_QUERY_SOURCE` contrôle sa portée :
 | --- | --- |
 | Variable non définie | Tous les fichiers YAML de production découverts récursivement |
 | Exactement `*` | Tous les fichiers YAML de production découverts récursivement |
-| ID d'un service de production, tel que `anime-sama` | Uniquement ce service |
-| Chemin relatif à `services`, tel que `arachnea-stream/dark-stream/anime-sama.yaml` | Uniquement cette configuration |
+| ID d'un service de production, tel que `example-source` | Uniquement ce service |
+| Chemin relatif à `services`, tel que `arachnea-stream/legal-stream/example-source.yaml` | Uniquement cette configuration |
 | Sélection vide, composée d'espaces, non Unicode, inconnue ou ambiguë | Erreur ; ne s'élargit jamais silencieusement à toutes les sources |
 
 Pour **un service**, exécutez :
 
 ```sh
-ARACHNEA_TEST_QUERY_SOURCE=anime-sama \
+ARACHNEA_TEST_QUERY_SOURCE=example-source \
   cargo test --manifest-path server/Cargo.toml -p arachnea-stream --lib stream_scraper::tests::test_all_services -- --exact --ignored --nocapture
 ```
 
-Remplacez `anime-sama` par l'`id` du YAML de production ou par son chemin relatif à
+Remplacez `example-source` par l'`id` du YAML de production ou par son chemin relatif à
 `services`. Cela exécute toutes les étapes du contrat pour cette source, y compris
 la navigation déclarée.
 
@@ -77,7 +77,7 @@ vous rédigez un contrat manquant.
 ### Vérifier un contrat via son opération de métadonnées
 
 ```sh
-ARACHNEA_TEST_QUERY_SOURCE=anime-sama \
+ARACHNEA_TEST_QUERY_SOURCE=example-source \
   cargo test --manifest-path server/Cargo.toml -p arachnea-stream --lib stream_scraper::tests::test_query_service_stream_metadata -- --exact --nocapture
 ```
 
@@ -100,7 +100,7 @@ avec `*` pour cette vérification de couverture.
 ### Exécuter une opération en direct et ses prérequis
 
 ```sh
-ARACHNEA_TEST_QUERY_SOURCE=anime-sama \
+ARACHNEA_TEST_QUERY_SOURCE=example-source \
   cargo test --manifest-path server/Cargo.toml -p arachnea-stream --lib stream_scraper::tests::test_query_search -- --exact --ignored --nocapture
 ```
 
@@ -196,10 +196,10 @@ Ces quatre valeurs doivent concorder :
 
 | Élément | Exemple |
 | --- | --- |
-| Fichier de production | `server/services/arachnea-stream/legal-stream/m6play-fr.yaml` |
-| `id` de production et `source` du contrat | `m6play-fr` |
-| `source_config` du contrat | `arachnea-stream/legal-stream/m6play-fr.yaml` |
-| Fichier de test | `server/crates/arachnea-stream/tests/fixtures/services/arachnea-stream/legal-stream/m6play-fr.yaml` |
+| Fichier de production | `server/services/arachnea-stream/legal-stream/example-source.yaml` |
+| `id` de production et `source` du contrat | `example-source` |
+| `source_config` du contrat | `arachnea-stream/legal-stream/example-source.yaml` |
+| Fichier de test | `server/crates/arachnea-stream/tests/fixtures/services/arachnea-stream/legal-stream/example-source.yaml` |
 
 Règles :
 
@@ -226,29 +226,20 @@ Les deux documents ont des schémas différents. Les clés de production telles 
 clés de premier niveau valides dans un contrat de test. Des noms comme `entries`
 peuvent toutefois apparaître comme segments de chemin.
 
-## 4. Exemple complet fonctionnel
+## 4. Exemple de contrat complet
 
-Voici le contrat M6 existant. Il exerce les métadonnées, la navigation d'accueil,
-une catégorie, une section différée, la recherche et une page de détail. C'est un
-fichier complet, pas un fragment. Ses identifiants de source, son terme de recherche
-et ses chemins appartiennent à M6.
-
-**Lors de la rédaction d'un autre service, ne copiez pas ces valeurs telles
-quelles.** Remplacez l'identité et choisissez les opérations, les entrées de
-référence et les chemins à partir du contrat réel de ce service. Par exemple, une
-source sans recherche ne doit pas hériter de l'étape `search` de M6.
-
-Fichier de production : `server/services/arachnea-stream/legal-stream/m6play-fr.yaml`.
-Fichier de test : `server/crates/arachnea-stream/tests/fixtures/services/arachnea-stream/legal-stream/m6play-fr.yaml`.
+Cet exemple utilise une source fictive. Il vérifie les métadonnées, lance une
+recherche et suit une catégorie de l’accueil jusqu’à une fiche via une section
+différée. Utilisez l’identité, les opérations, les entrées de référence et les
+chemins de champs de la source testée.
 
 ```yaml
-# Reference expectations; live qualification is recorded separately.
 schema_version: 1
-source: m6play-fr
-source_config: arachnea-stream/legal-stream/m6play-fr.yaml
+source: example-source
+source_config: arachnea-stream/legal-stream/example-source.yaml
 
 capabilities:
-  expected: ["service_stream_metadata","load_home","get_category","get_section","search","get_entry"]
+  expected: [service_stream_metadata, load_home, get_category, get_section, search, get_entry]
   not_expected: []
 
 steps:
@@ -271,7 +262,7 @@ steps:
       min_valid_count: 1
       required_non_empty:
         - ["label"]
-        - ["request","query_url"]
+        - ["request", "query_url"]
 
   - id: category
     operation: get_category
@@ -280,7 +271,7 @@ steps:
         from_step: home
         items_path: ["categories"]
         select: first_valid
-        value_path: ["request","query_url"]
+        value_path: ["request", "query_url"]
     expect:
       items_path: ["sections"]
       min_count: 1
@@ -288,53 +279,6 @@ steps:
       required_non_empty:
         - ["label"]
         - ["link"]
-
-  - id: category_banners_m6
-    operation: get_category
-    inputs:
-      query_url: "https://android.middleware.6play.fr/6play/v2/platforms/m6group_androidmob/services/m6replay/folders?limit=999&offset=0"
-    expect:
-      items_path: []
-      min_count: 1
-      min_valid_count: 1
-      required_non_empty:
-        - ["banners", "link"]
-        - ["banners", "source-logo"]
-
-  - id: category_banners_w9
-    operation: get_category
-    inputs:
-      query_url: "https://android.middleware.6play.fr/6play/v2/platforms/m6group_androidmob/services/w9replay/folders?limit=999&offset=0"
-    expect:
-      items_path: []
-      min_count: 1
-      min_valid_count: 1
-      required_non_empty:
-        - ["banners", "link"]
-        - ["banners", "source-logo"]
-
-  - id: category_banners_6ter
-    operation: get_category
-    inputs:
-      query_url: "https://android.middleware.6play.fr/6play/v2/platforms/m6group_androidmob/services/6terreplay/folders?limit=999&offset=0"
-    expect:
-      items_path: []
-      min_count: 1
-      min_valid_count: 1
-      required_non_empty:
-        - ["banners", "link"]
-        - ["banners", "source-logo"]
-
-  - id: category_banners_gulli
-    operation: get_category
-    inputs:
-      query_url: "https://android.middleware.6play.fr/6play/v2/platforms/m6group_androidmob/services/gulli/folders?limit=999&offset=0"
-    expect:
-      items_path: []
-      min_count: 1
-      min_valid_count: 1
-      required_non_empty:
-        - ["banners", "link"]
 
   - id: section
     operation: get_section
@@ -358,7 +302,7 @@ steps:
   - id: search
     operation: search
     inputs:
-      query: "journal"
+      query: "documentary"
     expect:
       items_path: ["entries"]
       min_count: 1
@@ -375,18 +319,17 @@ steps:
   - id: entry
     operation: get_entry
     inputs:
-      query_url: "1058" # Le 1945, attributed to M6
+      query_url:
+        from_step: section
+        items_path: ["entries"]
+        select: first_valid
+        value_path: ["link"]
     expect:
       items_path: []
       min_count: 1
       min_valid_count: 1
       required_non_empty:
         - ["title"]
-        - ["channel", "name"]
-        - ["channel", "request", "query_url"]
-      optional_fields:
-        - path: ["description"]
-          type: string
 ```
 
 Un service plus simple peut ne nécessiter que les métadonnées plus la recherche, ou
@@ -494,7 +437,7 @@ boucle, ni pagination automatique dans l'exécuteur.
 | `get_section` | `query_url` requis : chaîne non vide ou référence ; `page` optionnel : entier positif, `1` par défaut | Un objet de section | `FullCache` |
 | `get_entry` | `query_url` requis : chaîne non vide ou référence | Un objet d'entrée/détail | `ClientCache` |
 | `get_players` | `query_url` requis : chaîne non vide ou référence | Un objet de résultat de lecteur | `ClientCache` |
-| `get_season` | `query_url` requis ; `page` entier positif optionnel, `1` par défaut | Un objet de saison (généralement `episodes` ; Anime-Sama retourne des métadonnées de résolveur/langues) | `ClientCache` |
+| `get_season` | `query_url` requis ; `page` entier positif optionnel, `1` par défaut | Un objet de saison (généralement `episodes`) | `ClientCache` |
 | `list_lives` | Aucune entrée | Objets de chaîne individuels, sans enveloppe `entries` | `FullCache` |
 | `get_live` | `query_url` requis, transmis comme identifiant ou URL de canal à la façade | Un objet contenant `players` | `ClientCache` |
 | `get_banners` | `query_url` requis | Un objet contenant `banners` | `ClientCache` |
@@ -764,8 +707,7 @@ sélectionné est absent ou si un identifiant interne a une signification diffé
 utilisez la forme réelle de la source. Une étape `load_home` dont le chemin
 d'éléments commence par `categories` doit avoir une étape de contenu dépendante,
 directement ou transitivement. Les descripteurs de navigation statiques seuls ne
-démontrent pas une extraction de contenu utile. L'exemple M6 montre la route
-catégorie/section différée sans aucune branche Rust propre au fournisseur.
+démontrent pas une extraction de contenu utile.
 
 ## 10. Assertions et décomptes de données utiles
 
@@ -837,12 +779,9 @@ au type déclaré, y compris lorsque sa valeur est nulle :
 | `"A description"` | Valide | Valide |
 | `42`, `false`, `[]`, `{}` | Invalide | Invalide |
 
-Cette distinction est importante : la recherche qualifiée de RTL Play a retourné
-`description: null` pour deux éléments, donc sa contrainte de chaîne optionnelle a
-échoué. Ne supprimez pas la contrainte, ne convertissez pas null en absence et
-n'affaiblissez pas le schéma uniquement pour masquer un tel échec. Signalez si
-l'attente, la sortie publique ou la sémantique prise en charge nécessite une
-correction justifiée séparément.
+Par exemple, `description: null` fait échouer une assertion de type chaîne
+sur un champ facultatif. Dans ce cas, vérifiez que l’attente correspond au
+contrat de la réponse publique.
 
 Un chemin ne peut pas être dupliqué dans les champs obligatoires, dans les champs
 optionnels, ni entre les deux. Ne déclarez pas le même chemin comme obligatoire et
@@ -959,10 +898,7 @@ verte.
 
 L'enveloppe publique ne conserve pas toutes les causes de transport typées. Une
 erreur d'enveloppe backend opaque reste `contract_failed` ; ne la reclassez pas en
-devinant à partir d'une charge utile vide. Par exemple, l'entrée qualifiée de LN24 a
-conservé une erreur de route proxy belge malgré un repli direct ; l'exécuteur a
-rejeté l'enveloppe au lieu de revendiquer une régression d'extraction ou une
-vérification de détail réussie.
+devinant à partir d'une charge utile vide.
 
 La sortie inclut la source/l'étape, l'opération, les durées, les chemins, les
 minima, les décomptes, les chemins invalides, les types JSON observés, les
@@ -1038,8 +974,7 @@ cache serveur se ferment avant le nettoyage. La réutilisation de session/cookie
 sein d'une exécution de source est distincte de la réutilisation de données
 extraites. Les diagnostics montrent des ID de cache distincts, une utilisation
 mémoire initiale nulle, l'utilisation mémoire finale et le statut de validation de
-la façade. La qualification du 29 octobre 2026 a observé des caches neufs et
-distincts à travers des exécutions répétées ; voir le rapport lié ci-dessous.
+la façade.
 
 Il n'y a pas de bascule de cache dans le YAML de test. Ne supprimez pas les caches
 ou sessions de l'application, ne définissez pas un indicateur fictif `no_cache` et
@@ -1092,7 +1027,7 @@ pris en charge ni de raccourci Rust propre à une source.
 - [ ] Les échecs, objets invalides, limites d'accès et opérations non couvertes
   restent visibles ; aucun succès ni couverture complète n'est inventé.
 
-## 16. Références de code et qualification historique
+## 16. Références de code
 
 Lorsque la documentation et le comportement semblent incohérents, inspectez ces
 implémentations avant de proposer un changement. Ne modifiez pas silencieusement le

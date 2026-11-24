@@ -585,7 +585,7 @@ queries:
             variables = {slug};
           } else if (/^[a-zA-Z0-9_]+$/.test(login)) {
             query = "query($login: String!, $home: Boolean!, $clips: Boolean!, $videos: Boolean!) { user(login: $login) {" +
-              " {channel_fields} description bannerImageURL stream { {live_fields} }" +
+              " {channel_fields} channelName: displayName description bannerImageURL stream { {live_fields} }" +
               " videos(first: 5) { edges { node { {vod_fields} } } }" +
               " homeTab: login @include(if: $home) clipsTab: login @include(if: $clips)" +
               " videosTab: login @include(if: $videos) } }";
@@ -596,7 +596,10 @@ queries:
       - *unwrap_js
     row_pointer: /data/*
     entries:
-      - name: banners > source-logo
+      - name: channel > name
+        type: string
+        pointer: /channelName
+      - name: channel > logo
         type: string
         pointer: /profileImageURL
       - name: banners > entries
@@ -695,12 +698,6 @@ queries:
             actions:
               - type: format_text
                 argument: "{source}"
-          - name: channel > name
-            type: string
-            pointer: /displayName
-          - name: channel > logo
-            type: string
-            pointer: /profileImageURL
       - name: categories
         type: object[]
         entries:
@@ -726,12 +723,6 @@ queries:
             actions:
               - type: format_text
                 argument: "{source}"
-          - name: channel > name
-            type: string
-            pointer: /displayName
-          - name: channel > logo
-            type: string
-            pointer: /profileImageURL
       - name: categories
         type: object[]
         entries:
@@ -757,12 +748,6 @@ queries:
             actions:
               - type: format_text
                 argument: "{source}"
-          - name: channel > name
-            type: string
-            pointer: /displayName
-          - name: channel > logo
-            type: string
-            pointer: /profileImageURL
       - name: sections
         type: object[]
         pointer: /homeTab
@@ -1352,6 +1337,29 @@ queries:
               - type: regex_find_all
                 pattern: '^document_write=(https://[^\s]+)$'
                 format: "{1}"
+          - name: stream_headers
+            type: object
+            select: first
+            entries:
+              # Distinct YAML keys carry separate actions for the same case-insensitive proxy header.
+              - name: Arachnea-Proxy-ReplaceAll
+                type: string
+                actions:
+                  - type: format_text
+                    argument: >-
+                      {"pattern":"(?m)^#EXT-X-DATERANGE:(?:[A-Z0-9-]+=(?:\"[^\"\\r\\n]*\"|[^\",\\r\\n]+),)*CLASS=\"twitch-ad-quartile\"(?:,[^\\r\\n]*)?(?:\\r?\\n|\\z)",
+                      "order":0,
+                      "replacement":"",
+                      "content_types":["application/vnd.apple.mpegurl","application/x-mpegurl","audio/mpegurl","audio/x-mpegurl"]}
+              - name: arachnea-proxy-replaceall
+                type: string
+                actions:
+                  - type: format_text
+                    argument: >-
+                      {"pattern":"(?m)^(#EXTINF:[0-9]+(?:\\.[0-9]+)?),Amazon\\|[^\\r\\n]*(\\r?\\n)[^#\\r\\n \\t][^\\r\\n]*",
+                      "order":1,
+                      "replacement":"$1,$2#EXT-X-GAP${2}data:application/octet-stream,",
+                      "content_types":["application/vnd.apple.mpegurl","application/x-mpegurl","audio/mpegurl","audio/x-mpegurl"]}
     post_process:
       - type: filter_items
         source: streams

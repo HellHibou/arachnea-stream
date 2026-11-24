@@ -382,8 +382,9 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
    *
    * When trailer usage is enabled and at least one banner exposes a playable
    * trailer, the banner trailers (limited to five) replace the background images
-   * entirely. Otherwise, banner images are completed with section thumbnail
-   * images up to {@link BACKGROUND_MEDIA_ITEMS_LIMIT} entries.
+   * entirely. Categories use section thumbnails only when no banner image is
+   * available. Other catalogs can combine both sources up to
+   * {@link BACKGROUND_MEDIA_ITEMS_LIMIT} entries.
    * Deduplicates image URLs for the background media component.
    *
    * @returns Array of background media candidates from banners and section thumbnails.
@@ -419,7 +420,7 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
       items.push({ imageUrl, videoUrl: null })
     })
 
-    if (items.length >= BACKGROUND_MEDIA_ITEMS_LIMIT) {
+    if (items.length >= BACKGROUND_MEDIA_ITEMS_LIMIT || (mode.value === 'category' && items.length > 0)) {
       return items.slice(0, BACKGROUND_MEDIA_ITEMS_LIMIT)
     }
 

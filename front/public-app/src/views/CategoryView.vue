@@ -8,6 +8,7 @@ import { useStorage } from '@/services/storage'
 import { useI18n } from '@/i18n'
 import { APP_TITLE } from '@/constants'
 import type { HomeCategory } from '@/types/home'
+import type { ChannelAttribution } from '@/types/entry'
 import type { BackgroundMediaCandidate, MediaSelectionTarget } from '@/types/media'
 
 /**
@@ -33,6 +34,8 @@ const emit = defineEmits<{
   'select-category': [category: HomeCategory]
   /** Emitted when background media items are updated. */
   'update:background-media-items': [mediaItems: BackgroundMediaCandidate[]]
+  /** Emits the loaded channel and the route token that owns it. */
+  'update:category-channel': [categoryToken: string, channel: ChannelAttribution | null]
 }>()
 
 /**
@@ -54,7 +57,6 @@ const category = computed<HomeCategory | null>(() => {
   return {
     id: slug,
     label: payload.label,
-    channel: payload.channel ?? null,
     imageUrl: null,
     mergeKey: slug,
     sources: payload.sources,
@@ -97,5 +99,6 @@ onUnmounted(() => {
     @select-item="emit('select-item', $event)"
     @select-category="emit('select-category', $event)"
     @update:background-media-items="emit('update:background-media-items', $event)"
+    @update:category-channel="emit('update:category-channel', props.categoryToken, $event)"
   />
 </template>

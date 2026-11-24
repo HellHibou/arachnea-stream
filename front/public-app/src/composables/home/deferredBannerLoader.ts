@@ -22,7 +22,7 @@ export async function loadDeferredBannerPages(
   const tasks: Array<{ key: string; loader: () => Promise<HomeBanner[]> }> = []
 
   catalog.deferredBanners.forEach((collection) => {
-    const { source, link, sourceLogoUrl } = collection
+    const { source, link, channelLogoUrl } = collection
     if (!source || !link) {
       return
     }
@@ -32,7 +32,7 @@ export async function loadDeferredBannerPages(
       key,
       loader: async () => {
         const banners = await loadDeferredBannersFromSource(source, link, strict)
-        return sourceLogoUrl ? banners.map((banner) => ({ ...banner, sourceLogoUrl })) : banners
+        return channelLogoUrl ? banners.map((banner) => ({ ...banner, channelLogoUrl })) : banners
       },
     })
   })

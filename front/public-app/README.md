@@ -125,6 +125,8 @@ its poster when available. Resuming loads the embed again.
 Only trailers can play in the page background when the trailer background
 setting is enabled. Full videos, including Twitch broadcasts and recordings,
 play only in the banner. Their artwork remains eligible for image backgrounds.
+Category pages use section thumbnails as background images only when the
+category has no usable banner image.
 
 `/` keeps the aggregated catalog. `/source/:sourceId` loads only the exact
 backend source selected by the route. The navigation source group uses service
@@ -281,7 +283,8 @@ The category page header opens the same dialog with Category content selected
 when the category can be resolved and the service
 advertises `get_category`. The hero pin adds the featured collection of the
 current category for the active service. The category strip can add discovered
-children as shortcuts or content. A section pin adds only the chosen rail or
+children as shortcuts or content. Tags show the category image when available
+alongside the label. A section pin adds only the chosen rail or
 active subsection, with its category context. With editing controls enabled, pins
 appear as soon as the respective content is displayed. The add dialog checks
 the content's origin before saving and displays any resolution failure.
@@ -415,10 +418,11 @@ Future media views extend this registry instead of individual card components.
 
 Entry details can expose an optional `channel` attribution returned by `get_entry`: a display name, an optional logo and a provider-owned category request. The poster panel renders it as an internal collection link directly below the source action, using the same route builder as category cards and preserving every request parameter. The link is hidden when the name or destination is unusable, and a missing or failed logo leaves the name visible. M6Play channel categories also expose `banners.link`, so their programme carousel is loaded through the existing deferred banner carousel and remains independent from the category rails.
 
-For a discoverable category, the quick-add pin sits next to the title. Channel
-banners use `banners.source-logo` in the provider logo slot at the same height
-and preserve the image aspect ratio. The provider logo is the fallback if the
-channel logo is unavailable. This also applies to deferred banners.
+For a discoverable category, the quick-add pin sits next to the title. The
+category toolbar reads `channel.name` and `channel.logo` from the loaded
+`get_category` result. Inline and deferred banners use the same channel logo in
+the provider logo slot and preserve its aspect ratio. The provider logo serves
+as the fallback when the channel logo is unavailable.
 
 Episode lists inside an entry use `selectionMode="local"` on the shared card
 collection. Their actions are buttons that select an episode in the current player,

@@ -1,12 +1,15 @@
 <script setup lang="ts">
 
 import type { SearchFilterOption } from '@/services/rustify'
+import type { ChannelAttribution } from '@/types/entry'
 import MainBarToolbar from './main-bar/MainBarToolbar.vue'
 
 /**
  * Props accepted by the main toolbar displayed above the current screen.
  */
 interface Props {
+  /** Channel returned for the active category. @default null */
+  categoryChannel?: ChannelAttribution | null
   /** Navigation trigger availability and controlled expansion. @default false */
   showNavigationButton?: boolean
   /** Whether the navigation sidebar or drawer is expanded. @default false */
@@ -49,6 +52,7 @@ interface Props {
 
 /** Component props with applied defaults. */
 withDefaults(defineProps<Props>(), {
+  categoryChannel: null,
   showBackButton: false,
   showNavigationButton: false,
   isNavigationOpen: false,
@@ -100,6 +104,7 @@ defineExpose({ focusSearchInput, focusNavigationButton })
 <template>
   <header class="main-bar">
     <MainBarToolbar
+      :category-channel="categoryChannel"
       :model-value="modelValue"
       :show-back-button="showBackButton"
       :show-navigation-button="showNavigationButton"

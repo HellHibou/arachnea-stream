@@ -19,18 +19,18 @@ Use `stream_scraper::tests::test_all_services` for a full integration scenario.
 | --- | --- |
 | Variable not defined | All production YAML files discovered recursively |
 | Exactly `*` | All production YAML files discovered recursively |
-| Production service ID, such as `anime-sama` | Only that service |
-| Services-relative path, such as `arachnea-stream/dark-stream/anime-sama.yaml` | Only that configuration |
+| Production service ID, such as `example-source` | Only that service |
+| Services-relative path, such as `arachnea-stream/legal-stream/example-source.yaml` | Only that configuration |
 | Empty, whitespace-only, non-Unicode, unknown or ambiguous selection | Error; never silently expands to all sources |
 
 For **one service**, execute:
 
 ```sh
-ARACHNEA_TEST_QUERY_SOURCE=anime-sama \
+ARACHNEA_TEST_QUERY_SOURCE=example-source \
   cargo test --manifest-path server/Cargo.toml -p arachnea-stream --lib stream_scraper::tests::test_all_services -- --exact --ignored --nocapture
 ```
 
-Replace `anime-sama` with the production YAML's `id` or its services-relative path.
+Replace `example-source` with the production YAML's `id` or its services-relative path.
 This executes all contract steps for that source, including declared navigation.
 
 For **all sources**, leave `ARACHNEA_TEST_QUERY_SOURCE` undefined and execute:
@@ -44,7 +44,8 @@ literal wildcard. Quote `*` as shown:
 
 ```sh
 ARACHNEA_TEST_QUERY_SOURCE='*' \
-  cargo test --manifest-path server/Cargo.toml -p arachnea-stream --lib ``
+  cargo test --manifest-path server/Cargo.toml -p arachnea-stream --lib stream_scraper::tests::test_all_services -- --exact --ignored --nocapture
+```
 
 These are live integration commands. The test is ignored by ordinary `cargo test`;
 "all by default" applies only when this integration test is explicitly executed.
@@ -69,9 +70,10 @@ fixed limit. Select one covered service while authoring one missing contract.
 ### Check one contract through its metadata operation
 
 ```sh
-ARACHNEA_TEST_QUERY_SOURCE=anime-sama \
+ARACHNEA_TEST_QUERY_SOURCE=example-source \
   cargo test --manifest-path server/Cargo.toml -p arachnea-stream --lib \
-  stream_scraper::tests::test_query_service_stream_metadata -- --exact -`
+  stream_scraper::tests::test_query_service_stream_metadata -- --exact --nocapture
+```
 
 This loads and validates the **whole selected contract**, checks its production
 capabilities, then executes metadata only. It does not execute the navigation,
@@ -90,9 +92,10 @@ coverage check.
 ### Run one live operation and its prerequisites
 
 ```sh
-ARACHNEA_TEST_QUERY_SOURCE=anime-sama \
+ARACHNEA_TEST_QUERY_SOURCE=example-source \
   cargo test --manifest-path server/Cargo.toml -p arachnea-stream --lib \
-  stream_scraper::tests::test_query_search -- --exact --ignored --nocapt`
+  stream_scraper::tests::test_query_search -- --exact --ignored --nocapture
+```
 
 Use exactly one of these existing test names:
 
@@ -172,10 +175,10 @@ These four values must agree:
 
 | Item | Example |
 | --- | --- |
-| Production file | `server/services/arachnea-stream/legal-stream/m6play-fr.yaml` |
-| Production `id` and contract `source` | `m6play-fr` |
-| Contract `source_config` | `arachnea-stream/legal-stream/m6play-fr.yaml` |
-| Test file | `server/crates/arachnea-stream/tests/fixtures/services/arachnea-stream/legal-stream/m6play-fr.yaml` |
+| Production file | `server/services/arachnea-stream/legal-stream/example-source.yaml` |
+| Production `id` and contract `source` | `example-source` |
+| Contract `source_config` | `arachnea-stream/legal-stream/example-source.yaml` |
+| Test file | `server/crates/arachnea-stream/tests/fixtures/services/arachnea-stream/legal-stream/example-source.yaml` |
 
 Rules:
 
@@ -197,28 +200,19 @@ production field names into expectations. The two documents have different schem
 `scraper_type`, `row_selector`, `entries` and `actions` are not valid top-level
 keys in a test contract. Names such as `entries` can still occur as path segments.
 
-## 4. Complete working example
+## 4. Complete example contract
 
-The following is the existing M6 contract. It exercises metadata, home navigation,
-a category, a deferred section, search and a detail page. It is a complete file,
-not a fragment. Its source identifiers, search term and paths belong to M6.
-
-**When authoring another service, do not copy these values unchanged.** Replace
-the identity and choose the operations, reference inputs and paths from that
-service's actual contract. For example, a source without search must not inherit
-M6's `search` step.
-
-Production file: `server/services/arachnea-stream/legal-stream/m6play-fr.yaml`.
-Test file: `server/crates/arachnea-stream/tests/fixtures/services/arachnea-stream/legal-stream/m6play-fr.yaml`.
+This example uses a fictional source. It checks metadata, searches the catalogue
+and follows a home category through a deferred section to an entry. Use the
+identity, operations, reference inputs and field paths of the source under test.
 
 ```yaml
-# Reference expectations; live qualification is recorded separately.
 schema_version: 1
-source: m6play-fr
-source_config: arachnea-stream/legal-stream/m6play-fr.yaml
+source: example-source
+source_config: arachnea-stream/legal-stream/example-source.yaml
 
 capabilities:
-  expected: ["service_stream_metadata","load_home","get_category","get_section","search","get_entry"]
+  expected: [service_stream_metadata, load_home, get_category, get_section, search, get_entry]
   not_expected: []
 
 steps:
@@ -241,7 +235,7 @@ steps:
       min_valid_count: 1
       required_non_empty:
         - ["label"]
-        - ["request","query_url"]
+        - ["request", "query_url"]
 
   - id: category
     operation: get_category
@@ -250,7 +244,7 @@ steps:
         from_step: home
         items_path: ["categories"]
         select: first_valid
-        value_path: ["request","query_url"]
+        value_path: ["request", "query_url"]
     expect:
       items_path: ["sections"]
       min_count: 1
@@ -258,53 +252,6 @@ steps:
       required_non_empty:
         - ["label"]
         - ["link"]
-
-  - id: category_banners_m6
-    operation: get_category
-    inputs:
-      query_url: "https://android.middleware.6play.fr/6play/v2/platforms/m6group_androidmob/services/m6replay/folders?limit=999&offset=0"
-    expect:
-      items_path: []
-      min_count: 1
-      min_valid_count: 1
-      required_non_empty:
-        - ["banners", "link"]
-        - ["banners", "source-logo"]
-
-  - id: category_banners_w9
-    operation: get_category
-    inputs:
-      query_url: "https://android.middleware.6play.fr/6play/v2/platforms/m6group_androidmob/services/w9replay/folders?limit=999&offset=0"
-    expect:
-      items_path: []
-      min_count: 1
-      min_valid_count: 1
-      required_non_empty:
-        - ["banners", "link"]
-        - ["banners", "source-logo"]
-
-  - id: category_banners_6ter
-    operation: get_category
-    inputs:
-      query_url: "https://android.middleware.6play.fr/6play/v2/platforms/m6group_androidmob/services/6terreplay/folders?limit=999&offset=0"
-    expect:
-      items_path: []
-      min_count: 1
-      min_valid_count: 1
-      required_non_empty:
-        - ["banners", "link"]
-        - ["banners", "source-logo"]
-
-  - id: category_banners_gulli
-    operation: get_category
-    inputs:
-      query_url: "https://android.middleware.6play.fr/6play/v2/platforms/m6group_androidmob/services/gulli/folders?limit=999&offset=0"
-    expect:
-      items_path: []
-      min_count: 1
-      min_valid_count: 1
-      required_non_empty:
-        - ["banners", "link"]
 
   - id: section
     operation: get_section
@@ -328,7 +275,7 @@ steps:
   - id: search
     operation: search
     inputs:
-      query: "journal"
+      query: "documentary"
     expect:
       items_path: ["entries"]
       min_count: 1
@@ -345,18 +292,17 @@ steps:
   - id: entry
     operation: get_entry
     inputs:
-      query_url: "1058" # Le 1945, attributed to M6
+      query_url:
+        from_step: section
+        items_path: ["entries"]
+        select: first_valid
+        value_path: ["link"]
     expect:
       items_path: []
       min_count: 1
       min_valid_count: 1
       required_non_empty:
         - ["title"]
-        - ["channel", "name"]
-        - ["channel", "request", "query_url"]
-      optional_fields:
-        - path: ["description"]
-          type: string
 ```
 
 A simpler service may need only metadata plus search, or metadata plus home and
@@ -450,7 +396,7 @@ there are no runner retries, loops or automatic pagination.
 | `get_section` | Required `query_url`: nonblank string or reference; optional `page`: positive integer, default `1` | One section object | `FullCache` |
 | `get_entry` | Required `query_url`: nonblank string or reference | One entry/detail object | `ClientCache` |
 | `get_players` | Required `query_url`: nonblank string or reference | One player-result object | `ClientCache` |
-| `get_season` | Required `query_url`; optional positive integer `page`, default `1` | One season object (usually `episodes`; Anime-Sama returns resolver/language metadata) | `ClientCache` |
+| `get_season` | Required `query_url`; optional positive integer `page`, default `1` | One season object (usually `episodes`) | `ClientCache` |
 | `list_lives` | No inputs | Individual channel objects, without an `entries` wrapper | `FullCache` |
 | `get_live` | Required `query_url`, passed as the facade's channel identifier or URL | One object containing `players` | `ClientCache` |
 | `get_banners` | Required `query_url` | One object containing `banners` | `ClientCache` |
@@ -701,8 +647,7 @@ These are recipes, not universal provider guarantees. If a selected path is abse
 or an internal identifier has a different meaning, use the actual source shape.
 A `load_home` step whose item path starts with `categories` must have a dependent
 content step, directly or transitively. Static navigation descriptors alone do
-not demonstrate useful content extraction. The M6 example shows the deferred
-category/section route without any Rust provider branch.
+not demonstrate useful content extraction.
 
 ## 10. Assertions and useful-data counts
 
@@ -771,11 +716,8 @@ its value is null:
 | `"A description"` | Valid | Valid |
 | `42`, `false`, `[]`, `{}` | Invalid | Invalid |
 
-This distinction matters: the qualified RTL Play search returned `description:
-null` for two items, so its optional string constraint failed. Do not remove the
-constraint, convert null into absence or weaken the schema just to hide such a
-failure. Report whether the expectation, public output or supported semantics
-needs a separately justified correction.
+For example, `description: null` fails an optional string assertion. If that
+happens, check whether the expectation matches the public response contract.
 
 A path cannot be duplicated within required fields, within optional fields, or
 across both. Do not declare the same path required and optional to add a required
@@ -879,9 +821,7 @@ A full source run without a successful content step cannot be green.
 
 The public envelope does not retain every typed transport cause. An opaque backend
 envelope error remains `contract_failed`; do not reclassify it by guessing from an
-empty payload. For example, LN24's qualified entry retained a Belgian proxy-route
-error despite direct fallback; the runner rejected the envelope instead of
-claiming an extraction regression or a successful detail check.
+empty payload.
 
 Output includes source/step, operation, durations, paths, minima, counts, invalid
 paths, observed JSON kinds, exclusions and uncovered capabilities. `partial_coverage`
@@ -945,8 +885,7 @@ Every scenario operation receives a fresh request context without client
 `If-None-Match` and a fresh empty data-cache directory. Server-cache handles close
 before cleanup. Session/cookie reuse within a source run is distinct from reusing
 extracted data. Diagnostics show distinct cache IDs, zero initial memory usage,
-final memory usage and facade validation status. The 2026-10-29 qualification
-observed fresh, separate caches across repeated runs; see the linked report below.
+final memory usage and facade validation status.
 
 There is no test YAML cache toggle. Do not delete application caches or sessions,
 set a fictional `no_cache` flag or change production facade APIs to author a
@@ -988,7 +927,7 @@ do not add unsupported YAML or a source-specific Rust shortcut.
 - [ ] Failures, invalid objects, access limits and uncovered operations remain
   visible; no success or complete coverage is invented.
 
-## 16. Code references and historical qualification
+## 16. Code references
 
 When documentation and behavior appear inconsistent, inspect these implementations
 before proposing a change. Do not silently change the format while writing a file.

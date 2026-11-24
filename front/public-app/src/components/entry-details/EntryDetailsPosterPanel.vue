@@ -94,7 +94,6 @@ const channelCategory = computed(() => {
       label: channel.name,
       key: channel.name,
       request: channel.request,
-      channel: { name: channel.name, logo: channel.logo },
     },
     0,
     props.source,

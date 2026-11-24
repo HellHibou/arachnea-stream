@@ -235,13 +235,17 @@ export interface EntryRecommendations {
 }
 
 /**
- * Channel attribution exposed by a source for one entry.
+ * Channel identity shared by entry and category responses.
  */
-export interface EntryChannel {
+export interface ChannelAttribution {
   /** Display name of the channel. */
   name: string
   /** Optional standalone logo URL for the channel. */
   logo: string | null
+}
+
+/** Channel attribution and navigation parameters exposed for an entry. */
+export interface EntryChannel extends ChannelAttribution {
   /** Category request parameters forwarded to `get_category` on navigation. */
   request: Record<string, string>
 }

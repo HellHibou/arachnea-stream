@@ -1,4 +1,17 @@
+import type { ChannelAttribution } from '@/types/entry'
 import type { JsonRecord } from '../types'
+
+/**
+ * Normalizes the shared channel identity from an entry or category response.
+ * @param value Raw channel object.
+ * @param source Provider used to resolve a relative logo URL.
+ * @returns Channel identity, or null when its display name is missing.
+ */
+export function normalizeChannelAttribution(value: unknown, source: string | null): ChannelAttribution | null {
+  if (!isJsonRecord(value)) return null
+  const name = firstNonEmptyString([value.name])
+  return name ? { name, logo: resolveAssetUrl(firstNonEmptyString([value.logo]), source) } : null
+}
 
 /**
  * Reads a nested property from an unknown JSON-like object.

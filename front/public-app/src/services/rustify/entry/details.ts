@@ -19,6 +19,7 @@ import {
   firstNonEmptyString,
   firstNumber,
   isJsonRecord,
+  normalizeChannelAttribution,
   readBoolean,
   readFirstLink,
   readRecordList,
@@ -149,18 +150,9 @@ function normalizeEntryChannel(value: unknown, source: string): EntryChannel | n
     return null
   }
 
-  const name = firstNonEmptyString([value.name])
+  const channel = normalizeChannelAttribution(value, source)
   const request = readStringParamMap(value.request)
-
-  if (!name || !request.query_url) {
-    return null
-  }
-
-  return {
-    name,
-    logo: resolveAssetUrl(firstNonEmptyString([value.logo]), source),
-    request,
-  }
+  return channel && request.query_url ? { ...channel, request } : null
 }
 
 /**

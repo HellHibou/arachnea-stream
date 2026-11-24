@@ -24,24 +24,17 @@ YAML files are organised in thematic subdirectories:
 ```
 services/arachnea-stream/
 ├── services.json                 # Source registration and activation defaults
-├── legal-stream/                 # Legal platforms (TF1+, M6 Play, etc.)
-│   ├── m6play-fr.yaml
-│   ├── tf1-fr.yaml
-│   ├── francetv.yaml
-│   ├── rtlplay-be.yaml
-│   └── rtbf-auvio-be.yaml
+├── legal-stream/                 # Legal platforms
+│   └── example-source.yaml
 └── dark-stream/                  # Alternative catalogues
-    ├── anime-sama.yaml
-    ├── coflix.yaml
-    ├── frenchanimes.yaml
-    └── animeultime.yaml
+    └── example-catalogue.yaml
 ```
 
 ### 2.1 Constants, parameters and HTTP configuration
 
 Each source defines YAML-owned `constants` and administrator-editable `parameters`
-with labels, defaults and editor contracts (URLs, country selection). HTTP configuration can be `direct`
-(unprotected APIs) or `auto` (sites with Cloudflare).
+with labels, defaults and editor contracts (URLs, country selection). Use HTTP
+mode `direct` for direct requests or `auto` for automatic challenge handling.
 
 ```yaml
 http:
@@ -52,66 +45,6 @@ http:
 ---
 
 ## 3. Standard queries
-
-Odysee returns channels as clickable subcategory cards alongside videos in
-`sections[].entries`, using `media-type: collection` and `title`. These cards
-are not emitted in the page-level `categories` strip. Their request descriptors
-carry `category_kind=channel`, `channel_id` and `category_label`; `get_category`
-accepts these descriptors and searches video streams by `channel_ids` without
-reapplying the parent tag.
-Channel categories with a resolved channel URL use the channel cover, avatar
-and name in the banner. When the creator has pinned a video, the Home tab adds
-playback, the video title as the subtitle and a link to the video details to
-that banner. The player uses the video thumbnail as its poster and plays only
-in the banner (`video-kind.kind: video`). The
-`language` source parameter selects the Odysee
-dictionary for Home, Content, Shorts and Playlists. Missing translations keep
-the source's English label. Shorts use the source's duration and aspect-ratio
-thresholds. Pagination counts the upstream page before applying the ratio filter.
-Existing tag category links default to `category_kind=tag`. Audio and other
-non-video streams are omitted from video sections. Odysee thumbnails use
-`img/landscape`, including entry details, so video cards render in landscape.
-Odysee sections expose `have_more` when the upstream page contains 24 claims,
-counting claims before media filtering. `get_section` loads subsequent pages
-using the section request's resolved `category_filter` and `category_label`,
-preserving tag or channel selection. With `no_totals`, a full final page can
-require one empty request before pagination stops.
-Odysee `search` queries Lighthouse with URL-encoded `search_terms` and a
-24-result page offset, then resolves the returned claim IDs in one batched
-`claim_search` request. Video results use landscape cards; channel results use
-the same clickable `collection` cards as category sections. Audio and other
-claim types are omitted. Search continuation uses the Lighthouse result count
-before filtering or metadata resolution; an empty page skips the metadata
-request and stops pagination.
-The batched request body is emitted through `document.write` and the
-`document_write=` prefix is removed before POSTing: `exec_js` does not return
-JavaScript expression completion values.
-Odysee `get_entry` lists HLS as the first stream for video players, using
-`https://player.odycdn.com/v6/streams/<claim_id>/<full_sd_hash>/master.m3u8`.
-The master playlist supplies the available transcoded resolutions to the
-player quality selector. An MP4 stream in the same player uses the public RSS
-media redirect as a fallback for claims without available HLS transcodes.
-Odysee `get_entry` also publishes `players[].chapters` from description lines
-that start with a timestamp and a title, such as `00:00 Intro`. Each chapter
-ends at the next timestamp in description order. The video duration supplies
-the final end. The public player skips chapters with a missing end or an end
-at or before the start.
-
-Twitch `get_category` uses the channel or game display name as the banner title.
-On channel pages, the banner plays the live broadcast when available or falls
-back to a recording. The preview of the selected video serves as the player
-poster, and `video-kind.kind: video` limits playback to the banner.
-
-RMC BFM Play selects the home category rail by its "Toutes les catégories" title,
-since its provider-generated ID can change. Its deferred `get_section` query
-expects a `page_type=mosaique` tile URL; an editorial `fip-edito` page with content
-rails is a different response shape. TVMonaco player descriptors explicitly use
-`select: first` on the `resolver` group to emit the documented single object.
-
-AnimeUltime embeds the "Top animes", "Top dramas" and "Top tokusatsu" sections
-directly in `load_home`, with IDs `top-animes`, `top-dramas` and `top-tokusatsu`.
-They do not require `get_section`. Its HTML selectors apply after `pre_process`
-removes the statistics block, so their child positions refer to the processed DOM.
 
 Implement only supported capabilities. The catalogue and player-discovery queries are:
 
@@ -222,8 +155,8 @@ Static query. Each source returns exactly one row.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `id` | `string` | yes | Unique source identifier (e.g. `m6play-fr`, `tf1-fr`) |
-| `title` | `string` | yes | Display name (e.g. `M6 Play`, `TF1+`) |
+| `id` | `string` | yes | Unique source identifier (e.g. `example-source`) |
+| `title` | `string` | yes | Display name (e.g. Example Source) |
 | `logo` | `string` | yes | Logo URL |
 | `description` | `object` | yes | Multilingual description (e.g. `{ fr: "…", en: "…" }`) |
 | `metadata` | `object` | no | YAML-root service tags, or `{}` |
@@ -254,7 +187,7 @@ backend collection identifiers (not display names or category descriptors):
 
 - `{}` keeps the existing all-loaded-sources behavior.
 - `{"sources":[]}` returns `{"data":[],"errors":[]}` without provider calls or ETag.
-- `{"sources":["arte-fr","rtlplay-be"]}` executes only those sources; duplicates
+- `{"sources":["example-source","example-catalogue"]}` executes only those sources; duplicates
   are removed and the selection is sorted.
 - Explicit `null`, wrong JSON types and blank identifiers are rejected during
   deserialization. Identifiers are not trimmed or corrected.
@@ -263,8 +196,8 @@ backend collection identifiers (not display names or category descriptors):
   results. Explicitly filtered responses containing errors do not publish an
   ETag; unfiltered requests preserve the existing cache behavior.
 
-REST uses `GET /api/load_home?sources=%5B%22arte-fr%22%5D` (JSON-encoded array).
-Tauri uses `invoke('load_home', { sources: ['arte-fr'] })`. Omitting the field
+REST uses `GET /api/load_home?sources=%5B%22example-source%22%5D` (JSON-encoded array).
+Tauri uses `invoke('load_home', { sources: ['example-source'] })`. Omitting the field
 differs from passing an empty array. The response shape and source provenance
 remain unchanged; `get_category.sources` retains its descriptor-based meaning.
 
@@ -349,13 +282,10 @@ Structure produced by each source:
 
 | Field | Type | Description |
 |---|---|---|
-| `key` | `string` | Category identifier (e.g. `m6`, `tf1`, `all`) |
-| `label` | `string` | Display name (e.g. `M6`, `TF1`, `Full catalogue`) |
+| `key` | `string` | Category identifier (e.g. `news`, `sports`, `all`) |
+| `label` | `string` | Display name (e.g. `News`, `Sports`, `Full catalogue`) |
 | `link` | `string` | URL or path for subsequent calls |
 | `description` | `string` | Optional description |
-| `channel` | `object` | Optional channel attribution replacing the service identity in the category header |
-| `channel > name` / `label` | `string` | Channel display name |
-| `channel > logo` / `logo_url` | `string` | Optional standalone channel logo URL |
 | `request > query_url` | `string` | API URL for `get_category` |
 | `request > channel` | `string` | Channel identifier for parameters |
 | `request > channel_label` | `string` | Channel name |
@@ -366,11 +296,14 @@ For a lazy category, `request > query_url` is the category endpoint consumed by
 `get_category`. `request > name` (or `request > source`) must identify the
 source that owns that endpoint.
 
-`channel` is additive: categories without it keep the owning service identity.
-When present, the client carries its name and logo through the category route and
-shows them instead of the service metadata in the top bar; a missing or failing
-logo leaves the channel name visible. Channel links from entry details build
-their category with this attribution so the header follows the channel.
+Each row in `get_category.data` can return a `channel` object beside `banners`,
+`categories`, and `sections`. It uses the same `name` and `logo` fields as
+`get_entry`. `name` identifies the channel and `logo` is an optional image URL.
+The client reads the channel after loading the response for the current route.
+The top bar uses the channel when all rows agree on its identity. When no
+channel is available, it uses the owning service identity for a single service.
+The channel name remains visible if its logo is absent or fails to load.
+Category URLs carry the label, source requests, and optional origin paths.
 
 #### Section
 
@@ -391,14 +324,8 @@ Use the provider's rail/container id, never a media item id, title, array index,
 or randomly generated slider id. One fixed category-content rail may use
 `rail:category-content`, scoped to its category block. Existing published keys
 remain unchanged to avoid invalidating references. Source scope comes from the
-parent scraper row. Arte, TF1, France TV and RMC BFM Play now expose rail ids
-with this format; labels, title-based aggregation and RMC's internal
-`_section_id` deduplication are unchanged.
-
-TeleMB featured rails and Canal Zoom/Télésambre recommendations do not expose
-persistent container ids in the inspected HTML. Keep descriptor fallbacks when
-available, otherwise treat label references as fragile rather than inventing
-stable ids. Télésambre slider UIDs change between requests and must not be used.
+parent scraper row. Keep descriptor fallbacks when available for rails without
+persistent container IDs. Treat label references as fragile.
 Provider ids can change when a rail is replaced; missing references require
 repair, not matching to a similar title.
 
@@ -409,41 +336,74 @@ aggregation merges them by `key` beneath their parent section. The frontend
 renders one active rail at a time and composes its title from the section and
 subsection labels.
 
-#### Banner
+#### Banner collection
 
-| Field | Type | Description |
+`load_home` and `get_category` can return the same banner collection.
+
+| YAML output path | Type | Description |
 |---|---|---|
-| `key` | `string` | Internal identifier |
-| `title` | `string` | Display title |
-| `description` | `string` | Tagline / description |
-| `image` | `string` | Banner artwork URL, visible behind the banner content during playback |
-| `logo` | `string` | Overlay logo URL |
-| `players` | `object[]` | Optional banner video resolved on demand using the first usable `resolver` |
-| `video-kind` | `object` | Optional banner video descriptor |
-| `video-kind.kind` | `string` | `video` plays only in the banner. `trailer` also allows playback in the page background when enabled. |
-| `video-kind.url` | `string` | Optional direct playback URL. Banners with a resolver can supply `players` instead. |
-| `video-kind.image` | `string` | Optional player poster displayed before playback. |
-| `link` | `string` | Internal URL to `get_entry` |
-| `web-link` | `string` | Public URL |
-| `subtitle` | `string` | Subtitle |
-| `entryUrl` | `string` | Link variant |
+| `banners > entries` | `object[]` | Inline banner records. A plain `banners` array also supplies inline records. |
+| `banners > link` | `string` | Deferred lookup passed to `get_banners`. It can accompany inline entries. Use `get_banners` for deferred data to keep it off the initial request. |
+| `banners > source` | `string` | Collection source ID. It defaults to the enclosing row's source and is used for the deferred request and inherited by entries. |
 
-For legacy responses, the frontend still accepts the top-level `video` URL and
-a string `video-kind`. A missing kind defaults to `trailer`, except for Twitch,
-which defaults to `video`.
+Inline and deferred category banners use the row's `channel.logo` for the
+provider logo slot. Missing or failed channel images fall back to the service logo.
 
-A banner entry can omit its link and still display its artwork and text without
-a navigation button. For lazy banners, `load_home` may emit only `banners > link`.
-The frontend
-passes that value to `get_banners`, which returns the populated `banners`
-array. Do not fetch banner details through a `load_home` `sub_query` when
-`get_banners` is available.
+#### Banner entry
 
-Channel categories can provide an optional `banners > source-logo` image URL
-alongside inline `banners > entries` or a deferred `banners > link`. The
-channel image replaces the provider logo at the same height, with its original
-aspect ratio. The provider logo is the fallback when the URL is absent or fails
-to load. Banner entry artwork still uses the entry-level `logo` field.
+| YAML output path | Type | Description |
+|---|---|---|
+| `key`, `id` | `string` | Optional stable ID. `id` takes precedence over `key`. |
+| `source` | `string` | Optional source ID overriding the collection source. Legacy records can supply `source > name`. |
+| `title`, `subtitle`, `description` | `string` | Main title, secondary text and description. |
+| `image` | `string` | Artwork displayed behind the banner content, including during playback. Aliases are `image_url` and `imageUrl`. |
+| `logo` | `string` | Optional logo for the featured content, displayed separately from the collection branding. |
+| `media-type`, `request` | `string` or `string[]`, `object` | Use the MediaItem routing contract in section 5.3. Categories use `request > query_url` and live targets use `request > channel`. |
+| `link` | `string` | Internal entry URL. The client also reads `entry_url` and `entryUrl`. |
+| `web-link` | `string` | Public URL. The client also reads `web_url` and `webUrl`. |
+| `video-kind` | `object` | Optional playback descriptor. In a query definition, use nested entries or paths such as `name: video-kind > kind`. |
+| `video-kind > kind` | `string` | `video` limits playback to the banner. `trailer` also allows page-background playback when that setting is enabled. |
+| `video-kind > url` | `string` | Optional direct playback URL. The client also accepts the top-level `video_url`, `videoUrl` and `video` aliases. |
+| `video-kind > image` | `string` | Optional poster for the player area. It can display while a source resolves, before native playback, while an embed loads and while an embed is paused. |
+| `players` | `object[]` | Optional resolver-based playback. The first player with a nonblank `resolver > kind` and `resolver > target_id` supplies the descriptor. |
+| `players > resolver > kind`, `players > resolver > target_id` | `string` | Registered resolver ID and its target. |
+| `players > resolver > source` | `string` | Optional source collection ID for a source-scoped resolver. |
+| `players > resolver > proxy > countries` | `string[]` | Optional country hints for resolution (see section 5.10). |
+| `players > resolver > proxy > rewrite_manifest_urls` | `string` or `boolean` | Optional flag that enables absolute HLS URL rewriting (see section 5.10). |
+
+A usable direct URL takes precedence over `players`. With a resolver, the
+frontend calls `get_stream` on demand. Older responses can use a string
+`video-kind`. The general fallback for a missing or unrecognized kind is
+`trailer`. Set the kind explicitly in newly authored banners. A full video can
+still contribute its artwork to an image background.
+
+A banner renders when it has a title, artwork, logo, video URL, player poster
+or usable resolver descriptor. It shows a navigation button when its fields
+resolve to a valid route. For a channel banner, the YAML can use the channel
+name as the title and add a featured video's title as the subtitle, its preview
+as the player poster and its entry URL as the navigation target. A live banner
+can use the same fields and a live target. The YAML selects the video to play,
+including any fallback from a live broadcast to a recording.
+
+Example payload emitted by `get_category`.
+
+```yaml
+channel:
+  name: "Example Studio"
+  logo: "https://images.example.org/studio.png"
+banners:
+  entries:
+    - key: studio-feature
+      title: "Example Studio"
+      subtitle: "Behind the scenes"
+      image: "https://images.example.org/studio-cover.jpg"
+      media-type: video
+      link: "https://example.org/videos/42"
+      video-kind:
+        kind: video
+        image: "https://images.example.org/videos/42-poster.jpg"
+        url: "https://media.example.org/videos/42.mp4"
+```
 
 ---
 
@@ -497,52 +457,23 @@ custom homes preserve media types and targets. Rail descriptors still select
 versions and saved custom-home references require no migration. Future supported
 media families register their destination and presentation in the same registry.
 
-France TV preserves source item order: programmes/replays use video types,
-editorial collections/categories/events use `collection`, and `is_live: true`
-videos use `video/live`, including `integrale`, `unitaire` and `flux`.
-`request.channel` carries the selected content's `si_id`. The `live` and
-`playlist_collection` rails are included. Shared collection extraction also types
-search/recommendation collections and supplies their category request.
-France TV `get_live` statically emits the existing `francetv-live` resolver without
-fetching the channel list. Playback authorization and geographical restrictions
-remain unchanged.
-
-TF1+ supplements its Android home programme rails with `SliderOfCollection`
-rails from the public HTML page, including “Vous êtes plutôt...”. The public
-page provides the complete collection rail, titles and landscape artwork in one
-request; the Android response only contains the first ten collection slugs.
-Collection cards use `media-type: collection` and a public collection page in
-`request.query_url`. `get_category` accepts these pages, returns their complete
-programme grid as one section (`current_page: 1`, `have_more: false`), and also
-extracts collection rails when present on a public category page. Existing
-GraphQL channel descriptors and `get_section` pagination remain supported.
-
 ```yaml
 entries:
   - media-type: collection
-    source: fawesome-tv
-    title: Horror
+    source: example-source
+    title: "Example category"
     request:
-      query_url: "https://fawesome.tv/home/new/v469/api/shows.php?searchType=listoflist&keys=9244&appId=9&siteId=236&auth-token=1217575"
-  - source: example
-    title: Example movie
+      query_url: "https://example.org/category/1"
+  - media-type: video/movie
+    source: example-source
+    title: "Example movie"
     link: "https://example.org/movie/1"
-    media-type: video/movie
-  - source: francetv
-    title: Example live event
-    media-type: video/live
+  - media-type: video/live
+    source: example-source
+    title: "Example live event"
     request:
-      channel: "<content-si-id>"
+      channel: "event-1"
 ```
-
-Fawesome classifies recognized `item_type` values (`movie`, `tvshow`, `miniseries`)
-as entries, then uses `actiontype: category` or a `category/...` public path for
-category navigation; `series_name` is an entry fallback. Neither `type: listoflist`
-nor `feed_type: category` alone distinguishes a series from an editorial category.
-The category query accepts upstream channel objects with `name`/`url` as well as
-`title`/`feed`, preserving the rail grouping returned by genre and actor categories.
-Each returned card carries its own media type. Search/recommendations keep only
-recognized video cards.
 
 | YAML field | YAML type | Required | Description |
 |---|---|---|---|
@@ -610,6 +541,11 @@ contain `entries` (entry/category/live cards) and pagination metadata:
 including `request > query_url`, and should fetch the category payload itself.
 Do not prefetch every category in `load_home` through `sub_queries`.
 
+M6Play reads the public M6+ channel and thematic menus in `load_home`.
+Channel cards use the logos published by the menu. Replay channels open their
+replay sections, continuous channels show the current live programme, and
+thematic categories open a paged programme list.
+
 ---
 
 ### 5.5 Paginated section — `get_section`
@@ -641,9 +577,9 @@ post_process:
 
 ### 5.5.1 Promotional banners — `get_banners`
 
-Returns the populated banner payload for a `banners > link` emitted by
-`load_home`. The backend exposes the link to YAML as both `{query_url}` and
-`{link}`.
+Returns a `banners` array of banner entries (see section 5.2) for the
+`banners > link` emitted by `load_home` or `get_category`. The backend exposes
+the link to YAML as both `{query_url}` and `{link}`.
 
 ```yaml
 - name: get_banners
@@ -807,49 +743,6 @@ relation must be explicitly provided by the source.
 
 Execution parameters available to `get_recommendations`:
 
-TV5MONDE+ emits the public detail page as `recommendations.link`. The dedicated
-HTML query extracts its "Vous pourriez aimer" rail separately from seasons,
-with navigable asset API links and no pagination. This query overrides the
-inherited Chrome User-Agent with `curl/8.7.1`, since Chrome receives an Akamai
-denial on some detail pages. These recommendations are
-absent from the asset API; Akamai rejection of the HTML page can prevent their
-loading without preventing the API detail response.
-
-The M6+ YAML prototype emits the program ID in `recommendations.link` and obtains
-an anonymous JWT in `get_recommendations`, without user credentials. Signing uses
-`exec_js` and configurable public client parameters. It scans at most eight
-layout pages and separately selects `feature.recommended_programs_by_program`,
-`feature.programs_by_tags` and editorial `feature.list` blocks, regardless of the editorial title (for example,
-"Toujours plus de héros !"). The first block of each family on each page is
-selected for the first two families; every editorial list block is selected.
-Their cards are merged and only `program` targets are retained.
-Pagination uses the first non-empty `nextPage` value from the fetched blocks.
-The selections use distinct internal field names so that each sub-query fetches
-only its own family's URLs instead of duplicating cards across families.
-Program cards include `img/poster` and `img/portrait`; card pagination is separate
-from layout pagination. Internal JWT fields are removed from public output, but
-internal traces must not be shared. The 2026-10-30 Top chef qualification returned
-six valid programme cards and one card with a null title; that invalid card remains
-visible in test diagnostics. Reaching the eight-page bound without a rail does
-not confirm its absence.
-
-TF1+ includes only the "Si vous aimez…" program rail. When its label appears
-in the Smart TV detail editorial sections, `get_entry.recommendations.link`
-points to the public detail page. `get_recommendations` extracts the rail's HTML
-cards with portrait images in both `img/poster` and `img/portrait` for public
-thumbnail compatibility, and Smart TV detail links. Cast-related rails,
-editorial discovery, "Populaires cette semaine" and episodes are excluded.
-There is no pagination (`current_page=1`, `have_more=false`); a missing or empty
-rail yields no cards. Loading these recommendations depends on HTML page access.
-
-For RTBF Auvio, `get_entry.recommendations.link` uses the `contentPath` of the
-detail page's "A découvrir aussi" widget. `get_recommendations` extracts only
-its `PROGRAM` cards with API detail links, public Auvio links and portrait
-images in `img/poster` and `img/portrait`. Pagination follows
-`/meta/page/current` and `/links/next`. Episodes, next/previous navigation and
-general homepage recommendations are excluded; a page without this widget
-does not expose a recommendations link.
-
 | Parameter | Description |
 |---|---|
 | `{query_url}` / `{link}` | Recommendations URL emitted by `get_entry` |
@@ -932,11 +825,11 @@ playback options.
 | `name` | `string` | Player name |
 | `lang` | `string` | Audio language |
 | `streams` | `object[]` | Direct video alternatives; shared metadata stays on the player; see below |
-| `resolver` | `string` | Globally unique resolver identifier (flat form, e.g. `stream-resolver`, `m6play-video`) |
+| `resolver` | `string` | Globally unique resolver identifier (flat form, e.g. `stream-resolver`) |
 | `target` | `string` | Resolver target (URL or identifier, flat form) |
-| `resolver > kind` | `string` | Resolver type (legacy object form, e.g. `tf1-video`, `m6play-video`) |
+| `resolver > kind` | `string` | Resolver type (legacy object form, e.g. `example-video`) |
 | `resolver > target_id` | `string` | Resolver target identifier (legacy object form) |
-| `resolver > stream > kind` | `string` | Stream type (legacy, e.g. `tf1-license-proxy`, `widevine-license-proxy`) |
+| `resolver > stream > kind` | `string` | Stream type (legacy, e.g. `example-license-proxy`) |
 | `subtitles` | `object[]` | Shared external WebVTT subtitle tracks |
 
 A player supplies either `streams` for direct video or a `{ resolver, target }`
@@ -947,14 +840,6 @@ of `streams` on the player, or at the root of `get_stream` / `resolve_stream` re
 The video schema has no backward compatibility: the former `stream` wrapper,
 `direct-link`, `stream_url` and `manifest_type` are no longer read or produced.
 Deploy server and frontend together.
-
-For `m6play-video` and `m6play-live`, optional Gigya API-key preparation has a
-five-second total budget for the login page and JavaScript bundle, then uses the
-bundled fallback key if needed. A shared memory cache retains an extracted key
-for 15 minutes, or the fallback key for one minute before retrying discovery.
-A Gigya JSONP response with a nonzero numeric `errorCode` invalidates the submitted
-key's cache entry for the next attempt, without replaying the POST. This budget
-does not bound the complete `get_stream` operation or change subsequent routing.
 
 Example with the generic resolver (flat form):
 
@@ -981,7 +866,7 @@ Example with the generic resolver (flat form):
             id: /video_id
 ```
 
-Example with a legal resolver (legacy object form):
+Example with a registered resolver (legacy object form):
 
 ```yaml
 - name: players
@@ -991,16 +876,7 @@ Example with a legal resolver (legacy object form):
       type: string
       actions:
         - type: format_text
-          argument: "TF1+"
-    - name: embed-link
-      type: string
-      actions:
-        - type: build_url
-          base: "{base_url}/{channel}/{program_slug}/videos/{slug}.html"
-          fields:
-            channel: /program/mainChannel/slug
-            program_slug: /program/slug
-            slug: /slug
+          argument: "Example player"
     - name: resolver
       type: object
       entries:
@@ -1008,15 +884,7 @@ Example with a legal resolver (legacy object form):
           type: string
           actions:
             - type: format_text
-              argument: "tf1-video"
-        - name: stream
-          type: object
-          entries:
-            - name: kind
-              type: string
-              actions:
-                - type: format_text
-                  argument: "tf1-license-proxy"
+              argument: "example-video"
         - name: target_id
           type: string
           pointer: /id
@@ -1052,7 +920,6 @@ identifier: the frontend uses its index only within the current playback generat
 The client prefers HLS, then DASH, then MP4 (other supported files follow), while
 manual language/quality choices take precedence. Fixed qualities and languages are
 selected inside the player; active adaptive-manifest controls remain available.
-AnimeUltime groups HD/SD in one player, Odysee groups HLS/MP4 in one player.
 Fatal video failures try unfailed variants of the same language/quality first,
 then other qualities, unknown language and other languages. Only variant collection
 exhaustion emits a source error to the parent. For entry/episode playback, the parent
@@ -1083,6 +950,19 @@ line that starts with `http://` or `https://` to a proxy URL, then the frontend 
 the `#xywh` coordinates into Video.js sprite configuration. WebVTT files using one sprite image
 with uniform cells are supported. If loading or parsing fails, the frontend uses `storyboard` when
 available.
+
+`chapters` contains ordered entries shared across the stream variants.
+
+| Field | Type | Description |
+|---|---|---|
+| `start` | `number` | Required finite start time in seconds. |
+| `end` | `number` | Required finite end time in seconds, greater than `start`. |
+| `type` | `string` | Required chapter type. Use `chapter` for content chapters. |
+| `title` | `string` | Optional display title. |
+
+The public player skips chapters with missing or invalid bounds. When building
+chapters from timestamps, use the next timestamp as the current chapter's end.
+Use the video duration to close the final chapter when available.
 
 `subtitles` contains browser-consumable external WebVTT tracks in resolver order:
 
@@ -1189,7 +1069,7 @@ Returns a list of MediaItem objects with `key` and `media-type: video/live`:
 
 | YAML field | Description |
 |---|---|
-| `key` | Channel identifier (e.g. `M6`, `tf1`) |
+| `key` | Channel identifier (e.g. `news-live`) |
 | `title` | Channel name |
 | `link` | Identifier or URL for `get_live` |
 | `web-link` | Public live URL |
@@ -1229,63 +1109,12 @@ request still uses a JSON/YAML list with one item.
 `proxy_country`, and `proxyCountry` are rejected and must not be emitted by
 integrations.
 
-The FranceTV resolver preserves every non-empty country list supplied by the
-player and uses `[FR]` only when that list is empty. A resolution also creates
-one opaque proxy affinity shared by the K7 calls, manifest signing, DRM token,
-manifest loading through `/api/proxy`, and the deferred Widevine license
-request. The proxy URL also encodes HTTP `403` as a rejection status: the
-selected proxy is rejected for that destination, the affinity moves to another
-eligible candidate, and the request is retried once. Rewritten HLS key URLs use
-`{proxy_inherited}` so these options are preserved.
-
-TF1+ YAML detail and season players also fetch public `mediainfocombo` metadata
-per video and expose `media.geoList` as `resolver.proxy.countries`, including
-when playback is denied. The temporary fetch URL is removed from the result;
-no hardcoded territory list is substituted.
-
-The TF1+ resolver reads the allowed territory list from `media.geoList` in the
-`mediainfocombo` response. It normalizes and deduplicates these codes, then uses
-them as proxy countries to retry a geo-blocked negotiation before evaluating
-`delivery.code`. Because TF1 can report a geo-restriction with HTTP `200` and
-`delivery.code >= 400`, the resolver also installs a mediainfo response
-classifier that rejects the current proxy for the destination and lets the
-localized proxy search retry another eligible candidate; HTTP `403` remains a
-rejection. Content inspection is requested when the original or effective URL
-identifies mediainfo, preserving checks across redirects. Non-mediainfo responses,
-including CDN manifests, keep status-based classification without a preliminary
-prefix read. The Rquest collector preserves the skipped inspection's bounded
-reception window before starting its ordinary body-transfer timeout; it still
-returns the complete manifest. Callback priority, content rejections and the
-overall proxy-search budget remain unchanged. This routing also applies when
-resolving the final manifest URL.
-Each `streams[].url` returned by `get_stream` keeps the local HTTP proxy wrapper but
-does not carry proxy countries or geo-proxy rejection statuses, so playback no
-longer uses a geolocated proxy. The territory list is retained for the storyboard
-and deferred Widevine license request, without a local retry or direct fallback.
-The storyboard `/api/proxy` URL encodes HTTP `403` as a rejection status, causing
-safe sequential retries within the shared 120-second search target, 15-second
-engaged-attempt grace, without a fixed endpoint-attempt cap. Modifying operations are not
-replayed after uncertain sending without an explicit `proxy_retry_replayable`
-boolean in the proxy URL options. Accepted media streams retain their existing
-transfer policy; buffered localized bodies use a separate 30-second transfer
-timeout.
-
-The TV5MONDE+ resolver uses the player-supplied list for anonymous
-authentication and the initial entitlement request. It then extracts country
-codes from the `materialProfile` string returned by the `/play` entitlement,
-normalizes and deduplicates them, and preserves their order. This list becomes
-an unordered set of allowed countries in the proxy context for the manifest, storyboard, and deferred Widevine license
-request. If the field is absent or contains no valid alpha-2 code, the initial
-player-supplied list is retained.
-
 A player can also request the rewrite of absolute URLs found in proxied HLS
 manifests by declaring `resolver > proxy > rewrite_manifest_urls: "true"`. The
 frontend forwards it as `proxy_rewrite_manifest_urls` to `get_stream`, and the
 backend then adds a proxy `ReplaceAll` post-response action (`{proxy_inherited}/$1`)
 restricted to HLS manifest content types. Child playlists and segments therefore
-reuse the proxy options of the current request (countries, headers) instead of
-leaving the proxied session, which is required when the master manifest exposes
-absolute URLs, as for the ARTE live channel.
+reuse the proxy options of the current request (countries, headers).
 
 #### `get_live`
 
@@ -1293,7 +1122,7 @@ Returns playback information for a live channel:
 
 | YAML field | Description |
 |---|---|
-| `players` | Array of players (see 5.9) with `resolver > kind: "tf1-live"` or `"m6play-live"` |
+| `players` | Array of players for the requested live channel (see 5.9) |
 
 ---
 
@@ -1465,22 +1294,10 @@ parameters take precedence over category descriptor parameters.
    existing metadata and live checks. Loading a YAML file does not qualify the
    remote source; report network failures separately from contract failures.
 
-### Existing service examples
-
-These optional examples illustrate provider-specific patterns. The complete
-authoring contract remains in this guide and the common specification; do not
-copy a provider URL, identifier or selector without checking the target response.
-
-- [dark-stream/anime-sama.yaml](../../server/services/arachnea-stream/dark-stream/anime-sama.yaml) — HTML catalogue and post-processing.
-- [legal-stream/rtlplay-be.yaml](../../server/services/arachnea-stream/legal-stream/rtlplay-be.yaml) — RTL Play JSON API. Artwork selection skips overlay fields and URLs from `lfvp-static-overlays.dpgmedia.net`.
-- [legal-stream/rtbf-auvio-be.yaml](../../server/services/arachnea-stream/legal-stream/rtbf-auvio-be.yaml) — JSON APIs and follow-up requests.
-
 ### Additional queries and result envelopes
 
-A collection can contain helper queries, but names do not create public API
-commands. The current `get_episode` in Papadustream V2 is not a standard stream
-facade operation. Standard episode navigation uses the documented entry, season
-and player operations. Do not require consumers to call an undocumented command.
+Helper queries are internal to a collection. Standard episode navigation uses
+the documented entry, season and player operations.
 
 Field paths containing `>` become nested JSON. Slash-containing names such as
 `img/poster` remain literal keys. The backend wraps query output in an aggregation
@@ -1550,19 +1367,16 @@ with HTTP statuses such as `400 bad_request`, `401 unauthorized`,
 
 ## Service metadata, filters and editable options
 
-Every Stream source initially declares `metadata: {languages: [fr]}`. Optional `geo_countries`
+Use `metadata.languages` to declare language tags. Optional `geo_countries`
 contains countries where the service is accessible, using lowercase ISO 3166-1 alpha-2 codes.
 An absent/empty tag means unknown, not worldwide availability. Do not infer restrictions from
 source names. These tags do not change catalog selection or proxy routing and do not guarantee
 availability for every video. `service_stream_metadata` exposes them under `metadata` through
 `{service_metadata}`; the query does not duplicate their definitions.
 
-Historical YAML `parameters` move to `constants`, except editable `base_url` for all six
-dark-stream sources and `country` for TF1. Existing JSON manifest overrides move into YAML
-defaults; nonempty manifest overrides are rejected. See the Scrapyfy specification for
-`label` and `editor` definitions. TF1 maps `fr`, `be`, `lu`, `ch` to `fr-fr`, `fr-be`, `fr-lu`,
-`fr-ch`. Labels remain `France - France`, `Belgium - Belgique`, `Luxembourg - Luxembourg`,
-`Switzerland - Suisse` in every interface language.
+Declare fixed values in YAML `constants` and editable values in `parameters`.
+Declare their defaults in YAML. Nonempty JSON manifest overrides are rejected.
+See the Scrapyfy specification for `label` and `editor` definitions.
 
 The admin catalog exposes `metadata`, `has_parameters` and `configuration_error`. Service rows
 show metadata tags between title and description, using localized filter labels when configured.
@@ -1678,22 +1492,20 @@ reloads all three independent sources (catalog, admin status, accounts). Failed 
 an error without producing false zero counters or missing-account/password warnings.
 Groups missing from the response are shown as unavailable.
 
-### Declared availability countries and content types
+### Content types and filter labels
 
-`geo_countries` is `[be]` for RTL Play, RTBF Auvio and LN24, and `[fr]` for France TV,
-M6 Play, Arte, TF1+ and RMC BFM Play. TF1 availability metadata remains independent of its
-editable catalog-country parameter. Other availability countries remain unspecified.
+The multivalued `content_types` tag appears in metadata APIs and the administration
+filter. YAML, API responses and filters use the same codes.
 
-Every Stream source declares the multivalued `content_types` tag:
+| Value | English label |
+|---|---|
+| `local_tv` | Local TV |
+| `movies` | Movies |
+| `series` | Series |
+| `documentaries` | Documentaries |
 
-| Value | English label | Sources |
-|---|---|---|
-| `local_tv` | Local TV | TVMonaco, Tele MB, Canal Zoom, Bouké, Télésambre |
-| `movies` and `series` | Movies and Series | Every other source, including LN24 and dark-stream sources |
-| `documentaries` | Documentaries | RTL Play, RTBF Auvio, TF1+, M6 Play, France TV, Arte, TV5 MONDE+, Antenne Réunion, RMC BFM Play |
+Sources can combine multiple content types.
 
-Documentaries are added alongside movies and series. Metadata APIs expose `content_types`,
-and administration offers it as a filter. YAML/API/filter values retain stable codes.
 Optional filter `value_labels` maps metadata values to `locales/*` translation keys used
 both in selections and service-row tags. Unmapped values are displayed unchanged.
 Optional filter `value_format` accepts only `language`: it formats raw metadata values with

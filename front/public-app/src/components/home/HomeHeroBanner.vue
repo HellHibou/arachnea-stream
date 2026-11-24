@@ -104,7 +104,7 @@ const activeBanner = computed(() => props.banners[activeIndex.value] ?? null)
 /** Channel branding takes the provider logo's slot, with a fallback for broken images. */
 const failedChannelLogoUrl = shallowRef<string | null>(null)
 const channelLogoUrl = computed(() => {
-  const url = activeBanner.value?.sourceLogoUrl
+  const url = activeBanner.value?.channelLogoUrl
   return url && url !== failedChannelLogoUrl.value ? url : null
 })
 const sourceLogoUrl = computed(() => channelLogoUrl.value ?? serviceMetadata.value?.logo)

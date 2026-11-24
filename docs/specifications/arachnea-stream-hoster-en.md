@@ -255,15 +255,6 @@ replaces the GET. To recognize HTML with selectors instead, use an HTML query
 with `base_url: "{url}"`, `query_url: "{url}"`, `input_html: "{html}"`, a precise
 `row_selector` and a `resolver` field built with `format_text`.
 
-### Existing service examples
-
-These optional examples illustrate provider-specific patterns. The complete
-authoring contract remains in this guide and the common specification; do not
-copy a provider URL, identifier or selector without checking the target response.
-
-- [sibnet.yaml](../../server/services/arachnea-stream-hoster/sibnet.yaml) — URL recognition and HTML stream extraction.
-- [voe.yaml](../../server/services/arachnea-stream-hoster/voe.yaml) — HTML-content recognition and inline HTML reuse.
-
 ## 7. Author checklist
 
 1. Confirm the target is an embed page, not a catalogue or a manifest.

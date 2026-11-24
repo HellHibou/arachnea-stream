@@ -12,6 +12,7 @@ import type { BackgroundMediaCandidate, MediaSelectionTarget, LiveSelectionTarge
 /** Measured desktop navigation width used to reserve the content gutter. */
 const sidebarWidth = shallowRef(260)
 import type { HomeCategory } from '@/types/home'
+import type { ChannelAttribution } from '@/types/entry'
 import Background from './components/Background.vue'
 import MainBar from './components/MainBar.vue'
 import PersonalDataStatus from './components/errors/PersonalDataStatus.vue'
@@ -67,6 +68,21 @@ const { notifications, dismiss: dismissErrorNotification } = useErrorNotificatio
 /** Background media items collected from catalog screens for the background layer. */
 const catalogBackgroundMediaItems = shallowRef<BackgroundMediaCandidate[]>([])
 watch(() => route.fullPath, () => { catalogBackgroundMediaItems.value = [] }, { flush: 'sync' })
+
+/** Channel received for the active category. */
+const categoryChannel = shallowRef<ChannelAttribution | null>(null)
+watch(() => route.params.categoryToken, () => { categoryChannel.value = null }, { flush: 'sync' })
+
+/**
+ * Publishes the channel for the current category route.
+ * @param categoryToken Token of the category that emitted the response.
+ * @param channel Channel identity returned by that category.
+ */
+function updateCategoryChannel(categoryToken: string, channel: ChannelAttribution | null): void {
+  if (route.name === 'category' && route.params.categoryToken === categoryToken) {
+    categoryChannel.value = channel
+  }
+}
 
 /**
  * Indicates whether the generic back button should be visible for the current route.
@@ -246,6 +262,7 @@ function handleBackNavigation() {
     <MainBar
       ref="mainBar"
       v-model="searchQuery"
+      :category-channel="categoryChannel"
       :media-type-options="mediaTypeFilterOptions"
       :selected-media-types="selectedMediaTypes"
       :theme-options="themeFilterOptions"
@@ -276,6 +293,7 @@ function handleBackNavigation() {
           @select-category="handleSelectedCategory"
           @select-live="handleSelectedLive"
           @update:background-media-items="handleCatalogBackgroundMediaItemsUpdate"
+          @update:category-channel="updateCategoryChannel"
         />
       </RouterView>
     </main>

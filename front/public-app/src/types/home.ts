@@ -1,5 +1,6 @@
 import type { CatalogItem, MediaSelectionTarget, Collection } from '@/types/media'
 import type { CategoryOrigin, HomeContentIdentity } from '@/types/customHome'
+import type { ChannelAttribution } from '@/types/entry'
 
 /**
  * YAML-defined source descriptor used to resolve one category payload.
@@ -7,23 +8,11 @@ import type { CategoryOrigin, HomeContentIdentity } from '@/types/customHome'
 export type HomeCategorySource = Record<string, string>
 
 /**
- * Optional channel branding attached to a category.
- *
- * When present, it replaces the owning service identity in the category header.
- */
-export interface HomeCategoryChannel {
-  /** Display name of the channel. */
-  name: string
-  /** URL of the standalone channel logo, or null when unavailable. */
-  logo: string | null
-}
-
-/**
  * Clickable category displayed in the home catalog.
  */
 export interface HomeCategory {
-  /** Optional channel branding taking precedence over the service identity. */
-  channel?: HomeCategoryChannel | null
+  /** Owner of a channel tab, used to prevent unrelated tabs from merging. */
+  channelScope?: string
   /** Route hints that must be revalidated through the provider catalog before saving. */
   origins?: CategoryOrigin[]
   /** Runtime position in the custom definition, including unavailable preceding shortcuts. */
@@ -84,7 +73,7 @@ export interface HomeBanner {
   /** The URL for the logo image. */
   logo: string | null
   /** Channel logo that replaces the provider logo on this banner. */
-  sourceLogoUrl?: string
+  channelLogoUrl?: string
   /** The URL for direct banner playback, or null when no direct source is available. */
   videoUrl: string | null
   /** Whether the banner plays a trailer or the actual content. */
@@ -183,13 +172,15 @@ export interface HomeSection {
  * Full normalized payload rendered by the home and category screens.
  */
 export interface HomeCatalogData {
+  /** Channel identity shared by all rows of a category response. */
+  channel?: ChannelAttribution | null
   /** Category-level pagination remains separate from section descriptors. */
   currentPage?: number
   haveMore?: boolean
   /** The featured banners collection, eagerly loaded or deferred by source. */
   banners: Collection<HomeBanner>
   /** Deferred banner collections, each retaining its backend source and link. */
-  deferredBanners: (Collection<HomeBanner> & { sourceLogoUrl?: string })[]
+  deferredBanners: (Collection<HomeBanner> & { channelLogoUrl?: string })[]
   /** The list of clickable categories. */
   categories: HomeCategory[]
   /** The list of media sections to display. */
