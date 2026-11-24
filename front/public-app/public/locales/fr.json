@@ -296,6 +296,7 @@
     "showBanner": "Afficher la banniere {index}",
     "enableBannerSound": "Activer le son de la video de la banniere",
     "disableBannerSound": "Desactiver le son de la video de la banniere",
+    "bannerVolume": "Volume de la vidéo de la bannière",
     "contentLogo": "Logo du contenu",
     "viewDetails": "Voir la fiche",
     "subsectionNavigation": "Navigation des sous-sections",

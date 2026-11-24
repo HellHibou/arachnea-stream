@@ -608,16 +608,16 @@ queries:
           - name: description
             type: string
             pointer: /description
-          # Later select-first fields prefer the current broadcast over the recording.
           - name: image
             type: string
             select: first
             pointer: /bannerImageURL
-          - name: image
+          # Later select-first fields prefer the current broadcast over the recording.
+          - name: video-kind > image
             type: string
             select: first
             pointer: /videos/edges/*[node/status=RECORDED]/node/previewImageURL
-          - name: image
+          - name: video-kind > image
             type: string
             select: first
             pointer: /stream/previewImageURL
@@ -644,6 +644,12 @@ queries:
             select: first
             pointer: /stream/broadcaster/login
             actions: *live_media_type
+          - name: video-kind > kind
+            type: string
+            pointer: /login
+            actions:
+              - type: format_text
+                argument: video
           - name: players
             type: object[]
             entries:

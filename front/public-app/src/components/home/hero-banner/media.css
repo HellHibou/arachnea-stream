@@ -8,8 +8,13 @@
   user-select: none;
 }
 
+.home-hero-banner--with-video .home-hero-banner__image {
+  object-position: left center;
+}
+
 .home-hero-banner__video-area {
   position: relative;
+  z-index: 2;
   grid-row: 1;
   grid-column: 2;
   align-self: start;

@@ -63,9 +63,12 @@ par `channel_ids`, sans réappliquer le tag parent. Les liens de catégories par
 existants utilisent `category_kind=tag` par défaut. Les flux audio et les autres
 contenus non vidéo sont exclus des sections vidéo. Les miniatures Odysee utilisent
 `img/landscape`, y compris dans les détails, pour afficher les vidéos en paysage.
-Pour les catégories dotées d’une URL de chaîne, l’accueil place la vidéo
-épinglée dans la première section, sans titre. La couverture, la photo de
-profil et le nom de la chaîne forment une bannière sans lien. Le paramètre
+Pour les catégories dotées d’une URL de chaîne, la bannière affiche la
+couverture, la photo de profil et le nom de la chaîne. Si le créateur a épinglé
+une vidéo, l’accueil ajoute à cette bannière la lecture, le titre de la vidéo en
+sous-titre et un lien vers sa fiche. Le lecteur affiche la miniature de la
+vidéo comme affiche. La lecture reste réservée à la bannière
+(`video-kind.kind: video`). Le paramètre
 `language` sélectionne le dictionnaire Odysee pour les quatre onglets. Les
 Shorts suivent les seuils de durée et de format de la source. La pagination
 compte les résultats amont avant le filtrage par format.
@@ -101,7 +104,8 @@ début.
 
 La requête Twitch `get_category` utilise le nom de la chaîne ou du jeu comme
 titre de la bannière. Sur une page de chaîne, la bannière lit le direct s’il
-est disponible ou une rediffusion à défaut.
+est disponible ou une rediffusion à défaut. L’aperçu de la vidéo sélectionnée
+sert d’affiche et `video-kind.kind: video` réserve la lecture à la bannière.
 
 RMC BFM Play sélectionne le rail de catégories de l'accueil par son titre
 « Toutes les catégories », car son identifiant fournisseur peut changer.
@@ -428,14 +432,21 @@ fois, dont le titre combine le libellé de la section et celui de la sous-sectio
 | `key` | `string` | Identifiant interne |
 | `title` | `string` | Titre affiché |
 | `description` | `string` | Accroche / description |
-| `image` | `string` | URL de l'image de fond |
+| `image` | `string` | URL de l’image de bannière, visible derrière le contenu pendant la lecture |
 | `logo` | `string` | URL du logo superposé |
-| `video` | `string` | URL de la vidéo d'arrière-plan |
-| `players` | `object[]` | Vidéo d’arrière-plan facultative résolue à la demande avec le premier `resolver` utilisable |
+| `players` | `object[]` | Vidéo de bannière facultative résolue à la demande avec le premier `resolver` utilisable |
+| `video-kind` | `object` | Descripteur vidéo facultatif de la bannière |
+| `video-kind.kind` | `string` | `video` réserve la lecture à la bannière. `trailer` permet aussi la lecture en fond d’écran si l’option est activée. |
+| `video-kind.url` | `string` | URL directe facultative. Les bannières qui utilisent un résolveur peuvent fournir `players` à la place. |
+| `video-kind.image` | `string` | Affiche facultative du lecteur, visible avant la lecture. |
 | `link` | `string` | URL interne vers `get_entry` |
 | `web-link` | `string` | URL publique |
 | `subtitle` | `string` | Sous-titre |
 | `entryUrl` | `string` | Variante de lien |
+
+Le frontend accepte les anciennes réponses avec l’URL `video` à la racine et
+un `video-kind` de type chaîne. Le type par défaut est `trailer`, sauf pour
+Twitch qui utilise `video`.
 
 Pour des bannières chargées paresseusement, `load_home` peut n'émettre que
 `banners > link`. Une entrée de bannière sans lien affiche ses visuels et son

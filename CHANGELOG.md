@@ -542,6 +542,8 @@ All notable changes to the server workspace are recorded here.
 - Twitch game categories now expose Live Channels, Videos and Clips tabs with separate listings.
 - Twitch live streams, recordings and clips now expose their declared language on catalogue cards and entry details.
 - Twitch category banners display the channel or game name, including when the banner plays a live broadcast or a recording.
+- Twitch channel banners identify live broadcasts and recordings as full videos.
+- Twitch and Odysee now supply separate player posters through the structured banner `video-kind` descriptor.
 - M6Play `get_entry` now lists the real seasons of a programme instead of only "All videos". The previous extractor read `program_subcats`, an editorial taxonomy that is empty for series such as Kally's Mashup (15131); season labels and block identifiers are now read from the anonymous `layout` BFF (`videos_by_program`, `videos_by_subcat_by_program` and `videos_by_season_by_program` blocks), so entries expose one season per published block. `get_season` accepts both the legacy middleware links and the absolute block links, replacing a `PAGE` marker with the requested page and reporting `have_more` from the block pagination. Block episodes keep the existing episode contract (title, description, normalized duration, preview image, web link and `m6play-video` resolver target), with the middleware path unchanged for "All videos".
 - Coflix category grids now paginate. `get_category` emits a section `link`, so the frontend requests follow-up pages through `get_section`; that query was missing and every "load more" attempt failed. `get_section` now scrapes the same catalogue grid with `{query_url}{query_separator}page={page}`, reuses the category card extraction and derives `have_more` from the pagination links. The existing Coflix source-check contract now declares `get_section` as an expected operation.
 
@@ -700,6 +702,7 @@ All notable changes to the server workspace are recorded here.
 - Odysee `get_entry` players now return a `direct-link` that plays streams which are not cached at the CDN edge. The canonical `https://player.odycdn.com/v6/streams/<claim_id>/<sd_hash_prefix>.mp4` URL answered `401 this content cannot be accessed at the moment` for cold-cache claims (both video and audio), while the same file served through Odysee's signed download redirect answered `206`. The player link is now built from the public `https://odysee.com/$/rss/media/<claim_name>/<claim_id>/stream.mp4` route, which the player follows to the signed CDN URL; each range request re-enters the redirect and gets a fresh signature. The `.mp4` suffix keeps the link on the native video renderer instead of the iframe fallback.
 - Odysee category listings now expose channels as clickable categories that load their own videos, keep audio and other non-video claims out of video sections, and use `img/landscape` for video cards and entry details.
 - Odysee channel pages expose the creator's pinned video, channel artwork and Home, Content, Shorts and Playlists tabs with labels from the configured Odysee language dictionary.
+- Odysee channel homes add pinned video playback, its title and a details link to the existing channel banner. Its playback is limited to the banner.
 - Odysee channel cards now remain inside `sections[].entries` as `collection` subcategories alongside videos, instead of appearing in the page-level category strip. `get_category` accepts their channel request descriptors while preserving existing tag category links.
 - Odysee category and channel sections now expose pagination metadata and support `get_section`, preserving the selected filter across pages. Continuation is inferred from the upstream claim count before audio filtering, so mixed pages do not prematurely stop loading.
 - Fixed empty Odysee search results caused by the metadata request sending an unresolved `{search_body}` placeholder. The JavaScript action now emits the JSON-RPC body through `document.write` and strips its output prefix before sending the POST.
@@ -959,6 +962,7 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Native banner videos now have a vertical volume slider below the mute button, available on hover and keyboard focus.
 - Added a play/pause button to banner videos, with the playback preference saved in the browser.
 
 - Backend calls made from the desktop app now reuse the same ETag cache as the browser: the validator is sent in the reserved `arachneaEtag` invoke field and a `304` reply replays the cached payload. The browser path no longer sends the obsolete `arachneaEtag` query parameter, and the cache is cleared when the selected profile changes as well as on session changes.
@@ -1079,6 +1083,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Fixed
 
+- The trailer background setting now uses only banner trailers. Full videos, including Twitch live broadcasts and recordings, play only in the banner, even when loaded from an older cached Twitch response.
+- Banner artwork remains visible during playback. The player uses the separate poster from `video-kind` while waiting for playback.
 - Custom-home pages reuse the definition resolved by the router in the page and toolbar. Concurrent home reads share one request, and closed management dialogs skip automatic reads. Returning to the window groups focus and visibility refreshes for the active profile, sections, bookmarks and homes.
 - Custom homes resolve pinned categories, banners and sections by URL when the source declares support in YAML. Twitch channel pins work even when the channel is absent from the Twitch home.
 - Category shortcut titles regroup after editing, the toolbar add button respects editing and source availability, and channel logos accept the documented `logo_url` alias. Keyboard focus outlines stay visible in the horizontal category strip.

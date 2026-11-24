@@ -35,6 +35,36 @@
   opacity: 1;
 }
 
+.home-hero-banner__video-sound {
+  position: relative;
+}
+
+.home-hero-banner__volume-panel {
+  position: absolute;
+  inset: 100% 0 auto;
+  display: none;
+  justify-items: center;
+  padding: 10px 0;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 22px;
+  background: rgba(10, 14, 20, 0.85);
+}
+
+.home-hero-banner__video-sound:hover .home-hero-banner__volume-panel,
+.home-hero-banner__video-sound:focus-within .home-hero-banner__volume-panel {
+  display: grid;
+}
+
+.home-hero-banner__volume-slider {
+  width: 24px;
+  height: 80px;
+  margin: 0;
+  writing-mode: vertical-lr;
+  direction: rtl;
+  accent-color: var(--color-primary);
+  cursor: pointer;
+}
+
 .home-hero-banner__arrow {
   display: inline-grid;
   place-items: center;

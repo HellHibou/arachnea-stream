@@ -200,6 +200,7 @@ const {
       :overlay-logo-url="activeVideoOverlayLogoUrl"
       :autoplay="activeVideoAutoplay"
       :muted="activeVideoMuted"
+      :volume="props.volume"
       :loop="activeVideoLoop"
       :playsinline="activeVideoPlaysinline"
       :preload="activeVideoPreload"

@@ -21,6 +21,7 @@ import type { JsonRecord } from '../types'
  *
  * @param payload Raw backend banner payload.
  * @param index Stable fallback index used to build a unique banner id.
+ * @param inheritedSource Source identifier from the containing banner collection.
  * @returns Normalized featured banner.
  */
 export function normalizeHomeBanner(
@@ -46,13 +47,19 @@ export function normalizeHomeBanner(
     firstNonEmptyString([record.logo, record.logo, record.logo]),
     source,
   )
+  const video = record['video-kind']
   const videoUrl = resolveAssetUrl(
-    firstNonEmptyString([record.video_url, record.videoUrl, record.video]),
+    firstNonEmptyString([readPath(video, 'url'), record.video_url, record.videoUrl, record.video]),
     source,
   )
+  const videoImageUrl = resolveAssetUrl(firstNonEmptyString([readPath(video, 'image')]), source)
   const title = firstNonEmptyString([record.title])
 
   const player = extractBannerPlayer(record)
+  const kind = isJsonRecord(video) ? video.kind : video
+  // Cached Twitch banners predate the explicit video kind.
+  const defaultVideoKind = (player?.source ?? source) === 'twitch' ? 'video' : 'trailer'
+  const videoKind = kind === 'video' || kind === 'trailer' ? kind : defaultVideoKind
 
   return {
     id:
@@ -64,6 +71,8 @@ export function normalizeHomeBanner(
     imageUrl,
     logo,
     videoUrl,
+    videoKind,
+    videoImageUrl,
     player,
     source,
     target: normalizeMediaItem({
@@ -144,7 +153,7 @@ export function normalizeBannersResponse(
  * @param banner Normalized banner from the home or deferred response.
  */
 export function isDisplayableHomeBanner(banner: HomeBanner): boolean {
-  return Boolean(banner.imageUrl || banner.logo || banner.title || banner.videoUrl || banner.player)
+  return Boolean(banner.imageUrl || banner.logo || banner.title || banner.videoUrl || banner.videoImageUrl || banner.player)
 }
 
 /**

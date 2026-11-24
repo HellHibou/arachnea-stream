@@ -272,12 +272,6 @@ queries:
             row_filters:
               /value_type: [channel]
             entries:
-              - name: channel_claim_id
-                type: string
-                pointer: /claim_id
-              - name: channel_name
-                type: string
-                pointer: /name
               - name: banners > source-logo
                 type: string
                 select: first
@@ -300,6 +294,100 @@ queries:
                   - name: image
                     type: string
                     pointer: /value/cover/url
+                  - name: _channel_name
+                    type: string
+                    pointer: /name
+                  - name: _channel_settings_request
+                    type: string
+                    actions:
+                      - type: format_text
+                        argument: "{category_kind}:{page}"
+                      - type: regex_find_all
+                        pattern: '^channel(?:_url)?:1$'
+                        format: "{comments_url}"
+                    sub_queries:
+                      - scraper_type: json
+                        target: parent
+                        http:
+                          empty_on_statuses: [404, 429, 502, 503, 504]
+                        request_method: post
+                        request_headers: *headers_json
+                        request_body_actions:
+                          - type: format_text
+                            argument: '{"jsonrpc":"2.0","method":"setting.Get","params":{"channel_id":"{key}","channel_name":"{_channel_name}"},"id":1}'
+                        row_pointer: /
+                        entries:
+                          - name: _pinned_claim_id
+                            type: string
+                            select: first
+                            pointer: /result/homepage_settings/*[type=featured]/claim_id
+                          - name: _pinned_claim_id
+                            type: string
+                            select: first
+                            pointer: /result/homepage_settings/sections/*[type=featured]/claim_id
+                          - name: _pinned_video_request
+                            type: string
+                            select: first
+                            pointer: /result/homepage_settings/*[type=featured]/claim_id
+                            actions: &pinned_video_actions
+                              - type: regex_find_all
+                                pattern: '^[0-9a-f]{40}$'
+                                format: "{claim_search_url}"
+                          - name: _pinned_video_request
+                            type: string
+                            select: first
+                            pointer: /result/homepage_settings/sections/*[type=featured]/claim_id
+                            actions: *pinned_video_actions
+                            # Both settings layouts feed one request field.
+                            sub_queries:
+                              - scraper_type: json
+                                target: parent
+                                request_method: post
+                                request_headers: *headers_json
+                                request_body_actions:
+                                  - type: format_text
+                                    argument: '{"jsonrpc":"2.0","method":"claim_search","params":{"claim_ids":["{_pinned_claim_id}"],"page_size":1,"no_totals":true},"id":1}'
+                                row_pointer: /result/items/*[value/stream_type=video]
+                                entries:
+                                  - name: subtitle
+                                    type: string
+                                    select: first
+                                    pointer: /name
+                                  - name: subtitle
+                                    type: string
+                                    select: first
+                                    pointer: /value/title
+                                  - name: link
+                                    type: string
+                                    pointer: /claim_id
+                                  - name: web-link
+                                    type: string
+                                    pointer: /canonical_url
+                                    actions:
+                                      - type: replace_text
+                                        search: "lbry://"
+                                        replace: "https://odysee.com/"
+                                  - name: media-type
+                                    type: string
+                                    actions:
+                                      - type: format_text
+                                        argument: video
+                                  - name: video-kind > kind
+                                    type: string
+                                    actions:
+                                      - type: format_text
+                                        argument: video
+                                  - name: video-kind > image
+                                    type: string
+                                    pointer: /value/thumbnail/url
+                                  - name: video-kind > url
+                                    type: string
+                                    actions:
+                                      - type: build_url
+                                        base: "{base_url}/$/rss/media/{claim_name}/{claim_id}/stream.mp4"
+                                        fields:
+                                          claim_name: /name
+                                          claim_id: /claim_id
               - name: channel_labels_request
                 type: string
                 pointer: /claim_id
@@ -436,72 +524,6 @@ queries:
                                 argument: channel_playlists
                           - *odysee_tab_channel_url
                           - *odysee_tab_category_label
-              - name: channel_settings_request
-                type: string
-                pointer: /claim_id
-                actions:
-                  - type: format_text
-                    argument: "{category_kind}:{page}"
-                  - type: regex_find_all
-                    pattern: '^channel(?:_url)?:1$'
-                    format: "{comments_url}"
-                sub_queries:
-                  - scraper_type: json
-                    target: parent
-                    http:
-                      empty_on_statuses: [404, 429, 502, 503, 504]
-                    request_method: post
-                    request_headers: *headers_json
-                    request_body_actions:
-                      - type: format_text
-                        argument: '{"jsonrpc":"2.0","method":"setting.Get","params":{"channel_id":"{channel_claim_id}","channel_name":"{channel_name}"},"id":1}'
-                    row_pointer: /
-                    entries:
-                      - name: pinned_claim_id
-                        type: string
-                        select: first
-                        pointer: /result/homepage_settings/*[type=featured]/claim_id
-                      - name: pinned_claim_id
-                        type: string
-                        select: first
-                        pointer: /result/homepage_settings/sections/*[type=featured]/claim_id
-                      - name: pinned_video_request
-                        type: string
-                        select: first
-                        pointer: /result/homepage_settings/*[type=featured]/claim_id
-                        actions: &pinned_video_actions
-                          - type: regex_find_all
-                            pattern: '^[0-9a-f]{40}$'
-                            format: "{claim_search_url}"
-                        sub_queries: &pinned_video_queries
-                          - scraper_type: json
-                            target: parent
-                            request_method: post
-                            request_headers: *headers_json
-                            request_body_actions:
-                              - type: format_text
-                                argument: '{"jsonrpc":"2.0","method":"claim_search","params":{"claim_ids":["{pinned_claim_id}"],"page_size":1,"no_totals":true},"id":1}'
-                            row_pointer: /
-                            entries:
-                              - name: sections
-                                type: object[]
-                                pointer: /result/items/*[value/stream_type=video]
-                                entries:
-                                  - name: key
-                                    type: string
-                                    actions:
-                                      - type: format_text
-                                        argument: pinned
-                                  - name: entries
-                                    type: object[]
-                                    pointer: /
-                                    entries: *entries_media_cards
-                      - name: pinned_video_settings_request
-                        type: string
-                        select: first
-                        pointer: /result/homepage_settings/sections/*[type=featured]/claim_id
-                        actions: *pinned_video_actions
-                        sub_queries: *pinned_video_queries
       - &odysee_category_section
         name: sections
         type: object[]
@@ -674,6 +696,11 @@ queries:
                 type: string
                 pointer: /value/title
     post_process:
+      - type: filter_fields
+        source: banners > entries
+        field: key
+        pattern: '.+'
+        remove: [_channel_name, _channel_settings_request, _pinned_claim_id, _pinned_video_request]
       - &odysee_filter_shorts
         type: filter_items
         source: sections
@@ -700,7 +727,7 @@ queries:
         field: key
         method: asc
       - type: remove_fields
-        fields: [channel_request, channel_name, channel_claim_id, channel_labels_request, channel_settings_request, pinned_claim_id, pinned_video_request, pinned_video_settings_request]
+        fields: [channel_request, channel_labels_request]
 
   - name: get_section
     scraper_type: json

@@ -264,7 +264,10 @@ export function createSourceController(options: SourceControllerOptions) {
         return
       }
 
-      applyPersistedPlayerState(player, playerState, getTrackSelectionConfig?.() ?? undefined)
+      const restoredState = playerState && props.volume !== undefined
+        ? { ...playerState, volume: props.volume, muted: props.muted ?? false }
+        : playerState
+      applyPersistedPlayerState(player, restoredState, getTrackSelectionConfig?.() ?? undefined)
       playerStateRestored = true
       onTrackPreferencesApplied?.(player)
     }

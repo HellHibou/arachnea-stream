@@ -263,6 +263,8 @@ export interface VideoPlayerEmits {
 
 /** Public component props before array defaults are applied by VideoPlayer.vue. */
 export interface VideoPlayerComponentProps extends Omit<VideoPlayerProps, 'availableLanguages' | 'filteredPlayers'> {
+  /** Optional volume override for the native renderer, from 0 to 1. */
+  volume?: number
   /**
    * Language options rendered by the entry details player selector.
    * @default []

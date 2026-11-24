@@ -46,6 +46,8 @@ export interface VideoJsMediaRendererProps {
    * @default false
    */
   muted?: boolean
+  /** Optional volume override from 0 to 1. */
+  volume?: number
   /**
    * Loops the rendered video.
    * @default false

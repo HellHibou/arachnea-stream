@@ -296,6 +296,7 @@
     "showBanner": "Show banner {index}",
     "enableBannerSound": "Enable banner video sound",
     "disableBannerSound": "Disable banner video sound",
+    "bannerVolume": "Banner video volume",
     "contentLogo": "Content logo",
     "viewDetails": "View details",
     "subsectionNavigation": "Subsection navigation",

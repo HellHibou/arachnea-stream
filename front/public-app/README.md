@@ -115,8 +115,16 @@ flush with the right edge. The carousel navigation is centered along the bottom
 of the full banner, above the player in the stacking order. The play and pause
 preference applies to banner videos and is stored in the current browser.
 The carousel keeps the current video banner visible while playback is paused.
-Pausing an embedded player unloads it and shows the banner image when available.
-Resuming an embed loads it again.
+For native banner videos, hovering or focusing the mute button reveals a vertical
+volume slider below it. The mute button restores the last audible banner volume.
+Embedded players retain the existing mute toggle.
+The banner artwork stays visible behind the banner content during playback.
+The player shows its separate poster while resolving the source, before native
+playback starts and while an embed loads. Pausing an embed unloads it and shows
+its poster when available. Resuming loads the embed again.
+Only trailers can play in the page background when the trailer background
+setting is enabled. Full videos, including Twitch broadcasts and recordings,
+play only in the banner. Their artwork remains eligible for image backgrounds.
 
 `/` keeps the aggregated catalog. `/source/:sourceId` loads only the exact
 backend source selected by the route. The navigation source group uses service

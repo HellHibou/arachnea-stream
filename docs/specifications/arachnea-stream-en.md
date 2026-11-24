@@ -59,9 +59,12 @@ are not emitted in the page-level `categories` strip. Their request descriptors
 carry `category_kind=channel`, `channel_id` and `category_label`; `get_category`
 accepts these descriptors and searches video streams by `channel_ids` without
 reapplying the parent tag.
-Channel categories with a resolved channel URL expose the channel cover, avatar
-and name as a linkless banner. The Home tab puts the creator's pinned video in
-the first untitled section. The `language` source parameter selects the Odysee
+Channel categories with a resolved channel URL use the channel cover, avatar
+and name in the banner. When the creator has pinned a video, the Home tab adds
+playback, the video title as the subtitle and a link to the video details to
+that banner. The player uses the video thumbnail as its poster and plays only
+in the banner (`video-kind.kind: video`). The
+`language` source parameter selects the Odysee
 dictionary for Home, Content, Shorts and Playlists. Missing translations keep
 the source's English label. Shorts use the source's duration and aspect-ratio
 thresholds. Pagination counts the upstream page before applying the ratio filter.
@@ -96,7 +99,8 @@ at or before the start.
 
 Twitch `get_category` uses the channel or game display name as the banner title.
 On channel pages, the banner plays the live broadcast when available or falls
-back to a recording.
+back to a recording. The preview of the selected video serves as the player
+poster, and `video-kind.kind: video` limits playback to the banner.
 
 RMC BFM Play selects the home category rail by its "Toutes les catégories" title,
 since its provider-generated ID can change. Its deferred `get_section` query
@@ -412,14 +416,21 @@ subsection labels.
 | `key` | `string` | Internal identifier |
 | `title` | `string` | Display title |
 | `description` | `string` | Tagline / description |
-| `image` | `string` | Background image URL |
+| `image` | `string` | Banner artwork URL, visible behind the banner content during playback |
 | `logo` | `string` | Overlay logo URL |
-| `video` | `string` | Background video URL |
-| `players` | `object[]` | Optional background video resolved on demand using the first usable `resolver` |
+| `players` | `object[]` | Optional banner video resolved on demand using the first usable `resolver` |
+| `video-kind` | `object` | Optional banner video descriptor |
+| `video-kind.kind` | `string` | `video` plays only in the banner. `trailer` also allows playback in the page background when enabled. |
+| `video-kind.url` | `string` | Optional direct playback URL. Banners with a resolver can supply `players` instead. |
+| `video-kind.image` | `string` | Optional player poster displayed before playback. |
 | `link` | `string` | Internal URL to `get_entry` |
 | `web-link` | `string` | Public URL |
 | `subtitle` | `string` | Subtitle |
 | `entryUrl` | `string` | Link variant |
+
+For legacy responses, the frontend still accepts the top-level `video` URL and
+a string `video-kind`. A missing kind defaults to `trailer`, except for Twitch,
+which defaults to `video`.
 
 A banner entry can omit its link and still display its artwork and text without
 a navigation button. For lazy banners, `load_home` may emit only `banners > link`.

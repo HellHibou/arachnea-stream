@@ -194,6 +194,9 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
       currentCatalog.value.sections.length > 0 ||
       Boolean(custom?.categoryBlocks.value.length),
   )
+  const bannerTrailers = computed(() => currentCatalog.value.banners.entries.filter(
+    (banner) => banner.videoKind === 'trailer' && (banner.videoUrl || banner.player),
+  ))
   /**
    * Resolved background video URLs by banner id for banners whose trailer
    * requires asynchronous player resolution through `get_stream`.
@@ -287,11 +290,7 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
       let availableCount = 0
       let pendingBanner: HomeBanner | null = null
 
-      for (const banner of currentCatalog.value.banners.entries) {
-        if (!banner.videoUrl && !banner.player) {
-          continue
-        }
-
+      for (const banner of bannerTrailers.value) {
         if (banner.videoUrl || bannerBackgroundVideoSources.value[banner.id]) {
           availableCount += 1
           continue
@@ -336,7 +335,7 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
   watch(
     [
       () => parameters.useTrailerAsBackground.value,
-      () => currentCatalog.value.banners.entries,
+      bannerTrailers,
     ],
     () => {
       void resolvePendingBannerBackgroundVideos()
@@ -359,7 +358,7 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
     const items: BackgroundMediaCandidate[] = []
     const uniqueVideoUrls = new Set<string>()
 
-    for (const banner of currentCatalog.value.banners.entries) {
+    for (const banner of bannerTrailers.value) {
       const videoSource = resolvedSources[banner.id] ?? null
       const videoUrl = banner.videoUrl?.trim() || videoSource?.src || null
 
@@ -382,7 +381,7 @@ export function useHomeCatalog(options: UseHomeCatalogOptions) {
    * Background media candidates derived from banners and section thumbnail images.
    *
    * When trailer usage is enabled and at least one banner exposes a playable
-   * video, the banner videos (limited to five) replace the background images
+   * trailer, the banner trailers (limited to five) replace the background images
    * entirely. Otherwise, banner images are completed with section thumbnail
    * images up to {@link BACKGROUND_MEDIA_ITEMS_LIMIT} entries.
    * Deduplicates image URLs for the background media component.

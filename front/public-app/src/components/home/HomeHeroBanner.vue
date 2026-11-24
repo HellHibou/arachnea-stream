@@ -84,7 +84,9 @@ const bannerVideoPlayer = useTemplateRef<InstanceType<typeof VideoPlayer>>('bann
 const bannerVideoAspectRatio = shallowRef(DEFAULT_BANNER_VIDEO_ASPECT_RATIO)
 /** Whether the banner video is muted. */
 const isBannerVideoMuted = shallowRef(true)
+const bannerVideoVolume = shallowRef(1)
 const isBannerVideoPaused = shallowRef(readBannerVideoPaused())
+const isBannerIframeLoaded = shallowRef(false)
 /** Internationalization utilities. */
 const { t } = useI18n()
 
@@ -227,9 +229,19 @@ const activeBannerVideo = computed(() => {
   ) ? source : null
 })
 
+const showBannerVideoArea = computed(() => Boolean(activeBannerVideo.value || activeBanner.value?.videoImageUrl))
+
 const shouldRenderBannerVideo = computed(() =>
-  activeBannerVideo.value?.renderer === 'video' || !isBannerVideoPaused.value,
+  Boolean(activeBannerVideo.value && (activeBannerVideo.value.renderer === 'video' || !isBannerVideoPaused.value)),
 )
+
+const bannerVideoPosterUrl = computed(() => {
+  if (!shouldRenderBannerVideo.value || (activeBannerVideo.value?.renderer === 'iframe' && !isBannerIframeLoaded.value)) {
+    return activeBanner.value?.videoImageUrl ?? null
+  }
+
+  return null
+})
 
 /**
  * Returns a stable key that forces the active banner media element to remount when it changes.
@@ -244,6 +256,17 @@ const activeBannerMediaKey = computed(() => {
 
   return `${banner.id}:${source.renderer}:${source.src}`
 })
+
+watch([activeBannerMediaKey, isBannerVideoPaused], () => {
+  isBannerIframeLoaded.value = false
+})
+
+/** @param event Load event forwarded by the standalone renderer. */
+function handleBannerVideoLoad(event: Event) {
+  if (event.target instanceof HTMLIFrameElement) {
+    isBannerIframeLoaded.value = true
+  }
+}
 
 /**
  * Returns the icon that communicates the current banner video audio state.
@@ -372,6 +395,19 @@ function handleBannerVideoMetadataLoaded(dimensions: VideoJsMediaDimensions) {
  */
 function toggleBannerVideoSound() {
   isBannerVideoMuted.value = !isBannerVideoMuted.value
+}
+
+/**
+ * Adjusts the banner volume, retaining the last audible level when muted.
+ * @param event Input event from the volume slider.
+ */
+function handleBannerVideoVolumeInput(event: Event) {
+  const slider = event.currentTarget as HTMLInputElement
+  const volume = slider.valueAsNumber / 100
+  isBannerVideoMuted.value = volume === 0
+  if (volume > 0) {
+    bannerVideoVolume.value = volume
+  }
 }
 
 /** Reads the banner playback preference from this browser. */
@@ -504,12 +540,12 @@ onBeforeUnmount(stopAutoRotation)
   <section
     v-else-if="activeBanner"
     class="home-hero-banner"
-    :class="{ 'home-hero-banner--with-video': activeBannerVideo }"
+    :class="{ 'home-hero-banner--with-video': showBannerVideoArea }"
     :style="{ '--banner-video-ratio': bannerVideoAspectRatio }"
     :aria-label="activeBanner.title ?? t('catalog.featuredContent')"
   >
     <img
-      v-if="!activeBannerVideo && activeBanner.imageUrl"
+      v-if="activeBanner.imageUrl"
       class="home-hero-banner__image"
       :src="activeBanner.imageUrl"
       alt=""
@@ -528,7 +564,7 @@ onBeforeUnmount(stopAutoRotation)
 
     <div
       class="home-hero-banner__panel"
-      :class="{ 'home-hero-banner__panel--with-navigation': activeBannerVideo && props.banners.length > 1 }"
+      :class="{ 'home-hero-banner__panel--with-navigation': showBannerVideoArea && props.banners.length > 1 }"
     >
       <div class="home-hero-banner__content">
         <div class="home-hero-banner__text">
@@ -576,36 +612,38 @@ onBeforeUnmount(stopAutoRotation)
     </div>
 
     <div
-      v-if="activeBannerVideo"
+      v-if="showBannerVideoArea"
       class="home-hero-banner__video-area"
     >
       <VideoPlayer
-        v-if="shouldRenderBannerVideo"
+        v-if="activeBannerVideo && shouldRenderBannerVideo"
         ref="bannerVideoPlayer"
         :key="activeBannerMediaKey ?? undefined"
         :source="activeBannerVideo"
         class="home-hero-banner__video"
         :iframe-title="t('media.decorativeBannerVideo')"
-        :poster="activeBanner.imageUrl ?? undefined"
+        :poster="activeBanner.videoImageUrl ?? undefined"
         :autoplay="!isBannerVideoPaused"
         :muted="isBannerVideoMuted"
+        :volume="bannerVideoVolume"
         :loop="shouldLoopActiveBannerVideo"
         playsinline
         preload="auto"
         allow="autoplay; encrypted-media; picture-in-picture"
         :aria-hidden="true"
         :tab-index="-1"
+        @load="handleBannerVideoLoad"
         @playback-ended="handleBannerVideoPlaybackEnded"
         @video-metadata-loaded="handleBannerVideoMetadataLoaded"
       />
       <img
-        v-else-if="activeBanner.imageUrl"
+        v-if="bannerVideoPosterUrl"
         class="home-hero-banner__video-poster"
-        :src="activeBanner.imageUrl"
+        :src="bannerVideoPosterUrl"
         alt=""
       >
 
-      <div class="home-hero-banner__video-controls">
+      <div v-if="activeBannerVideo" class="home-hero-banner__video-controls">
         <button
           class="home-hero-banner__video-toggle"
           type="button"
@@ -614,15 +652,29 @@ onBeforeUnmount(stopAutoRotation)
         >
           <v-icon :icon="isBannerVideoPaused ? 'mdi-play' : 'mdi-pause'" size="22" aria-hidden="true" />
         </button>
-        <button
-          class="home-hero-banner__video-toggle"
-          type="button"
-          :aria-label="bannerVideoSoundLabel"
-          :aria-pressed="!isBannerVideoMuted"
-          @click="toggleBannerVideoSound"
-        >
-          <v-icon :icon="bannerVideoSoundIcon" size="22" aria-hidden="true" />
-        </button>
+        <div class="home-hero-banner__video-sound">
+          <button
+            class="home-hero-banner__video-toggle"
+            type="button"
+            :aria-label="bannerVideoSoundLabel"
+            :aria-pressed="!isBannerVideoMuted"
+            @click="toggleBannerVideoSound"
+          >
+            <v-icon :icon="bannerVideoSoundIcon" size="22" aria-hidden="true" />
+          </button>
+          <div v-if="activeBannerVideo.renderer === 'video'" class="home-hero-banner__volume-panel">
+            <input
+              class="home-hero-banner__volume-slider"
+              type="range"
+              min="0"
+              max="100"
+              aria-orientation="vertical"
+              :aria-label="t('catalog.bannerVolume')"
+              :value="isBannerVideoMuted ? 0 : Math.round(bannerVideoVolume * 100)"
+              @input="handleBannerVideoVolumeInput"
+            >
+          </div>
+        </div>
       </div>
     </div>
 

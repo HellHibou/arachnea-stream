@@ -85,8 +85,12 @@ export interface HomeBanner {
   logo: string | null
   /** Channel logo that replaces the provider logo on this banner. */
   sourceLogoUrl?: string
-  /** The URL for the background video, or null when the video requires player resolution. */
+  /** The URL for direct banner playback, or null when no direct source is available. */
   videoUrl: string | null
+  /** Whether the banner plays a trailer or the actual content. */
+  videoKind: 'trailer' | 'video'
+  /** The player poster shown before playback starts. */
+  videoImageUrl: string | null
   /** Optional player resolver used to obtain a playable stream via `get_stream`. */
   player: HomeBannerPlayer | null
   /** The source identifier for the banner content. */

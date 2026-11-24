@@ -275,6 +275,9 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
     installPosterImageErrorHandler(player, props.poster ?? undefined, markImageUrlFailed)
     player.controls(props.controls ?? false)
     player.loop(props.loop ?? false)
+    if (props.volume !== undefined) {
+      player.volume(props.volume)
+    }
     syncEpisodeAutoplayControl(player, props, emit, activePlayer)
     syncPrevNextVideoControls(player, {
       controls: props.controls ?? false,
@@ -654,6 +657,15 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
         return
       }
       syncExistingPlayerConfiguration(activePlayer.value)
+    },
+  )
+
+  watch(
+    () => props.volume,
+    (volume) => {
+      if (volume !== undefined) {
+        activePlayer.value?.volume(volume)
+      }
     },
   )
 
