@@ -1,20 +1,29 @@
+import { reportFrontendErrorNotification } from '@/composables/useErrorNotifications'
 import { t } from '@/i18n'
-import { formatLanguageLabel } from '@/services/languages'
+import { formatLanguageLabel, getBaseLanguageCode, getLanguageFlag, normalizeLanguageCode } from '@/services/languages'
 import type { ResolvedVideoMediaSource } from '@/services/players'
 import type { ResolvedPlayerSubtitle } from '@/types/entry'
+import { resolveChapterLabel } from './chapterMenu'
 import { positionControlBarMenu } from './controls'
 import { getDashSubtitleDownloads } from './dash/subtitleDownloads'
 import { captureVideoFrame, cleanFileName, downloadFile, ProtectedFrameError } from './downloads'
 import { discoverNativeHlsSubtitles, hlsSubtitleDownloads, readHlsSubtitleSources } from './hlsSubtitleDownloads'
-import type { SubtitleDownload } from './subtitleExport'
+import { createStoryboardArchive } from './storyboardExport'
+import { formatVttTime, type SubtitleDownload } from './subtitleExport'
 import { getSubtitleFileLabel } from './subtitles'
 import type { VideoJsPlayer } from './types'
 
+/** Minimum time a fast download keeps its status visible in the player. */
+const MIN_STATUS_VISIBLE_MS = 1_500
+
 interface DownloadItem {
   icon: string
+  iconClass?: string
   label: string
   run: (signal: AbortSignal) => Promise<void>
   failureKey: string
+  statusKey?: string
+  errorOperationKey?: string
   assembling?: boolean
   disabled?: boolean
 }
@@ -27,6 +36,7 @@ interface DownloadItem {
  * @param video Current Video.js tech element, if present.
  * @param protectedPlayback Whether the active stream or browser signals DRM.
  * @param subtitles Downloadable tracks discovered from the active player.
+ * @param duration Video duration in seconds, used by the sprite storyboard fallback.
  */
 function buildDownloadGroups(
   source: ResolvedVideoMediaSource,
@@ -35,6 +45,7 @@ function buildDownloadGroups(
   video: HTMLVideoElement | null,
   protectedPlayback: boolean,
   subtitles: SubtitleDownload[],
+  duration: number,
 ): DownloadItem[][] {
   const baseName = cleanFileName(
     source.fileName?.replace(/\s*\.(?:mp4|m4v|webm|ogg|ogv|m3u8|mpd)$/i, ''),
@@ -45,30 +56,68 @@ function buildDownloadGroups(
   const videoItems = mp4s.map(({ src, lang, quality }, index): DownloadItem => {
     const details = [lang && formatLanguageLabel(lang), quality].filter(Boolean).join(' · ')
     const variantLabel = mp4s.length > 1 ? details || String(index + 1) : ''
-    const suffix = [cleanFileName(playerLabel, ''), cleanFileName(variantLabel, '')].filter(Boolean).join('-')
-    const filename = suffix ? `${baseName}-${suffix}.mp4` : `${baseName}.mp4`
+    const suffix = [cleanFileName(playerLabel, ''), cleanFileName(variantLabel, '')].filter(Boolean).join(' - ')
+    const filename = suffix ? `${baseName} - ${suffix}.mp4` : `${baseName}.mp4`
     return {
       icon: 'video-outline',
       label: ['MP4', playerLabel, details || variantLabel].filter(Boolean).join(' · '),
+      statusKey: 'player.downloadMenu.downloadingVideo',
       run: () => downloadFile(src, filename, Boolean(suffix)),
       failureKey: 'player.downloadMenu.downloadFailed',
     }
   })
   const subtitleItems = subtitles.map(({ lang, label, link, extension, assemble }, index): DownloadItem => {
-    const trackLabel = label ?? lang ?? getSubtitleFileLabel(link) ?? t('player.downloadMenu.subtitle', { index: index + 1 })
-    const details = lang && trackLabel !== lang ? `${formatLanguageLabel(lang)} · ${trackLabel}` : trackLabel
+    const flag = getLanguageFlag(getBaseLanguageCode(normalizeLanguageCode(lang ?? null)))
+    const trackLabel = label ?? getSubtitleFileLabel(link) ?? t('player.downloadMenu.subtitle', { index: index + 1 })
+    const details = [flag, trackLabel].filter(Boolean).join(' ')
     return {
       icon: 'subtitles-outline',
       label: details,
       async run(signal) {
         const file = assemble ? await assemble(signal) : link
         signal.throwIfAborted()
-        await downloadFile(file, `${baseName}-${cleanFileName(lang, 'und')}-${cleanFileName(trackLabel, String(index + 1))}.${extension}`)
+        await downloadFile(file, `${baseName} - ${cleanFileName(lang, 'und')} - ${cleanFileName(trackLabel, String(index + 1))}.${extension}`)
       },
       assembling: Boolean(assemble),
       failureKey: 'player.downloadMenu.downloadFailed',
     }
   })
+  const metadataItems: DownloadItem[] = []
+  if (source.storyboardVttUrl || (source.storyboard && duration > 0)) {
+    metadataItems.push({
+      icon: 'image-multiple-outline',
+      label: t('player.downloadMenu.storyboard'),
+      statusKey: 'player.downloadMenu.downloadingStoryboard',
+      errorOperationKey: 'errors.notifications.operations.storyboardExport',
+      assembling: true,
+      async run(signal) {
+        const archive = await createStoryboardArchive(source, duration, signal)
+        signal.throwIfAborted()
+        await downloadFile(archive, `${baseName} - storyboard.zip`)
+      },
+      failureKey: 'player.downloadMenu.storyboardFailed',
+    })
+  }
+  const chapters = source.chapters
+  if (chapters?.length) {
+    metadataItems.push({
+      icon: 'bookmark-outline',
+      iconClass: 'vjs-download-icon-chapters',
+      label: t('player.downloadMenu.chapters'),
+      errorOperationKey: 'errors.notifications.operations.chapterExport',
+      async run(signal) {
+        const cues = chapters
+          .filter((chapter) => chapter.end > chapter.start)
+          .map((chapter) =>
+            `${formatVttTime(chapter.start)} --> ${formatVttTime(chapter.end)}\n${resolveChapterLabel(chapter)}`,
+          )
+        const vtt = new Blob(['WEBVTT\n\n', cues.join('\n\n'), '\n'], { type: 'text/vtt;charset=utf-8' })
+        signal.throwIfAborted()
+        await downloadFile(vtt, `${baseName} - chapters.vtt`)
+      },
+      failureKey: 'player.downloadMenu.chapterExportFailed',
+    })
+  }
   const screenshotItems: DownloadItem[] = protectedPlayback ? [] : [{
     icon: 'camera-outline',
     label: t('player.downloadMenu.screenshot'),
@@ -80,7 +129,7 @@ function buildDownloadGroups(
     },
     failureKey: 'player.downloadMenu.screenshotFailed',
   }]
-  return [videoItems, subtitleItems, screenshotItems].filter((group) => group.length > 0)
+  return [videoItems, subtitleItems, metadataItems, screenshotItems].filter((group) => group.length > 0)
 }
 
 /**
@@ -111,10 +160,11 @@ function readInjectedSubtitles(player: VideoJsPlayer, video: HTMLVideoElement | 
 /**
  * Creates a decorative icon using the font already loaded by the public app.
  * @param name Material Design Icons glyph name.
+ * @param customClass Optional class replacing the icon font for an SVG asset.
  */
-function createIcon(name: string): HTMLSpanElement {
+function createIcon(name: string, customClass?: string): HTMLSpanElement {
   const icon = document.createElement('span')
-  icon.className = `mdi mdi-${name}`
+  icon.className = customClass ?? `mdi mdi-${name}`
   icon.setAttribute('aria-hidden', 'true')
   return icon
 }
@@ -126,6 +176,7 @@ function createIcon(name: string): HTMLSpanElement {
  * @param getTitle Reader for the displayed media title.
  * @param getTranslation Reader for the current translated subtitle.
  * @param getPlayerLabel Reader for the selected player label, when applicable.
+ * @param setStatus Publishes or clears this menu's message in the shared player status.
  */
 export function installDownloadMenu(
   player: VideoJsPlayer,
@@ -133,6 +184,7 @@ export function installDownloadMenu(
   getTitle: () => string | null | undefined,
   getTranslation: () => ResolvedPlayerSubtitle | null,
   getPlayerLabel?: () => string | null | undefined,
+  setStatus?: (message: string | null) => void,
 ): { refreshLabel: () => void } | null {
   const playerElement = player.el()
   const controlBar = playerElement?.querySelector<HTMLElement>('.vjs-control-bar')
@@ -157,14 +209,10 @@ export function installDownloadMenu(
   wrapper.append(toggle, popup)
   controlBar.insertBefore(wrapper, controlBar.querySelector('.vjs-picture-in-picture-control, .vjs-fullscreen-control'))
 
-  const status = document.createElement('div')
-  status.className = 'vjs-download-status'
-  status.setAttribute('role', 'status')
-  playerElement.append(status)
   const listeners = new AbortController()
   const listenerOptions = { signal: listeners.signal }
-  let errorTimer: number | undefined
   let exportRequest: AbortController | null = null
+  let statusTimer: number | undefined
   let hlsDiscovery: AbortController | null = null
   let nativeHlsTracks: SubtitleDownload[] | null = null
   let rendering = false
@@ -189,14 +237,18 @@ export function installDownloadMenu(
   }
 
   /**
-   * Displays an action failure inside the player, including in fullscreen.
-   * @param key Localized error message key.
+   * Clears the player status and queues an action failure in the global error stack.
+   * @param key Localized failure message included in the notification details.
+   * @param error Original failure, used to explain the cause in the notification details.
+   * @param operationKey Localized operation label for the global notification.
    */
-  function reportFailure(key: string) {
+  function reportFailure(key: string, error?: unknown, operationKey = 'errors.notifications.operations.playerDownload') {
     if (listeners.signal.aborted) return
-    status.textContent = t(key)
-    window.clearTimeout(errorTimer)
-    errorTimer = window.setTimeout(() => { status.textContent = '' }, 5000)
+    window.clearTimeout(statusTimer)
+    setStatus?.(null)
+    if (error === undefined || error instanceof ProtectedFrameError) return
+    const reason = error instanceof Error ? error.message || error.name : String(error)
+    reportFrontendErrorNotification(t(operationKey), `${t(key)} — ${reason}`)
   }
 
   /**
@@ -206,20 +258,33 @@ export function installDownloadMenu(
   async function activate(item: DownloadItem) {
     if (item.disabled || (item.assembling && exportRequest)) return
     close(true)
+    window.clearTimeout(statusTimer)
     const controller = item.assembling ? new AbortController() : null
     let timeout: number | undefined
+    const startedAt = Date.now()
     if (controller) {
       exportRequest = controller
-      window.clearTimeout(errorTimer)
-      status.textContent = t('player.downloadMenu.preparingSubtitles')
-      timeout = window.setTimeout(() => controller.abort(new DOMException('Subtitle export timed out', 'TimeoutError')), 180_000)
+      setStatus?.(t(item.statusKey ?? 'player.downloadMenu.downloadingSubtitles'))
+      timeout = window.setTimeout(() => controller.abort(new DOMException('Download export timed out', 'TimeoutError')), 180_000)
+    } else if (item.statusKey) {
+      setStatus?.(t(item.statusKey))
     }
     try {
       await item.run(controller?.signal ?? listeners.signal)
-      if (controller && exportRequest === controller) status.textContent = ''
+      if (controller && exportRequest === controller) setStatus?.(null)
+      else if (!controller && item.statusKey) {
+        statusTimer = window.setTimeout(
+          () => setStatus?.(null),
+          Math.max(0, MIN_STATUS_VISIBLE_MS - (Date.now() - startedAt)),
+        )
+      }
     } catch (error) {
       if (controller && exportRequest !== controller) return
-      reportFailure(error instanceof ProtectedFrameError ? 'player.downloadMenu.screenshotProtected' : item.failureKey)
+      reportFailure(
+        error instanceof ProtectedFrameError ? 'player.downloadMenu.screenshotProtected' : item.failureKey,
+        error,
+        item.errorOperationKey,
+      )
     } finally {
       window.clearTimeout(timeout)
       if (controller && exportRequest === controller) exportRequest = null
@@ -246,7 +311,11 @@ export function installDownloadMenu(
       if (track.assemble || !subtitles.has(track.link)) subtitles.set(track.link, track)
     }
     const protectedPlayback = Boolean(source.licenseUrl || video?.mediaKeys || (video && encryptedVideo === video))
-    return buildDownloadGroups(source, getTitle(), getPlayerLabel?.(), video, protectedPlayback, [...subtitles.values()])
+    const playerDuration = player.duration()
+    const duration = typeof playerDuration === 'number' && Number.isFinite(playerDuration) && playerDuration > 0
+      ? playerDuration
+      : 0
+    return buildDownloadGroups(source, getTitle(), getPlayerLabel?.(), video, protectedPlayback, [...subtitles.values()], duration)
   }
 
   /**
@@ -293,7 +362,7 @@ export function installDownloadMenu(
         if (item.disabled) button.setAttribute('aria-disabled', 'true')
         const label = document.createElement('span')
         label.textContent = item.label
-        button.append(createIcon(item.icon), label)
+        button.append(createIcon(item.icon, item.iconClass), label)
         button.addEventListener('click', () => { void activate(item) })
         content.append(button)
       }
@@ -386,7 +455,7 @@ export function installDownloadMenu(
     nativeHlsTracks = null
     exportRequest?.abort()
     exportRequest = null
-    status.textContent = ''
+    setStatus?.(null)
   }
   const syncTextTracks = () => queueMicrotask(() => syncAvailability())
   type TrackEvents = Pick<EventTarget, 'addEventListener' | 'removeEventListener'>
@@ -413,14 +482,14 @@ export function installDownloadMenu(
   })
   player.on('loadedmetadata', onMetadata)
   player.on('loadeddata', onMetadata)
+  player.on('durationchange', onMetadata)
   player.on('dispose', () => {
     listeners.abort()
     closeOnLoad()
     textTracks?.removeEventListener('addtrack', syncTextTracks)
     textTracks?.removeEventListener('removetrack', syncTextTracks)
-    window.clearTimeout(errorTimer)
+    window.clearTimeout(statusTimer)
     wrapper.remove()
-    status.remove()
   })
   refreshLabel()
   onMetadata()

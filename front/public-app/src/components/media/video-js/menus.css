@@ -300,6 +300,17 @@
   font-size: 1.25em;
 }
 
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-download-item .vjs-download-icon-chapters) {
+  display: block;
+  width: 1.25em;
+  height: 1.25em;
+  flex: 0 0 auto;
+  background-image: url("@/assets/icons/chapters.svg");
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: contain;
+}
+
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-download-item:hover),
 .videojs-media-host :deep(.arachnea-videojs-theme .vjs-download-item:focus-visible) {
   background: color-mix(in srgb, var(--text-primary) 12%, transparent);
@@ -316,20 +327,4 @@
   margin: 0.25rem 0;
   border: 0;
   border-top: 1px solid var(--border-color-primary);
-}
-
-.videojs-media-host :deep(.arachnea-videojs-theme .vjs-download-status:not(:empty)) {
-  position: absolute;
-  z-index: 4;
-  right: 0.75rem;
-  bottom: 3.5rem;
-  left: 0.75rem;
-  width: fit-content;
-  margin-inline: auto;
-  padding: 0.5rem 0.75rem;
-  border-radius: 0.5rem;
-  background: var(--bg-surface-strong);
-  color: var(--text-primary);
-  font-size: var(--player-font-size);
-  pointer-events: none;
 }

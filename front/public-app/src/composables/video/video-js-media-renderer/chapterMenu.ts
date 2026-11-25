@@ -56,7 +56,7 @@ function formatChapterTimecode(seconds: number): string {
  * @param chapter Chapter rendered in the menu.
  * @returns Chapter title or localized type label.
  */
-function resolveChapterLabel(chapter: ResolvedVideoChapter): string {
+export function resolveChapterLabel(chapter: ResolvedVideoChapter): string {
   const title = chapter.title.trim()
 
   if (title) {

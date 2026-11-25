@@ -1,6 +1,7 @@
 import { readHlsSubtitleSources } from './video-js-media-renderer/hlsSubtitleDownloads'
 import { watch } from 'vue'
 
+import { reportFrontendErrorNotification } from '@/composables/useErrorNotifications'
 import { t } from '@/i18n'
 import {
   getBaseLanguageCode,
@@ -63,7 +64,18 @@ export interface UseSubtitleTranslationControllerOptions {
 export function useSubtitleTranslationController(
   options: UseSubtitleTranslationControllerOptions,
 ) {
-  const translation = useSubtitleTranslation({ host: options.host })
+  const translation = useSubtitleTranslation({
+    host: options.host,
+    onFailure: (failure) => {
+      const context = failure.status === null
+        ? `stage: ${failure.stage}`
+        : `stage: ${failure.stage}, HTTP ${failure.status}`
+      reportFrontendErrorNotification(
+        t('errors.notifications.operations.subtitleTranslation'),
+        `${failure.message} (${context})`,
+      )
+    },
+  })
 
   /** Whether a manual subtitle choice must keep automatic generation disabled. */
   let manualMode = false

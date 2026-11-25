@@ -1,12 +1,15 @@
 import { resolveAppPath } from '@/services/baseUrl'
 
 /**
- * Cleans a filename component while preserving Unicode titles and labels.
+ * Cleans a filename component for filesystem-safe use: strips diacritics,
+ * replaces reserved characters and removes trailing dots or spaces.
  * @param value Original metadata.
  * @param fallback Value used when the cleaned metadata is empty.
  */
 export function cleanFileName(value: string | null | undefined, fallback: string): string {
-  return value?.replace(/[<>:"/\\|?*]/g, '_')
+  return value?.normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .replace(/[<>:"/\\|?*]/g, '_')
     .replace(/[\u0000-\u001f]/g, '')
     .trim().replace(/[. ]+$/, '') || fallback
 }

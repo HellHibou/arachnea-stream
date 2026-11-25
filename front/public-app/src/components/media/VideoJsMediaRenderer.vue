@@ -7,7 +7,6 @@ import {
   type VideoJsMediaRendererProps,
 } from '@/composables/video/useVideoJsMediaRenderer'
 import { markImageUrlFailed, resolveImageUrl } from '@/composables/media/useFailedImageUrls'
-import { formatLanguageLabel, isKnownLanguageCode } from '@/services/languages'
 import { useI18n } from '@/i18n'
 
 import MediaCardDetailsContent from '@/components/media-card/MediaCardDetailsContent.vue'
@@ -72,6 +71,8 @@ const {
   storyboardPreviewSize,
   /** Direction of the prev/next control currently previewed, or null when none is. */
   previewedNavigationDirection,
+  /** Shared transient player status message, or null when none is active. */
+  playerStatus,
   /** Lifecycle state of the active translated subtitle request. */
   subtitleTranslationStatus,
   /** Last translated subtitle failure, or null. */
@@ -209,12 +210,6 @@ const previewedNavigationImageUrl = computed(() => {
     item.imageUrl,
   ])
 })
-
-/** Localized name of the subtitle translation target, or an empty string. */
-const subtitleTranslationLanguageLabel = computed(() => {
-  const language = subtitleTranslationLanguage.value
-  return language ? (isKnownLanguageCode(language) ? formatLanguageLabel(language) : language.toLocaleUpperCase()) : ''
-})
 </script>
 
 <template>
@@ -230,36 +225,14 @@ const subtitleTranslationLanguageLabel = computed(() => {
     />
 
     <div
-      v-if="isSubtitleTranslationLoading"
-      class="videojs-media-subtitle-translation"
+      v-if="playerStatus"
+      class="videojs-media-status"
       role="status"
       aria-live="polite"
       aria-atomic="true"
     >
-      <span class="videojs-media-subtitle-translation__spinner" aria-hidden="true" />
-      <span class="videojs-media-subtitle-translation__message">
-        {{ t('player.subtitleTranslation.loading', { language: subtitleTranslationLanguageLabel }) }}
-      </span>
-    </div>
-
-    <div
-      v-else-if="subtitleTranslationFailure"
-      class="videojs-media-subtitle-translation videojs-media-subtitle-translation--error"
-      role="alert"
-      aria-live="assertive"
-      aria-atomic="true"
-    >
-      <span class="videojs-media-subtitle-translation__message">
-        {{ subtitleTranslationFailure.message }}
-      </span>
-      <button
-        type="button"
-        class="videojs-media-subtitle-translation__dismiss"
-        :aria-label="t('player.subtitleTranslation.dismissError')"
-        @click="dismissSubtitleTranslationFailure"
-      >
-        ×
-      </button>
+      <span v-if="playerStatus.spinner" class="videojs-media-status__spinner" aria-hidden="true" />
+      <span class="videojs-media-status__message">{{ playerStatus.text }}</span>
     </div>
 
     <div

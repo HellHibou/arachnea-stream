@@ -499,6 +499,14 @@ Refreshing a media source object with the same video URL and subtitle tracks
 preserves an automatic or manual translation request while its catalog is
 loading. Changes to the video URL or subtitle tracks still invalidate that work.
 
+Subtitle translation progress and download progress share one status area above
+the controls. Translation takes priority while it is preparing or downloading,
+and a concurrent download message reappears only after translation finishes.
+The status drops to the lower position, like the skip-chapter buttons, when the
+control bar is hidden. Translation failures are not rendered in the player:
+they are queued in the global error notification stack with their stage and
+HTTP status.
+
 The renderer keeps its automatic subtitle evaluation callback across Video.js
 instance cleanup. Track preferences trigger evaluation on the first player
 creation and after a recreation, while pending requests and instance listeners
@@ -514,7 +522,11 @@ renditions from VHS or the master playlist. It assembles finite HLS WebVTT
 renditions and DASH WebVTT (`wvtt`) and text TTML (`stpp`) fragments into a
 complete WebVTT file on demand, independently of the current playback position
 and subtitle selection. DASH text TTML exports preserve text and timing.
-Standalone files retain their original format.
+Standalone files retain their original format. Starting a download shows a
+localized status in the player: `Downloading the video file…` for MP4 variants
+and the relevant downloading message for assembled or archived exports. The
+status stays visible briefly even when the browser starts the download
+immediately.
 
 Segmented exports require a finite, readable, unencrypted subtitle rendition.
 In-band captions without a separate rendition and bitmap TTML tracks cannot
@@ -523,12 +535,32 @@ at its native resolution. The menu omits this item when the active stream
 declares DRM or the browser signals encrypted playback. The download button
 is hidden when the menu has no actions.
 
-Downloads use the player-supplied filename when present, or the content title.
-MP4 filenames include the displayed player label when multiple players are
-available, and the variant label when multiple MP4 versions are offered.
-Subtitles use `<video-name>-<language>-<label>` with their file extension and
-`und` for an unknown language. Cross-origin files require browser-readable
-access when the player fetches them. Odysee MP4 downloads use the application
+When the source exposes a storyboard, the menu also offers a ZIP archive of its
+sprite images. The player reads the storyboard WebVTT when available, and
+otherwise enumerates the declared sprite template using the video duration and
+grid. Each sprite image is archived unchanged as `sprite-0001.jpg`,
+`sprite-0002.jpg`, and so on, with its original format extension. A generated
+`storyboard.vtt` keeps every cue's `#xywh=` cell geometry but points to those
+local files, so sprites holding several thumbnails work without re-encoding.
+The archive is saved as `<video-name> - storyboard.zip`. The option stays hidden
+when neither a storyboard VTT nor a usable sprite template with a finite
+duration is available. The same menu group also exports the source chapters as
+`<video-name> - chapters.vtt` when chapters are available; untitled chapters use
+their localized type label (`Intro`, `Ad`, ...). Sprite images must be readable
+by the browser, like any cross-origin download. Failures are only queued in the
+application's global error notification stack, where the technical details
+include the reason the export failed; the player only shows the shared transient
+status.
+
+Download filenames start with the player-supplied filename when present.
+Otherwise they use the entry title, or `<entry title> - <episode title>` when a
+distinct episode is selected. Additional parts are joined with ` - ` (spaces
+included), and diacritics are removed while filesystem-reserved characters are
+replaced, so names stay portable. MP4 filenames include the displayed player
+label when multiple players are available, and the variant label when multiple
+MP4 versions are offered. Subtitles use `<video-name> - <language> - <label>`
+with their file extension and `und` for an unknown language. Cross-origin files
+require browser-readable access when the player fetches them. Odysee MP4 downloads use the application
 media proxy to keep signed redirects on the same origin. Downloads without an
 added label retain Odysee's attachment filename.
 Frame capture depends on browser access to the decoded frame.

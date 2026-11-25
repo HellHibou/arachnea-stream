@@ -373,11 +373,17 @@
     "streamAutomatic": "Automatique",
     "downloadMenu": {
       "label": "Téléchargements",
+      "downloadingVideo": "Téléchargement du fichier vidéo…",
       "subtitle": "Sous-titre {index}",
       "screenshot": "Prendre une capture d’écran",
       "screenshotFailed": "Impossible de capturer cette image de la vidéo.",
       "screenshotProtected": "Cette image est indisponible pour la capture pendant la lecture protégée.",
-      "preparingSubtitles": "Préparation des sous-titres…",
+      "storyboard": "Télécharger le storyboard",
+      "downloadingStoryboard": "Téléchargement du storyboard…",
+      "storyboardFailed": "Impossible de préparer l’archive du storyboard.",
+      "chapters": "Télécharger les chapitres",
+      "chapterExportFailed": "Impossible de préparer le fichier des chapitres.",
+      "downloadingSubtitles": "Téléchargement des sous-titres…",
       "downloadFailed": "Impossible de télécharger ce fichier."
     },
     "controls": {
@@ -430,8 +436,7 @@
     },
     "subtitleTranslation": {
       "trackLabel": "{englishName} - {nativeName} (Traduction automatique)",
-      "loading": "Traduction des sous-titres en {language}…",
-      "dismissError": "Masquer l’erreur de traduction des sous-titres"
+      "loading": "Traduction des sous-titres en {language}…"
     }
   },
   "live": {
@@ -518,7 +523,11 @@
       "operations": {
         "catalogLoad": "le chargement du catalogue d'accueil",
         "customHomeContent": "la résolution des références de l'accueil personnalisé",
-        "customHomeDefinition": "le chargement de l'accueil personnalisé"
+        "customHomeDefinition": "le chargement de l'accueil personnalisé",
+        "playerDownload": "le téléchargement d'un média du lecteur",
+        "storyboardExport": "la préparation de l'archive du storyboard",
+        "chapterExport": "la préparation du fichier des chapitres",
+        "subtitleTranslation": "la traduction des sous-titres"
       }
     }
   },

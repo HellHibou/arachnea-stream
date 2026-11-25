@@ -373,11 +373,17 @@
     "streamAutomatic": "Automatic",
     "downloadMenu": {
       "label": "Downloads",
+      "downloadingVideo": "Downloading the video file…",
       "subtitle": "Subtitle {index}",
       "screenshot": "Take a screenshot",
       "screenshotFailed": "Could not capture this video frame.",
       "screenshotProtected": "This frame is unavailable for capture during protected playback.",
-      "preparingSubtitles": "Preparing subtitles…",
+      "storyboard": "Download storyboard",
+      "downloadingStoryboard": "Downloading storyboard…",
+      "storyboardFailed": "Could not prepare the storyboard archive.",
+      "chapters": "Download chapters",
+      "chapterExportFailed": "Could not prepare the chapters file.",
+      "downloadingSubtitles": "Downloading subtitles…",
       "downloadFailed": "Could not download this file."
     },
     "controls": {
@@ -430,8 +436,7 @@
     },
     "subtitleTranslation": {
       "trackLabel": "{englishName} - {nativeName} (Automatic translation)",
-      "loading": "Translating subtitles into {language}…",
-      "dismissError": "Dismiss subtitle translation error"
+      "loading": "Translating subtitles into {language}…"
     }
   },
   "live": {
@@ -518,7 +523,11 @@
       "operations": {
         "catalogLoad": "loading the home catalog",
         "customHomeContent": "resolving custom home references",
-        "customHomeDefinition": "loading the custom home"
+        "customHomeDefinition": "loading the custom home",
+        "playerDownload": "downloading player media",
+        "storyboardExport": "preparing the storyboard archive",
+        "chapterExport": "preparing the chapters file",
+        "subtitleTranslation": "translating subtitles"
       }
     }
   },

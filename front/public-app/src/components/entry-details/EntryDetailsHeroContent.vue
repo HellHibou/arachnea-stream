@@ -70,6 +70,16 @@ const activeMediaSource = computed(() => {
 
 /** Component props without defaults. */
 const props = defineProps<Props>()
+
+/** Builds the download filename prefix from the main title and the selected episode title. */
+const downloadTitle = computed(() => {
+  if (!props.showMediaPlayer) return null
+  const mainTitle = props.displayTitle.trim()
+  const episodeTitle = props.selectedPlayableTitle?.trim()
+  if (!episodeTitle || episodeTitle === mainTitle) return mainTitle
+  return `${mainTitle} - ${episodeTitle}`
+})
+
 const emit = defineEmits<{
   /** Emitted when navigating to adjacent playable entries. */
   'step-playable': [offset: -1 | 1]
@@ -153,7 +163,7 @@ function handleAutoplayStep(offset: -1 | 1) {
 
 <VideoPlayer
         :display-title="displayTitle"
-        :download-title="showMediaPlayer ? selectedPlayableTitle : null"
+        :download-title="downloadTitle"
         :show-trailer-player="showTrailerPlayer"
         :show-media-player="showMediaPlayer"
         :media-source="activeMediaSource"

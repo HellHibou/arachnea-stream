@@ -8,6 +8,7 @@ import 'videojs-hotkeys'
 import 'videojs-sprite-thumbnails'
 import { onBeforeUnmount, shallowRef, watch } from 'vue'
 
+import { formatLanguageLabel, isKnownLanguageCode } from '@/services/languages'
 import type { ResolvedVideoMediaSource } from '@/services/players'
 import { useStorage } from '@/services/storage'
 import { t } from '@/i18n'
@@ -49,6 +50,7 @@ import { createVariantController } from './video-js-media-renderer/variantContro
 import { installVariantMenus } from './video-js-media-renderer/variantMenus'
 import { installVariantFailureHandling } from './video-js-media-renderer/variantFailures'
 import { createPlayerUiState } from './video-js-media-renderer/playerUiState'
+import { createPlayerStatus } from './video-js-media-renderer/playerStatus'
 import type { VideoJsTrackSelectionConfig } from './video-js-media-renderer/trackPreferences'
 import { useSubtitleTranslationController } from './useSubtitleTranslationController'
 import { installAudioMenuFlags, installSubtitleTranslationMenu } from './video-js-media-renderer/subtitleTranslationMenu'
@@ -60,6 +62,17 @@ export type {
 } from '@/composables/video/video-js-media-renderer/types'
 
 export type { VideoJsSourceInput } from '@/composables/video/video-js-media-renderer/types'
+
+/**
+ * Builds the localized translation status message for one target language.
+ * @param language Translation target language code, or null.
+ * @returns Localized message, or null when no target is known.
+ */
+function translationStatusText(language: string | null): string | null {
+  if (!language) return null
+  const label = isKnownLanguageCode(language) ? formatLanguageLabel(language) : language.toLocaleUpperCase()
+  return t('player.subtitleTranslation.loading', { language: label })
+}
 
 /**
  * Manages the lifecycle and UI integration of one Video.js renderer instance.
@@ -107,6 +120,7 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
     getSource: () => activeSource.value,
     hasControls: () => props.controls ?? false,
   })
+  const playerStatus = createPlayerStatus()
   let refreshSubtitleTranslationMenu: (() => void) | null = null
   let refreshDownloadMenuLabel: (() => void) | undefined
   let disposeSubtitleTranslationMenu: (() => void) | null = null
@@ -187,6 +201,20 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
     onMenuInvalidated: () => refreshSubtitleTranslationMenu?.(),
   })
   evaluateSubtitleTranslation = subtitleTranslation.evaluateAuto
+
+  watch(
+    () => [subtitleTranslation.status.value, subtitleTranslation.targetLanguage.value] as const,
+    ([status, language]) => {
+      if (status !== 'preparing' && status !== 'downloading') {
+        playerStatus.clear('translation')
+        return
+      }
+      const text = translationStatusText(language)
+      if (text) playerStatus.set('translation', text, true)
+      else playerStatus.clear('translation')
+    },
+    { immediate: true },
+  )
 
   watch(
     () => storage.trackPreferencesRevision,
@@ -393,6 +421,10 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
           () => props.downloadTitle ?? props.videoAriaLabel,
           sources.getDownloadableTranslation,
           () => props.downloadPlayerLabel,
+          (message) => {
+            if (message) playerStatus.set('download', message, true)
+            else playerStatus.clear('download')
+          },
         )?.refreshLabel
       }
       if (props.controls && typeof player.hotkeys === 'function') {
@@ -776,6 +808,7 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
     storyboardPreviewSize: storyboard.storyboardPreviewSize,
     vttStoryboardGrid: storyboard.vttStoryboardGrid,
     previewedNavigationDirection: ui.previewedNavigationDirection,
+    playerStatus: playerStatus.current,
     subtitleTranslationStatus: subtitleTranslation.status,
     subtitleTranslationFailure: subtitleTranslation.failure,
     subtitleTranslationLanguage: subtitleTranslation.targetLanguage,
