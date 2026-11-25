@@ -32,9 +32,14 @@ const routes: RouteRecordRaw[] = [
     props: (route) => ({ sourceId: readRouteParam(route.params.sourceId) }),
   },
   {
+    path: '/sources',
+    name: 'sources',
+    component: () => import('@/views/SourcesView.vue'),
+  },
+  {
     path: '/',
     name: 'home',
-    component: () => import('@/views/HomeView.vue'),
+    component: () => import('@/views/SourcesView.vue'),
   },
   {
     path: '/search',

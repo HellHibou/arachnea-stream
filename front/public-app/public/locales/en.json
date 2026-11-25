@@ -83,9 +83,22 @@
   },
   "sourceHome": {
     "select": "Home source",
-    "all": "All sources",
     "unavailable": "This source is unknown, unavailable or does not support a home catalog.",
-    "retry": "Retry"
+    "loading": "Loading sources...",
+    "noSources": "No video source is available.",
+    "noMetadata": "No metadata available.",
+    "retry": "Retry",
+    "metadataLabels": {
+      "languages": "Languages",
+      "geo_countries": "Countries",
+      "content_types": "Content"
+    },
+    "contentTypes": {
+      "local_tv": "Local TV",
+      "movies": "Movies",
+      "series": "Series",
+      "documentaries": "Documentaries"
+    }
   },
   "filters": {
     "all": "All",
@@ -191,7 +204,7 @@
   "settings": {
     "defaultHome": "Default home",
     "aggregatedHome": "All",
-    "missingDefaultHome": "Unavailable home — falls back to the aggregated home",
+    "missingDefaultHome": "Unavailable home — falls back to the source list",
     "ariaLabel": "Settings",
     "administration": "Administration",
     "openAdministration": "Open administration",

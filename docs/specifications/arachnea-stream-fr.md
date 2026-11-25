@@ -207,8 +207,11 @@ Tauri : `invoke('load_home', { sources: ['example-source'] })`. L'omission et le
 vide sont distincts. L'enveloppe et la provenance restent inchangées ; les
 `sources` de `get_category` conservent leur signification de descripteurs.
 
-Le frontend conserve `/` agrégé et expose `/sources/:sourceId` pour les homes
-isolées. Le sélecteur découvre les métadonnées sans précharger chaque home.
+Le frontend public utilise `/sources` pour une vue d'ensemble des sources
+annonçant `load_home` et expose `/source/:sourceId` pour les accueils de source
+isolés. Le lien de navigation `Accueil` ouvre toujours `/sources`, tandis que
+`/` résout l'accueil par défaut du profil. Il découvre les métadonnées sans
+précharger chaque accueil de fournisseur.
 Les signets sont filtrés par source ; les préférences de sections sont écrites
 sous `source:<identifiant-source-encodé>:<clé-héritée>` dans le magasin IndexedDB
 existant, avec les styles hérités comme repli de lecture uniquement. Aucun

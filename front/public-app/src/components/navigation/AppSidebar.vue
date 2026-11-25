@@ -19,7 +19,7 @@ const { t } = useI18n()
   <nav :aria-label="t('navigation.label')" class="app-sidebar">
     <section :aria-label="t('navigation.homes')">
       <div class="app-sidebar__heading-row">
-        <RouterLink class="sidebar-link" :to="{ name: 'home' }" @click="emit('navigate')">
+        <RouterLink class="sidebar-link" :to="{ name: 'sources' }" @click="emit('navigate')">
           <v-icon icon="mdi-home-outline" size="20" aria-hidden="true" /><strong>{{ t('navigation.homes') }}</strong>
         </RouterLink>
         <button v-if="editingEnabled" class="app-sidebar__edit" type="button" :aria-label="t('customHome.manage')" :title="t('customHome.manage')"

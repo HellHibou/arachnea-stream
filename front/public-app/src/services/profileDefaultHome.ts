@@ -4,7 +4,7 @@ import { requireProfileContext, type ProfileContext } from '@/services/profileCo
 
 const current = shallowRef<string | null>(null)
 let snapshot: StreamingSnapshot['streaming'] = null
-/** Confirmed profile-owned default home; null opens the aggregated landing page. */
+/** Confirmed profile-owned default home; null opens the all-sources overview page. */
 export const profileDefaultHomeId = readonly(current)
 /** Reads the default home from the streaming snapshot. @param context Captured profile context. */
 export async function loadDefaultHome(context?: ProfileContext): Promise<string | null> {

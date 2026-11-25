@@ -967,6 +967,7 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- A source overview page at `/sources` lists every source advertising `load_home`: each source renders as a landscape logo-and-title card linking to `/source/:sourceId`, and hovering or focusing a card opens the media-card-style anchored preview with the service title and localized metadata facts (languages, countries, content types and any additional field). The sidebar `Accueil`/`Home` link always opens this overview, while `/` and the brand link still resolve the profile's configured default home. The page uses the existing `Video Services` navigation label, reuses the session service-metadata registry, reports discovery errors with a retry action, and exposes loading and empty states. The unavailable-default-home fallback still points to the source list instead of the former aggregated home.
 - Native banner videos now have a vertical volume slider below the mute button, available on hover and keyboard focus.
 - Added a play/pause button to banner videos, with the playback preference saved in the browser.
 

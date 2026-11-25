@@ -114,7 +114,7 @@ export interface VideoPlayerPreferences {
  * Props accepted by the search display parameters component.
  */
 export interface Parameters {
-  /** Stable custom home id; null keeps the aggregated landing page. */
+  /** Stable custom home id; null opens the all-sources overview page. */
   defaultHomeId: Ref<string | null>
   /**
    * Thumbnail orientation applied to search results.

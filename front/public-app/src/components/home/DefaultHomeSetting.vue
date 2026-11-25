@@ -10,7 +10,7 @@ const manager = useCustomHomeManager()
 const { t } = useI18n()
 const inputId = useId()
 onMounted(() => { void manager.refresh(); void loadDefaultHome().catch(reportPersonalDataFailure) })
-/** @param event Native selection; empty means aggregated home. */
+/** @param event Native selection; empty means the all-sources overview. */
 function update(event: Event): void {
   void saveDefaultHome((event.target as HTMLSelectElement).value || null).catch(reportPersonalDataFailure)
 }

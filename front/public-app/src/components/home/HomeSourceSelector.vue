@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import { useServiceMetadata } from '@/composables/useServiceMetadata'
 import { useI18n } from '@/i18n'
 
-/** Active source from the route; null selects the aggregated home. */
+/** Active source from the route; null selects the all-sources overview. */
 const props = defineProps<{ sourceId: string | null }>()
 const { t } = useI18n()
 const router = useRouter()
@@ -13,7 +13,7 @@ const availableSources = computed(() => services.value.filter((service) => servi
 const activeService = computed(() => getService(props.sourceId))
 const unavailable = computed(() => props.sourceId !== null && !isLoading.value && !availableSources.value.some((service) => service.id === props.sourceId))
 const choices = computed(() => [
-  { title: t('sourceHome.all'), value: '' },
+  { title: t('navigation.sources'), value: '' },
   ...availableSources.value.map((service) => ({ title: service.title, value: service.id })),
   ...(unavailable.value ? [{ title: activeService.value?.title ?? props.sourceId ?? '', value: props.sourceId ?? '' }] : []),
 ])

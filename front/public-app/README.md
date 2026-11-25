@@ -128,11 +128,16 @@ play only in the banner. Their artwork remains eligible for image backgrounds.
 Category pages use section thumbnails as background images only when the
 category has no usable banner image.
 
-`/` keeps the aggregated catalog. `/source/:sourceId` loads only the exact
-backend source selected by the route. The navigation source group uses service
-metadata and registry-derived `supported_queries`, without loading every
-provider home. Direct links, reloads and browser history preserve the selection.
-Unknown/unavailable sources never fall back to the aggregated catalog.
+`/sources` lists every source advertising `load_home` as landscape
+logo-and-title cards instead of loading an aggregated catalog. Hovering or
+focusing a card opens the same anchored preview style as media cards, showing
+the service title and its metadata facts. `/` resolves the profile’s configured
+default home, and the sidebar `Accueil`/`Home` link always opens `/sources`.
+`/source/:sourceId` loads only the exact backend source selected by the route.
+The navigation source group uses service metadata and registry-derived
+`supported_queries`, without loading every provider home. Direct links, reloads
+and browser history preserve the selection. Unknown/unavailable sources never
+fall back to the source list or another source home.
 
 Source homes display their own bookmarks only. Section order and preference
 writes use profile-local, source-scoped keys through the authenticated server API.
@@ -226,8 +231,9 @@ Custom-home screens also omit the duplicate title above the hero. Hero pins foll
 the service logo; toolbar context icons are vertically centered independently of
 the shared brand-text offset. Current navigation entries and Lives are bold.
 Navigation groups are Home/Accueil and Video Services/Services Vidéo, with indented single-line children
-and their home/projector icons. Clicking Home/Accueil navigates to the configured
-default home and its children remain visible; only Video Services is collapsible.
+and their home/projector icons. Clicking Home/Accueil opens the source overview and its
+children remain visible; the brand link and `/` still use the configured default
+home. Only Video Services is collapsible.
 Missing references are reported through the shared notification stack without
 same-title substitution; remove and re-add the content to repair it. Partial failures
 leave successful blocks usable, with targeted hydration retry. Category-level
@@ -309,7 +315,7 @@ never persisted as content identities. When a displayed rail groups several sect
 with the same preference key, all unambiguous source-owned references are added.
 References are copied, not linked to the originating custom home. Advanced options
 remain in the home editor. Only custom homes support configurable content order;
-source and aggregated catalogs ignore legacy pin order without deleting preferences.
+source catalogs ignore legacy pin order without deleting preferences.
 Compact translucent pin actions share one style. Category cards remain navigation
 links without individual pins. The sidebar heading has an edit icon
 instead of a separate management row. The Home icon is shown only at the group heading,

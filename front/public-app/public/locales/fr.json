@@ -83,9 +83,22 @@
   },
   "sourceHome": {
     "select": "Source de la page d'accueil",
-    "all": "Toutes les sources",
     "unavailable": "Cette source est inconnue, indisponible ou ne propose pas de page d'accueil.",
-    "retry": "Réessayer"
+    "loading": "Chargement des sources...",
+    "noSources": "Aucune source vidéo n'est disponible.",
+    "noMetadata": "Aucune métadonnée disponible.",
+    "retry": "Réessayer",
+    "metadataLabels": {
+      "languages": "Langues",
+      "geo_countries": "Pays",
+      "content_types": "Contenu"
+    },
+    "contentTypes": {
+      "local_tv": "TV locale",
+      "movies": "Films",
+      "series": "Séries",
+      "documentaries": "Documentaires"
+    }
   },
   "filters": {
     "all": "Tout",
@@ -191,7 +204,7 @@
   "settings": {
     "defaultHome": "Accueil par défaut",
     "aggregatedHome": "Tout",
-    "missingDefaultHome": "Accueil indisponible — retour à l’accueil agrégé",
+    "missingDefaultHome": "Accueil indisponible — retour à la liste des sources",
     "ariaLabel": "Parametres",
     "administration": "Administration",
     "openAdministration": "Ouvrir l’administration",

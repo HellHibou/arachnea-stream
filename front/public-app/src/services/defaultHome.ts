@@ -4,7 +4,7 @@ import type { RouteLocationRaw } from 'vue-router'
 import { customHomeRoute } from '@/services/customHomeRoute'
 import { reportPersonalDataFailure } from '@/services/personalDataStatus'
 
-/** @returns The selected profile’s default home, or the aggregated landing page. */
+/** @returns The selected profile’s default home, or the all-sources overview page. */
 export async function resolveDefaultHomeRoute(): Promise<RouteLocationRaw> {
   try {
     const id = await loadDefaultHome()

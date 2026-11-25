@@ -201,8 +201,11 @@ Tauri uses `invoke('load_home', { sources: ['example-source'] })`. Omitting the 
 differs from passing an empty array. The response shape and source provenance
 remain unchanged; `get_category.sources` retains its descriptor-based meaning.
 
-The public frontend keeps `/` aggregated and exposes `/sources/:sourceId` for
-isolated source homes. The selector discovers metadata, not every provider home.
+The public frontend uses `/sources` for an overview of the sources advertising
+`load_home` and exposes `/source/:sourceId` for isolated source homes. The
+sidebar `Accueil`/`Home` link always opens `/sources`, while `/` resolves the
+profile's configured default home. It discovers metadata without loading every
+provider home.
 Source-home bookmarks are filtered by source; section preference writes use
 `source:<encoded-source-id>:<legacy-key>` in the existing additive IndexedDB
 store, with legacy styles as read-only fallback. Existing global preferences

@@ -87,7 +87,7 @@ function updateCategoryChannel(categoryToken: string, channel: ChannelAttributio
 /**
  * Indicates whether the generic back button should be visible for the current route.
  */
-const showBackButton = computed(() => route.name !== 'home')
+const showBackButton = computed(() => route.name !== 'home' && route.name !== 'sources')
 
 /**
  * Indicates whether the app-level background layer should be rendered.
