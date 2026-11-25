@@ -504,6 +504,35 @@ instance cleanup. Track preferences trigger evaluation on the first player
 creation and after a recreation, while pending requests and instance listeners
 are still released during cleanup.
 
+### Video player downloads
+
+The Video.js control bar offers MP4 downloads when the player provides a file
+variant, including during HLS or DASH playback. The same menu lists remote and
+injected subtitle files, including the current generated translation. It reads
+DASH subtitle tracks from the manifest loaded by dash.js and HLS subtitle
+renditions from VHS or the master playlist. It assembles finite HLS WebVTT
+renditions and DASH WebVTT (`wvtt`) and text TTML (`stpp`) fragments into a
+complete WebVTT file on demand, independently of the current playback position
+and subtitle selection. DASH text TTML exports preserve text and timing.
+Standalone files retain their original format.
+
+Segmented exports require a finite, readable, unencrypted subtitle rendition.
+In-band captions without a separate rendition and bitmap TTML tracks cannot
+be exported by this menu. The last item saves the current video frame as a PNG
+at its native resolution. The menu omits this item when the active stream
+declares DRM or the browser signals encrypted playback. The download button
+is hidden when the menu has no actions.
+
+Downloads use the player-supplied filename when present, or the content title.
+MP4 filenames include the displayed player label when multiple players are
+available, and the variant label when multiple MP4 versions are offered.
+Subtitles use `<video-name>-<language>-<label>` with their file extension and
+`und` for an unknown language. Cross-origin files require browser-readable
+access when the player fetches them. Odysee MP4 downloads use the application
+media proxy to keep signed redirects on the same origin. Downloads without an
+added label retain Odysee's attachment filename.
+Frame capture depends on browser access to the decoded frame.
+
 The REST server and desktop application embed the frontend in their executable.
 After `npm run build-only` in `front/public-app/`, rebuild the executable with
 `cargo build -p arachnea-stream --bin arachnea` in `server/`, restart the running

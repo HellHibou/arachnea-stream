@@ -371,6 +371,15 @@
     "streamQuality": "Qualité",
     "streamLanguage": "Langue",
     "streamAutomatic": "Automatique",
+    "downloadMenu": {
+      "label": "Téléchargements",
+      "subtitle": "Sous-titre {index}",
+      "screenshot": "Prendre une capture d’écran",
+      "screenshotFailed": "Impossible de capturer cette image de la vidéo.",
+      "screenshotProtected": "Cette image est indisponible pour la capture pendant la lecture protégée.",
+      "preparingSubtitles": "Préparation des sous-titres…",
+      "downloadFailed": "Impossible de télécharger ce fichier."
+    },
     "controls": {
       "audioTrack": "Piste audio",
       "subtitles": "Sous-titres",

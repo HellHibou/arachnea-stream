@@ -21,6 +21,10 @@ export interface VideoJsMediaRendererProps {
    * Resolved media source rendered through the integrated Video.js player.
    */
   source: ResolvedVideoMediaSource
+  /** Content title used when the source provides no filename. @default null */
+  downloadTitle?: string | null
+  /** Displayed label of the selected player when multiple players are available. @default null */
+  downloadPlayerLabel?: string | null
   /**
    * Accessible label applied to the interactive video element.
    * @default null

@@ -255,3 +255,81 @@
   max-width: 100%;
   white-space: normal;
 }
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-download-menu) {
+  order: 54;
+  position: relative;
+  flex: 0 0 auto;
+  height: 100%;
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-download-toggle) {
+  display: grid;
+  width: var(--videojs-icon-control-width);
+  height: 100%;
+  place-items: center;
+  font-size: 1.6rem;
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-control-bar:has(.vjs-download-menu .vjs-lock-showing)) {
+  opacity: 1;
+  pointer-events: auto;
+  transition: none;
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-download-menu .vjs-menu-content) {
+  box-sizing: border-box;
+  width: max-content;
+  min-width: 0;
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-download-item) {
+  display: flex;
+  width: 100%;
+  padding: 0.45rem 0.65rem;
+  align-items: center;
+  gap: 0.5em;
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: var(--player-font-size);
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-download-item .mdi) {
+  font-size: 1.25em;
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-download-item:hover),
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-download-item:focus-visible) {
+  background: color-mix(in srgb, var(--text-primary) 12%, transparent);
+  color: var(--text-primary);
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-download-item[aria-disabled="true"]) {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-download-menu hr) {
+  height: 0;
+  margin: 0.25rem 0;
+  border: 0;
+  border-top: 1px solid var(--border-color-primary);
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-download-status:not(:empty)) {
+  position: absolute;
+  z-index: 4;
+  right: 0.75rem;
+  bottom: 3.5rem;
+  left: 0.75rem;
+  width: fit-content;
+  margin-inline: auto;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  background: var(--bg-surface-strong);
+  color: var(--text-primary);
+  font-size: var(--player-font-size);
+  pointer-events: none;
+}

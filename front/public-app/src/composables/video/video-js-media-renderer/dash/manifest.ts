@@ -1,6 +1,7 @@
 import videojsDashModule from 'videojs-contrib-dash'
 
 import { DASH_EVENTS } from './events'
+import { updateDashSubtitleDownloads } from './subtitleDownloads'
 import type {
   VideoJsDashMediaPlayerHandle,
   VideoJsPlayer,
@@ -273,20 +274,22 @@ export function mergeSwitchableVideoManifestAdaptationSets(manifest: unknown): v
 }
 
 /**
- * Merges the switchable adaptation sets of the freshly loaded manifest.
+ * Merges switchable adaptation sets and records standalone subtitle files.
  *
  * The public `manifestLoaded` event is triggered while the parsed manifest is stored
  * and before the internal stream composition reads it, so mutating the manifest object
  * is reflected in the composed streams.
  *
+ * @param mediaPlayer dash.js engine that loaded the manifest.
  * @param event dash.js manifest loaded event carrying the parsed manifest under `data`.
  */
-function handleSwitchableManifestAdaptationSets(event: Record<string, unknown>): void {
+function handleManifestLoaded(mediaPlayer: VideoJsDashMediaPlayerHandle, event: Record<string, unknown>): void {
   mergeSwitchableVideoManifestAdaptationSets(event.data)
+  updateDashSubtitleDownloads(mediaPlayer, event.data)
 }
 
 // Register the merge before each DASH engine initialization so the manifest listener
 // exists before the first manifest load of every source, regardless of bridge timing.
 videojsDash.hook('beforeinitialize', (_player, mediaPlayer) => {
-  mediaPlayer.on(DASH_EVENTS.manifestLoaded, handleSwitchableManifestAdaptationSets)
+  mediaPlayer.on(DASH_EVENTS.manifestLoaded, (event) => handleManifestLoaded(mediaPlayer, event))
 })

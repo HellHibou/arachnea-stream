@@ -967,6 +967,7 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Added a Video.js downloads menu for MP4 alternatives, subtitles, and PNG captures of the current video frame. The menu offers injected tracks, translations and standalone DASH files, and assembles finite HLS WebVTT and DASH `wvtt` or text `stpp` segments into complete WebVTT files on demand. It reports when protected playback returns a blank frame. Downloads use the player-supplied filename or the content title, with language and label suffixes for subtitles. Odysee MP4 attachments use the browser's download manager and their upstream filename.
 - A source overview page at `/sources` lists every source advertising `load_home`: each source renders as a landscape logo-and-title card linking to `/source/:sourceId`, and hovering or focusing a card opens the media-card-style anchored preview with the service title and localized metadata facts (languages, countries, content types and any additional field). The sidebar `Accueil`/`Home` link always opens this overview, while `/` and the brand link still resolve the profile's configured default home. The page uses the existing `Video Services` navigation label, reuses the session service-metadata registry, reports discovery errors with a retry action, and exposes loading and empty states. The unavailable-default-home fallback still points to the source list instead of the former aggregated home.
 - Native banner videos now have a vertical volume slider below the mute button, available on hover and keyboard focus.
 - Added a play/pause button to banner videos, with the playback preference saved in the browser.
@@ -1021,6 +1022,11 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- Increased the download icon size in the Video.js control bar.
+- Hide the screenshot action when the current stream or browser signals protected playback.
+- Hide the download button when no download or capture action is available.
+- Download Odysee MP4 files through the media proxy so the download action stays in the current tab.
+- Include displayed player and variant labels in MP4 filenames when multiple choices are available.
 - Category tags show a compact icon beside the label when the source supplies an image.
 
 - Read the public account session once per page load. Remove periodic and focus-triggered checks, and invalidate stale account views when a protected request fails or another tab changes the shared account.

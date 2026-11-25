@@ -1,3 +1,4 @@
+import type { JsonRecord } from '../types'
 import type {
   EntryPlayer,
   EntryStreamSource,
@@ -67,12 +68,22 @@ export function normalizePlayerStream(payload: unknown): EntryResolvedPlayerStre
   }
   if (streams.length === 0) return null
   return {
+    fileName: readPlayerFileName(payload),
+    title: firstNonEmptyString([payload.title]),
     streams, imageTitleLink: firstNonEmptyString([readPath(payload, 'image/title', 'link')]),
     storyboardVttUrl: firstNonEmptyString([payload.storyboard_vtt_url]),
     storyboard: normalizeRustifyStoryboard(payload.storyboard),
     chapters: normalizeRustifyChapters(payload.chapters),
     subtitles: normalizeResolvedPlayerSubtitles(payload.subtitles),
   }
+}
+
+/**
+ * Reads a suggested filename from either a player descriptor or its resolved stream.
+ * @param payload Raw player metadata.
+ */
+export function readPlayerFileName(payload: JsonRecord): string | null {
+  return firstNonEmptyString([payload.filename, payload.file_name, payload['file-name'], payload.fileName])
 }
 
 /**

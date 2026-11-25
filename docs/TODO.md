@@ -3,8 +3,6 @@
 Ce fichier suit les tâches DNS, HTTP et proxy prévues qui restent pertinentes pour l'espace de travail serveur. Il doit être mis à jour lorsque des tâches sont ajoutées, terminées, déplacées vers un outil de suivi ou rendues obsolètes par des décisions de conception ultérieures.
 
 ## Streaming
-- Ajouter téléchargement de vidéo si la source est au format mp4
-- Ajout prise d'un sceershoot de la vidéo
 - Ajouter gestion du volume: Normalisation  + boost du volume
 - Ajouter gestion HDR
 - Ajouter des vues dédiées aux contenus `audio/*` et `images/*` ; leur routage vers `get_entry` reste temporaire : [migration media-type](dev-tracking/media-type-routing-migration-analysis.md).

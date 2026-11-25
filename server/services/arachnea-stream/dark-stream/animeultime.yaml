@@ -619,6 +619,9 @@ queries:
           - name: players > streams > url
             type: string
             capture_group: 8
+            actions:
+              - type: resolve_url
+                proxy: true
           - name: players > streams > quality
             type: string
             actions:
@@ -632,6 +635,9 @@ queries:
           - name: players > streams > url
             type: string
             capture_group: 7
+            actions:
+              - type: resolve_url
+                proxy: true
       - type: derive_pagination
         remove_fields:
           - playlists

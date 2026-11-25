@@ -72,6 +72,10 @@ export interface ResolvedVideoMediaSource {
   renderer: 'video'
   /** Alternatives sharing this source's metadata and timeline. */
   sources?: ResolvedVideoVariant[]
+  /** Optional suggested filename for downloads of the video and related files. */
+  fileName?: string | null
+  /** Optional content title supplied with the source. */
+  title?: string | null
   /** The URL to the video source or manifest. */
   src: string
   /** The MIME type of the video source. */
@@ -448,6 +452,7 @@ export function resolveBackendStreamMediaSource(stream: EntryResolvedPlayerStrea
   if (!first) return null
   return {
     renderer: 'video', ...first, sources,
+    fileName: stream.fileName, title: stream.title,
     storyboard: stream.storyboard, storyboardVttUrl: resolveAbsoluteUrl(stream.storyboardVttUrl),
     chapters: stream.chapters,
     subtitles: stream.subtitles.flatMap((subtitle) => {

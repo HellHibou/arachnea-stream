@@ -171,6 +171,15 @@ export function usePlayerSurface(props: VideoPlayerProps, attrs: ReturnType<type
     return null
   })
 
+  /** Keeps the displayed player label with the media that is still mounted during a switch. */
+  const activeDownloadPlayerLabel = computed<string | null>((previous) => {
+    if (activeSurfaceMode.value !== 'media') return null
+    if (!props.mediaSource || props.isMediaPlayerLoading) return previous ?? null
+    if (props.filteredPlayers.length < 2) return null
+    const selected = props.filteredPlayers.find((player) => player.id === props.activePlayerId)
+    return selected?.label ?? props.filteredPlayers[0]?.label ?? null
+  })
+
   /**
    * Whether the active surface source URL is covered by the allowlist.
    *
@@ -299,6 +308,7 @@ export function usePlayerSurface(props: VideoPlayerProps, attrs: ReturnType<type
       entryDetailsSurfaceMode,
       activeSurfaceMode,
       activeSurfaceSource,
+      activeDownloadPlayerLabel,
       shouldRenderSurface,
       shouldRenderSurfaceLoadingState,
       shouldRenderSurfaceErrorState,

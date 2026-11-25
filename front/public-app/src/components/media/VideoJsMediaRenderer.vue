@@ -28,6 +28,8 @@ const props = withDefaults(defineProps<VideoJsMediaRendererProps & {
    */
   isExternalLoading?: boolean
 }>(), {
+  downloadTitle: null,
+  downloadPlayerLabel: null,
   videoAriaLabel: null,
   poster: null,
   overlayLogoUrl: null,

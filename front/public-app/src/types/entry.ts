@@ -132,6 +132,10 @@ export interface EntryStreamSource {
 
 /** Video alternatives and metadata sharing one content timeline. */
 export interface EntryResolvedPlayerStream {
+  /** Optional suggested filename for downloads of this content. */
+  fileName?: string | null
+  /** Optional title supplied by the player or stream resolver. */
+  title?: string | null
   /** Ordered technical alternatives; empty for a deferred player. */
   streams: EntryStreamSource[]
   /** Optional title image returned by a resolver. */

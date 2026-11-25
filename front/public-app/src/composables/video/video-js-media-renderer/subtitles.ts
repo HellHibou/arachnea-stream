@@ -7,10 +7,10 @@ import type {
 import { SUBTITLES_ACTIVE_CLASS } from '@/composables/video/video-js-media-renderer/constants'
 
 /**
- * Derives a display label from a WebVTT file URL when the resolver did not provide one.
+ * Derives a display label from a subtitle file URL when the resolver did not provide one.
  *
  * @param link Subtitle track URL.
- * @returns Decoded filename without its `.vtt` extension, or undefined when unavailable.
+ * @returns Decoded filename without the subtitle extension, or undefined when unavailable.
  */
 export function getSubtitleFileLabel(link: string): string | undefined {
   try {
@@ -22,7 +22,7 @@ export function getSubtitleFileLabel(link: string): string | undefined {
       return undefined
     }
 
-    const label = decodeURIComponent(filename).replace(/\.vtt$/i, '').trim()
+    const label = decodeURIComponent(filename).replace(/\.(?:vtt|ttml)$/i, '').trim()
     return label || undefined
   } catch {
     return undefined

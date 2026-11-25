@@ -26,6 +26,7 @@ import {
   installSkipChapterButton, SKIP_CHAPTER_BUTTON_TYPES, type SkipChapterType,
 } from './video-js-media-renderer/chapters'
 import { installChapterMenuButton } from './video-js-media-renderer/chapterMenu'
+import { installDownloadMenu } from './video-js-media-renderer/downloadMenu'
 import { installDashPeriodChapters, isDashSource } from './video-js-media-renderer/dash'
 import {
   isDurationAvailable, isLiveStream, syncDurationAvailabilityState, updateLiveProgressBar,
@@ -107,6 +108,7 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
     hasControls: () => props.controls ?? false,
   })
   let refreshSubtitleTranslationMenu: (() => void) | null = null
+  let refreshDownloadMenuLabel: (() => void) | undefined
   let disposeSubtitleTranslationMenu: (() => void) | null = null
   let evaluateSubtitleTranslation: ((player: VideoJsPlayer) => void) | null = null
   let ignoreNextPlayerStateEvent = false
@@ -121,6 +123,7 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
       t('player.controls.fullscreen'), t('player.controls.exitFullscreen'),
       t('player.controls.mute'), t('player.controls.unmute'),
       t('player.controls.play'), t('player.controls.pause'),
+      t('player.downloadMenu.label'),
     ],
     ([
       off, settings, , , playbackRateLabel,
@@ -143,6 +146,7 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
         'Pause': pause,
       })
       refreshSubtitleTranslationMenu?.()
+      refreshDownloadMenuLabel?.()
     },
     { immediate: true },
   )
@@ -312,6 +316,7 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
     disposeSubtitleTranslationMenu?.()
     disposeSubtitleTranslationMenu = null
     refreshSubtitleTranslationMenu = null
+    refreshDownloadMenuLabel = undefined
     subtitleTranslation.resetForPlayer()
     sources.reset()
     player?.dispose()
@@ -382,6 +387,13 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
       if (props.controls) {
         variantMenus = installVariantMenus(player, variants)
         variantMenus.refresh()
+        refreshDownloadMenuLabel = installDownloadMenu(
+          player,
+          () => activeSource.value,
+          () => props.downloadTitle ?? props.videoAriaLabel,
+          sources.getDownloadableTranslation,
+          () => props.downloadPlayerLabel,
+        )?.refreshLabel
       }
       if (props.controls && typeof player.hotkeys === 'function') {
         player.hotkeys({

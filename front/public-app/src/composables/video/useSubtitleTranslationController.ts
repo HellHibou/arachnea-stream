@@ -1,3 +1,4 @@
+import { readHlsSubtitleSources } from './video-js-media-renderer/hlsSubtitleDownloads'
 import { watch } from 'vue'
 
 import { t } from '@/i18n'
@@ -130,7 +131,12 @@ export function useSubtitleTranslationController(
    * @returns Source entry and optional detected language.
    */
   function resolveSource(player: VideoJsPlayer, source: ResolvedVideoMediaSource) {
-    const entries = [...source.subtitles.map((entry) => ({ ...entry, hls: false })), ...readHlsSubtitleSources(player)]
+    const hlsTracks = readHlsSubtitleSources(player)
+    const completeHlsTracks = hlsTracks.filter((track) => !track.forced)
+    const entries = [
+      ...source.subtitles.map((entry) => ({ ...entry, hls: false })),
+      ...(completeHlsTracks.length ? completeHlsTracks : hlsTracks),
+    ]
       .filter((subtitle) => subtitle.link.trim())
     if (!entries.length) {
       return null
@@ -524,37 +530,4 @@ function buildRequestKey(
   targetLanguage: string,
 ): string {
   return `${url}\u0000${sourceLanguage ?? ''}\u0000${targetLanguage}`
-}
-
-/**
- * Reads complete subtitle rendition URLs discovered by the HLS engine.
- * @param player Player whose master manifest has been loaded.
- * @returns Complete renditions, falling back to forced renditions when necessary.
- */
-function readHlsSubtitleSources(player: VideoJsPlayer) {
-  const tech = (player as unknown as {
-    tech?: (options: { IWillNotUseThisInPlugins: boolean }) => {
-      vhs?: { playlists?: { main?: { mediaGroups?: {
-        SUBTITLES?: Record<string, Record<string, {
-          language?: string
-          forced?: boolean
-          resolvedUri?: string
-          uri?: string
-        }>>
-      } } } }
-    }
-  }).tech?.({ IWillNotUseThisInPlugins: true })
-  const groups = tech?.vhs?.playlists?.main?.mediaGroups?.SUBTITLES ?? {}
-  const entries = Object.values(groups).flatMap((group) =>
-    Object.entries(group).map(([label, track]) => ({
-      link: track.resolvedUri ?? track.uri ?? '',
-      lang: track.language,
-      label,
-      forced: track.forced === true,
-      autoTranslate: false,
-      hls: true,
-    })),
-  ).filter((entry) => entry.link)
-  const complete = entries.filter((entry) => !entry.forced)
-  return complete.length ? complete : entries
 }

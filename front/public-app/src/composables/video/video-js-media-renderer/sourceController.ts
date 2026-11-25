@@ -450,6 +450,11 @@ export function createSourceController(options: SourceControllerOptions) {
     applyTranslatedSubtitle,
     clearTranslatedSubtitle,
     discardTranslatedSubtitle,
+    getDownloadableTranslation: () => translatedSubtitle ? {
+      link: translatedSubtitle.objectUrl,
+      lang: translatedSubtitle.track.track.language,
+      label: translatedSubtitle.track.track.label,
+    } : null,
   }
 }
 

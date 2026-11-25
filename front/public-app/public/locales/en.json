@@ -371,6 +371,15 @@
     "streamQuality": "Quality",
     "streamLanguage": "Language",
     "streamAutomatic": "Automatic",
+    "downloadMenu": {
+      "label": "Downloads",
+      "subtitle": "Subtitle {index}",
+      "screenshot": "Take a screenshot",
+      "screenshotFailed": "Could not capture this video frame.",
+      "screenshotProtected": "This frame is unavailable for capture during protected playback.",
+      "preparingSubtitles": "Preparing subtitles…",
+      "downloadFailed": "Could not download this file."
+    },
     "controls": {
       "audioTrack": "Audio track",
       "subtitles": "Subtitles",

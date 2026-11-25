@@ -153,6 +153,7 @@ function handleAutoplayStep(offset: -1 | 1) {
 
 <VideoPlayer
         :display-title="displayTitle"
+        :download-title="showMediaPlayer ? selectedPlayableTitle : null"
         :show-trailer-player="showTrailerPlayer"
         :show-media-player="showMediaPlayer"
         :media-source="activeMediaSource"

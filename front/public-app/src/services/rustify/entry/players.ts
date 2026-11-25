@@ -14,7 +14,7 @@ import {
   resolveEntryUrl,
 } from '../primitives/readers'
 import type { JsonRecord } from '../types'
-import { normalizePlayerStream } from './stream'
+import { normalizePlayerStream, readPlayerFileName } from './stream'
 
 /**
  * Executes the backend players endpoint and returns the raw players payload.
@@ -108,6 +108,7 @@ function normalizeEntryPlayer(
     label, webLink, name, lang, resolver,
     isEmbed: Boolean(embedLink && !stream?.streams.length),
     ...(stream ?? {
+      fileName: readPlayerFileName(entry), title: firstNonEmptyString([entry.title]),
       streams: [], imageTitleLink: null, storyboardVttUrl: null,
       storyboard: null, chapters: null, subtitles: [],
     }),

@@ -250,7 +250,11 @@ export function createEntryPlayerStream(options: EntryPlayerStreamOptions) {
               : resolvePlayerSubtitles(currentPlayer))
 
           resolvedMediaSource.value = attachStoryboardToVideoSource(
-            nextMediaSource,
+            nextMediaSource.renderer === 'video' ? {
+              ...nextMediaSource,
+              fileName: nextMediaSource.fileName ?? currentPlayer.fileName,
+              title: nextMediaSource.title ?? currentPlayer.title,
+            } : nextMediaSource,
             resolvedStoryboard,
             null,
             resolvedSubtitles,

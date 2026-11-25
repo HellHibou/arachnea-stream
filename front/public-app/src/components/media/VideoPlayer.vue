@@ -79,6 +79,7 @@ const {
   activeSurfaceRendererKey,
   activeIframeSource,
   activeVideoSource,
+  activeDownloadPlayerLabel,
   standaloneRendererAttrs,
   activeIframeTitle,
   activeIframeAllow,
@@ -196,6 +197,8 @@ const {
       :key="`video-${activeSurfaceRendererKey}`"
       :class="activeVideoClass"
       :source="(activeVideoSource as ResolvedVideoMediaSource)"
+      :download-title="props.downloadTitle ?? props.displayTitle"
+      :download-player-label="activeDownloadPlayerLabel"
       :poster="activeVideoPoster"
       :overlay-logo-url="activeVideoOverlayLogoUrl"
       :autoplay="activeVideoAutoplay"
