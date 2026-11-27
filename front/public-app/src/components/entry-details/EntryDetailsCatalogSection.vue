@@ -177,8 +177,15 @@ watch(
       </label>
     </section>
 
-    <section v-if="props.showItemSection" class="entry-details__episodes">
-      <p class="entry-details__season-single-eyebrow">{{ itemSectionLabel }}</p>
+    <p v-if="props.showItemSection" class="entry-details__season-single-eyebrow">
+      {{ itemSectionLabel }}
+    </p>
+    <section
+      v-if="props.showItemSection"
+      class="entry-details__episodes"
+      tabindex="0"
+      :aria-label="itemSectionLabel"
+    >
       <div v-if="props.groupErrorMessage" class="entry-details__season-state">
         <p class="entry-details__season-state-eyebrow">{{ stateEyebrow }}</p>
         <h2 class="entry-details__season-state-title">{{ t('catalog.loadingErrorTitle') }}</h2>
@@ -300,10 +307,20 @@ watch(
 }
 
 .entry-details__episodes {
+  max-height: min(60vh, 36rem);
   padding: 10px;
+  overflow-y: auto;
   border: 1px solid var(--border-color-primary);
   border-radius: var(--radius);
   backdrop-filter: var(--backdrop-filter-strong);
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-color-primary) transparent;
+}
+
+.entry-details__episodes:focus-visible {
+  outline: var(--common-focus-ring);
+  outline-offset: 2px;
 }
 
 .entry-details__episodes :deep(.media-card-collection-section) {

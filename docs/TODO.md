@@ -10,7 +10,6 @@ Ce fichier suit les tâches DNS, HTTP et proxy prévues qui restent pertinentes 
 - Utiliser obscura pour contourner Cloudflare (navigateur rust avec résolution cloudflare interne).
 
 ## Front
-- Si on affiche le dernier épisode chargé de la liste et que 'Charger plus' est dispo, il faut charger plus de données. Si le signet est actif, il faut charger plus si l'épisode courant n'a pas été chargé dans la liste.
 - Ajouter le support de diffusion ChromeCast et AirPlay.
 ## Server/DNS
 - Affiner les modes DNSSEC afin que `report_only`, `opportunistic` et `strict` aient des comportements distincts, au lieu d'envoyer tous les modes non `off` dans le même chemin de validation Hickory.

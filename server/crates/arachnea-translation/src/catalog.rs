@@ -12,7 +12,9 @@
 //! only enabled and valid services are considered here.
 
 use std::collections::{BTreeSet, HashMap};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
+use tokio::sync::Mutex;
 
 use crate::{
     LanguageCode, SupportedPair, TranslationMetadata, GET_TRANSLATION_METADATA_QUERY,
@@ -99,6 +101,9 @@ pub struct TranslationCatalog {
 impl TranslationCatalog {
     /// Loads and validates the catalog for one translation service group.
     ///
+    /// Provider metadata is queried here, so callers on an asynchronous runtime
+    /// must await this method rather than blocking a worker thread.
+    ///
     /// # Arguments
     ///
     /// * `aggregator` - Aggregator holding the loaded translation services.
@@ -106,7 +111,7 @@ impl TranslationCatalog {
     /// * `manifest_path` - Manifest used to read titles and credential requirements.
     /// * `credentials_store` - Encrypted credential lookup used only to know
     ///   whether a service is configured.
-    pub fn load(
+    pub async fn load(
         aggregator: &ScraperAgregator,
         group_name: &str,
         manifest_path: &str,
@@ -159,13 +164,16 @@ impl TranslationCatalog {
             }
 
             let media_types = vec![TRANSLATION_METADATA_MEDIA_TYPE.to_string()];
-            let rows = match futures::executor::block_on(aggregator.execute_query_on_source(
-                group_name,
-                &service_id,
-                GET_TRANSLATION_METADATA_QUERY,
-                &HashMap::new(),
-                Some(&media_types),
-            )) {
+            let rows = match aggregator
+                .execute_query_on_source(
+                    group_name,
+                    &service_id,
+                    GET_TRANSLATION_METADATA_QUERY,
+                    &HashMap::new(),
+                    Some(&media_types),
+                )
+                .await
+            {
                 Ok(rows) => rows,
                 Err(error) => {
                     catalog.push_diagnostic(
@@ -342,6 +350,81 @@ impl TranslationCatalog {
             service_id,
             message,
         });
+    }
+}
+
+/// Retryable process-local cache for the effective translation catalog.
+///
+/// Provider metadata is not requested until a caller needs the catalog. A load
+/// that publishes at least one service is retained; a load without any
+/// published service returns its diagnostics without caching them so the next
+/// caller queries the providers again. Concurrent callers share one in-flight
+/// load, and non-secret diagnostics of each load are logged as warnings.
+pub struct LazyTranslationCatalog {
+    group_name: String,
+    manifest_path: String,
+    credentials_store: Arc<dyn CredentialsStore>,
+    current: Mutex<Option<Arc<TranslationCatalog>>>,
+}
+
+impl LazyTranslationCatalog {
+    /// Creates an unloaded catalog holder for one translation service group.
+    ///
+    /// # Arguments
+    ///
+    /// * `group_name` - Service store containing translation providers.
+    /// * `manifest_path` - Manifest used to read titles and credential requirements.
+    /// * `credentials_store` - Encrypted credential lookup used only to know
+    ///   whether a service is configured.
+    pub fn new(
+        group_name: impl Into<String>,
+        manifest_path: impl Into<String>,
+        credentials_store: Arc<dyn CredentialsStore>,
+    ) -> Self {
+        Self {
+            group_name: group_name.into(),
+            manifest_path: manifest_path.into(),
+            credentials_store,
+            current: Mutex::new(None),
+        }
+    }
+
+    /// Returns the effective catalog, querying providers on first use or after
+    /// a failed attempt.
+    ///
+    /// The returned snapshot stays usable even when the application reloads and
+    /// replaces this holder. A load that publishes no service is not cached, so
+    /// each subsequent call retries; its diagnostics are returned to the caller
+    /// and logged with the same non-secret warning as a startup load.
+    ///
+    /// # Arguments
+    ///
+    /// * `aggregator` - Aggregator holding the loaded translation services.
+    pub async fn get_or_load(&self, aggregator: &ScraperAgregator) -> Arc<TranslationCatalog> {
+        let mut current = self.current.lock().await;
+        if let Some(catalog) = current.as_ref() {
+            return Arc::clone(catalog);
+        }
+        let catalog = Arc::new(
+            TranslationCatalog::load(
+                aggregator,
+                &self.group_name,
+                &self.manifest_path,
+                self.credentials_store.as_ref(),
+            )
+            .await,
+        );
+        for diagnostic in catalog.diagnostics() {
+            tracing::warn!(
+                service = ?diagnostic.service_id,
+                message = %diagnostic.message,
+                "translation service was not published"
+            );
+        }
+        if !catalog.is_empty() {
+            *current = Some(Arc::clone(&catalog));
+        }
+        catalog
     }
 }
 

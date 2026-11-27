@@ -1,15 +1,20 @@
 //! Controller route registration for translation integrations.
 use arachnea_core::controler::{ControlerService, ControlerServiceExt};
+use async_trait::async_trait;
 use serde::Deserialize;
 use std::sync::Arc;
 
 /// Dependencies borrowed from one retained application snapshot.
 ///
-/// All accessors must describe the same immutable catalog and provider runtime.
-/// The API retains the snapshot until the request has completed.
+/// All accessors must describe the same provider runtime. The catalog accessor
+/// may query providers on first use and retry after a failed load; once loaded,
+/// the returned snapshot is shared for the rest of the operation. The API
+/// retains the application snapshot until the request has completed.
+#[async_trait]
 pub trait TranslationSnapshot: Send + Sync + 'static {
-    /// Returns the validated provider catalog belonging to this snapshot.
-    fn catalog(&self) -> &crate::catalog::TranslationCatalog;
+    /// Returns the effective provider catalog, loading it on first use and
+    /// retrying when a previous load published no service.
+    async fn catalog(&self) -> Arc<crate::catalog::TranslationCatalog>;
     /// Returns the loaded provider aggregator matching the catalog revision.
     fn aggregator(&self) -> &arachnea_scrapyfy::ScraperAgregator;
     /// Returns the configured Scrapyfy group containing translation providers.
@@ -70,7 +75,8 @@ where
         Arc::clone(&snapshot),
         |factory, _, _: EmptyRequest| async move {
             let snapshot = factory();
-            serde_json::to_value(TranslationServicesView::from_catalog(snapshot.catalog()))
+            let catalog = snapshot.catalog().await;
+            serde_json::to_value(TranslationServicesView::from_catalog(&catalog))
                 .map(|value| (value, None::<String>))
                 .map_err(|error| error.to_string())
         },
@@ -80,9 +86,10 @@ where
         snapshot,
         |factory, input| async move {
             let snapshot = factory();
+            let catalog = snapshot.catalog().await;
             let retrieval = snapshot.retrieval();
             let handler = TranslationHandler {
-                translation_catalog: snapshot.catalog(),
+                translation_catalog: &catalog,
                 aggregator: snapshot.aggregator(),
                 group_name: snapshot.group_name(),
                 retrieval: retrieval.as_ref(),

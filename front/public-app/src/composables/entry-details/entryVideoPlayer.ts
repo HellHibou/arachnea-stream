@@ -41,14 +41,13 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
   const { trailerUrl, trailerMediaSource, hasTrailer, isTrailerBlocked } = trailers
 
   /**
-   * Keeps the media surface mounted when one playable selection is available but no trailer
-   * can cover the transition state.
+   * Keeps a selected episode's surface visible while its players resolve, including bookmark restoration.
    *
-   * @returns True when players are available and a playable item is selected or no trailer exists.
+   * @returns True for a selected episode, or entry players without a trailer.
    */
   const shouldKeepMediaSurfaceVisible = computed(() =>
-    activePlayers.value.length > 0 &&
-    (Boolean(options.selectedPlayableItem.value) || !hasTrailer.value),
+    Boolean(options.selectedPlayableItem.value) ||
+    (activePlayers.value.length > 0 && !hasTrailer.value),
   )
 
   /**
@@ -59,7 +58,7 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
   const showTrailerPlayer = computed(() =>
     hasTrailer.value &&
     !isTrailerBlocked.value &&
-    (activeVideoMode.value === 'trailer' || !mediaSource.value),
+    (activeVideoMode.value === 'trailer' || (!options.selectedPlayableItem.value && !mediaSource.value)),
   )
 
   /**
@@ -138,7 +137,7 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
    * @param nextDetails - Detailed entry returned by the backend.
    */
   function applyLoadedEntryDefaults(nextDetails: EntryDetails): void {
-    activeVideoMode.value = nextDetails.players.entries.length > 0
+    activeVideoMode.value = options.selectedPlayableItem.value || nextDetails.players.entries.length > 0
       ? 'media'
       : (resolvePlayerMediaSource(nextDetails.trailerUrl) || nextDetails.trailerResolver ? 'trailer' : 'media')
     selection.applyLoadedEntryDefaults()
@@ -183,7 +182,7 @@ export function entryVideoPlayer(options: UseEntryVideoPlayerOptions) {
       return
     }
 
-    if (!nextMediaSource && !hasMediaCandidate.value && hasTrailer.value) {
+    if (!nextMediaSource && !options.selectedPlayableItem.value && !hasMediaCandidate.value && hasTrailer.value) {
       activeVideoMode.value = 'trailer'
     }
   })

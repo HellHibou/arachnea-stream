@@ -393,6 +393,7 @@ export function createEntryPlayerSelection(options: EntryPlayerSelectionOptions)
         )[0]?.id ?? null
         options.activateMedia()
       },
+      { immediate: true },
     )
   }
 

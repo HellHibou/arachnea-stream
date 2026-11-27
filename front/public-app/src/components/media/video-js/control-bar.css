@@ -524,6 +524,45 @@
   flex: 0 0 auto;
 }
 
+.videojs-media-host :deep(.arachnea-videojs-theme .vjs-cinema-control) {
+  order: 54;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: var(--videojs-icon-control-width);
+  font-size: 1.4em;
+}
+
+.videojs-media-host :deep(.vjs-cinema-control .mdi) {
+  font-size: 24px;
+  line-height: 1;
+}
+
+.videojs-media-host :deep(.arachnea-videojs-theme.vjs-layout-tiny .vjs-download-menu),
+.videojs-media-host :deep(.arachnea-videojs-theme.vjs-layout-x-small .vjs-download-menu),
+.videojs-media-host :deep(.arachnea-videojs-theme.vjs-layout-small .vjs-download-menu) {
+  order: 4;
+}
+
+.videojs-media-host :deep(.vjs-layout-tiny .vjs-cinema-control),
+.videojs-media-host :deep(.vjs-layout-x-small .vjs-cinema-control),
+.videojs-media-host :deep(.vjs-layout-small .vjs-cinema-control) {
+  order: 5;
+}
+
+.videojs-media-host :deep(.vjs-layout-tiny .vjs-picture-in-picture-control),
+.videojs-media-host :deep(.vjs-layout-x-small .vjs-picture-in-picture-control),
+.videojs-media-host :deep(.vjs-layout-small .vjs-picture-in-picture-control) {
+  order: 6;
+}
+
+.videojs-media-host :deep(.vjs-layout-tiny .vjs-fullscreen-control),
+.videojs-media-host :deep(.vjs-layout-x-small .vjs-fullscreen-control),
+.videojs-media-host :deep(.vjs-layout-small .vjs-fullscreen-control) {
+  order: 7;
+}
+
 .videojs-media-host :deep(.arachnea-variant-switching .vjs-big-play-button),
 .videojs-media-host :deep(.arachnea-variant-switching .vjs-poster),
 .videojs-media-host[data-vjs-initial-loading="true"] :deep(.vjs-big-play-button),

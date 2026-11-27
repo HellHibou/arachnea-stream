@@ -227,6 +227,7 @@ function handlePopupRootChange(element: HTMLElement | null) {
     :stacked-artwork="presentation.stackedArtwork"
     :display-title="displayTitle"
     :can-select-item="canSelectItem"
+    :select-on-card="selectionMode === 'local'"
     :formatted-rating="formattedRating"
     :rating-class="ratingClass"
     :thumbnail-orientation="thumbnailOrientation"

@@ -26,6 +26,8 @@ interface Props {
    * Indicates whether the card can request the detailed entry.
    */
   canSelectItem: boolean
+  /** Makes the entire row the local selection button instead of showing an action. */
+  selectOnCard: boolean
   /**
    * Formatted rating displayed in the list badge.
    */
@@ -91,6 +93,7 @@ defineEmits<{
       'media-card--list',
       `media-card--${thumbnailOrientation}`,
       { 'media-card--list-no-poster': !showListPoster },
+      { 'media-card--select-on-card': selectOnCard },
     ]"
   >
     <div v-if="showListPoster" class="media-card__list-poster">
@@ -120,7 +123,16 @@ defineEmits<{
       :service-logo="serviceLogo"
     />
 
-    <div class="media-card__list-action">
+    <button
+      v-if="selectOnCard"
+      class="media-card__row-action"
+      type="button"
+      :aria-label="`${t(actionLabel)} ${displayTitle}`"
+      :disabled="!canSelectItem"
+      @click="$emit('select')"
+    />
+
+    <div v-else class="media-card__list-action">
       <MediaCardActionButton
         :can-select-item="canSelectItem"
         :href="href"
@@ -160,6 +172,38 @@ defineEmits<{
   grid-template-columns: minmax(0, 1fr) auto;
 }
 
+.media-card--select-on-card {
+  grid-template-columns: minmax(128px, 176px) minmax(0, 1fr);
+}
+
+.media-card--select-on-card.media-card--landscape {
+  grid-template-columns: minmax(180px, 240px) minmax(0, 1fr);
+}
+
+.media-card--select-on-card.media-card--list-no-poster,
+.media-card--select-on-card.media-card--landscape.media-card--list-no-poster {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.media-card__row-action {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+
+.media-card__row-action:disabled {
+  cursor: default;
+}
+
+.media-card__row-action:hover:not(:disabled),
+.media-card__row-action:focus-visible {
+  outline: var(--common-focus-ring);
+  outline-offset: -3px;
+}
+
 .media-card__list-poster {
   min-width: 0;
   align-self: start;
@@ -180,7 +224,9 @@ defineEmits<{
 
 @media (max-width: 720px) {
   .media-card--list,
-  .media-card--list.media-card--landscape {
+  .media-card--list.media-card--landscape,
+  .media-card--select-on-card.media-card--list-no-poster,
+  .media-card--select-on-card.media-card--landscape.media-card--list-no-poster {
     grid-template-columns: 1fr;
     gap: 10px;
   }

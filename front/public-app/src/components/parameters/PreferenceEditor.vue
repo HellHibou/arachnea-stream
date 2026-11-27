@@ -8,6 +8,8 @@ const emit = defineEmits<{ close: [] }>()
 const { t } = useI18n()
 const draft = usePreferenceDraft()
 const confirmingDiscard = ref(false)
+/** Preferred width measured from the occupied settings columns; null while loading. */
+const dialogWidth = ref<number | null>(null)
 onMounted(() => { void draft.load() })
 
 /** Confirms before discarding a dirty draft. */
@@ -24,7 +26,7 @@ async function save(): Promise<void> {
 </script>
 
 <template>
-  <v-dialog :model-value="true" max-width="720" scrollable class="parameters-dialog"
+  <v-dialog :model-value="true" :width="dialogWidth ?? 'calc(100vw - 32px)'" scrollable class="parameters-dialog"
     :persistent="draft.dirty.value || draft.saving.value || draft.blocked.value"
     @update:model-value="!$event && requestClose()" @keydown.esc="requestClose">
     <v-card class="parameters-dialog__surface" :title="t('navigation.settings')" :aria-busy="draft.loading.value || draft.saving.value">
@@ -33,7 +35,13 @@ async function save(): Promise<void> {
         <p v-if="draft.errorCode.value" role="alert">{{ t(`profiles.errors.${draft.errorCode.value}`) }}</p>
         <fieldset v-if="draft.ready.value" class="parameters-dialog__fields"
           :disabled="draft.loading.value || draft.saving.value || draft.blocked.value || confirmingDiscard">
-          <Parameters :parameters="draft.parameters" :home-preferences="draft.homePreferences" />
+          <Parameters
+            :parameters="draft.parameters"
+            :home-preferences="draft.homePreferences"
+            :cinema-mode-by-default="draft.cinemaModeByDefault.value"
+            @update:cinema-mode-by-default="draft.cinemaModeByDefault.value = $event"
+            @update:dialog-width="dialogWidth = $event"
+          />
         </fieldset>
         <div v-if="confirmingDiscard" role="alertdialog" :aria-label="t('settings.draft.discard')" aria-describedby="discard-description">
           <p id="discard-description">{{ t('settings.draft.discard') }}</p>
@@ -59,6 +67,12 @@ async function save(): Promise<void> {
 </template>
 
 <style scoped>
+.parameters-dialog :deep(.v-overlay__content) {
+  max-width: calc(100% - 32px);
+  max-height: calc(100% - 32px);
+  margin: 16px;
+}
+
 .parameters-dialog__surface {
   background: var(--bg-surface);
   color: var(--text-primary);

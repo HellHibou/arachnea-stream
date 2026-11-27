@@ -4,13 +4,17 @@ import { isUncertainProfileWrite, profileCall, profileWrite, ProfileApiError, sa
 import { isCurrentProfile, requireProfileContext } from '@/services/profileContext'
 import { copyPreferences } from '@/services/profilePreferences'
 import type { HomePreferences, Parameters } from '@/services/storage'
+import { useLocalPlayerPreferences } from './useLocalPlayerPreferences'
 
-/** Creates detached settings refs and reconciles uncertain writes against confirmed settings. */
+/** Creates detached server/device drafts and reconciles uncertain server writes. */
 export function usePreferenceDraft() {
   const profiles = injectProfiles()
   const context = requireProfileContext()
   const baseline = shallowRef<ProfileSnapshot | null>(null)
   const parameters = {} as Parameters
+  const localPlayerPreferences = useLocalPlayerPreferences()
+  const localBaseline = ref(localPlayerPreferences.cinemaModeByDefault.value)
+  const cinemaModeByDefault = ref(localBaseline.value)
   const homePreferences: Pick<HomePreferences, 'showSectionEditingButtons'> = { showSectionEditingButtons: ref(true) }
   const loading = ref(false)
   const saving = ref(false)
@@ -48,6 +52,7 @@ export function usePreferenceDraft() {
     const values = documents()
     return JSON.stringify(values.common) !== JSON.stringify(baseline.value.common.values)
       || JSON.stringify(values.streaming) !== JSON.stringify(baseline.value.streaming!.values)
+      || cinemaModeByDefault.value !== localBaseline.value
   })
 
   /** Installs detached refs from an authoritative snapshot. @param source Completed server state. */
@@ -71,12 +76,15 @@ export function usePreferenceDraft() {
     loading.value = true
     errorCode.value = null
     const previous = baseline.value
+    const keepLocalEdit = reapply && cinemaModeByDefault.value !== localBaseline.value
     const edited = previous && reapply ? documents() : null
     try {
       const next = await profileCall<ProfileSnapshot>('get', {}, false, context)
       if (!current()) return
       if (!next.streaming) throw new ProfileApiError('invalid_data', 'Streaming preferences are not initialized.')
       install(next)
+      localBaseline.value = localPlayerPreferences.cinemaModeByDefault.value
+      if (!keepLocalEdit) cinemaModeByDefault.value = localBaseline.value
       if (edited && previous) {
         for (const key of Object.keys(parameters) as Array<keyof Parameters>) {
           const domain = key === 'language' || key === 'theme' ? 'common' : 'streaming'
@@ -93,7 +101,13 @@ export function usePreferenceDraft() {
     } finally { loading.value = false }
   }
 
-  /** Saves changed domains atomically and verifies the outcome with a fresh snapshot. */
+  /** Commits the device-only layout default after a successful settings save. */
+  function saveLocalPreferences(): void {
+    localPlayerPreferences.setCinemaModeByDefault(cinemaModeByDefault.value)
+    localBaseline.value = cinemaModeByDefault.value
+  }
+
+  /** Saves changed server domains, verifies them, then commits the separate local default. */
   async function save(): Promise<boolean> {
     if (!current() || saving.value || loading.value || blocked.value || !baseline.value) return false
     if (!dirty.value) return true
@@ -103,7 +117,10 @@ export function usePreferenceDraft() {
       : { expected_revision: source.common.revision, values: values.common }
     const streaming = sameProfileValues(values.streaming, source.streaming!.values) ? undefined
       : { expected_revision: source.streaming!.revision, values: values.streaming }
-    if (!common && !streaming) return true
+    if (!common && !streaming) {
+      saveLocalPreferences()
+      return true
+    }
     saving.value = true
     errorCode.value = null
     try {
@@ -123,6 +140,7 @@ export function usePreferenceDraft() {
       await profiles.acceptSnapshot(confirmed, context)
       if (!current()) return false
       install(confirmed)
+      saveLocalPreferences()
       blocked.value = false
       return true
     } catch (error) {
@@ -137,5 +155,5 @@ export function usePreferenceDraft() {
   }
   window.addEventListener('beforeunload', protectUnload)
   onScopeDispose(() => { disposed = true; window.removeEventListener('beforeunload', protectUnload) })
-  return { parameters, homePreferences, ready, dirty, blocked, loading, saving, errorCode, load, save }
+  return { parameters, homePreferences, cinemaModeByDefault, ready, dirty, blocked, loading, saving, errorCode, load, save }
 }

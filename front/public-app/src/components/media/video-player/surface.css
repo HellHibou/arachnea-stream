@@ -44,3 +44,46 @@
 .entry-details__trailer-frame--video :deep(video) {
   object-fit: contain;
 }
+
+.entry-details__trailer--cinema {
+  grid-area: player;
+  width: 100%;
+  max-width: none;
+}
+
+@media (min-width: 1121px) {
+  .entry-details__trailer--cinema {
+    position: absolute;
+    top: 4px;
+    left: 4px;
+    display: flex;
+    flex-direction: column;
+    width: var(--cinema-player-width);
+    height: var(--cinema-stage-height);
+  }
+
+  .entry-details__trailer--cinema .entry-details__trailer-frame:not(:fullscreen) {
+    flex: 1;
+    min-height: 0;
+    height: 0;
+    aspect-ratio: auto;
+  }
+
+  .entry-details__trailer--cinema .entry-details__player-state {
+    flex: 1;
+    min-height: 0;
+    aspect-ratio: auto;
+  }
+
+  .entry-details__trailer--cinema .entry-details__player-state--overlay {
+    height: 100%;
+  }
+
+  .entry-details__trailer--cinema .entry-details__player-picker {
+    padding: 2px 6px;
+  }
+
+  .entry-details__trailer--cinema .entry-details__player-picker-row {
+    gap: 4px 12px;
+  }
+}

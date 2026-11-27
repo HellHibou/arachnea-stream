@@ -14,6 +14,10 @@ import { textToHtml } from '@/services/textUtils'
  * Props accepted by the header and player section rendered in the main entry details column.
  */
 interface Props {
+  /** Whether the entry page offers the cinema layout toggle. */
+  showCinemaToggle: boolean
+  /** Whether the player occupies the full-width cinema row. */
+  isCinemaMode: boolean
   displayTitle: string
   alternativeTitleLabel: string | null
   selectedPlayableTitle: string | null
@@ -81,6 +85,8 @@ const downloadTitle = computed(() => {
 })
 
 const emit = defineEmits<{
+  /** Emitted when the player requests a cinema layout change. */
+  'update:is-cinema-mode': [value: boolean]
   /** Emitted when navigating to adjacent playable entries. */
   'step-playable': [offset: -1 | 1]
   /** Emitted when navigating to adjacent playable entries from the player control bar. */
@@ -143,7 +149,11 @@ function handleAutoplayStep(offset: -1 | 1) {
 </script>
 
 <template>
-  <header id="player-section" class="entry-details__header">
+  <header
+    id="player-section"
+    class="entry-details__header"
+    :class="{ 'entry-details__header--cinema': isCinemaMode }"
+  >
     <div class="entry-details__headline">
 
       <EntryDetailsHeroHeader
@@ -161,7 +171,10 @@ function handleAutoplayStep(offset: -1 | 1) {
         @toggle-bookmark="handleBookmarkToggle"
       />
 
-<VideoPlayer
+      <VideoPlayer
+        :show-cinema-toggle="showCinemaToggle"
+        :is-cinema-mode="isCinemaMode"
+        @update:is-cinema-mode="emit('update:is-cinema-mode', $event)"
         :display-title="displayTitle"
         :download-title="downloadTitle"
         :show-trailer-player="showTrailerPlayer"
@@ -206,6 +219,8 @@ function handleAutoplayStep(offset: -1 | 1) {
         @navigate-video="handleAutoplayStep"
       />
 
+      <slot name="metadata" />
+
       <p
         class="entry-details__description"
         v-html="textToHtml(displayDescription)"
@@ -225,11 +240,35 @@ function handleAutoplayStep(offset: -1 | 1) {
   gap: 12px;
 }
 
+.entry-details__header:not(.entry-details__header--cinema) :deep(.entry-details-metadata) {
+  margin-top: 6px;
+}
+
+.entry-details__header:not(.entry-details__header--cinema) .entry-details__description {
+  margin-top: 6px;
+}
+
 .entry-details__description {
   max-width: 880px;
   color: var(--text-primary);
   font-size: 1rem;
   line-height: 1.62;
   text-shadow: var(--text-shadow-primary);
+}
+
+.entry-details__header--cinema,
+.entry-details__header--cinema .entry-details__headline {
+  display: contents;
+}
+
+.entry-details__header--cinema :deep(.entry-details__headline-copy) {
+  grid-area: title;
+  min-width: 0;
+}
+
+.entry-details__header--cinema .entry-details__description {
+  grid-area: description;
+  max-width: none;
+  overflow-wrap: anywhere;
 }
 </style>

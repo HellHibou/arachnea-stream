@@ -91,9 +91,15 @@ combined with `document-vtt`, it assembles finite HLS WebVTT playlists.
 `retrieval-http`. Prefixes, headers and the proxy runtime are supplied by the caller.
 The HTTP adapter can be used without `runtime` or `api`.
 
-The catalog retains validated metadata with its revision. Runtime bridges use
-that snapshot without querying metadata again during selection or execution.
-The selected bridge and document plan remain paired until execution.
+The catalog retains validated metadata with its revision. `LazyTranslationCatalog`
+queries provider metadata on first use instead of at application startup: a load
+that publishes at least one service is cached, while a load with no published
+service returns its diagnostics without caching them so the next call retries.
+Concurrent callers share one in-flight load, and the first catalog request
+waits for the provider queries while later requests read the cached snapshot.
+Runtime bridges use the retained snapshot without querying metadata again
+during selection or execution. The selected bridge and document plan remain
+paired until execution.
 `DocumentTranslator` validates source bytes and provider URL results; shared
 orchestration and API handlers compile without any document format enabled.
 
@@ -102,7 +108,7 @@ the whole operation. Composite validators include document MIME type, URL,
 languages, policy, access scope and provider configuration; legacy validators
 are invalidated by the document pipeline revision.
 
-LibreTranslate loads its directional language pairs from `/languages` when the catalog is loaded or reloaded. Only published lowercase two-letter codes are accepted; variants are excluded rather than truncated. HTTP failures, malformed responses and catalogs without usable pairs make the provider unavailable. Reload the service configuration after changing installed models. The effective metadata contributes to the configuration revision.
+LibreTranslate loads its directional language pairs from `/languages` when the catalog is first requested, after a failed load, or on service reload. Only published lowercase two-letter codes are accepted; variants are excluded rather than truncated. HTTP failures, malformed responses and catalogs without usable pairs leave the provider unpublished and are retried on the next catalog request. Reload the service configuration after changing installed models. The effective metadata contributes to the configuration revision.
 
 The public service catalog exposes URL translation media types and whether source detection identifies the language, so clients can check document and directional-pair eligibility.
 
@@ -117,10 +123,12 @@ qualification remain open; see the refactor analysis for completed checks.
 ## Registering the complete API
 
 `api::TranslationSnapshot` describes a retained application's dependencies:
-catalog, Scrapyfy aggregator, service group, authorized retrieval factory and
-optional trusted proxy prefix. The application implements these accessors; it
-does not implement route handlers. Translation owns catalog serialization,
-handler construction and document execution.
+an asynchronous catalog accessor, Scrapyfy aggregator, service group, authorized
+retrieval factory and optional trusted proxy prefix. The catalog accessor may
+query providers on first use and retry a failed load; once loaded, the returned
+snapshot is shared by the whole operation. The application implements these
+accessors; it does not implement route handlers. Translation owns catalog
+serialization, handler construction and document execution.
 
 Call `api::register_routes(controller, snapshot_factory, Some("translation"))`
 once. The factory returns `Arc<S>` where `S: TranslationSnapshot`. It is invoked

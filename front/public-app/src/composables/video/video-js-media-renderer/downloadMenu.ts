@@ -207,7 +207,7 @@ export function installDownloadMenu(
   content.setAttribute('role', 'menu')
   popup.append(content)
   wrapper.append(toggle, popup)
-  controlBar.insertBefore(wrapper, controlBar.querySelector('.vjs-picture-in-picture-control, .vjs-fullscreen-control'))
+  controlBar.insertBefore(wrapper, controlBar.querySelector('.vjs-cinema-control, .vjs-picture-in-picture-control, .vjs-fullscreen-control'))
 
   const listeners = new AbortController()
   const listenerOptions = { signal: listeners.signal }

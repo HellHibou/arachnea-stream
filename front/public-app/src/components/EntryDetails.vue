@@ -133,6 +133,10 @@ import type { MediaItem, ThumbnailImageFit } from '@/types/media'
     isAutoplayEnabled?: boolean
     /** Whether to display content in full width mode. */
     isFullWidthContent?: boolean
+    /** Whether the player offers the cinema page layout. @default false */
+    allowCinemaMode?: boolean
+    /** Whether the episode column is visible in cinema mode. @default true */
+    showEpisodeList?: boolean
     /** List of metadata badges to display. */
     metadataBadges: string[]
     /** List of topic chips to display. */
@@ -179,6 +183,8 @@ const props = withDefaults(defineProps<Props>(), {
    showAutoplayToggle: false,
    isAutoplayEnabled: false,
    isFullWidthContent: false,
+   allowCinemaMode: false,
+   showEpisodeList: true,
    heroBackgroundPortraitUrl: null,
    heroBackgroundLandscapeUrl: null,
    useCatalogBannersAsBackground: true,
@@ -187,6 +193,9 @@ const props = withDefaults(defineProps<Props>(), {
   })
 /** Internationalization utilities. */
 const { t } = useI18n()
+/** Cinema layout synchronized with the parent episode controller; defaults to false. */
+const isCinemaMode = defineModel<boolean>('isCinemaMode', { default: false })
+
 /** Service metadata utilities. */
 const { getService } = useServiceMetadata()
 
@@ -310,7 +319,11 @@ const emit = defineEmits<{
        <div
          v-else-if="props.hasContent"
          class="entry-details__content"
-         :class="{ 'entry-details__content--full-width': props.isFullWidthContent }"
+         :class="{
+           'entry-details__content--full-width': props.isFullWidthContent,
+           'entry-details__content--cinema': isCinemaMode,
+           'entry-details__content--cinema-no-episodes': isCinemaMode && !props.showEpisodeList,
+         }"
        >
          <EntryDetailsPosterPanel
            v-if="!props.isFullWidthContent"
@@ -333,6 +346,9 @@ const emit = defineEmits<{
          >
             <EntryDetailsHeroContent
               ref="playerSectionRef"
+              :show-cinema-toggle="props.allowCinemaMode"
+              :is-cinema-mode="isCinemaMode"
+              @update:is-cinema-mode="isCinemaMode = $event"
               :display-title="props.displayTitle"
               :alternative-title-label="props.alternativeTitleLabel"
               :selected-playable-title="props.selectedPlayableTitle"
@@ -382,26 +398,30 @@ const emit = defineEmits<{
               @playback-started="emit('playback-started', $event)"
               @playback-ended="emit('playback-ended')"
               @source-error="emit('source-error')"
-           />
+           >
+             <template #metadata>
+               <EntryDetailsMetadata
+                 :metadata-badges="props.metadataBadges"
+                 :topic-chips="props.topicChips"
+                 :genre-text="props.genreText"
+                 :year-label="props.yearLabel"
+                 :display-release-date-label="props.displayReleaseDateLabel"
+                 :display-expire-label="props.displayExpireLabel"
+                 :content-advisor-label="props.contentAdvisorLabel"
+                 :audio-language-label="props.audioLanguageLabel"
+                 :subtitle-language-label="props.subtitleLanguageLabel"
+                 :display-duration-label="props.displayDurationLabel"
+                 :casting-text="props.castingText"
+                 :director-text="props.directorText"
+                 :score="props.score"
+                 :price="props.price"
+               />
+             </template>
+           </EntryDetailsHeroContent>
 
-           <EntryDetailsMetadata
-             :metadata-badges="props.metadataBadges"
-             :topic-chips="props.topicChips"
-             :genre-text="props.genreText"
-             :year-label="props.yearLabel"
-             :display-release-date-label="props.displayReleaseDateLabel"
-             :display-expire-label="props.displayExpireLabel"
-             :content-advisor-label="props.contentAdvisorLabel"
-             :audio-language-label="props.audioLanguageLabel"
-             :subtitle-language-label="props.subtitleLanguageLabel"
-             :display-duration-label="props.displayDurationLabel"
-             :casting-text="props.castingText"
-             :director-text="props.directorText"
-             :score="props.score"
-              :price="props.price"
-           />
-
-           <slot />
+           <div class="entry-details__catalog">
+             <slot />
+           </div>
          </div>
 
          <div
@@ -494,6 +514,10 @@ const emit = defineEmits<{
    align-content: start;
  }
 
+.entry-details__catalog {
+   min-width: 0;
+ }
+
  /* Full-width area below the poster/body grid (recommendations rail). */
  .entry-details__below {
    position: relative;
@@ -515,6 +539,173 @@ const emit = defineEmits<{
 
    .entry-details__below {
      padding: 0 18px 18px;
+   }
+ }
+
+.entry-details__content--cinema {
+   gap: 8px;
+   margin-top: 10px;
+   padding: 4px;
+   grid-template-columns: minmax(0, 1fr);
+   grid-template-areas:
+     'player'
+     'episodes'
+     'title'
+     'poster'
+     'description'
+     'metadata';
+   align-items: start;
+ }
+
+.entry-details__content--cinema .entry-details__body {
+   display: contents;
+ }
+
+.entry-details__content--cinema .entry-details__poster-panel {
+   grid-area: poster;
+   width: 100%;
+   max-width: 400px;
+ }
+
+.entry-details__content--cinema .entry-details-metadata {
+   grid-area: metadata;
+   min-width: 0;
+ }
+
+.entry-details__content--cinema .entry-details__catalog {
+   grid-area: episodes;
+ }
+
+.entry-details__content--cinema-no-episodes {
+   grid-template-areas:
+     'player'
+     'title'
+     'poster'
+     'description'
+     'metadata';
+ }
+
+.entry-details__content--cinema-no-episodes .entry-details__catalog {
+   display: none;
+ }
+
+.entry-details__content--cinema .entry-details__catalog :deep(.entry-details-episodes) {
+   gap: 4px;
+ }
+
+.entry-details__content--cinema .entry-details__catalog :deep(.entry-details-episodes > .entry-details__season-single-eyebrow) {
+   display: none;
+ }
+
+.entry-details__content--cinema .entry-details__catalog :deep(.entry-details__seasons) {
+   display: flex;
+   align-items: center;
+   gap: 10px;
+ }
+
+.entry-details__content--cinema .entry-details__catalog :deep(.entry-details__season-single-eyebrow) {
+   font-size: 0.65rem;
+   line-height: 1.2;
+   letter-spacing: 0.03em;
+ }
+
+.entry-details__content--cinema .entry-details__catalog :deep(.entry-details__seasons > .entry-details__season-single-eyebrow) {
+   margin-inline-start: 5px;
+   font-size: 1.05rem;
+   white-space: nowrap;
+ }
+
+.entry-details__content--cinema .entry-details__catalog :deep(.entry-details__select-field) {
+   flex: 1;
+   min-width: 0;
+ }
+
+.entry-details__content--cinema .entry-details__catalog :deep(.entry-details__select) {
+   width: min(100%, 220px);
+   min-width: 0;
+   min-height: 40px;
+   padding: 6px 10px;
+   font-size: 1rem;
+ }
+
+.entry-details__content--cinema .entry-details__catalog :deep(.entry-details__episodes) {
+   padding: 4px;
+ }
+
+.entry-details__content--cinema .entry-details__catalog :deep(.media-card-collection),
+.entry-details__content--cinema .entry-details__catalog :deep(.media-card__list-body) {
+   gap: 4px;
+ }
+
+.entry-details__content--cinema .entry-details__catalog :deep(.media-card--list) {
+   gap: 8px;
+   padding: 6px;
+ }
+
+.entry-details__content--cinema .entry-details__catalog :deep(.media-card__preview-title--list) {
+    font-size: 1rem;
+  }
+
+@media (min-width: 1121px) {
+   .entry-details__content--cinema {
+     --cinema-stage-height: max(0px, calc(100dvh - var(--app-toolbar-height, 64px) - 34px));
+     --cinema-episodes-width: 36%;
+     --cinema-player-width: calc(100% - var(--cinema-episodes-width) - 12px);
+     display: flow-root;
+     padding-top: calc(var(--cinema-stage-height) + 12px);
+   }
+
+   .entry-details__content--cinema.entry-details__content--cinema-no-episodes {
+     --cinema-episodes-width: 0px;
+     --cinema-player-width: calc(100% - 8px);
+   }
+
+   .entry-details__content--cinema .entry-details__poster-panel {
+     float: left;
+     width: 400px;
+     max-width: 100%;
+     margin: 0 12px 8px 0;
+   }
+
+   .entry-details__content--cinema .entry-details-metadata {
+     margin: 8px 0;
+   }
+
+   .entry-details__content--cinema :deep(.entry-details__description) {
+     margin-left: 412px;
+   }
+
+   .entry-details__content--cinema .entry-details__catalog {
+     position: absolute;
+     top: 4px;
+     right: 4px;
+     width: var(--cinema-episodes-width);
+     height: var(--cinema-stage-height);
+   }
+
+   .entry-details__content--cinema .entry-details__catalog :deep(.entry-details-episodes) {
+     display: flex;
+     flex-direction: column;
+     height: 100%;
+   }
+
+   .entry-details__content--cinema .entry-details__catalog :deep(.entry-details__seasons),
+   .entry-details__content--cinema .entry-details__catalog :deep(.entry-details__season-single-eyebrow) {
+     flex-shrink: 0;
+   }
+
+   .entry-details__content--cinema .entry-details__catalog :deep(.entry-details__episodes) {
+     flex: 1;
+     min-height: 0;
+     max-height: none;
+   }
+
+   .entry-details__content--cinema .entry-details__catalog :deep(.media-card--list.media-card--landscape) {
+     grid-template-columns: 96px minmax(0, 1fr);
+   }
+
+   .entry-details__content--cinema .entry-details__catalog :deep(.media-card--list.media-card--list-no-poster) {
+     grid-template-columns: minmax(0, 1fr);
    }
  }
 

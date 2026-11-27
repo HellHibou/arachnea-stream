@@ -16,9 +16,11 @@ player/configuration-reload cycle remain to be qualified.
 
 The `runtime` feature provides the effective catalog, provider selection and
 shared budgets; the caller supplies the aggregator, group, manifest and
-credentials. `api` enables runtime-backed controller integration, while
-`document-vtt` registers WebVTT support. With no document feature the registry
-is empty and rejects unsupported formats.
+credentials. Provider metadata is queried on first catalog use rather than at
+startup; a load publishing at least one service is cached, and a failed load is
+retried on the next call. `api` enables runtime-backed controller integration,
+while `document-vtt` registers WebVTT support. With no document feature the
+registry is empty and rejects unsupported formats.
 
 ## 1. Layer split
 
@@ -399,7 +401,11 @@ Each service includes `url_translation_formats`, the media types accepted by URL
 translation, and `source_detection_identifies_language`, which indicates whether
 detection can identify the source before checking directional pair restrictions.
 The frontend shares the catalog between settings and playback, retries failed
-loads, and requires a frontend reload after service configuration changes.
+loads, and requires a frontend reload after service configuration changes. The
+backend queries provider metadata on the first catalog request, keeps it in
+memory once at least one service is published, and retries on the next request
+when no service could be published. The first catalog request therefore waits
+for the provider queries; later requests read the cached snapshot.
 
 A single request carries `url`, `target` and `content-type`, plus optional `track_id`,
 `source` and `policy` query parameters. Values are JSON-encoded
@@ -454,11 +460,13 @@ ETag.
 
 Finite HLS WebVTT subtitle media playlists are also accepted as sources. The frontend discovers rendition URLs through VHS and prefers complete tracks over forced tracks. The backend assembles segments with timestamp-map normalization and duplicate cue removal, preserving proxy options and applying public-destination checks to every request. Aggregate bytes/cues remain bounded; assembly is limited to 4096 segments and 120 seconds. Live playlists, encryption, discontinuities, byte ranges and initialization maps are rejected. Revalidation uses the assembled content hash, never the playlist ETag alone. Assembled documents require a text-capable translation provider; the playlist URL is never sent for provider URL translation.
 
-LibreTranslate loads directional pairs from `/languages` at catalog load or
-reload. Only published lowercase two-letter codes are retained; variants are
-excluded without truncation. HTTP errors, invalid responses or no usable pair
-make the provider unavailable. Reload the service configuration after changing
-installed models. Effective metadata contributes to the configuration revision.
+LibreTranslate loads directional pairs from `/languages` on the first catalog
+request, after a failed load, or on service reload. Only published lowercase
+two-letter codes are retained; variants are excluded without truncation. HTTP
+errors, invalid responses or no usable pair leave the provider unpublished and
+are retried on the next catalog request. Reload the service configuration after
+changing installed models. Effective metadata contributes to the configuration
+revision.
 
 ## 10. Out of scope
 
@@ -486,12 +494,14 @@ fail explicitly before retrieval.
 
 `api::register_routes(controller, factory, subpath)` owns route registration,
 handler construction, catalog serialization and document execution. The factory
-returns `Arc<S>` implementing Translation's `TranslationSnapshot`: catalog,
-Scrapyfy aggregator, service group, configured retrieval and optional trusted
-proxy prefix. It is called once per request. The snapshot remains alive through
-all asynchronous work, including during a concurrent application reload.
-Catalog requests do not construct a retriever. Stream supplies dependencies and
-a factory returning its current instance; it defines no translation route
-callbacks. The former Rust `TranslationApi` callback contract is removed;
-HTTP/Tauri command names, parameters and responses retain their current contract.
-Translation has no dependency on Stream.
+returns `Arc<S>` implementing Translation's `TranslationSnapshot`: an
+asynchronous catalog accessor, Scrapyfy aggregator, service group, configured
+retrieval and optional trusted proxy prefix. It is called once per request. The
+snapshot remains alive through all asynchronous work, including during a
+concurrent application reload. The catalog accessor queries providers on first
+use and retries a load that published no service; the returned snapshot is kept
+for the rest of the operation. Catalog requests do not construct a retriever.
+Stream supplies dependencies and a factory returning its current instance; it
+defines no translation route callbacks. The former Rust `TranslationApi`
+callback contract is removed; HTTP/Tauri command names, parameters and responses
+retain their current contract. Translation has no dependency on Stream.

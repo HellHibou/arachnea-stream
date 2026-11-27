@@ -19,7 +19,7 @@ import {
 } from './video-js-media-renderer/constants'
 import {
   installAdaptiveControlBarMenuPositioning, installExclusiveControlBarMenus, installPlaybackRateBadge,
-  installTimerToggle, syncPrevNextVideoControls,
+  installTimerToggle, syncPrevNextVideoControls, syncCinemaControl,
 } from './video-js-media-renderer/controls'
 import { installStableFullscreenBridge } from './video-js-media-renderer/fullscreen'
 import {
@@ -676,6 +676,21 @@ export function useVideoJsMediaRenderer(options: UseVideoJsMediaRendererOptions)
         playerState, switchTime: pendingTime, switchAutoplay: pendingAutoplay,
       })
     },
+  )
+
+  watch(
+    [activePlayer, () => props.controls, () => props.showCinemaToggle, () => props.isCinemaMode,
+      () => t('player.controls.cinema'), () => t('player.controls.exitCinema')],
+    ([player]) => {
+      if (!player) return
+      syncCinemaControl(player, {
+        controls: props.controls ?? false,
+        showCinemaToggle: props.showCinemaToggle ?? false,
+        isCinemaMode: props.isCinemaMode ?? false,
+        onToggle: () => emit('update:is-cinema-mode', !props.isCinemaMode),
+      })
+    },
+    { flush: 'post' },
   )
 
   watch(variants.revision, () => {

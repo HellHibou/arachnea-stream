@@ -49,6 +49,8 @@ const props = withDefaults(defineProps<VideoJsMediaRendererProps & {
   previousVideoItem: null,
   nextVideoItem: null,
   serviceTitle: null,
+  showCinemaToggle: false,
+  isCinemaMode: false,
 })
 
 const emit = defineEmits<VideoJsMediaRendererEmits>()

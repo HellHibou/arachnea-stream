@@ -202,7 +202,10 @@ export function createEntryPlayerStream(options: EntryPlayerStreamOptions) {
         isMediaPlayerLoading.value = false
         activeStreamPlayer = currentPlayer
 
-        if (!currentPlayer) return
+        if (!currentPlayer) {
+          if (options.selectedPlayableItem.value) void loadDeferredPlayers()
+          return
+        }
         if (!shouldResolvePlayer.value) {
           if (!directMediaSource.value) failCurrentPlayer(t('entry.videoUnavailable'))
           return

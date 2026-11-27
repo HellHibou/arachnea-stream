@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, useId } from 'vue'
+import { computed, useId, useTemplateRef } from 'vue'
+import { useParametersLayout } from '@/composables/useParametersLayout'
 
 import type { MediaCardCollectionMode } from '@/types/media'
 import {
@@ -24,11 +25,22 @@ import ParametersPanel from './parameters/ParametersPanel.vue'
 import ParametersSection from './parameters/ParametersSection.vue'
 
 /** Detached refs supplied by the settings editor; controls never access shared storage. */
-const { parameters, homePreferences } = defineProps<{
+const { parameters, homePreferences, cinemaModeByDefault } = defineProps<{
   parameters: StorageParameters
   homePreferences: Pick<HomePreferences, 'showSectionEditingButtons'>
+  /** Device-only cinema default edited by the parent draft. */
+  cinemaModeByDefault: boolean
+}>()
+const emit = defineEmits<{
+  /** Updates the detached device-only preference without writing to storage. */
+  'update:cinema-mode-by-default': [enabled: boolean]
+  /** Reports the occupied columns' width, including dialog padding. */
+  'update:dialog-width': [width: number]
 }>()
 const { t } = useI18n()
+/** Container measured to pack complete settings groups into the available dialog height. */
+const parametersRoot = useTemplateRef<HTMLElement>('parametersRoot')
+useParametersLayout(parametersRoot, (width) => emit('update:dialog-width', width))
 /** Unique component identifier for generating element IDs. */
 const componentId = useId()
 /** Unique ID for the thumbnail orientation switch. */
@@ -304,7 +316,7 @@ function handleOpenAdministration(): void {
 </script>
 
 <template>
-  <section class="parameters" :aria-label="t('settings.ariaLabel')">
+  <section ref="parametersRoot" class="parameters" :aria-label="t('settings.ariaLabel')">
     <ParametersSection :title="t('settings.general')">
       <div class="parameters__grid">
         <ProfileCommonPreferences
@@ -371,7 +383,7 @@ function handleOpenAdministration(): void {
       </div>
     </ParametersSection>
 
-    <ParametersSection :title="t('settings.background')">
+    <ParametersSection class="parameters__group--bottom-spacing" :title="t('settings.background')">
       <div class="parameters__grid">
          <ParametersPanel :title="t('settings.backgroundImage')">
            <ParameterSwitch
@@ -420,7 +432,20 @@ function handleOpenAdministration(): void {
        </div>
      </ParametersSection>
 
-    <ParametersSection :title="t('settings.player')">
+    <ParametersSection v-if="canOpenAdministration" :title="t('settings.administration')">
+      <div class="parameters__grid">
+        <ParametersPanel :title="t('settings.openAdministration')">
+          <button
+            type="button"
+            class="parameters__action-button"
+            @click="handleOpenAdministration"
+          >
+            {{ t('settings.openAdministration') }}
+          </button>
+        </ParametersPanel>
+      </div>
+    </ParametersSection>
+    <ParametersSection class="parameters__group--player-spacing" :title="t('settings.player')">
       <div class="parameters__grid">
         <ParametersPanel :title="t('settings.securityMode')">
           <label class="parameters__select-field" :for="embeddedPlayerModeInputId">
@@ -441,6 +466,16 @@ function handleOpenAdministration(): void {
             </select>
           </label>
         </ParametersPanel>
+        <ParametersPanel :title="t('settings.cinemaModeByDefault')">
+          <ParameterSwitch
+            :input-id="`${componentId}-cinema-mode-by-default`"
+            :leading-label="t('settings.inactive')"
+            :trailing-label="t('settings.active')"
+            :checked="cinemaModeByDefault"
+            @update:checked="emit('update:cinema-mode-by-default', $event)"
+          />
+        </ParametersPanel>
+
         <ParametersPanel
           v-for="chapterType in AUTOSKIP_PARAMETER_TYPES"
           :key="chapterType"
@@ -540,19 +575,6 @@ function handleOpenAdministration(): void {
       </div>
     </ParametersSection>
 
-    <ParametersSection v-if="canOpenAdministration" :title="t('settings.administration')">
-      <div class="parameters__grid">
-        <ParametersPanel :title="t('settings.openAdministration')">
-          <button
-            type="button"
-            class="parameters__action-button"
-            @click="handleOpenAdministration"
-          >
-            {{ t('settings.openAdministration') }}
-          </button>
-        </ParametersPanel>
-      </div>
-    </ParametersSection>
   </section>
 </template>
 
@@ -572,8 +594,26 @@ function handleOpenAdministration(): void {
 }
 
 .parameters {
-  display: grid;
-  gap: 0px;
+  display: flex;
+  flex-flow: column wrap;
+  align-content: flex-start;
+  height: var(--parameters-layout-height, auto);
+  gap: 12px;
+}
+
+.parameters :deep(.parameters__group) {
+  flex: 0 0 auto;
+  width: var(--parameters-column-width, 100%);
+  min-width: 0;
+  max-width: 780px;
+}
+
+.parameters :deep(.parameters__group--bottom-spacing) {
+  padding-bottom: 7px;
+}
+
+.parameters :deep(.parameters__group--player-spacing) {
+  padding-bottom: 17px;
 }
 
 .parameters__grid {

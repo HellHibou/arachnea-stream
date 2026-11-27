@@ -781,6 +781,10 @@ both `name`/`url` and `title`/`feed` rail shapes; its search/recommendations rem
 video-only. France TV shared collection anchors now include their category
 requests in search/recommendations too. See the Stream FR/EN specifications.
 
+Fawesome's shared player mapping explicitly drops resolver metadata for `drm=0`,
+including inline season episodes, so those players use their direct HLS stream
+instead of dispatching an unsupported resolver named `0`.
+
 Live catalog cards carry `request.channel`, an opaque source-owned channel or
 event identifier, and navigate independently of the channel list. They retain a
 separate live target instead of an entry-details URL. Optional catalog title,

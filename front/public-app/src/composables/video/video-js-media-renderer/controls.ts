@@ -34,6 +34,53 @@ interface InstallSeekOnClickOptions {
 /** Padding in pixels from the edges of the control bar for menu positioning. */
 const CONTROL_BAR_MENU_EDGE_PADDING_PX = 8
 
+/** State and action of the cinema control in the native player toolbar. */
+interface CinemaControlOptions {
+  controls: boolean
+  showCinemaToggle: boolean
+  isCinemaMode: boolean
+  onToggle: () => void
+}
+
+/**
+ * Updates the cinema toolbar button without replacing the player or focused control.
+ * @param player Player owning the control bar.
+ * @param options Latest visibility, layout state and activation callback.
+ */
+export function syncCinemaControl(player: VideoJsPlayer, options: CinemaControlOptions) {
+  const bar = player.el()?.querySelector<HTMLElement>('.vjs-control-bar')
+  if (!bar) return
+
+  let button = bar.querySelector<HTMLButtonElement>('.vjs-cinema-control')
+  if (!options.controls || !options.showCinemaToggle) {
+    button?.remove()
+    return
+  }
+
+  if (!button) {
+    button = document.createElement('button')
+    button.type = 'button'
+    button.className = 'vjs-cinema-control vjs-control vjs-button'
+    const icon = document.createElement('span')
+    icon.setAttribute('aria-hidden', 'true')
+    button.append(icon)
+    const pictureInPicture = bar.querySelector('.vjs-picture-in-picture-control')
+    bar.insertBefore(button, pictureInPicture ?? bar.querySelector('.vjs-fullscreen-control'))
+  }
+
+  const label = t(options.isCinemaMode ? 'player.controls.exitCinema' : 'player.controls.cinema')
+  button.setAttribute('aria-label', label)
+  button.setAttribute('aria-pressed', String(options.isCinemaMode))
+  button.title = label
+  button.firstElementChild!.className = options.isCinemaMode
+    ? 'mdi mdi-arrow-collapse-horizontal'
+    : 'mdi mdi-arrow-expand-horizontal'
+  button.onclick = (event) => {
+    event.stopPropagation()
+    options.onToggle()
+  }
+}
+
 /** Entry rendered as a checkbox item inside the episode autoplay menu. */
 export interface AutoplayMenuEntry {
   /** Stable entry identifier, also used to restore focus after a rebuild. */

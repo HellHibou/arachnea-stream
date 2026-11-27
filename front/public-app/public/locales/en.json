@@ -240,6 +240,7 @@
     "theme": "Theme",
     "colorTheme": "Color theme",
     "player": "Player",
+    "cinemaModeByDefault": "Expanded player by default (this device)",
     "useAudioDescriptionIfAvailable": "Use audio description if available",
     "subtitleLanguagesTitle": "Subtitle languages",
     "subtitleLanguages": {
@@ -391,6 +392,8 @@
       "subtitles": "Subtitles",
       "fullscreen": "Fullscreen",
       "exitFullscreen": "Exit fullscreen",
+      "cinema": "Expanded player",
+      "exitCinema": "Compact player",
       "mute": "Mute",
       "unmute": "Unmute",
       "play": "Play",

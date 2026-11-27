@@ -55,6 +55,8 @@ const props = withDefaults(defineProps<VideoPlayerComponentProps>(), {
   nextVideoItem: null,
   serviceTitle: null,
   securityMode: 'safe',
+  showCinemaToggle: false,
+  isCinemaMode: false,
 })
 
 const emit = defineEmits<VideoPlayerComponentEmits>()
@@ -130,7 +132,10 @@ const {
 </script>
 
 <template>
-  <div v-if="shouldRenderSurface" :class="surfaceContainerClass">
+  <div
+    v-if="shouldRenderSurface"
+    :class="[surfaceContainerClass, { 'entry-details__trailer--cinema': props.isCinemaMode }]"
+  >
     <div
       v-if="shouldRenderSurfaceLoadingState"
       class="entry-details__player-state entry-details__player-state--loading"
@@ -226,7 +231,10 @@ const {
        :previous-video-item="props.previousVideoItem"
        :next-video-item="props.nextVideoItem"
        :service-title="props.serviceTitle"
+      :show-cinema-toggle="props.showCinemaToggle"
+      :is-cinema-mode="props.isCinemaMode"
       v-bind="standaloneRendererAttrs"
+      @update:is-cinema-mode="emit('update:is-cinema-mode', $event)"
       @update:playback-progress="handleActiveVideoPlaybackProgressUpdate"
       @update:player-state="handlePlayerStateUpdate"
       @update:is-episode-autoplay-enabled="handleActiveVideoEpisodeAutoplayEnabledUpdate"

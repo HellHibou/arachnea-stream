@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { toRef, useTemplateRef } from 'vue'
+import { ref, toRef, useTemplateRef, watch } from 'vue'
+import { useLocalPlayerPreferences } from '@/composables/useLocalPlayerPreferences'
 import type { ThumbnailImageFit } from '@/types/media'
 import { useI18n } from '@/i18n'
 import { useStorage } from '@/services/storage'
@@ -105,9 +106,18 @@ const {
   handleLoadMoreRecommendations, handleRecommendationSelect,
 } = recommendations
 
+/** Page layout shared with episode selection so cinema mode preserves the scroll position. */
+const { cinemaModeByDefault } = useLocalPlayerPreferences()
+const isCinemaMode = ref(cinemaModeByDefault.value)
+
+watch([source, entry], () => {
+  isCinemaMode.value = cinemaModeByDefault.value
+})
+
 const selection = entryEpisodeSelection({
   details,
   seasonEpisodes,
+  shouldScrollToTitle: () => !isCinemaMode.value,
 })
 const {
   displayedEpisodes,
@@ -201,6 +211,29 @@ const {
 const bookmarkSelection = bookmark.bindSelection({ data, selection, presentation, hasNextEpisode })
 const { handleBookmarkToggle, handlePlaybackProgressUpdate } = bookmarkSelection
 
+/** Fill an empty expanded player after loading and bookmark restoration have settled. */
+watch(
+  [isCinemaMode, displayedEpisodes, selectedEpisode, showMediaPlayer, showTrailerPlayer,
+    mediaSource, trailerMediaSource, isMediaPlayerLoading, isLoading, isSeasonLoading],
+  () => {
+    if (
+      !isCinemaMode.value ||
+      isLoading.value ||
+      isSeasonLoading.value ||
+      selectedEpisode.value ||
+      isMediaPlayerLoading.value ||
+      (showMediaPlayer.value && mediaSource.value) ||
+      (showTrailerPlayer.value && trailerMediaSource.value)
+    ) return
+
+    const firstPlayable = displayedEpisodes.value.find((episode) =>
+      episode.players.entries.length > 0 || Boolean(episode.players.link),
+    )
+    if (firstPlayable) selection.selectEpisodeById(firstPlayable.id)
+  },
+  { immediate: true, flush: 'post' },
+)
+
 const {
   previousPlayableItem, nextPlayableItem, backgroundVideoSource, initialPlaybackTime,
   mediaPosterUrl, trailerPosterUrl, mediaOverlayLogoUrl,
@@ -212,6 +245,9 @@ const {
 
 <template>
   <EntryDetails
+    v-model:is-cinema-mode="isCinemaMode"
+    allow-cinema-mode
+    :show-episode-list="showEpisodeSection"
     :error-message="errorMessage"
     :is-loading="isLoading"
     :has-content="Boolean(details)"

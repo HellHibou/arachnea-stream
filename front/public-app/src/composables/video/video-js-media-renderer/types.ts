@@ -17,6 +17,10 @@ export interface VideoJsMediaDimensions {
  * Props accepted by the shared Video.js renderer.
  */
 export interface VideoJsMediaRendererProps {
+  /** Shows the cinema toggle in the player control bar. @default false */
+  showCinemaToggle?: boolean
+  /** Whether the entry page uses the cinema layout. @default false */
+  isCinemaMode?: boolean
   /**
    * Resolved media source rendered through the integrated Video.js player.
    */
@@ -148,6 +152,8 @@ export interface VideoJsMediaRendererProps {
  * Emits accepted by the shared Video.js renderer.
  */
 export interface VideoJsMediaRendererEmits {
+  /** Emitted when the cinema control is activated. */
+  (evt: 'update:is-cinema-mode', value: boolean): void
   (evt: 'update:playback-progress', value: number | null, duration: number | null, immediate?: boolean): void
   (evt: 'playback-started', sourceUrl: string | null): void
   (evt: 'playback-ended'): void

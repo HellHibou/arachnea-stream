@@ -14,6 +14,11 @@ have a 20-second watchdog. Shared storyboard, chapters, subtitles and compatible
 playback position survive source switches. This applies to episodes, live,
 trailers and resolved banner/background videos. Independent providers stay separate.
 
+Subtitle cues stay hidden before playback starts and when the large paused-play
+overlay is enabled. This uses the same Video.js playback state as the existing
+chapter controls; the selected subtitle track remains enabled and appears again
+when playback starts or resumes.
+
 For entry and episode server selectors, native candidates precede iframe embeds,
 with backend order preserved within each group. Embed links provide an initial hint;
 resolver results refine the ordering. An `embed-link` can resolve to native video and
@@ -36,6 +41,14 @@ Deferred episode lists and stale resolver responses cannot restore another episo
 players. Iframe fallback can only react to browser-reported errors; failures inside a
 cross-origin embedded player may be invisible to the application. Iframe security and
 confirmation policies still apply.
+
+Episodes restored from bookmarks select the episode video rather than the trailer.
+When the stored episode is not on the first page of its bookmarked season, the entry
+loads further pages until that episode is found or no more episodes remain; other
+seasons keep their current list. Deferred episode player lists are loaded on
+restoration as well as on manual selection. While the episode resolves, the player
+keeps its episode loading/error surface; it does not fall back to the trailer. The
+trailer remains available through its explicit toggle.
 
 Deploy this frontend with the matching server/YAML contract. Run `npm run type-check`
 and `npm run build-only` to validate changes. Browser playback still requires manual
@@ -431,11 +444,52 @@ the provider logo slot and preserve its aspect ratio. The provider logo serves
 as the fallback when the channel logo is unavailable.
 
 Episode lists inside an entry use `selectionMode="local"` on the shared card
-collection. Their actions are buttons that select an episode in the current player,
+collection. Each entire episode row acts as a keyboard-accessible button that
+selects the episode in the current player, without a separate watch button,
 including episodes with inline players and no episode URL (such as Anime-Sama and
 French Animes). The episode mapper supplies a source only when inline players or a
 deferred player link are available. Other collections default to route selection
 and retain their validated native links.
+
+The entry episode panel scrolls vertically when its content exceeds the smaller
+of 60% of the viewport height and 36rem. The episode label and season selector stay outside the
+scrollable panel, and the panel supports keyboard scrolling. Pagination remains
+inside the panel so more episodes can load as its end becomes visible.
+
+Entry players offer an Expanded player / Compact player toggle in the player toolbar that toggles a page-local
+viewing layout. The icon appears only in the native Video.js control bar,
+between Download and Picture-in-Picture, including in compact players. Embedded
+players do not expose a separate layout button.
+The toggle uses horizontal expand/collapse arrows without a selected-state color.
+When Expanded player mode has no active episode or trailer surface, it selects
+and loads the first playable episode from the available list after entry/season
+loading and bookmark restoration. Existing selections and active trailers remain
+preferred; this automatic selection does not scroll the page or force autoplay.
+In Expanded player mode, the player starts a new row across the available page width,
+with a right-hand column containing the season dropdown and the scrollable
+episode list. The episode heading is hidden in this mode; a larger season label
+sits to the left of the enlarged dropdown, while episode titles use a smaller font than in
+Compact player mode. On wider screens, the episode column takes 36% of
+the available width and fits the player's height. When the episode list is hidden,
+the player fills the available width instead. The episode column keeps compact
+spacing, plus an additional 10px gap above the row. Pagination stays
+inside the list. The row height fits the
+viewport below the application toolbar; the player frame can change proportions,
+while the video itself uses contain sizing to avoid distortion. Player selectors
+fit inside that height. The poster, title, description and metadata move below
+the row. On wider screens the poster keeps its normal 400px width, with the title,
+badges and facts on its right. Descriptions follow the metadata in that same
+right-hand column, including when the text extends below the poster. On
+screens up to 1120px wide, the season and episode column stacks below the player.
+Switching layouts keeps the same mounted renderer and its current playback.
+Selecting an episode in Cinema mode keeps the page's scroll position; the Compact player
+layout still scrolls to the title when an episode is selected.
+Opening a different entry applies the device's Expanded player default (disabled initially).
+The Player settings section edits this default through Save/Cancel; it is stored
+only in `localStorage` under `arachnea.videoPlayer.preferences.cinemaModeByDefault`,
+shared by profiles on this browser or desktop webview and never added to server
+preference documents. Manual toolbar toggles affect only the current entry.
+In the normal layout, the description also appears below the metadata badges and facts.
 
 Category artwork uses two decorative thumbnail layers behind the foreground image
 in grid, single-row and list layouts. The rear layers reuse the foreground artwork
@@ -639,9 +693,21 @@ are present. The draft stays available for review if server values differ. The
 user can load server values or reapply the changed fields to the latest snapshot
 before saving. Cancel discards the local draft after confirmation.
 
+The dialog fills the available height first and fits its width to the occupied
+columns, within the screen bounds. Settings groups are capped at 780px wide and
+shrink to fit narrower screens.
+Complete groups stack in one column when they fit; additional columns are opened
+only when needed and when at least 520px per column is available. If the groups
+still cannot fit, the dialog scrolls vertically, without splitting groups or
+adding horizontal scrolling. Layout is recalculated when the window or group
+contents change. The Expanded player default is a
+separate device-only draft: saving only that switch makes no server write.
+When other preferences also change, the local default is committed only after
+the server save succeeds; a failed save or Cancel leaves the local default intact.
+
 ## Personal storage retirement (step 8)
 
-Delivered: no active IndexedDB or legacy personal `localStorage` access. Parameters start from detached defaults and then the server snapshot; context changes reset them, including language/theme. Volume, mute, navigation and account/server-scoped resume remain local; cookie/native vault handling is unchanged. Old data is neither imported nor deleted.
+Delivered: no active IndexedDB or legacy personal `localStorage` access. Parameters start from detached defaults and then the server snapshot; context changes reset them, including language/theme. Volume, mute, the Expanded player default, navigation and account/server-scoped resume remain local; cookie/native vault handling is unchanged. Old data is neither imported nor deleted.
 
 Quality, manual tracks and subtitle appearance are restored from confirmed streaming settings and saved through revision-checked `save_preferences`. Player changes are serialized; installing a snapshot performs no write. After a lost reply, the client checks confirmed streaming preferences before continuing. Conflicts block player writes until server settings are applied again (reload/selection/refresh), without automatic overwrite. Saving changed track rules also clears persisted manual track choices. Profile-switch flushing is bounded to five seconds; stale callbacks are rejected. No offline storage is introduced; forced closure may lose unconfirmed requests.
 

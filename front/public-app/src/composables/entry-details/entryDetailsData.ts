@@ -28,6 +28,18 @@ interface UseEntryDetailsDataOptions {
 }
 
 /**
+ * Options accepted by the paginated episode lookup.
+ */
+interface LoadSeasonEpisodeOptions {
+  /** Identifier of the season that should become visible. */
+  seasonId: string
+  /** Pages already fetched for that season, reused instead of requesting page one again. */
+  pages?: EntryEpisodePage[]
+  /** Called after each page is applied; returns true when the target episode can be selected. */
+  isEpisodeReady: () => boolean
+}
+
+/**
  * Owns backend loading, season pagination, and loading/error state for one entry details view.
  *
  * @param options Reactive entry identifiers used to keep the data state in sync with the current details request.
@@ -248,6 +260,55 @@ export function entryDetailsData(options: UseEntryDetailsDataOptions) {
   }
 
   /**
+   * Loads a season and its following pages until the target episode can be selected.
+   *
+   * Prefetched pages are published directly instead of re-requesting page one. The
+   * search stops when the episode is found, when no page remains, or when another
+   * season/entry became active while pages were loading.
+   *
+   * @param options Season identity, optional prefetched pages and selection probe.
+   * @returns `true` when the target episode was made selectable.
+   */
+  async function loadSeasonEpisodeIntoVisibleState(options: LoadSeasonEpisodeOptions): Promise<boolean> {
+    const season = (details.value?.seasons ?? []).find((entry) => entry.id === options.seasonId)
+
+    if (!season) {
+      return false
+    }
+
+    const isAlreadyVisible = selectedSeasonId.value === season.id &&
+      !isSeasonLoading.value &&
+      (seasonEpisodes.value.length > 0 || hasMoreSeasonEpisodes.value)
+
+    const seasonLoaded = options.pages?.length
+      ? applyFetchedSeasonPages(season.id, options.pages)
+      : isAlreadyVisible || (await selectSeasonById(season.id))
+
+    if (!seasonLoaded || selectedSeasonId.value !== season.id) {
+      return false
+    }
+
+    if (options.isEpisodeReady()) {
+      return true
+    }
+
+    while (hasMoreSeasonEpisodes.value) {
+      const previousCount = seasonEpisodes.value.length
+      await handleLoadMoreSeasonEpisodes()
+
+      if (selectedSeasonId.value !== season.id || seasonEpisodes.value.length === previousCount) {
+        return false
+      }
+
+      if (options.isEpisodeReady()) {
+        return true
+      }
+    }
+
+    return false
+  }
+
+  /**
    * Loads the detailed entry from the backend and ignores stale responses when props change quickly.
    * Also auto-selects the preferred season if available, or the first season with content.
    */
@@ -321,5 +382,6 @@ export function entryDetailsData(options: UseEntryDetailsDataOptions) {
     selectSeasonById,
     applyFetchedSeasonPages,
     handleLoadMoreSeasonEpisodes,
+    loadSeasonEpisodeIntoVisibleState,
   }
 }

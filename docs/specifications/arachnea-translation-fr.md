@@ -18,9 +18,12 @@ complet lecteur/rechargement de configuration restent à qualifier.
 
 La feature `runtime` fournit le catalogue effectif, la sélection et les budgets
 partagés ; l’appelant fournit l’agrégateur, le groupe, le manifeste et les
-credentials. `api` active l’intégration des contrôleurs avec ce runtime ;
-`document-vtt` enregistre WebVTT. Sans feature documentaire, le registre est
-vide et refuse les formats non pris en charge.
+credentials. Les métadonnées des fournisseurs sont interrogées à la première
+utilisation du catalogue plutôt qu’au démarrage ; un chargement qui publie au
+moins un service est mis en cache, et un échec est retenté à l’appel suivant.
+`api` active l’intégration des contrôleurs avec ce runtime ; `document-vtt`
+enregistre WebVTT. Sans feature documentaire, le registre est vide et refuse les
+formats non pris en charge.
 
 ## 1. Séparation des couches
 
@@ -416,6 +419,11 @@ traduction par URL, et `source_detection_identifies_language`, qui indique si la
 détection peut identifier la source avant la vérification des couples directionnels.
 Le frontend partage le catalogue entre réglages et lecteur, réessaie les chargements
 en échec et doit être rechargé après une modification de configuration des services.
+Le backend interroge les métadonnées des fournisseurs à la première demande de
+catalogue, les conserve en mémoire dès qu’un service est publié et retente à la
+demande suivante lorsqu’aucun service n’a pu être publié. La première demande
+attend donc les requêtes aux fournisseurs ; les suivantes lisent le snapshot en
+cache.
 
 Une seule requête transmet `url`, `target` et `content-type` et, en option, `track_id`,
 `source` et `policy` dans la query. Les valeurs sont encodées
@@ -472,12 +480,14 @@ revalidant avec `If-None-Match`. Une réponse `304` est vide et conserve l'ETag.
 
 Les playlists média HLS finies de sous-titres WebVTT sont également acceptées. Le frontend découvre les URL via VHS et privilégie les pistes complètes aux pistes forcées. Le backend assemble les segments, normalise les horodatages via X-TIMESTAMP-MAP et déduplique les cues. Les options proxy sont conservées et chaque requête vérifie les destinations publiques. Les limites cumulées de taille et de cues restent appliquées ; l’assemblage est limité à 4096 segments et 120 secondes. Le direct, le chiffrement, les discontinuités, les plages d’octets et les cartes d’initialisation sont refusés. La revalidation utilise le hash du document assemblé, jamais le seul ETag de la playlist. Un fournisseur capable de traduire du texte est nécessaire ; la playlist n’est pas envoyée au mode de traduction par URL.
 
-LibreTranslate charge les couples directionnels depuis `/languages` au chargement
-ou rechargement du catalogue. Seuls les codes publiés de deux lettres minuscules
-sont conservés ; les variantes sont exclues sans troncature. Une erreur HTTP,
-une réponse invalide ou l’absence de couple exploitable rend le fournisseur
-indisponible. Recharger la configuration des services après modification des
-modèles installés. Les métadonnées effectives participent à la révision.
+LibreTranslate charge les couples directionnels depuis `/languages` à la première
+demande de catalogue, après un échec de chargement ou lors d’un rechargement des
+services. Seuls les codes publiés de deux lettres minuscules sont conservés ; les
+variantes sont exclues sans troncature. Une erreur HTTP, une réponse invalide ou
+l’absence de couple exploitable laisse le fournisseur non publié et est retentée
+à la demande de catalogue suivante. Recharger la configuration des services après
+modification des modèles installés. Les métadonnées effectives participent à la
+révision.
 
 ## 10. Hors périmètre du socle
 
@@ -506,12 +516,14 @@ explicitement avant récupération.
 `api::register_routes(controller, factory, subpath)` prend en charge les routes,
 la construction des handlers, la sérialisation du catalogue et l’exécution
 documentaire. La factory retourne un `Arc<S>` implémentant `TranslationSnapshot`
-défini par Translation : catalogue, agrégateur Scrapyfy, groupe, récupération
-configurée et préfixe proxy fiable facultatif. Elle est appelée une seule fois
-par requête. Le snapshot reste vivant pendant tout le traitement asynchrone,
-y compris lors d’un rechargement concurrent. Une consultation du catalogue ne
-construit pas de récupérateur. Stream fournit les dépendances et sa factory
-retournant l’instance courante ; il ne définit aucun callback de route de
-traduction. L’ancien contrat Rust `TranslationApi` est retiré ; les noms de
-commandes, paramètres et réponses HTTP/Tauri conservent leur contrat actuel.
-Translation ne dépend pas de Stream.
+défini par Translation : un accès asynchrone au catalogue, l’agrégateur Scrapyfy,
+le groupe, la récupération configurée et le préfixe proxy fiable facultatif. Elle
+est appelée une seule fois par requête. Le snapshot reste vivant pendant tout le
+traitement asynchrone, y compris lors d’un rechargement concurrent. L’accès au
+catalogue interroge les fournisseurs à la première utilisation et retente un
+chargement qui n’a publié aucun service ; le snapshot obtenu est conservé pendant
+toute l’opération. Une consultation du catalogue ne construit pas de récupérateur.
+Stream fournit les dépendances et sa factory retournant l’instance courante ; il
+ne définit aucun callback de route de traduction. L’ancien contrat Rust
+`TranslationApi` est retiré ; les noms de commandes, paramètres et réponses
+HTTP/Tauri conservent leur contrat actuel. Translation ne dépend pas de Stream.

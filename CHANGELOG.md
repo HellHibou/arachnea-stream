@@ -341,9 +341,12 @@ All notable changes to the server workspace are recorded here.
 - Added dedicated source detection and optional `auto_query` support to the generic bridge. A source-less request can detect once through `application/arachnea-translation-detection` before batching, or use a provider auto query on a single batch; multi-batch requests reuse the detected source and original blocks are returned when the detected source equals the target.
 - Added bounded retries, account budget/concurrency reservations and non-sensitive `TranslationMetrics` to text and URL execution. The default retry policy is three attempts with jittered exponential backoff and a `Retry-After`-aware 8 s ceiling; reservations are taken before every attempt and released without refunding consumed provider units.
 - Added normalized provider failure categories, including a `Request` category and an optional `retry_after_seconds` on `ProviderRejected`, with HTTP status classification and retry eligibility kept in the generic layer.
+- Added `catalog::LazyTranslationCatalog`, a retryable process-local cache that queries provider metadata on first use instead of at startup. A load publishing at least one service is cached and shared by concurrent callers; a load without any published service returns its non-secret diagnostics without caching them so the next call retries.
 
 #### Changed
 
+- `TranslationCatalog::load` is now asynchronous and `TranslationSnapshot::catalog` returns an `Arc<TranslationCatalog>` through an asynchronous accessor. Callers await the first catalog load instead of blocking a runtime worker; the returned snapshot stays valid for the whole request.
+- Provider metadata is no longer fetched during catalog construction: `LazyTranslationCatalog` loads it on first use and retries on the next call when no service was published. A transient provider outage at application startup no longer leaves translation permanently unavailable until a manual service reload, and a provider that becomes reachable is picked up without administrator action. HTTP/Tauri command names, parameters and responses are unchanged.
 - `api::register_routes` now accepts a snapshot factory and constructs both handlers within Translation. The `TranslationSnapshot` dependency contract replaces application route callbacks; a single retained snapshot covers each request and catalog reads no longer construct HTTP retrievers. Stream removes its subtitle translation delegate module. HTTP/Tauri routes and response contracts are preserved.
 
 - Moved bounded HTTP/proxy source retrieval into Translation behind optional `retrieval-http` and `retrieval-proxy` features. Finite HLS WebVTT assembly now lives with the VTT translator and accepts injected segment retrieval and routing; Stream supplies application configuration and retains its HTTP retriever import path.
@@ -492,6 +495,7 @@ All notable changes to the server workspace are recorded here.
 
 #### Changed
 
+- The stream facade now only registers the translation service YAML group at startup; provider metadata is queried lazily by `arachnea-translation` on the first `translation/get_services` or `translation/translate_url` request and retried on later requests when no service could be published. Startup and service reloads no longer depend on a reachable translation provider.
 - M6Play discovers channels, logos and thematic categories from the public M6+ navigation. Replay channel pages expose their programme rails, continuous channels show the current live programme, and thematic categories open paged programme lists.
 
 - Authenticated requests renew the 30-day idle deadline at most once per hour per session. The browser cookie has a longer lifetime, with expiry and revocation enforced by the server.
@@ -537,6 +541,8 @@ All notable changes to the server workspace are recorded here.
 #### Fixed
 
 - Restored macOS compilation for native session storage in Keychain.
+- Fawesome season listings now attach poster and preview images, public links and players to each episode instead of the season response.
+- Fawesome non-DRM players now explicitly omit resolver metadata in the shared YAML mapping, including inline episode players, preventing unsupported-resolver errors for `0` and retaining direct HLS playback.
 - The Twitch playback proxy removes `twitch-ad-quartile` date-range tags from HLS playlists.
 - The Twitch playback proxy marks `Amazon|…` ad segments as HLS gaps and replaces their URLs with empty data URIs while preserving media sequence numbers.
 - Twitch entry details now expose the broadcast title and Twitch category as a genre. Active broadcasts show a Live label while retaining catalogue navigation. Channel pages provide Home, Clips and Videos sections and a single playable banner. Twitch HLS playlists and segments stay on the application proxy.
@@ -967,6 +973,8 @@ All notable changes to the server workspace are recorded here.
 
 #### Added
 
+- Player settings now include a device-only Cinema default, disabled initially and saved locally through Save/Cancel without adding it to server preferences. New entries use that default while manual toolbar toggles remain local to the current entry. The settings dialog uses the screen width and distributes its groups across responsive columns.
+- Entry players now offer a Cinema layout toggle: the player moves to a full-width page row with the season dropdown and scrollable episode list beside it. Player sizing respects the viewport, narrow screens stack the episode column below the player, and toggling preserves the mounted renderer and playback.
 - Added a Video.js downloads menu for MP4 alternatives, subtitles, and PNG captures of the current video frame. The menu offers injected tracks, translations and standalone DASH files, and assembles finite HLS WebVTT and DASH `wvtt` or text `stpp` segments into complete WebVTT files on demand. It reports when protected playback returns a blank frame. Downloads use the player-supplied filename or the content title, with language and label suffixes for subtitles. Odysee MP4 attachments use the browser's download manager and their upstream filename.
 - The player downloads menu can now export the storyboard as a `<video-name>-storyboard.zip` archive: the original sprite images are archived unchanged and a generated `storyboard.vtt` keeps each `#xywh=` cell geometry while pointing to the local sprite files, so sprites holding several thumbnails work without re-encoding. The export reads the storyboard WebVTT when present and falls back to the sequential sprite template using the video duration, grid and interval otherwise. The option is hidden when no usable storyboard is available, and the existing preparation status, timeout and cancellation behavior applies to it. Archiving uses a local STORE-method ZIP writer in `src/services/zipWriter.ts`, so no new frontend dependency is added.
 - The same downloads group now exports the source chapters as `<video-name>-chapters.vtt`, using the existing chapter menu labels and localized type labels for untitled chapters. The option stays hidden when the source has no chapters.
@@ -1107,6 +1115,32 @@ All notable changes to the server workspace are recorded here.
 - Category headers now use the channel returned by `get_category`, including on direct links. Category banners use the same channel logo for inline and deferred playback.
 - The trailer background setting now uses only banner trailers. Full videos, including Twitch live broadcasts and recordings, play only in the banner, even when loaded from an older cached Twitch response.
 - Category backgrounds use video thumbnails only when no banner image is available.
+- Entry episode panels now have a viewport-aware maximum height and a vertical scrollbar with keyboard support, keeping long episode lists from expanding the details/player page. Season selection stays outside the scrollable panel and pagination remains available inside it.
+- Episode rows now select the episode when clicked anywhere on the card, with native keyboard activation, replacing the separate watch button.
+- The episode section label sits above the scrollable panel and remains visible while scrolling the list.
+- The Cinema toggle now sits in the player toolbar. Cinema layout uses compact season selection and labels, minimal spacing and a wider episode column; the player frame adapts to the available space, and long descriptions continue below the poster.
+- The Cinema toolbar icon now sits immediately before fullscreen, including in compact players, and selecting an episode in Cinema mode no longer automatically scrolls the page to the title.
+- Cinema layout adds 10px of space above the player and season/episode column. Its toggle uses horizontal expand/collapse icons without selected-state coloring.
+- The Cinema control follows Picture-in-Picture in both regular and compact toolbars. Cinema players fill the page width when the episode list is hidden instead of reserving an empty side column.
+- The Cinema icon now appears immediately before Picture-in-Picture, exclusively in the native player toolbar; the separate embedded-player toggle was removed.
+- Player toolbars now consistently order Download, Cinema, Picture-in-Picture and Fullscreen, including in compact layouts and keyboard navigation.
+- Cinema entry posters keep their normal width, with metadata badges and facts beside the poster before the description; long descriptions still flow underneath the poster.
+- Cinema descriptions now remain in the column to the right of the poster, aligned with the metadata even when the text is taller than the poster.
+- In the normal entry layout, descriptions now appear below the metadata badges and facts.
+- Wide settings dialogs now use three balanced columns: General settings, stacked Home/Background sections, and Player settings, with Administration joining the middle column when available.
+- Settings now fill the available dialog height before adding columns, keeping each group intact. Additional columns require comfortable width; when space still runs out, the dialog scrolls vertically instead of horizontally.
+- Settings groups now have a maximum width of 520px while continuing to adapt to narrower screens.
+- Settings group maximum width increases to 780px, and the surrounding dialog fits its occupied columns instead of retaining unused screen width.
+- Player and Background settings groups have an additional 5px of bottom padding.
+- Player settings gain another 10px of bottom padding.
+- Restoring a bookmarked episode now activates its video and loads deferred episode players. Episode loading and errors retain the episode surface instead of falling back to the trailer.
+- Bookmark restoration now loads further pages of the recorded season until the stored episode appears, or until no more pages remain, instead of giving up when it is outside the first page. The paginated lookup is shared with cross-season navigation and stops when another season or entry becomes active.
+- Renamed the Cinema layout to Expanded player and the normal layout to Compact player in toolbar labels and device settings.
+- Expanded player layout hides the Episodes heading and places a larger Season label to the left of its enlarged dropdown; Compact player layout is unchanged.
+- Expanded player layout adds 5px of leading space before the Season label.
+- Expanded player layout uses smaller episode titles in its side column; Compact player layout keeps the original size.
+- Player subtitle cues stay hidden behind the initial or paused large play overlay, without clearing the selected subtitle track.
+- Expanded player layout now loads the first playable episode when the list is available and no episode or trailer is displayed, after loading and bookmark restoration, without automatic scrolling or forced autoplay.
 - Banner artwork remains visible during playback. The player uses the separate poster from `video-kind` while waiting for playback.
 - Custom-home pages reuse the definition resolved by the router in the page and toolbar. Concurrent home reads share one request, and closed management dialogs skip automatic reads. Returning to the window groups focus and visibility refreshes for the active profile, sections, bookmarks and homes.
 - Custom homes resolve pinned categories, banners and sections by URL when the source declares support in YAML. Twitch channel pins work even when the channel is absent from the Twitch home.

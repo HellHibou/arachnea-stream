@@ -49,7 +49,7 @@ use crate::stream_resolver::{
     resolve_scraper_query_stream, ResolvedStream, StreamResolver, GENERIC_STREAM_RESOLVER_ID,
     SCRAPER_QUERY_STREAM_RESOLVER_ID, STREAM_RESOLVER_CONFIG_PATH, STREAM_RESOLVER_GROUP_NAME,
 };
-use arachnea_translation::catalog::TranslationCatalog;
+use arachnea_translation::catalog::{LazyTranslationCatalog, TranslationCatalog};
 
 pub use crate::STREAM_SERVICE_GROUP_NAME;
 
@@ -273,8 +273,8 @@ pub struct StreamScraper {
     pub(crate) proxy_http_core: Option<ArachneaProxyCore>,
     /// Endpoints passed to player resolvers for proxying and rewriting.
     pub(crate) player_resolver_endpoints: PlayerResolverEndpoints,
-    /// Effective translation catalog loaded from the translation service group.
-    translation_catalog: TranslationCatalog,
+    /// Retryable effective translation catalog loaded on first use.
+    translation_catalog: LazyTranslationCatalog,
 }
 
 /// Options controlling how a [`StreamScraper`] instance is built or rebuilt.
@@ -425,12 +425,16 @@ impl StreamScraper {
 
         StreamScraper {
             scraper_agregator: agregator,
-            credentials_store,
+            credentials_store: Arc::clone(&credentials_store),
             stores,
             proxy_handle,
             proxy_http_core,
             player_resolver_endpoints: PlayerResolverEndpoints::default(),
-            translation_catalog: TranslationCatalog::default(),
+            translation_catalog: LazyTranslationCatalog::new(
+                crate::TRANSLATION_SERVICE_GROUP_NAME,
+                crate::DEFAULT_TRANSLATION_SERVICE_CONFIG_PATH,
+                Arc::clone(&credentials_store),
+            ),
         }
     }
 
@@ -511,18 +515,19 @@ impl StreamScraper {
                 STREAM_RESOLVER_GROUP_NAME,
                 STREAM_RESOLVER_CONFIG_PATH,
             )?;
-        instance.load_translation_services();
+        instance.register_translation_services();
         instance.configure_proxy_insecure_tls_hosts();
 
         Ok(instance)
     }
 
-    /// Loads the optional translation service group and rebuilds the public catalog.
+    /// Registers the optional translation service group without querying providers.
     ///
-    /// A missing or invalid translation configuration leaves translation
-    /// unavailable without preventing the stream and resolver groups from
-    /// loading. Diagnostics stay in the catalog and never contain secrets.
-    fn load_translation_services(&mut self) {
+    /// Provider metadata is requested later by the catalog holder on first use
+    /// and retried when a load publishes no service. A missing or invalid
+    /// translation configuration leaves translation unavailable without
+    /// preventing the stream and resolver groups from loading.
+    fn register_translation_services(&mut self) {
         let group_name = crate::TRANSLATION_SERVICE_GROUP_NAME;
         let manifest_path = crate::DEFAULT_TRANSLATION_SERVICE_CONFIG_PATH;
         if let Err(error) = self
@@ -534,21 +539,6 @@ impl StreamScraper {
                 manifest = manifest_path,
                 error = %error,
                 "translation services are unavailable"
-            );
-            self.translation_catalog = TranslationCatalog::default();
-            return;
-        }
-        self.translation_catalog = TranslationCatalog::load(
-            &self.scraper_agregator,
-            group_name,
-            manifest_path,
-            self.credentials_store.as_ref(),
-        );
-        for diagnostic in self.translation_catalog.diagnostics() {
-            tracing::warn!(
-                service = ?diagnostic.service_id,
-                message = %diagnostic.message,
-                "translation service was not published"
             );
         }
     }
@@ -830,9 +820,12 @@ mod persistence;
 use arachnea_scrapyfy::synchronize_service_defaults;
 pub use persistence::{memory_application_stores, sqlite_application_stores};
 
+#[async_trait::async_trait]
 impl arachnea_translation::api::TranslationSnapshot for StreamScraper {
-    fn catalog(&self) -> &TranslationCatalog {
-        &self.translation_catalog
+    async fn catalog(&self) -> Arc<TranslationCatalog> {
+        self.translation_catalog
+            .get_or_load(&self.scraper_agregator)
+            .await
     }
 
     fn aggregator(&self) -> &ScraperAgregator {

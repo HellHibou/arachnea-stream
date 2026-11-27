@@ -13,7 +13,7 @@ interface EntryBookmarkOptions {
 }
 
 interface BookmarkSelectionOptions {
-  data: Pick<ReturnType<typeof entryDetailsData>, 'details' | 'selectedSeasonId'>
+  data: Pick<ReturnType<typeof entryDetailsData>, 'details' | 'selectedSeasonId' | 'isSeasonLoading' | 'loadSeasonEpisodeIntoVisibleState'>
   selection: Pick<ReturnType<typeof entryEpisodeSelection>, 'displayedEpisodes' | 'selectedEpisodeId' | 'selectEpisodeById'>
   presentation: Pick<ReturnType<typeof entryDetailsPresentation>, 'selectedSeasonLabel'>
   hasNextEpisode: Ref<boolean>
@@ -113,14 +113,17 @@ export function useEntryBookmark(options: EntryBookmarkOptions) {
    * @returns Bookmark save/toggle and progress handlers bound to those reactive refs.
    */
   function bindSelection(context: BookmarkSelectionOptions) {
-    const { details, selectedSeasonId } = context.data
+    const { details, selectedSeasonId, isSeasonLoading, loadSeasonEpisodeIntoVisibleState } = context.data
     const { displayedEpisodes, selectedEpisodeId, selectEpisodeById } = context.selection
     const { selectedSeasonLabel } = context.presentation
     const { hasNextEpisode } = context
-    /** Restores episode selection from bookmark when episodes or source changes. */
+    /** Pending paginated search for the bookmarked episode, if any. */
+    let pendingEpisodeSeek: Promise<boolean> | null = null
+
+    /** Restores episode selection from bookmark, loading its season pages when needed. */
     watch(
-      [displayedEpisodes, preferredEpisodeId, source, entry],
-      ([episodes, nextEpisodeId, currentSource, currentEntry]) => {
+      [displayedEpisodes, preferredEpisodeId, selectedSeasonId, isSeasonLoading, source, entry],
+      async ([episodes, nextEpisodeId, activeSeasonId, isSeasonLoadingNow, currentSource, currentEntry]) => {
         if (!nextEpisodeId) {
           return
         }
@@ -136,6 +139,25 @@ export function useEntryBookmark(options: EntryBookmarkOptions) {
         }
 
         if (!episodes.some((episode) => episode.id === nextEpisodeId)) {
+          // Only paginate the season recorded in the bookmark.
+          if (
+            activeSeasonId !== preferredSeasonId.value ||
+            isSeasonLoadingNow ||
+            pendingEpisodeSeek ||
+            !activeSeasonId
+          ) {
+            return
+          }
+
+          pendingEpisodeSeek = loadSeasonEpisodeIntoVisibleState({
+            seasonId: activeSeasonId,
+            isEpisodeReady: () => selectEpisodeById(nextEpisodeId),
+          }).finally(() => {
+            pendingEpisodeSeek = null
+          })
+
+          await pendingEpisodeSeek
+          restoredEpisodeBookmarkKey.value = restoreKey
           return
         }
 

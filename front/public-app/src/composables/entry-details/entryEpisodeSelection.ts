@@ -15,6 +15,8 @@ interface UseEntryEpisodeSelectionOptions {
    * Episodes loaded from the currently selected season.
    */
   seasonEpisodes: Ref<EntryEpisode[]>
+  /** Whether episode selection may scroll the page to its title. Defaults to true. */
+  shouldScrollToTitle?: () => boolean
 }
 
 /**
@@ -129,10 +131,14 @@ export function entryEpisodeSelection(options: UseEntryEpisodeSelectionOptions) 
   }
 
   /**
-   * Scrolls back to the player title once the DOM has applied the latest episode selection.
+   * Scrolls back to the player title after selection when the current layout permits it.
    */
   function scrollToTitleSection(): void {
     void nextTick(() => {
+      if (options.shouldScrollToTitle?.() === false) {
+        return
+      }
+
       const element = document.getElementById('title-section')
       if (!element) {
         return

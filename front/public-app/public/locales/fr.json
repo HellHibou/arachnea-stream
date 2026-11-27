@@ -240,6 +240,7 @@
     "theme": "Theme",
     "colorTheme": "Theme couleur",
     "player": "Lecteur",
+    "cinemaModeByDefault": "Lecteur étendue par défaut (cet appareil)",
     "useAudioDescriptionIfAvailable": "Utiliser l'audio description si disponible",
     "subtitleLanguagesTitle": "Langues de sous-titres",
     "subtitleLanguages": {
@@ -391,6 +392,8 @@
       "subtitles": "Sous-titres",
       "fullscreen": "Plein écran",
       "exitFullscreen": "Quitter le plein écran",
+      "cinema": "Lecteur étendue",
+      "exitCinema": "Lecteur compacte",
       "mute": "Couper le son",
       "unmute": "Réactiver le son",
       "play": "Lecture",

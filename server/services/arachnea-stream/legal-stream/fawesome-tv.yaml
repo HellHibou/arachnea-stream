@@ -312,6 +312,7 @@ shared:
       actions:
         - type: map
           argument:
+            "0": null
             "1": scraper-query
           default: null
     - name: resolver > source
@@ -321,6 +322,7 @@ shared:
       actions:
         - type: map
           argument:
+            "0": null
             "1": fawesome-tv
           default: null
     - name: target
@@ -1373,30 +1375,30 @@ queries:
                       - type: regex_find_all
                         pattern: "^(\\d+)$"
                         format: "{api_base}/recipes.php?searchType=nodeid&start-index=0&gridstyle=flat-movie&max-results=1&platform_id={platform_id}&{common_query}&dltype=1&nid={1}"
-              - name: web-link
-                type: string
-                pointer: /web_url
-                select: first
-                actions:
-                  - type: map
-                    argument:
-                      "": null
-          
-                  - type: format_text
-                    argument: "{public_base}/{}"
-              - name: img/poster > link
-                type: string
-                pointer: /main_picture
-                select: first
-              - name: img/preview > link
-                type: string
-                pointer: /bg_image_landscape
-                select: first
-              - name: players
-                type: object[]
-                pointer: /
-                select: all
-                entries: *player_entries_fawesome
+                  - name: web-link
+                    type: string
+                    pointer: /web_url
+                    select: first
+                    actions:
+                      - type: map
+                        argument:
+                          "": null
+
+                      - type: format_text
+                        argument: "{public_base}/{}"
+                  - name: img/poster > link
+                    type: string
+                    pointer: /main_picture
+                    select: first
+                  - name: img/preview > link
+                    type: string
+                    pointer: /bg_image_landscape
+                    select: first
+                  - name: players
+                    type: object[]
+                    pointer: /
+                    select: all
+                    entries: *player_entries_fawesome
       - name: _token
         type: string
         pointer: /securityToken

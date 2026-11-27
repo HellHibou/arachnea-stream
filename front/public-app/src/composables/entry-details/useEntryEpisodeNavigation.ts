@@ -12,7 +12,7 @@ interface EntryEpisodeNavigationOptions {
   source: Ref<string>
   entry: Ref<string>
   webUrl: Ref<string | null>
-  data: Pick<ReturnType<typeof entryDetailsData>, 'details' | 'selectedSeasonId' | 'selectSeasonById' | 'applyFetchedSeasonPages' | 'hasMoreSeasonEpisodes' | 'handleLoadMoreSeasonEpisodes' | 'handleSeasonSelect'>
+  data: Pick<ReturnType<typeof entryDetailsData>, 'details' | 'selectedSeasonId' | 'loadSeasonEpisodeIntoVisibleState' | 'handleSeasonSelect'>
   selection: Pick<ReturnType<typeof entryEpisodeSelection>, 'selectedEpisodeId' | 'hasPreviousEpisode' | 'hasNextEpisode' | 'selectEpisodeById' | 'handleEpisodeSelect' | 'handleEpisodeStep' | 'resetSelectedEpisode'>
   player: Pick<ReturnType<typeof entryVideoPlayer>, 'mediaSource' | 'mediaPlayerErrorMessage' | 'activateMediaPlayer' | 'handleTrailerToggle' | 'activeLanguageKey' | 'activePlayerId'>
   bookmark: Pick<EntryBookmarkController, 'isBookmarked' | 'latestPlaybackTime' | 'resetPlayback' | 'resetEntry' | 'saveSeasonSelection'>
@@ -27,7 +27,7 @@ interface EntryEpisodeNavigationOptions {
  */
 export function useEntryEpisodeNavigation(options: EntryEpisodeNavigationOptions) {
   const { source, entry, webUrl, bookmark, parameters, saveCurrentBookmark } = options
-  const { details, selectedSeasonId, selectSeasonById, applyFetchedSeasonPages, hasMoreSeasonEpisodes, handleLoadMoreSeasonEpisodes,
+  const { details, selectedSeasonId, loadSeasonEpisodeIntoVisibleState,
     handleSeasonSelect: handleDataSeasonSelect } = options.data
   const { selectedEpisodeId, hasPreviousEpisode, hasNextEpisode: hasNextEpisodeInSeason, selectEpisodeById,
     handleEpisodeSelect, handleEpisodeStep, resetSelectedEpisode } = options.selection
@@ -187,42 +187,6 @@ export function useEntryEpisodeNavigation(options: EntryEpisodeNavigationOptions
   }
 
   /**
-   * Loads the requested season into the visible state until the target episode becomes selectable.
-   *
-   * @param seasonId Identifier of the season that should become active.
-   * @param episodeId Identifier of the episode that should become active once loaded.
-   * @param pages Lazy pages already fetched while searching for the episode, if any.
-   * @returns `true` when the episode could be selected from the visible season list.
-   */
-  async function loadSeasonEpisodeIntoVisibleState(
-    seasonId: string,
-    episodeId: string,
-    pages: EntryEpisodePage[],
-  ): Promise<boolean> {
-    const seasonLoaded = pages.length > 0
-      ? applyFetchedSeasonPages(seasonId, pages)
-      : await selectSeasonById(seasonId)
-
-    if (!seasonLoaded) {
-      return false
-    }
-
-    if (selectEpisodeById(episodeId)) {
-      return true
-    }
-
-    while (hasMoreSeasonEpisodes.value) {
-      await handleLoadMoreSeasonEpisodes()
-
-      if (selectEpisodeById(episodeId)) {
-        return true
-      }
-    }
-
-    return false
-  }
-
-  /**
    * Moves to the next playable episode, loading the next season when needed.
    *
    * @param autoplay Indicates whether the newly selected episode should start automatically.
@@ -274,11 +238,11 @@ export function useEntryEpisodeNavigation(options: EntryEpisodeNavigationOptions
           continue
         }
 
-        const episodeSelected = await loadSeasonEpisodeIntoVisibleState(
-          season.id,
-          searchResult.episode.id,
-          searchResult.pages,
-        )
+        const episodeSelected = await loadSeasonEpisodeIntoVisibleState({
+          seasonId: season.id,
+          pages: searchResult.pages,
+          isEpisodeReady: () => selectEpisodeById(searchResult.episode.id),
+        })
         if (navigationId !== latestEpisodeNavigationId) {
           return false
         }
