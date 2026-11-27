@@ -426,11 +426,30 @@ not stable identities. See the Section contract in the stream specifications.
 - `cd server/crates/arachnea-stream && cargo tauri build` - Build the Tauri desktop application and release bundles.
 - `cd server/crates/arachnea-stream && cargo tauri build --target <target-triple>` - Build a platform-specific Tauri bundle once the target and native platform toolchain are installed. See the root and server README files for cross-platform setup notes.
 
+## M6 Play Geographic Routing
+
+When `get_stream` receives no explicit `proxy_countries`, the M6 resolver reads
+`areas[*].zone_id` from the selected replay clip (`clips[0]`) or live object
+(`live`). Area `11` selects `AD, FR, GP, GF, MQ, YT, MC, NC, PF, RE, BL, MF,
+PM, TF, WF`, using the same area mapping as the catalogue YAML. Area `34`
+indicates worldwide availability and takes precedence when both areas occur.
+Missing or unknown areas add no geographic routing hints. Explicit caller
+countries retain precedence.
+
+Replay manifest redirect resolution and the returned proxy URL use the resulting
+countries; live manifest proxy URLs carry them as well. This works even when
+the catalogue player omitted country hints or `get_stream` was called directly.
+Authentication and the initial metadata lookup retain the caller's routing
+hints; DRM license handling is unchanged. Country hints allow a direct route
+when the local country is already allowed, according to the existing proxy policy.
+
 ## M6 Play API Key Preparation
 
-Replay and live session setup share a five-second total budget for the optional
-login-page and JavaScript-bundle lookup of the public Gigya API key. If lookup
-fails or exceeds that budget, setup uses the existing bundled fallback key.
+Replay and live session setup share a 20-second total budget for the optional
+login-page and JavaScript-bundle lookup of the public Gigya API key. The longer
+budget lets cold localized-proxy discovery find a French route for those two
+`www.6play.fr` requests before setup falls back. If lookup fails or exceeds that
+budget, setup uses the existing bundled fallback key.
 This deadline ends the awaited lookup; it does not add a detached refresh task.
 
 The process keeps one API-key cache entry, shared across logins under the existing
@@ -563,7 +582,7 @@ the following shape:
 
 - `start` is the inclusive chapter start time in seconds.
 - `end` is the exclusive chapter end time in seconds and must be greater than
-  `start`.
+  `start`, except for the M6 zero-valued outro marker described below.
 - `type` identifies the chapter behavior. It is serialized from the Rust
   `type` field.
 - `title` is optional. When omitted, the public frontend resolves a localized
@@ -575,6 +594,15 @@ finite media duration, generated chapter ends should not exceed it. Resolvers
 should return chapters ordered by `start`; overlapping ranges are permitted
 only when they represent distinct source concepts that cannot be normalized
 without losing information.
+
+M6 replay also derives an `outro` from `clips[0].tc_ending_credits` (start)
+and `clips[0].duration` (end), in seconds, even if the clip has no `chapters`
+array. When `tc_ending_credits` is zero, both `start` and `end` are returned as
+zero, regardless of the duration; this source-specific marker is an exception
+to the nonempty-range rule. Missing or invalid credits metadata adds no outro.
+When `tc_ending_credits` is positive and finite, regular chapters end no later
+than that timestamp. Chapters starting at or after the credits, or otherwise
+left with an empty interval, are omitted. A zero timestamp does not trim them.
 
 ### Frontend chapter types
 

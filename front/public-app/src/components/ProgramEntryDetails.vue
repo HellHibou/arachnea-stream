@@ -209,17 +209,19 @@ const {
 
 /** Restore the selected episode after the entry and media transition reset watchers. */
 const bookmarkSelection = bookmark.bindSelection({ data, selection, presentation, hasNextEpisode })
-const { handleBookmarkToggle, handlePlaybackProgressUpdate } = bookmarkSelection
+const { isRestoringEpisodeBookmark, handleBookmarkToggle, handlePlaybackProgressUpdate } = bookmarkSelection
 
 /** Fill an empty expanded player after loading and bookmark restoration have settled. */
 watch(
   [isCinemaMode, displayedEpisodes, selectedEpisode, showMediaPlayer, showTrailerPlayer,
-    mediaSource, trailerMediaSource, isMediaPlayerLoading, isLoading, isSeasonLoading],
+    mediaSource, trailerMediaSource, isMediaPlayerLoading, isLoading, isSeasonLoading,
+    isRestoringEpisodeBookmark],
   () => {
     if (
       !isCinemaMode.value ||
       isLoading.value ||
       isSeasonLoading.value ||
+      isRestoringEpisodeBookmark.value ||
       selectedEpisode.value ||
       isMediaPlayerLoading.value ||
       (showMediaPlayer.value && mediaSource.value) ||

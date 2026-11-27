@@ -463,8 +463,14 @@ players do not expose a separate layout button.
 The toggle uses horizontal expand/collapse arrows without a selected-state color.
 When Expanded player mode has no active episode or trailer surface, it selects
 and loads the first playable episode from the available list after entry/season
-loading and bookmark restoration. Existing selections and active trailers remain
+loading and bookmark restoration. Restoration searches successive pages of the
+bookmarked season until the saved episode is found or pagination ends. The
+first-episode fallback waits for that search to finish, including between page
+requests. Existing selections and active trailers remain
 preferred; this automatic selection does not scroll the page or force autoplay.
+Automatic pagination and bookmark lookup share any in-flight season page request;
+lookup waits for its result before deciding whether the saved episode is present
+or whether another page must be loaded.
 In Expanded player mode, the player starts a new row across the available page width,
 with a right-hand column containing the season dropdown and the scrollable
 episode list. The episode heading is hidden in this mode; a larger season label

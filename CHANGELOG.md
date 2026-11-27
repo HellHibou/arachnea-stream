@@ -536,11 +536,15 @@ All notable changes to the server workspace are recorded here.
 
 - Coflix (`dark-stream/coflix.yaml`): home categories and `get_category` scraped the retired JSON `wp-json/apiflix/v1/options` endpoints and returned no cards. They now scrape the HTML catalogue pages (`/movies/`, `/series/`, `/animes/`), parse the entry cards from the page markup, derive `media-type` from the category URL, and paginate through `derive_pagination`, restoring category browsing.
 - Migrated all affected video YAML and Rust resolvers to the single `stream.sources[]` contract without source IDs or legacy video payload adapters. Each variant owns its format, optional quality/language and DRM/HTTP context; storyboard, chapters and subtitles are shared. AnimeUltime and LN24 group fixed qualities in one player, and Odysee groups HLS/MP4. Existing resolver fixtures and source-check contracts follow the new shape.
+- M6 Play now allows 20 seconds instead of 5 for the optional login-page and JavaScript-bundle API-key lookup before using the bundled fallback key. The longer budget gives cold localized French-proxy discovery time to complete for the two `www.6play.fr` requests instead of forcing an early fallback; discovered keys still live 15 minutes, fallback keys one minute, and all other proxy search deadlines and replay rules are unchanged.
 
 
 #### Fixed
 
 - Restored macOS compilation for native session storage in Keychain.
+- M6 Play replay and live manifest proxy URLs now derive geographic routing hints from media area metadata when the caller supplies no countries. Replay manifest redirect resolution uses these hints too, restoring area-11 routing for direct `get_stream` calls and catalogue players without country hints while preserving explicit caller choices.
+- M6 Play replay chapters now include an outro from the clip's `tc_ending_credits` to `duration`, including when no chapter array is present. A zero `tc_ending_credits` returns an outro with both start and end set to zero.
+- M6 Play replay chapters are now trimmed at a positive `tc_ending_credits` timestamp to avoid overlapping the outro; chapters with no remaining interval are omitted. Zero-valued credits markers leave regular chapters unchanged.
 - Fawesome season listings now attach poster and preview images, public links and players to each episode instead of the season response.
 - Fawesome non-DRM players now explicitly omit resolver metadata in the shared YAML mapping, including inline episode players, preventing unsupported-resolver errors for `0` and retaining direct HLS playback.
 - The Twitch playback proxy removes `twitch-ad-quartile` date-range tags from HLS playlists.
@@ -1113,6 +1117,8 @@ All notable changes to the server workspace are recorded here.
 #### Fixed
 
 - Category headers now use the channel returned by `get_category`, including on direct links. Category banners use the same channel logo for inline and deferred playback.
+- Expanded entry players now wait for the bookmarked season's paginated episode search to finish before selecting the first playable episode as a fallback, preserving saved selections located on later pages.
+- Bookmark episode lookup now awaits an in-flight automatic season-page load instead of stopping on the temporarily unchanged episode list, preventing expanded-player fallback while the saved episode's page is still loading.
 - The trailer background setting now uses only banner trailers. Full videos, including Twitch live broadcasts and recordings, play only in the banner, even when loaded from an older cached Twitch response.
 - Category backgrounds use video thumbnails only when no banner image is available.
 - Entry episode panels now have a viewport-aware maximum height and a vertical scrollbar with keyboard support, keeping long episode lists from expanding the details/player page. Season selection stays outside the scrollable panel and pagination remains available inside it.

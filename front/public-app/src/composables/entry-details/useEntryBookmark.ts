@@ -110,7 +110,7 @@ export function useEntryBookmark(options: EntryBookmarkOptions) {
   /**
    * Binds loaded selection state once, after navigation resets have been registered.
    * @param context Loaded data, selection, presentation and next-episode availability.
-   * @returns Bookmark save/toggle and progress handlers bound to those reactive refs.
+   * @returns Restoration state and bookmark save/toggle and progress handlers bound to those reactive refs.
    */
   function bindSelection(context: BookmarkSelectionOptions) {
     const { details, selectedSeasonId, isSeasonLoading, loadSeasonEpisodeIntoVisibleState } = context.data
@@ -119,6 +119,8 @@ export function useEntryBookmark(options: EntryBookmarkOptions) {
     const { hasNextEpisode } = context
     /** Pending paginated search for the bookmarked episode, if any. */
     let pendingEpisodeSeek: Promise<boolean> | null = null
+    /** Prevents fallback episode selection while bookmark pages are still being searched. */
+    const isRestoringEpisodeBookmark = shallowRef(false)
 
     /** Restores episode selection from bookmark, loading its season pages when needed. */
     watch(
@@ -149,11 +151,13 @@ export function useEntryBookmark(options: EntryBookmarkOptions) {
             return
           }
 
+          isRestoringEpisodeBookmark.value = true
           pendingEpisodeSeek = loadSeasonEpisodeIntoVisibleState({
             seasonId: activeSeasonId,
             isEpisodeReady: () => selectEpisodeById(nextEpisodeId),
           }).finally(() => {
             pendingEpisodeSeek = null
+            isRestoringEpisodeBookmark.value = false
           })
 
           await pendingEpisodeSeek
@@ -265,7 +269,7 @@ export function useEntryBookmark(options: EntryBookmarkOptions) {
       if (generation === profileGeneration() && isBookmarked.value) saveCurrentBookmark()
       void storage.flushEntryBookmarks()
     })
-    return { saveCurrentBookmark, handleBookmarkToggle, handlePlaybackProgressUpdate }
+    return { isRestoringEpisodeBookmark, saveCurrentBookmark, handleBookmarkToggle, handlePlaybackProgressUpdate }
   }
 
   return {

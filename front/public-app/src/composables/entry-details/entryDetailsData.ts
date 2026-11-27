@@ -71,6 +71,8 @@ export function entryDetailsData(options: UseEntryDetailsDataOptions) {
   let latestRequestId = 0
   /** Request identifier counter for season requests to ignore stale responses. */
   let latestSeasonRequestId = 0
+  /** Current append request shared by automatic pagination and bookmark lookup. */
+  let pendingSeasonLoadMore: { requestId: number; promise: Promise<void> } | null = null
 
   /**
    * Resolves the currently selected season from the fetched entry details.
@@ -247,16 +249,29 @@ export function entryDetailsData(options: UseEntryDetailsDataOptions) {
 
   /**
    * Loads the next available page for the currently selected season.
-   * Does nothing if there are no more episodes, no season link, or loading is already in progress.
+   * Awaits an existing append request instead of treating its unfinished page as empty.
+   * Does nothing if there are no more episodes or no season link.
    */
   async function handleLoadMoreSeasonEpisodes(): Promise<void> {
+    if (isSeasonLoadingMore.value && pendingSeasonLoadMore?.requestId === latestSeasonRequestId) {
+      await pendingSeasonLoadMore.promise
+      return
+    }
+
     const season = selectedSeason.value
 
     if (!season?.link || !hasMoreSeasonEpisodes.value || isSeasonLoadingMore.value) {
       return
     }
 
-    await loadSeasonPage(season, currentSeasonPage.value + 1, true)
+    const promise = loadSeasonPage(season, currentSeasonPage.value + 1, true)
+    const pending = { requestId: latestSeasonRequestId, promise }
+    pendingSeasonLoadMore = pending
+    try {
+      await promise
+    } finally {
+      if (pendingSeasonLoadMore === pending) pendingSeasonLoadMore = null
+    }
   }
 
   /**

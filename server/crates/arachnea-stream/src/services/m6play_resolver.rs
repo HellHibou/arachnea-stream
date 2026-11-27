@@ -3,7 +3,7 @@ mod media;
 
 use authentication::{fetch_upfront_token, get_or_login_session};
 use media::{
-    extract_chapters_from_video_payload, extract_manifest_url,
+    extract_chapters_from_video_payload, extract_manifest_url, extract_proxy_countries,
     extract_storyboard_from_video_payload, fetch_video_payload_json, select_best_asset_url,
 };
 
@@ -28,6 +28,17 @@ use crate::services::player_resolver::{
 
 /// M6/6play login endpoint.
 const SIXPLAY_LOGIN_URL: &str = "https://login-gigya.m6.fr/accounts.login";
+
+/// M6 area identifier for France and its associated territories.
+const SIXPLAY_FRANCE_AREA_ID: &str = "11";
+
+/// M6 area identifier for unrestricted geographic availability.
+const SIXPLAY_WORLDWIDE_AREA_ID: &str = "34";
+
+/// Allowed countries for M6 area 11, matching the catalogue YAML mapping.
+const SIXPLAY_FRANCE_AREA_COUNTRIES: [&str; 15] = [
+    "AD", "FR", "GP", "GF", "MQ", "YT", "MC", "NC", "PF", "RE", "BL", "MF", "PM", "TF", "WF",
+];
 
 /// M6/6play browser login page endpoint.
 const SIXPLAY_LOGIN_PAGE_URL: &str = "https://www.6play.fr/connexion";
@@ -74,8 +85,8 @@ const SIXPLAY_DEVICE_ID: &str = "_luid_arachnea";
 /// Lifetime of cached M6/6play login sessions.
 const SIXPLAY_SESSION_TTL: std::time::Duration = std::time::Duration::from_secs(15 * 60);
 
-/// Total optional API-key lookup budget, shared by the page and bundle requests.
-const SIXPLAY_API_KEY_LOOKUP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+/// Total optional API-key lookup budget (20 seconds), shared by the page and bundle requests.
+const SIXPLAY_API_KEY_LOOKUP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
 
 /// Lifetime of a key extracted from the public web bundle.
 const SIXPLAY_API_KEY_TTL: std::time::Duration = std::time::Duration::from_secs(15 * 60);
@@ -202,6 +213,8 @@ async fn resolve_replay_stream(
     let upfront_token = fetch_upfront_token(&http_client, &session, normalized_video_id).await?;
 
     let video_payload = fetch_video_payload_json(&http_client, normalized_video_id).await?;
+    let proxy_countries = extract_proxy_countries(&video_payload["clips"][0], proxy_countries);
+    let http_client = scraper_agregator.create_http_client(m6play_http_config(&proxy_countries));
     let manifest_url = extract_manifest_url(&video_payload)?;
 
     let manifest_url = http_client
@@ -229,7 +242,7 @@ async fn resolve_replay_stream(
                 url: proxied_url_with_countries(
                     &manifest_url,
                     endpoints.http_proxy_public_path.as_deref(),
-                    proxy_countries,
+                    &proxy_countries,
                     &stream_actions,
                     &[],
                 ),
@@ -339,6 +352,7 @@ async fn resolve_live_stream(
         .context("Missing live channel data in response.")?;
 
     let first = channel_array.first().context("Live channel array empty")?;
+    let proxy_countries = extract_proxy_countries(&first["live"], proxy_countries);
 
     let assets = first
         .get("live")
@@ -367,7 +381,7 @@ async fn resolve_live_stream(
                 url: proxied_url_with_countries(
                     &manifest_url,
                     endpoints.http_proxy_public_path.as_deref(),
-                    proxy_countries,
+                    &proxy_countries,
                     &stream_actions,
                     &[],
                 ),
